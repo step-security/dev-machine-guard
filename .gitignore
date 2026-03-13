@@ -19,3 +19,8 @@
 
 # Temporary files
 todo-remove/
+
+
+# Added by cargo
+
+/target

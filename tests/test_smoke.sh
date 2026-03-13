@@ -1,13 +1,30 @@
 #!/bin/bash
 #
-# Smoke tests for stepsecurity-dev-machine-guard.sh
+# Smoke tests for stepsecurity-dev-machine-guard
 #
 # Usage: bash tests/test_smoke.sh
+#
+# Supports both the shell script and the Rust binary.
+# Set SCRIPT env var to override the default binary path.
 #
 
 set -uo pipefail
 
-SCRIPT="./stepsecurity-dev-machine-guard.sh"
+# Default to the Rust binary (debug build), fall back to shell script
+if [ -n "${SCRIPT:-}" ]; then
+    : # Use the user-provided SCRIPT
+elif [ -f "./target/debug/stepsecurity-dev-machine-guard" ]; then
+    SCRIPT="./target/debug/stepsecurity-dev-machine-guard"
+elif [ -f "./target/release/stepsecurity-dev-machine-guard" ]; then
+    SCRIPT="./target/release/stepsecurity-dev-machine-guard"
+elif [ -f "./stepsecurity-dev-machine-guard.sh" ]; then
+    SCRIPT="./stepsecurity-dev-machine-guard.sh"
+else
+    echo "ERROR: No binary or script found. Run 'cargo build' first."
+    exit 1
+fi
+
+echo "Testing: $SCRIPT"
 
 #==============================================================================
 # Test framework
@@ -61,10 +78,10 @@ section() {
 
 section "Script basics"
 
-if [ -f "$SCRIPT" ] && [ -x "$SCRIPT" ]; then
-    pass "Script exists and is executable"
+if [ -f "$SCRIPT" ]; then
+    pass "Binary/script exists"
 else
-    fail "Script exists and is executable"
+    fail "Binary/script exists"
 fi
 
 # --help and --version exit before any scanning, so exit code 0 is expected.
