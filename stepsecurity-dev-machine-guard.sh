@@ -27,6 +27,7 @@
 # Options:
 #   --enable-npm-scan    Enable Node.js package scanning
 #   --disable-npm-scan   Disable Node.js package scanning
+#   --search-dir DIR     Add DIR to search paths (repeatable, appends to SEARCH_DIRS)
 #   --verbose            Show progress messages
 #   --color=WHEN         auto | always | never (default: auto)
 #   -v, --version        Show version
@@ -49,6 +50,13 @@ HTML_OUTPUT_FILE=""
 COLOR_MODE="auto"       # auto | always | never
 QUIET=true              # Suppress progress messages by default in community mode
 ENABLE_NODE_PACKAGE_SCAN="auto"  # auto | true | false
+
+# Directories to search for projects and extensions (space-separated)
+# Default: user's home directory. Customize as needed, e.g.:
+#   SEARCH_DIRS="$HOME /Volumes/code"                          # home + encrypted partition
+#   SEARCH_DIRS="/Volumes/code"                                # only encrypted partition
+#   SEARCH_DIRS="$HOME /Volumes/code /opt/work $HOME/project"  # multiple locations
+SEARCH_DIRS="\$HOME"
 
 #==============================================================================
 # STEPSECURITY ENTERPRISE CONFIGURATION
@@ -522,6 +530,29 @@ get_user_directory() {
     # Return only the logged-in user's home directory
     echo "$user_home"
     return 0
+}
+
+resolve_search_directories() {
+    local user_home="$1"
+    local resolved_dirs=()
+
+    for dir in $SEARCH_DIRS; do
+        # Resolve $HOME to the actual user home directory
+        local resolved="${dir/\$HOME/$user_home}"
+        if [ -d "$resolved" ]; then
+            resolved_dirs+=("$resolved")
+        else
+            print_progress "Warning: Search directory not found, skipping: $resolved"
+        fi
+    done
+
+    if [ ${#resolved_dirs[@]} -eq 0 ]; then
+        print_progress "Warning: No valid search directories found, falling back to: $user_home"
+        echo "$user_home"
+        return
+    fi
+
+    printf '%s\n' "${resolved_dirs[@]}"
 }
 
 #==============================================================================
@@ -3086,12 +3117,30 @@ run_scan() {
     fi
     step_done "Scanning MCP server configs"
 
-    # Collect extensions
+    # Resolve search directories
+    local search_dirs
+    search_dirs=$(resolve_search_directories "$user_home")
+
+    # Collect extensions across all search directories
     step_start "Scanning IDE extensions"
-    local user_dir="$user_home"
-    local all_ext_result=$(collect_all_extensions "$user_dir")
-    local ide_extensions=$(echo "$all_ext_result" | head -1)
-    local ext_count=$(echo "$all_ext_result" | tail -1)
+    local ide_extensions="[]"
+    local ext_count=0
+    while IFS= read -r search_dir; do
+        local dir_ext_result=$(collect_all_extensions "$search_dir")
+        local dir_extensions=$(echo "$dir_ext_result" | head -1)
+        local dir_ext_count=$(echo "$dir_ext_result" | tail -1)
+        # Merge JSON arrays
+        if [ "$dir_extensions" != "[]" ] && [ -n "$dir_extensions" ]; then
+            if [ "$ide_extensions" = "[]" ]; then
+                ide_extensions="$dir_extensions"
+            else
+                local existing_content=$(echo "$ide_extensions" | sed 's/^\[//;s/\]$//')
+                local new_content=$(echo "$dir_extensions" | sed 's/^\[//;s/\]$//')
+                ide_extensions="[${existing_content},${new_content}]"
+            fi
+        fi
+        ext_count=$((ext_count + dir_ext_count))
+    done <<< "$search_dirs"
     step_done "Scanning IDE extensions"
 
     # Resolve ENABLE_NODE_PACKAGE_SCAN: in community mode, "auto" means "false"
@@ -3119,10 +3168,36 @@ run_scan() {
         step_done "Scanning global packages"
 
         step_start "Scanning Node.js projects"
-        local node_scan_result=$(scan_node_projects "$user_dir" "$logged_in_user")
-        node_projects_file=$(echo "$node_scan_result" | sed -n '1p')
-        node_projects_count=$(echo "$node_scan_result" | sed -n '2p')
-        node_scan_duration=$(echo "$node_scan_result" | sed -n '3p')
+        # Scan across all search directories, merge results
+        local combined_projects_file=$(mktemp)
+        echo "[]" > "$combined_projects_file"
+        local total_node_projects_count=0
+        local total_node_scan_duration=0
+        while IFS= read -r search_dir; do
+            local node_scan_result=$(scan_node_projects "$search_dir" "$logged_in_user")
+            local dir_projects_file=$(echo "$node_scan_result" | sed -n '1p')
+            local dir_projects_count=$(echo "$node_scan_result" | sed -n '2p')
+            local dir_scan_duration=$(echo "$node_scan_result" | sed -n '3p')
+            total_node_projects_count=$((total_node_projects_count + dir_projects_count))
+            total_node_scan_duration=$((total_node_scan_duration + dir_scan_duration))
+            # Merge project files
+            if [ -n "$dir_projects_file" ] && [ -f "$dir_projects_file" ]; then
+                local existing=$(cat "$combined_projects_file")
+                if [ "$existing" = "[]" ]; then
+                    cat "$dir_projects_file" > "$combined_projects_file"
+                else
+                    local existing_content=$(echo "$existing" | sed 's/^\[//;s/\]$//')
+                    local new_content=$(cat "$dir_projects_file" | sed 's/^\[//;s/\]$//')
+                    if [ -n "$new_content" ]; then
+                        echo "[${existing_content},${new_content}]" > "$combined_projects_file"
+                    fi
+                fi
+                rm -f "$dir_projects_file"
+            fi
+        done <<< "$search_dirs"
+        node_projects_file="$combined_projects_file"
+        node_projects_count=$total_node_projects_count
+        node_scan_duration=$total_node_scan_duration
         step_done "Scanning Node.js projects"
     else
         step_skip "Node.js packages (use --enable-npm-scan)"
@@ -3297,14 +3372,29 @@ EOF
     local ide_installations=$(detect_ide_installations "$logged_in_user")
     echo ""
 
-    # Get user directory to scan
-    local user_dir=$(get_user_directory)
+    # Resolve search directories
+    local search_dirs
+    search_dirs=$(resolve_search_directories "$user_home")
     echo ""
 
-    # Collect all IDE extensions
-    local all_ide_collection_result=$(collect_all_extensions "$user_dir")
-    local ide_extensions=$(echo "$all_ide_collection_result" | head -1)
-    local ide_extensions_count=$(echo "$all_ide_collection_result" | tail -1)
+    # Collect all IDE extensions across search directories
+    local ide_extensions="[]"
+    local ide_extensions_count=0
+    while IFS= read -r search_dir; do
+        local dir_ext_result=$(collect_all_extensions "$search_dir")
+        local dir_extensions=$(echo "$dir_ext_result" | head -1)
+        local dir_ext_count=$(echo "$dir_ext_result" | tail -1)
+        if [ "$dir_extensions" != "[]" ] && [ -n "$dir_extensions" ]; then
+            if [ "$ide_extensions" = "[]" ]; then
+                ide_extensions="$dir_extensions"
+            else
+                local existing_content=$(echo "$ide_extensions" | sed 's/^\[//;s/\]$//')
+                local new_content=$(echo "$dir_extensions" | sed 's/^\[//;s/\]$//')
+                ide_extensions="[${existing_content},${new_content}]"
+            fi
+        fi
+        ide_extensions_count=$((ide_extensions_count + dir_ext_count))
+    done <<< "$search_dirs"
     echo ""
 
     # AI Agent Detection (v1.6.0+)
@@ -3375,11 +3465,35 @@ EOF
         node_global_packages_count=$(echo "$global_scan_result" | sed -n '2p')
         echo ""
 
-        # Scan for Node.js projects (returns file path)
-        local node_scan_result=$(scan_node_projects "$user_dir" "$logged_in_user")
-        node_projects_file=$(echo "$node_scan_result" | sed -n '1p')
-        node_projects_count=$(echo "$node_scan_result" | sed -n '2p')
-        node_scan_duration=$(echo "$node_scan_result" | sed -n '3p')
+        # Scan for Node.js projects across all search directories
+        local combined_projects_file=$(mktemp)
+        echo "[]" > "$combined_projects_file"
+        local total_node_projects_count=0
+        local total_node_scan_duration=0
+        while IFS= read -r search_dir; do
+            local node_scan_result=$(scan_node_projects "$search_dir" "$logged_in_user")
+            local dir_projects_file=$(echo "$node_scan_result" | sed -n '1p')
+            local dir_projects_count=$(echo "$node_scan_result" | sed -n '2p')
+            local dir_scan_duration=$(echo "$node_scan_result" | sed -n '3p')
+            total_node_projects_count=$((total_node_projects_count + dir_projects_count))
+            total_node_scan_duration=$((total_node_scan_duration + dir_scan_duration))
+            if [ -n "$dir_projects_file" ] && [ -f "$dir_projects_file" ]; then
+                local existing=$(cat "$combined_projects_file")
+                if [ "$existing" = "[]" ]; then
+                    cat "$dir_projects_file" > "$combined_projects_file"
+                else
+                    local existing_content=$(echo "$existing" | sed 's/^\[//;s/\]$//')
+                    local new_content=$(cat "$dir_projects_file" | sed 's/^\[//;s/\]$//')
+                    if [ -n "$new_content" ]; then
+                        echo "[${existing_content},${new_content}]" > "$combined_projects_file"
+                    fi
+                fi
+                rm -f "$dir_projects_file"
+            fi
+        done <<< "$search_dirs"
+        node_projects_file="$combined_projects_file"
+        node_projects_count=$total_node_projects_count
+        node_scan_duration=$total_node_scan_duration
         echo ""
 
     else
@@ -3493,6 +3607,7 @@ Output formats (community mode, mutually exclusive):
   --html FILE          HTML report saved to FILE
 
 Options:
+  --search-dir DIR     Add DIR to search paths (repeatable, appends to SEARCH_DIRS)
   --enable-npm-scan    Enable Node.js package scanning
   --disable-npm-scan   Disable Node.js package scanning
   --verbose            Show progress messages (suppressed by default)
@@ -3506,6 +3621,7 @@ Examples:
   $(basename "$0") --json > scan.json               # JSON to file
   $(basename "$0") --html report.html               # HTML report
   $(basename "$0") --verbose --enable-npm-scan      # Verbose with npm scan
+  $(basename "$0") --search-dir /Volumes/code       # Also search /Volumes/code
   $(basename "$0") send-telemetry                   # Enterprise telemetry
 
 https://github.com/step-security/dev-machine-guard
@@ -3560,6 +3676,14 @@ while [ $# -gt 0 ]; do
                 exit 1
             fi
             shift
+            ;;
+        --search-dir)
+            if [ -z "${2:-}" ]; then
+                print_error "--search-dir requires a directory path argument"
+                exit 1
+            fi
+            SEARCH_DIRS="${SEARCH_DIRS} $2"
+            shift 2
             ;;
         --verbose)
             QUIET=false
