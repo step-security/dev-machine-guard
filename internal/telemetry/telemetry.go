@@ -65,7 +65,7 @@ type PerformanceMetrics struct {
 // Output format matches the shell script's sample_log:
 //
 //	==========================================
-//	StepSecurity Device Agent v1.8.2
+//	StepSecurity Device Agent v1.9.0
 //	==========================================
 //	[scanning] Lock acquired (PID: 32560)
 //	[scanning] Device ID (Serial): ...
