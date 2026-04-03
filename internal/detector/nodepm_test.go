@@ -52,52 +52,22 @@ func TestNodePMDetector_NoneFound(t *testing.T) {
 }
 
 func TestDetectProjectPM(t *testing.T) {
-	mock := executor.NewMock()
-
 	tests := []struct {
 		name     string
-		setup    func()
+		file     string
 		expected string
 	}{
-		{
-			name: "bun lock",
-			setup: func() {
-				mock.SetFile("/project/bun.lock", []byte{})
-			},
-			expected: "bun",
-		},
-		{
-			name: "pnpm lock",
-			setup: func() {
-				mock.SetFile("/project/pnpm-lock.yaml", []byte{})
-			},
-			expected: "pnpm",
-		},
-		{
-			name: "yarn lock",
-			setup: func() {
-				mock.SetFile("/project/yarn.lock", []byte{})
-			},
-			expected: "yarn",
-		},
+		{"bun lock", "/project/bun.lock", "bun"},
+		{"pnpm lock", "/project/pnpm-lock.yaml", "pnpm"},
+		{"yarn lock", "/project/yarn.lock", "yarn"},
+		{"npm lock", "/project/package-lock.json", "npm"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := executor.NewMock()
-			tt.setup = func() {} // reset
-			// Need fresh mock for isolation
-			freshMock := executor.NewMock()
-			switch tt.expected {
-			case "bun":
-				freshMock.SetFile("/project/bun.lock", []byte{})
-			case "pnpm":
-				freshMock.SetFile("/project/pnpm-lock.yaml", []byte{})
-			case "yarn":
-				freshMock.SetFile("/project/yarn.lock", []byte{})
-			}
-			_ = m
-			got := DetectProjectPM(freshMock, "/project")
+			mock := executor.NewMock()
+			mock.SetFile(tt.file, []byte{})
+			got := DetectProjectPM(mock, "/project")
 			if got != tt.expected {
 				t.Errorf("expected %s, got %s", tt.expected, got)
 			}

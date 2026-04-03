@@ -3,6 +3,7 @@ package detector
 import (
 	"context"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -134,13 +135,13 @@ func isCoworkVersion(version string) bool {
 	if len(m) < 3 {
 		return false
 	}
-	major := m[1]
-	minor := m[2]
-	if major >= "1" {
+	major, err1 := strconv.Atoi(m[1])
+	minor, err2 := strconv.Atoi(m[2])
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	if major >= 1 {
 		return true
 	}
-	if major == "0" && minor >= "7" {
-		return true
-	}
-	return false
+	return major == 0 && minor >= 7
 }

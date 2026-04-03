@@ -109,7 +109,7 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 			switch ideType {
 			case "vscode":
 				displayType = "VSCode"
-			case "cursor":
+			case "openvsx":
 				displayType = "Cursor"
 			}
 			fmt.Fprintf(w, "    %s%s%s%s%*s%s%d found%s\n",

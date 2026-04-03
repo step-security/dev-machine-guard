@@ -9,21 +9,15 @@ Thank you for your interest in contributing! Dev Machine Guard is an open-source
 To add detection for a new AI tool, IDE, or framework:
 
 1. Open an issue using the [Feature Request](.github/ISSUE_TEMPLATE/feature_request.yml) template, or
-2. Submit a PR modifying `stepsecurity-dev-machine-guard.sh`
+2. Submit a PR modifying the appropriate detector in `internal/detector/`
 
 **How to add a new IDE/desktop app:**
 
-Find the `detect_ide_installations()` function and add an entry to the `apps` array:
-```bash
-"App Name|type_id|Vendor|/Applications/App.app|Contents/MacOS/binary|--version"
-```
+Find the IDE detector in `internal/detector/ide.go` and add an entry to the apps list. See [Adding Detections](docs/adding-detections.md) for the full guide.
 
 **How to add a new AI CLI tool:**
 
-Find the `detect_ai_cli_tools()` function and add an entry to the `tools` array:
-```bash
-"tool-name|Vendor|binary1,binary2|~/.config-dir1,~/.config-dir2"
-```
+Find the AI CLI detector in `internal/detector/ai_cli.go` and add an entry to the tools list. See [Adding Detections](docs/adding-detections.md) for the full guide.
 
 ### Improve Documentation
 
@@ -37,37 +31,37 @@ Documentation lives in the `docs/` folder. Improvements, corrections, and new gu
    cd dev-machine-guard
    ```
 
-2. Make the script executable:
+2. Build the binary:
    ```bash
-   chmod +x stepsecurity-dev-machine-guard.sh
+   make build
    ```
 
 3. Run locally:
    ```bash
    # Pretty output with progress messages
-   ./stepsecurity-dev-machine-guard.sh --verbose
+   ./stepsecurity-dev-machine-guard --verbose
 
    # JSON output
-   ./stepsecurity-dev-machine-guard.sh --json
+   ./stepsecurity-dev-machine-guard --json
 
    # HTML report
-   ./stepsecurity-dev-machine-guard.sh --html report.html
+   ./stepsecurity-dev-machine-guard --html report.html
    ```
 
 ## Code Style
 
-- The script must pass [ShellCheck](https://www.shellcheck.net/) (our CI runs it on every PR)
-- Follow the existing code patterns (section headers, function naming, JSON construction)
-- Use `print_progress` for status messages (they respect the `--verbose` flag)
-- Use `print_error` for error messages (always shown)
+- Go source code in `internal/` must pass `golangci-lint` (our CI runs it on every PR)
+- Follow the existing code patterns (package structure, naming conventions, JSON struct tags)
+- Use the `progress` package for status messages (they respect the `--verbose` flag)
+- Use standard Go error handling patterns
 
 ## Pull Request Process
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b add-new-tool-detection`)
-3. Make your changes
-4. Test locally: `./stepsecurity-dev-machine-guard.sh --verbose`
-5. Ensure ShellCheck passes: `shellcheck stepsecurity-dev-machine-guard.sh`
+3. Edit Go source in `internal/` (not the legacy shell script)
+4. Test locally: `./stepsecurity-dev-machine-guard --verbose`
+5. Ensure lint and tests pass: `make lint && make test && make smoke`
 6. Submit a PR using our [PR template](.github/pull_request_template.md)
 
 ## Reporting Issues

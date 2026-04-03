@@ -10,9 +10,9 @@ body:
   - type: input
     id: version
     attributes:
-      label: Script Version
-      description: "Run: ./stepsecurity-dev-machine-guard.sh --version"
-      placeholder: "1.8.1"
+      label: Version
+      description: "Run: ./stepsecurity-dev-machine-guard --version"
+      placeholder: "1.9.0"
     validations:
       required: true
   - type: input
@@ -28,7 +28,7 @@ body:
     attributes:
       label: Command Run
       description: The exact command you ran
-      placeholder: "./stepsecurity-dev-machine-guard.sh --json"
+      placeholder: "./stepsecurity-dev-machine-guard --json"
     validations:
       required: true
   - type: textarea

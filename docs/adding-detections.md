@@ -10,13 +10,13 @@ This guide walks you through adding new detections to Dev Machine Guard. Whether
 
 Dev Machine Guard uses array-driven detection. Each detection category has a function that iterates over a defined array of entries. To add a new detection, you add an entry to the appropriate array and (optionally) handle any special cases.
 
-The main script file is `stepsecurity-dev-machine-guard.sh` (community mode). The enterprise script (`stepsecurity-agent-*.sh`) uses the same detection functions.
+The detection code lives in the `internal/detector/` directory, with each detector category in its own `.go` file.
 
 ---
 
 ## 1. Adding a New IDE or Desktop App
 
-### Function: `detect_ide_installations()`
+### File: `internal/detector/ide.go`
 
 ### Format String
 
@@ -35,39 +35,26 @@ The main script file is `stepsecurity-dev-machine-guard.sh` (community mode). Th
 
 ### Example: Adding a hypothetical "CodeForge" IDE
 
-Find the `apps` array inside `detect_ide_installations()` and add:
+Find the `apps` array inside the IDE detector and add:
 
-```bash
-local apps=(
-    # ... existing entries ...
-    "CodeForge|codeforge|CodeForge Inc|/Applications/CodeForge.app|Contents/MacOS/CodeForge|--version"
-)
+```go
+{
+    Name:           "CodeForge",
+    TypeID:         "codeforge",
+    Vendor:         "CodeForge Inc",
+    AppPath:        "/Applications/CodeForge.app",
+    BinaryPath:     "Contents/MacOS/CodeForge",
+    VersionCommand: "--version",
+}
 ```
 
-If the app stores its version in `Info.plist` instead of a CLI binary, leave the binary path and version command empty:
-
-```bash
-"CodeForge|codeforge|CodeForge Inc|/Applications/CodeForge.app|||"
-```
-
-The scanner will automatically fall back to reading `CFBundleShortVersionString` from `Info.plist`.
-
-### Also update the pretty formatter
-
-If you want your IDE to display a friendly name in pretty output, add a case to the `format_pretty_output()` function:
-
-```bash
-case "$ide_type" in
-    # ... existing cases ...
-    codeforge) display_name="CodeForge" ;;
-esac
-```
+If the app stores its version in `Info.plist` instead of a CLI binary, leave the binary path and version command empty. The scanner will automatically fall back to reading `CFBundleShortVersionString` from `Info.plist`.
 
 ---
 
 ## 2. Adding a New AI CLI Tool
 
-### Function: `detect_ai_cli_tools()`
+### File: `internal/detector/ai_cli.go`
 
 ### Format String
 
@@ -84,11 +71,13 @@ esac
 
 ### Example: Adding a hypothetical "DevPilot" CLI
 
-```bash
-local tools=(
-    # ... existing entries ...
-    "devpilot|DevPilot Inc|devpilot,dp|~/.devpilot,~/.config/devpilot"
-)
+```go
+{
+    Name:       "devpilot",
+    Vendor:     "DevPilot Inc",
+    Binaries:   []string{"devpilot", "dp"},
+    ConfigDirs: []string{"~/.devpilot", "~/.config/devpilot"},
+}
 ```
 
 The scanner will:
@@ -96,24 +85,11 @@ The scanner will:
 2. If found, run `devpilot --version` (or `dp --version`) to get the version
 3. Check if `~/.devpilot` or `~/.config/devpilot` exists as a config directory
 
-### Special version handling
-
-If the tool requires non-standard version extraction (e.g., the `--version` flag produces output that needs to be verified or parsed differently), add a case to the `case` statement inside the function:
-
-```bash
-case "$tool_name" in
-    # ... existing cases ...
-    devpilot)
-        version=$(run_as_logged_in_user "$logged_in_user" "$binary_name version 2>/dev/null | head -1" || echo "unknown")
-        ;;
-esac
-```
-
 ---
 
 ## 3. Adding a New AI Agent
 
-### Function: `detect_general_ai_agents()`
+### File: `internal/detector/agent.go`
 
 ### Format String
 
@@ -125,16 +101,18 @@ esac
 |-------|-------------|
 | agent-name | Unique name for the agent (e.g., `openclaw`, `gpt-engineer`) |
 | Vendor | The company or organization (e.g., "OpenSource", "Anthropic") |
-| detection_paths | Comma-separated paths (directories or files) that indicate the agent is installed. Use `$user_home` for the home directory variable. |
+| detection_paths | Comma-separated paths (directories or files) that indicate the agent is installed |
 | binary_names | Comma-separated binary names for version extraction |
 
 ### Example: Adding a hypothetical "AutoDev" agent
 
-```bash
-local agents=(
-    # ... existing entries ...
-    "autodev|AutoDev Inc|$user_home/.autodev|autodev"
-)
+```go
+{
+    Name:           "autodev",
+    Vendor:         "AutoDev Inc",
+    DetectionPaths: []string{"~/.autodev"},
+    Binaries:       []string{"autodev"},
+}
 ```
 
 The scanner will:
@@ -142,24 +120,11 @@ The scanner will:
 2. If not found, check if `autodev` binary exists in PATH
 3. If found either way, try to run `autodev --version` for version info
 
-### Special case: Agents within existing apps
-
-The `detect_general_ai_agents()` function includes a special case for Claude Cowork (a mode within Claude Desktop). If your agent is a mode within an existing app rather than a standalone tool, add a similar special case block after the main detection loop:
-
-```bash
-# Check for special agent modes (like Claude Cowork)
-local some_app_path="/Applications/SomeApp.app"
-if [ -d "$some_app_path" ]; then
-    # Check version to determine if agent mode is available
-    # ... version check logic ...
-fi
-```
-
 ---
 
 ## 4. Adding a New MCP Config Source
 
-### Function: `collect_mcp_configs()`
+### File: `internal/detector/mcp.go`
 
 ### Format String
 
@@ -170,61 +135,53 @@ fi
 | Field | Description |
 |-------|-------------|
 | source_name | Unique identifier for the source (e.g., `claude_desktop`, `cursor`) |
-| config_path | Full path to the config file. Use `$user_home` for the home directory variable. |
+| config_path | Full path to the config file. Use `~` for the home directory. |
 | Vendor | The company or organization (e.g., "Anthropic", "Cursor") |
 
 ### Example: Adding a hypothetical "CodeAssist" MCP config
 
-```bash
-local config_sources=(
-    # ... existing entries ...
-    "codeassist|$user_home/.codeassist/mcp_config.json|CodeAssist Inc"
-)
+```go
+{
+    Source:     "codeassist",
+    ConfigPath: "~/.codeassist/mcp_config.json",
+    Vendor:     "CodeAssist Inc",
+}
 ```
 
 The scanner will:
 1. Check if the config file exists at the specified path
 2. Read the file contents
-3. In enterprise mode: filter with `jq` to extract only server names and commands, then base64-encode
+3. In enterprise mode: filter to extract only server names and commands, then base64-encode
 4. In community mode: display the server information locally
-
-### Handling non-JSON formats
-
-If the config file is not JSON (e.g., YAML or TOML), the `jq` filtering step will be skipped automatically, and the raw content will be used. The StepSecurity backend handles parsing of multiple config formats.
-
-### Handling JSONC (JSON with comments)
-
-If the tool uses JSONC (like Zed's `settings.json`), add a special case to strip comments before parsing:
-
-```bash
-if [ "$source_name" = "codeassist" ] && [ "$perl_available" = true ]; then
-    json_input=$(echo "$config_content" | perl -0777 -pe 's{/\*.*?\*/}{}gs; s{//[^\n]*}{}g')
-fi
-```
 
 ---
 
 ## 5. Testing Your Changes Locally
 
-After making changes, test locally with all three output formats:
+After making changes, build and test locally with all three output formats:
 
 ```bash
+# Build the binary
+make build
+
 # Pretty output with progress messages
-./stepsecurity-dev-machine-guard.sh --verbose
+./stepsecurity-dev-machine-guard --verbose
 
 # JSON output (validate it is well-formed)
-./stepsecurity-dev-machine-guard.sh --json | python3 -m json.tool
+./stepsecurity-dev-machine-guard --json | python3 -m json.tool
 
 # HTML report
-./stepsecurity-dev-machine-guard.sh --html test-report.html
+./stepsecurity-dev-machine-guard --html test-report.html
 ```
 
-### Run ShellCheck
+### Run the linter and tests
 
-The CI pipeline runs ShellCheck on every PR. Run it locally before submitting:
+The CI pipeline runs `golangci-lint` and tests on every PR. Run them locally before submitting:
 
 ```bash
-shellcheck stepsecurity-dev-machine-guard.sh
+make lint
+make test
+make smoke
 ```
 
 ### Verify your new detection appears
@@ -236,7 +193,7 @@ shellcheck stepsecurity-dev-machine-guard.sh
 
 ### If you do not have the tool installed
 
-You can still verify your format string is correct by:
+You can still verify your detection is correct by:
 1. Creating a test directory or dummy binary that matches the detection path
 2. Running the scanner against it
 3. Cleaning up after testing
@@ -258,8 +215,7 @@ After adding a new detection, update the following:
 2. Create a feature branch: `git checkout -b add-detection-codeforge`
 3. Make your changes
 4. Test locally (all three output formats)
-5. Run ShellCheck
+5. Run `make lint` and `make test`
 6. Submit a PR using the [PR template](https://github.com/step-security/dev-machine-guard/blob/main/.github/pull_request_template.md)
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for full contribution guidelines.
-

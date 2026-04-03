@@ -74,8 +74,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	ctx := context.Background()
 	startTime := time.Now()
 
-	// Start capturing all stderr output for execution_logs
+	// Start capturing all stderr output for execution_logs.
+	// Defer Finalize immediately to ensure stderr is always restored,
+	// even on early returns (e.g., lock failure).
 	capture := StartCapture()
+	defer capture.Finalize()
 
 	// Banner (matches shell script format)
 	fmt.Fprintf(os.Stderr, "==========================================\n")

@@ -113,7 +113,7 @@ func RunConfigure() error {
 
 	existing.CustomerID = promptValue(reader, "Customer ID", existing.CustomerID)
 	existing.APIEndpoint = promptValue(reader, "API Endpoint", existing.APIEndpoint)
-	existing.APIKey = promptValue(reader, "API Key", existing.APIKey)
+	existing.APIKey = promptSecret(reader, "API Key", existing.APIKey)
 	existing.ScanFrequencyHours = promptValue(reader, "Scan Frequency (hours)", existing.ScanFrequencyHours)
 
 	// Search dirs
@@ -209,6 +209,27 @@ func RunConfigure() error {
 	fmt.Println()
 	fmt.Printf("Configuration saved to %s\n", ConfigFilePath())
 	return nil
+}
+
+// promptSecret shows a masked current value but keeps the real value on Enter.
+func promptSecret(reader *bufio.Reader, label, current string) string {
+	masked := maskSecret(current)
+	if masked != "(not set)" {
+		fmt.Printf("  %s [%s]: ", label, masked)
+	} else {
+		fmt.Printf("  %s: ", label)
+	}
+
+	line, _ := reader.ReadString('\n')
+	line = strings.TrimSpace(line)
+
+	if line == "-" {
+		return "" // clear value
+	}
+	if line == "" {
+		return current // keep real value
+	}
+	return line
 }
 
 func promptValue(reader *bufio.Reader, label, current string) string {

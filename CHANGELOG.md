@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [1.9.0] - 2026-04-03
+
+Migrated from shell script to a compiled Go binary. All existing scanning features, detection logic, CLI flags, output formats, and enterprise telemetry are preserved — this release changes the implementation, not the functionality.
+
+### Added
+- **Go binary**: Single compiled binary (`stepsecurity-dev-machine-guard`) replaces the shell script. Zero external dependencies, no runtime required.
+- **`configure` / `configure show` commands**: Interactive setup and display of enterprise credentials, search directories, and preferences. Saved to `~/.stepsecurity/config.json`.
+
 ## [1.8.2] - 2026-03-17
 
 ### Added
@@ -44,5 +52,6 @@ First open-source release. The scanning engine was previously an internal enterp
 - Execution log capture and base64 encoding
 - Instance locking to prevent concurrent runs
 
+[1.9.0]: https://github.com/step-security/dev-machine-guard/compare/v1.8.2...v1.9.0
 [1.8.2]: https://github.com/step-security/dev-machine-guard/compare/v1.8.1...v1.8.2
 [1.8.1]: https://github.com/step-security/dev-machine-guard/releases/tag/v1.8.1

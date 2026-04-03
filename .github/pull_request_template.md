@@ -11,10 +11,11 @@
 ## Testing
 
 - [ ] Tested on macOS (version: ___)
-- [ ] Script runs without errors: `./stepsecurity-dev-machine-guard.sh --verbose`
-- [ ] JSON output is valid: `./stepsecurity-dev-machine-guard.sh --json | python3 -m json.tool`
+- [ ] Binary runs without errors: `./stepsecurity-dev-machine-guard --verbose`
+- [ ] JSON output is valid: `./stepsecurity-dev-machine-guard --json | python3 -m json.tool`
 - [ ] No secrets or credentials included
-- [ ] ShellCheck passes (if script was modified)
+- [ ] Lint passes: `make lint`
+- [ ] Tests pass: `make test`
 
 ## Related Issues
 

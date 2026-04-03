@@ -184,7 +184,7 @@ When you run with `--json`, the scanner outputs a single JSON object to stdout. 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `agent_version` | string | Version of the agent script |
+| `agent_version` | string | Version of the scanner binary |
 | `scan_timestamp` | number | Unix timestamp (seconds) of the scan |
 | `scan_timestamp_iso` | string | ISO 8601 timestamp |
 | `device` | object | Device identification information |
@@ -238,25 +238,25 @@ The HTML report is styled with StepSecurity branding (purple accent colors) and 
 ### Extract all AI tool names
 
 ```bash
-./stepsecurity-dev-machine-guard.sh --json | jq -r '.ai_agents_and_tools[].name'
+./stepsecurity-dev-machine-guard --json | jq -r '.ai_agents_and_tools[].name'
 ```
 
 ### Count extensions per IDE
 
 ```bash
-./stepsecurity-dev-machine-guard.sh --json | jq '[.ide_extensions[] | .ide_type] | group_by(.) | map({(.[0]): length}) | add'
+./stepsecurity-dev-machine-guard --json | jq '[.ide_extensions[] | .ide_type] | group_by(.) | map({(.[0]): length}) | add'
 ```
 
 ### Check if a specific extension is installed
 
 ```bash
-./stepsecurity-dev-machine-guard.sh --json | jq '.ide_extensions[] | select(.id == "ms-python.python")'
+./stepsecurity-dev-machine-guard --json | jq '.ide_extensions[] | select(.id == "ms-python.python")'
 ```
 
 ### Export extension list as CSV
 
 ```bash
-./stepsecurity-dev-machine-guard.sh --json | jq -r '.ide_extensions[] | [.id, .version, .publisher, .ide_type] | @csv'
+./stepsecurity-dev-machine-guard --json | jq -r '.ide_extensions[] | [.id, .version, .publisher, .ide_type] | @csv'
 ```
 
 ---

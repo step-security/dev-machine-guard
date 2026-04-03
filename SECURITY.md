@@ -19,7 +19,7 @@ We will acknowledge your report within 48 hours and provide a detailed response 
 ## Scope
 
 This policy covers:
-- The `stepsecurity-dev-machine-guard.sh` script
+- The `stepsecurity-dev-machine-guard` binary and Go source code in `internal/`
 - The StepSecurity backend API (for enterprise mode)
 
 ## Supported Versions

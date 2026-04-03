@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"regexp"
 	"strings"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -158,13 +157,48 @@ func filterServerFields(serversRaw json.RawMessage) map[string]any {
 	return result
 }
 
-// stripJSONCComments removes // and /* */ comments from JSONC content.
+// stripJSONCComments removes // and /* */ comments from JSONC content,
+// respecting quoted strings (won't strip // inside "https://...").
 func stripJSONCComments(input []byte) []byte {
-	// Remove block comments
-	blockRe := regexp.MustCompile(`/\*[\s\S]*?\*/`)
-	result := blockRe.ReplaceAll(input, nil)
-	// Remove line comments
-	lineRe := regexp.MustCompile(`//[^\n]*`)
-	result = lineRe.ReplaceAll(result, nil)
-	return result
+	var out []byte
+	i := 0
+	for i < len(input) {
+		// Skip over strings — don't modify content inside quotes
+		if input[i] == '"' {
+			out = append(out, input[i])
+			i++
+			for i < len(input) {
+				out = append(out, input[i])
+				if input[i] == '\\' && i+1 < len(input) {
+					i++
+					out = append(out, input[i])
+				} else if input[i] == '"' {
+					break
+				}
+				i++
+			}
+			i++
+			continue
+		}
+		// Block comment
+		if i+1 < len(input) && input[i] == '/' && input[i+1] == '*' {
+			i += 2
+			for i+1 < len(input) && !(input[i] == '*' && input[i+1] == '/') {
+				i++
+			}
+			i += 2 // skip */
+			continue
+		}
+		// Line comment
+		if i+1 < len(input) && input[i] == '/' && input[i+1] == '/' {
+			i += 2
+			for i < len(input) && input[i] != '\n' {
+				i++
+			}
+			continue
+		}
+		out = append(out, input[i])
+		i++
+	}
+	return out
 }

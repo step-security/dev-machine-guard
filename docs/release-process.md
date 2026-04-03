@@ -8,24 +8,25 @@ This document describes how releases are created, signed, and verified.
 
 ## Overview
 
-Releases are created via a manually triggered GitHub Actions workflow that requires approval from the `release` environment. The workflow:
+Releases are created via a manually triggered GitHub Actions workflow (`workflow_dispatch`) that requires approval from the `release` environment. The workflow uses [GoReleaser](https://goreleaser.com/) to:
 
-1. Extracts the version from `AGENT_VERSION` in the script
-2. Verifies the tag does not already exist (immutability)
-3. Signs the script with [Sigstore](https://www.sigstore.dev/) cosign (keyless)
-4. Generates SHA256 checksums
-5. Creates a Git tag and GitHub Release
-6. Attaches the script, Sigstore bundle, and checksums as release assets
-7. Generates SLSA build provenance attestation
+1. Read the version from `internal/buildinfo/version.go` (`const Version = "1.9.0"`)
+2. Verify the tag does not already exist (immutability)
+3. Build platform-specific binaries with GoReleaser
+4. Sign the binaries with [Sigstore](https://www.sigstore.dev/) cosign (keyless)
+5. Generate SHA256 checksums
+6. Create a Git tag and GitHub Release
+7. Attach binaries, Sigstore bundles, and checksums as release assets
+8. Generate SLSA build provenance attestation
 
 ## How to Create a Release
 
 ### 1. Bump the version
 
-Update `AGENT_VERSION` in `stepsecurity-dev-machine-guard.sh`:
+Update `Version` in `internal/buildinfo/version.go`:
 
-```bash
-AGENT_VERSION="1.9.0"
+```go
+const Version = "1.9.0"
 ```
 
 Update the [CHANGELOG.md](../CHANGELOG.md) with a new section for the version.
@@ -45,19 +46,20 @@ The workflow uses a GitHub Environment called `release` that requires approval. 
 
 ### 4. Verify the release
 
-Once approved, the workflow will create the tag, sign the script, create the GitHub Release, and upload the artifacts. Check the [Releases page](https://github.com/step-security/dev-machine-guard/releases) to confirm.
+Once approved, the workflow will create the tag, build the binaries, sign them, create the GitHub Release, and upload the artifacts. Check the [Releases page](https://github.com/step-security/dev-machine-guard/releases) to confirm.
 
 ---
 
 ## Release Artifacts
 
-Each release includes three artifacts:
+Each release includes the following artifacts:
 
 | Artifact | Description |
 |----------|-------------|
-| `stepsecurity-dev-machine-guard.sh` | The scanner script |
-| `stepsecurity-dev-machine-guard.sh.bundle` | Sigstore cosign bundle (signature, certificate, and Rekor transparency log entry) |
-| `checksums.txt` | SHA256 checksums of the script and bundle |
+| `stepsecurity-dev-machine-guard_darwin_amd64` | macOS Intel binary |
+| `stepsecurity-dev-machine-guard_darwin_arm64` | macOS Apple Silicon binary |
+| `checksums.txt` | SHA256 checksums of all release artifacts |
+| `*.bundle` | Sigstore cosign bundles (signature, certificate, and Rekor transparency log entry) |
 
 ---
 
@@ -74,24 +76,24 @@ brew install cosign
 # Other platforms: https://docs.sigstore.dev/cosign/system_config/installation/
 ```
 
-### Verify the script signature
+### Verify the binary signature
 
 ```bash
 # Download the release artifacts
-gh release download v1.8.1 --repo step-security/dev-machine-guard
+gh release download v1.9.0 --repo step-security/dev-machine-guard
 
-# Verify the Sigstore signature
-cosign verify-blob stepsecurity-dev-machine-guard.sh \
-  --bundle stepsecurity-dev-machine-guard.sh.bundle \
+# Verify the Sigstore signature (example for Apple Silicon)
+cosign verify-blob stepsecurity-dev-machine-guard_darwin_arm64 \
+  --bundle stepsecurity-dev-machine-guard_darwin_arm64.bundle \
   --certificate-identity-regexp "github.com/step-security/dev-machine-guard" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
 ```
 
 A successful verification confirms:
 
-- The script was signed by the `step-security/dev-machine-guard` GitHub Actions workflow
+- The binary was signed by the `step-security/dev-machine-guard` GitHub Actions workflow
 - The signature is recorded in the [Rekor transparency log](https://search.sigstore.dev/)
-- The script has not been tampered with since signing
+- The binary has not been tampered with since signing
 
 ### Verify the checksum
 
@@ -102,7 +104,7 @@ sha256sum -c checksums.txt
 ### Verify build provenance
 
 ```bash
-gh attestation verify stepsecurity-dev-machine-guard.sh \
+gh attestation verify stepsecurity-dev-machine-guard_darwin_arm64 \
   --repo step-security/dev-machine-guard
 ```
 
@@ -136,4 +138,3 @@ The release workflow requires a GitHub Environment named `release` with required
 - [VERSIONING.md](../VERSIONING.md) — versioning scheme
 - [Sigstore documentation](https://docs.sigstore.dev/) — how keyless signing works
 - [SLSA](https://slsa.dev/) — supply chain integrity framework
-

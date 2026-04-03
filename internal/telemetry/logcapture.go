@@ -60,21 +60,27 @@ func StartCapture() *LogCapture {
 }
 
 // Finalize stops capture and returns the base64-encoded output.
+// Safe to call multiple times — subsequent calls return the cached result.
 func (lc *LogCapture) Finalize() string {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+
 	if lc.pipeWrite == nil {
-		return ""
+		// Already finalized or never started
+		return base64.StdEncoding.EncodeToString(lc.buf.Bytes())
 	}
 
 	// Close write end so the reader goroutine exits
 	lc.pipeWrite.Close()
+	lc.pipeWrite = nil
+	lc.mu.Unlock()
 	<-lc.done
+	lc.mu.Lock()
 
 	// Restore stderr
 	os.Stderr = lc.origErr
 	lc.pipeRead.Close()
 
-	lc.mu.Lock()
-	defer lc.mu.Unlock()
 	return base64.StdEncoding.EncodeToString(lc.buf.Bytes())
 }
 

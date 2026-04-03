@@ -69,44 +69,45 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
 
-      - name: Locate built binaries
-        id: binaries
+      - name: Prepare release artifacts for signing
         run: |
-          # GoReleaser keeps binaries in build subdirs (e.g. _amd64_v1, _arm64_v8.0)
-          AMD64=$(find dist -type f -name 'stepsecurity-dev-machine-guard' -path '*darwin_amd64*' | head -1)
-          ARM64=$(find dist -type f -name 'stepsecurity-dev-machine-guard' -path '*darwin_arm64*' | head -1)
+          # Copy binaries to match the exact names users download from the release.
+          # GoReleaser uploads as name_template (e.g. stepsecurity-dev-machine-guard_darwin_amd64)
+          # but keeps them in build subdirs locally. We copy to dist/ with release names
+          # so cosign signs the same bytes users verify against.
+          AMD64_SRC=$(find dist -type f -name 'stepsecurity-dev-machine-guard' -path '*darwin_amd64*' | head -1)
+          ARM64_SRC=$(find dist -type f -name 'stepsecurity-dev-machine-guard' -path '*darwin_arm64*' | head -1)
 
-          for label in "amd64:${AMD64}" "arm64:${ARM64}"; do
+          for label in "amd64:${AMD64_SRC}" "arm64:${ARM64_SRC}"; do
             name="${label%%:*}"
             path="${label#*:}"
             if [ -z "$path" ] || [ ! -f "$path" ]; then
               echo "::error::Binary not found for ${name}"
-              echo "dist/ contents:"
               find dist -type f
               exit 1
             fi
           done
 
-          echo "amd64=${AMD64}" >> "$GITHUB_OUTPUT"
-          echo "arm64=${ARM64}" >> "$GITHUB_OUTPUT"
-          echo "Found amd64: ${AMD64}"
-          echo "Found arm64: ${ARM64}"
+          cp "$AMD64_SRC" dist/stepsecurity-dev-machine-guard_darwin_amd64
+          cp "$ARM64_SRC" dist/stepsecurity-dev-machine-guard_darwin_arm64
+          echo "Prepared release artifacts for signing"
 
       - name: Sign artifacts with Sigstore (keyless)
         run: |
-          cosign sign-blob "${{ steps.binaries.outputs.amd64 }}" \
+          cosign sign-blob dist/stepsecurity-dev-machine-guard_darwin_amd64 \
             --bundle dist/stepsecurity-dev-machine-guard_darwin_amd64.bundle --yes
-          cosign sign-blob "${{ steps.binaries.outputs.arm64 }}" \
+          cosign sign-blob dist/stepsecurity-dev-machine-guard_darwin_arm64 \
             --bundle dist/stepsecurity-dev-machine-guard_darwin_arm64.bundle --yes
           cosign sign-blob stepsecurity-dev-machine-guard.sh \
             --bundle dist/stepsecurity-dev-machine-guard.sh.bundle --yes
 
       - name: Generate checksums
         run: |
-          SUMS="dist/stepsecurity-dev-machine-guard_${{ steps.version.outputs.version }}_SHA256SUMS"
-          sha256sum "${{ steps.binaries.outputs.amd64 }}" >> "$SUMS"
-          sha256sum "${{ steps.binaries.outputs.arm64 }}" >> "$SUMS"
-          sha256sum stepsecurity-dev-machine-guard.sh >> "$SUMS"
+          # Separate checksum file for cosign-signed artifacts (script + bundles).
+          # GoReleaser already generates checksums for the Go binaries in its own SHA256SUMS file.
+          sha256sum dist/stepsecurity-dev-machine-guard_darwin_amd64 > dist/cosign-checksums.txt
+          sha256sum dist/stepsecurity-dev-machine-guard_darwin_arm64 >> dist/cosign-checksums.txt
+          sha256sum stepsecurity-dev-machine-guard.sh >> dist/cosign-checksums.txt
 
       - name: Upload signature bundles and checksums to release
         env:
@@ -116,7 +117,7 @@ jobs:
             dist/stepsecurity-dev-machine-guard_darwin_amd64.bundle \
             dist/stepsecurity-dev-machine-guard_darwin_arm64.bundle \
             dist/stepsecurity-dev-machine-guard.sh.bundle \
-            dist/stepsecurity-dev-machine-guard_${{ steps.version.outputs.version }}_SHA256SUMS \
+            dist/cosign-checksums.txt \
             --clobber
 
       - name: Mark release as immutable (not a draft, not a prerelease)
@@ -132,6 +133,6 @@ jobs:
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
-            ${{ steps.binaries.outputs.amd64 }}
-            ${{ steps.binaries.outputs.arm64 }}
+            dist/stepsecurity-dev-machine-guard_darwin_amd64
+            dist/stepsecurity-dev-machine-guard_darwin_arm64
             stepsecurity-dev-machine-guard.sh

@@ -72,7 +72,7 @@ make build
 ./stepsecurity-dev-machine-guard
 ```
 
-Requires Go 1.22+. The binary has zero external dependencies.
+Requires Go 1.24+. The binary has zero external dependencies.
 
 ## Usage
 
