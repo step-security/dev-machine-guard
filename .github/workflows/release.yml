@@ -68,10 +68,21 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
 
+      - name: Locate binary
+        id: binary
+        run: |
+          BINARY=$(find dist -type f -name '*darwin_unnotarized' | head -1)
+          if [ -z "$BINARY" ] || [ ! -f "$BINARY" ]; then
+            echo "::error::Binary not found"
+            find dist -type f
+            exit 1
+          fi
+          echo "path=$BINARY" >> "$GITHUB_OUTPUT"
+
       - name: Sign artifacts with Sigstore
         run: |
-          ARCHIVE=$(find dist -name 'stepsecurity-dev-machine-guard-*-darwin.tar.gz' | head -1)
-          cosign sign-blob "$ARCHIVE" --bundle "${ARCHIVE}.bundle" --yes
+          cosign sign-blob "${{ steps.binary.outputs.path }}" \
+            --bundle "${{ steps.binary.outputs.path }}.bundle" --yes
           cosign sign-blob stepsecurity-dev-machine-guard.sh \
             --bundle dist/stepsecurity-dev-machine-guard.sh.bundle --yes
 
@@ -80,7 +91,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ steps.version.outputs.tag }}" \
-            dist/stepsecurity-dev-machine-guard-*-darwin.tar.gz.bundle \
+            "${{ steps.binary.outputs.path }}.bundle" \
             dist/stepsecurity-dev-machine-guard.sh.bundle \
             --clobber
 
@@ -88,5 +99,5 @@ jobs:
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
-            dist/stepsecurity-dev-machine-guard-*-darwin.tar.gz
+            ${{ steps.binary.outputs.path }}
             stepsecurity-dev-machine-guard.sh

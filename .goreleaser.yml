@@ -26,16 +26,14 @@ universal_binaries:
     ids:
       - stepsecurity-dev-machine-guard
     replace: true
-    name_template: stepsecurity-dev-machine-guard
+    name_template: "stepsecurity-dev-machine-guard-{{ .Version }}-darwin_unnotarized"
 
 archives:
-  - id: archive
-    ids:
+  - ids:
       - universal
     formats:
-      - tar.gz
-    strip_binary_directory: true
-    name_template: "stepsecurity-dev-machine-guard-{{ .Version }}-darwin"
+      - binary
+    name_template: "stepsecurity-dev-machine-guard-{{ .Version }}-darwin_unnotarized"
 
 release:
   draft: true
