@@ -3,6 +3,7 @@ package detector
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -78,7 +79,7 @@ func (d *ExtensionDetector) collectFromDir(extDir, ideType string) []model.Exten
 		}
 
 		// Get install date from directory modification time
-		info, err := d.exec.Stat(extDir + "/" + dirname)
+		info, err := d.exec.Stat(filepath.Join(extDir, dirname))
 		if err == nil {
 			ext.InstallDate = info.ModTime().Unix()
 		}
@@ -130,7 +131,7 @@ func parseExtensionDir(dirname, ideType string) *model.Extension {
 
 // loadObsolete reads the .obsolete file and returns a set of dirname -> true.
 func (d *ExtensionDetector) loadObsolete(extDir string) map[string]bool {
-	obsoleteFile := extDir + "/.obsolete"
+	obsoleteFile := filepath.Join(extDir, ".obsolete")
 	data, err := d.exec.ReadFile(obsoleteFile)
 	if err != nil {
 		return nil

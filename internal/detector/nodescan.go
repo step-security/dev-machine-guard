@@ -105,7 +105,8 @@ func (s *NodeScanner) scanYarnGlobal(ctx context.Context) (model.NodeScanResult,
 	}
 
 	start := time.Now()
-	stdout, stderr, exitCode, _ := s.exec.RunWithTimeout(ctx, 60*time.Second, "bash", "-c", "cd '"+globalDir+"' && yarn list --json --depth=0")
+	shellCmd := "cd " + platformShellQuote(s.exec, globalDir) + " && yarn list --json --depth=0"
+	stdout, stderr, exitCode, _ := runShellCmd(ctx, s.exec, 60*time.Second, shellCmd)
 	duration := time.Since(start).Milliseconds()
 
 	errMsg := ""
@@ -281,11 +282,11 @@ func (s *NodeScanner) scanProject(ctx context.Context, projectDir string) model.
 	}
 
 	start := time.Now()
-	shellCmd := "cd " + shellQuote(projectDir) + " && " + cmd
+	cmdStr := "cd " + platformShellQuote(s.exec, projectDir) + " && " + cmd
 	for _, a := range args {
-		shellCmd += " " + a
+		cmdStr += " " + a
 	}
-	stdout, stderr, exitCode, _ := s.exec.RunWithTimeout(ctx, 30*time.Second, "bash", "-c", shellCmd)
+	stdout, stderr, exitCode, _ := runShellCmd(ctx, s.exec, 30*time.Second, cmdStr)
 	duration := time.Since(start).Milliseconds()
 
 	errMsg := ""
@@ -320,8 +321,4 @@ func (s *NodeScanner) getOutput(ctx context.Context, binary string, args ...stri
 		return ""
 	}
 	return strings.TrimSpace(stdout)
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

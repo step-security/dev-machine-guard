@@ -61,7 +61,7 @@ func (d *NodeProjectDetector) countInDir(dir string) int {
 
 // DetectProjectPM detects which package manager a project uses based on lock files.
 func DetectProjectPM(exec executor.Executor, projectDir string) string {
-	if strings.Contains(projectDir, "/.bun/install/") {
+	if strings.Contains(filepath.ToSlash(projectDir), "/.bun/install/") {
 		return "bun"
 	}
 	if exec.FileExists(filepath.Join(projectDir, "bun.lock")) || exec.FileExists(filepath.Join(projectDir, "bun.lockb")) {

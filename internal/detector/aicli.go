@@ -2,6 +2,8 @@ package detector
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -121,10 +123,16 @@ func (d *AICLIDetector) Detect(ctx context.Context) []model.AITool {
 func (d *AICLIDetector) findBinary(ctx context.Context, spec cliToolSpec, homeDir string) (string, bool) {
 	for _, bin := range spec.Binaries {
 		expanded := expandTilde(bin, homeDir)
-		if strings.Contains(expanded, "/") {
-			// Absolute/relative path - check if it exists
+		if expanded != bin {
+			// Path was expanded from tilde — it's a home-relative path, check if it exists
 			if d.exec.FileExists(expanded) {
 				return expanded, true
+			}
+			// On Windows, also try with .exe suffix
+			if d.exec.GOOS() == "windows" && !strings.HasSuffix(expanded, ".exe") {
+				if d.exec.FileExists(expanded + ".exe") {
+					return expanded + ".exe", true
+				}
 			}
 			continue
 		}
@@ -167,7 +175,7 @@ func (d *AICLIDetector) findConfigDir(spec cliToolSpec, homeDir string) string {
 
 func expandTilde(path, homeDir string) string {
 	if strings.HasPrefix(path, "~/") {
-		return homeDir + path[1:]
+		return filepath.Join(homeDir, filepath.FromSlash(path[2:]))
 	}
 	return path
 }
@@ -175,7 +183,22 @@ func expandTilde(path, homeDir string) string {
 func getHomeDir(exec executor.Executor) string {
 	u, err := exec.CurrentUser()
 	if err != nil {
-		return "/tmp"
+		return os.TempDir()
 	}
 	return u.HomeDir
+}
+
+// resolveEnvPath replaces %ENVVAR% patterns in Windows-style paths using the executor.
+func resolveEnvPath(exec executor.Executor, path string) string {
+	for strings.Contains(path, "%") {
+		start := strings.Index(path, "%")
+		end := strings.Index(path[start+1:], "%")
+		if end < 0 {
+			break
+		}
+		envName := path[start+1 : start+1+end]
+		envVal := exec.Getenv(envName)
+		path = path[:start] + envVal + path[start+2+end:]
+	}
+	return filepath.FromSlash(path)
 }

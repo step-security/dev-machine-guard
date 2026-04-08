@@ -145,6 +145,12 @@ func (m *Mock) SetGlob(pattern string, matches []string) {
 	m.globs[pattern] = matches
 }
 
+func (m *Mock) SetGOOS(goos string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.goos = goos
+}
+
 // --- Executor interface ---
 
 func (m *Mock) Run(_ context.Context, name string, args ...string) (string, string, int, error) {

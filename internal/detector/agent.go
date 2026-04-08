@@ -2,6 +2,7 @@ package detector
 
 import (
 	"context"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -67,7 +68,7 @@ func (d *AgentDetector) Detect(ctx context.Context, searchDirs []string) []model
 func (d *AgentDetector) findAgent(spec agentSpec, homeDir string) (string, bool) {
 	// Check detection paths
 	for _, relPath := range spec.DetectionPaths {
-		fullPath := homeDir + "/" + relPath
+		fullPath := filepath.Join(homeDir, relPath)
 		if d.exec.DirExists(fullPath) || d.exec.FileExists(fullPath) {
 			return fullPath, true
 		}
@@ -103,12 +104,23 @@ func (d *AgentDetector) getVersion(ctx context.Context, spec agentSpec) string {
 
 // detectClaudeCowork checks for Claude Cowork (a mode within Claude Desktop 0.7+).
 func (d *AgentDetector) detectClaudeCowork(ctx context.Context) (model.AITool, bool) {
-	claudePath := "/Applications/Claude.app"
-	if !d.exec.DirExists(claudePath) {
-		return model.AITool{}, false
+	var claudePath, version string
+
+	if d.exec.GOOS() == "windows" {
+		localAppData := d.exec.Getenv("LOCALAPPDATA")
+		claudePath = filepath.Join(localAppData, "Programs", "Claude")
+		if !d.exec.DirExists(claudePath) {
+			return model.AITool{}, false
+		}
+		version = readRegistryVersion(ctx, d.exec, "Claude")
+	} else {
+		claudePath = "/Applications/Claude.app"
+		if !d.exec.DirExists(claudePath) {
+			return model.AITool{}, false
+		}
+		version = readPlistVersion(ctx, d.exec, filepath.Join(claudePath, "Contents", "Info.plist"))
 	}
 
-	version := readPlistVersion(ctx, d.exec, claudePath+"/Contents/Info.plist")
 	if version == "unknown" {
 		return model.AITool{}, false
 	}

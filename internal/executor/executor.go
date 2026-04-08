@@ -9,7 +9,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 )
 
@@ -82,15 +81,6 @@ func (r *Real) RunWithTimeout(ctx context.Context, timeout time.Duration, name s
 	return stdout, stderr, code, err
 }
 
-func (r *Real) RunAsUser(ctx context.Context, username, command string) (string, error) {
-	if !r.IsRoot() {
-		stdout, _, _, err := r.Run(ctx, "bash", "-c", command)
-		return strings.TrimSpace(stdout), err
-	}
-	stdout, _, _, err := r.Run(ctx, "sudo", "-H", "-u", username, "bash", "-l", "-c", command)
-	return strings.TrimSpace(stdout), err
-}
-
 func (r *Real) LookPath(name string) (string, error) {
 	return exec.LookPath(name)
 }
@@ -123,10 +113,6 @@ func (r *Real) Hostname() (string, error) {
 
 func (r *Real) Getenv(key string) string {
 	return os.Getenv(key)
-}
-
-func (r *Real) IsRoot() bool {
-	return os.Getuid() == 0
 }
 
 func (r *Real) CurrentUser() (*user.User, error) {

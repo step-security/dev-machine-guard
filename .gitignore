@@ -10,6 +10,7 @@
 .vscode/
 .idea/
 .claude/
+.plans/
 
 # Output files
 *.log

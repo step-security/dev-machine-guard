@@ -236,7 +236,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		SerialNumber:   dev.SerialNumber,
 		UserIdentity:   dev.UserIdentity,
 		Hostname:       dev.Hostname,
-		Platform:       "darwin",
+		Platform:       dev.Platform,
 		OSVersion:      dev.OSVersion,
 		AgentVersion:   buildinfo.Version,
 		CollectedAt:    endTime.Unix(),

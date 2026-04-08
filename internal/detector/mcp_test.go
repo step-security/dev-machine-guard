@@ -81,3 +81,33 @@ func TestMCPDetector_Enterprise(t *testing.T) {
 		t.Error("expected non-empty base64 content")
 	}
 }
+
+func TestMCPDetector_Windows_FindsConfigs(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	mock.SetHomeDir(`C:\Users\testuser`)
+	mock.SetEnv("APPDATA", `C:\Users\testuser\AppData\Roaming`)
+
+	// claude_desktop WinConfigPath: "%APPDATA%/Claude/claude_desktop_config.json"
+	// After resolveEnvPath on macOS host:
+	//   env replacement -> "C:\Users\testuser\AppData\Roaming/Claude/claude_desktop_config.json"
+	//   filepath.FromSlash (macOS no-op) -> same
+	claudeConfigPath := `C:\Users\testuser\AppData\Roaming` + "/Claude/claude_desktop_config.json"
+	mock.SetFile(claudeConfigPath, []byte(`{"mcpServers":{}}`))
+
+	det := NewMCPDetector(mock)
+	results := det.Detect(context.Background(), "testuser", false)
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 config, got %d", len(results))
+	}
+	if results[0].ConfigSource != "claude_desktop" {
+		t.Errorf("expected claude_desktop, got %s", results[0].ConfigSource)
+	}
+	if results[0].ConfigPath != claudeConfigPath {
+		t.Errorf("expected config path %s, got %s", claudeConfigPath, results[0].ConfigPath)
+	}
+	if results[0].Vendor != "Anthropic" {
+		t.Errorf("expected Anthropic, got %s", results[0].Vendor)
+	}
+}

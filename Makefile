@@ -9,10 +9,13 @@ LDFLAGS := -s -w \
 	-X $(MODULE)/internal/buildinfo.ReleaseTag=$(TAG) \
 	-X $(MODULE)/internal/buildinfo.ReleaseBranch=$(BRANCH)
 
-.PHONY: build test lint clean smoke
+.PHONY: build build-windows test lint clean smoke
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/stepsecurity-dev-machine-guard
+
+build-windows:
+	GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY).exe ./cmd/stepsecurity-dev-machine-guard
 
 test:
 	go test ./... -v -race -count=1

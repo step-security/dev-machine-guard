@@ -57,3 +57,38 @@ func TestGather_EmailIdentity(t *testing.T) {
 		t.Errorf("identity: expected dev@example.com, got %s", dev.UserIdentity)
 	}
 }
+
+func TestGather_Windows(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	mock.SetHostname("WIN-DESKTOP")
+	mock.SetHomeDir(`C:\Users\testuser`)
+	mock.SetUsername("testuser")
+
+	// wmic for serial number
+	mock.SetCommand("SerialNumber\nWIN-SERIAL-123\n", "", 0,
+		"wmic", "bios", "get", "serialnumber")
+
+	// PowerShell for OS version
+	mock.SetCommand("10.0.22631.0\n", "", 0,
+		"powershell", "-NoProfile", "-Command",
+		"[System.Environment]::OSVersion.Version.ToString()")
+
+	dev := Gather(context.Background(), mock)
+
+	if dev.Hostname != "WIN-DESKTOP" {
+		t.Errorf("hostname: expected WIN-DESKTOP, got %s", dev.Hostname)
+	}
+	if dev.Platform != "windows" {
+		t.Errorf("platform: expected windows, got %s", dev.Platform)
+	}
+	if dev.SerialNumber != "WIN-SERIAL-123" {
+		t.Errorf("serial: expected WIN-SERIAL-123, got %s", dev.SerialNumber)
+	}
+	if dev.OSVersion != "10.0.22631.0" {
+		t.Errorf("os_version: expected 10.0.22631.0, got %s", dev.OSVersion)
+	}
+	if dev.UserIdentity != "testuser" {
+		t.Errorf("user_identity: expected testuser, got %s", dev.UserIdentity)
+	}
+}

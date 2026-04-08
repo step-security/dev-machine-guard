@@ -96,3 +96,45 @@ func TestIsCoworkVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentDetector_Windows_ClaudeCowork(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	mock.SetHomeDir(`C:\Users\testuser`)
+	mock.SetEnv("LOCALAPPDATA", `C:\Users\testuser\AppData\Local`)
+
+	// detectClaudeCowork on Windows uses filepath.Join(localAppData, "Programs", "Claude").
+	// On macOS host, filepath.Join keeps backslashes and inserts "/":
+	claudePath := `C:\Users\testuser\AppData\Local` + "/Programs/Claude"
+	mock.SetDir(claudePath)
+
+	// Version via readRegistryVersion with appName "Claude".
+	// First registry root tried by readRegistryVersion.
+	mock.SetCommand(
+		"HKLM\\SOFTWARE\\...\\Claude\n    DisplayVersion    REG_SZ    0.7.5\n",
+		"", 0,
+		"reg", "query", `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`, "/s", "/f", "Claude", "/d",
+	)
+
+	det := NewAgentDetector(mock)
+	results := det.Detect(context.Background(), []string{`C:\Users\testuser`})
+
+	found := false
+	for _, r := range results {
+		if r.Name == "claude-cowork" {
+			found = true
+			if r.Vendor != "Anthropic" {
+				t.Errorf("expected Anthropic, got %s", r.Vendor)
+			}
+			if r.Version != "0.7.5" {
+				t.Errorf("expected 0.7.5, got %s", r.Version)
+			}
+			if r.InstallPath != claudePath {
+				t.Errorf("expected install path %s, got %s", claudePath, r.InstallPath)
+			}
+		}
+	}
+	if !found {
+		t.Error("claude-cowork not found")
+	}
+}

@@ -2,6 +2,7 @@ package detector
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -41,7 +42,7 @@ func (d *FrameworkDetector) Detect(ctx context.Context) []model.AITool {
 		}
 
 		version := d.getVersion(ctx, binaryPath)
-		isRunning := d.isProcessRunning(ctx, spec.ProcessName)
+		isRunning := isProcessRunning(ctx, d.exec, spec.ProcessName)
 
 		results = append(results, model.AITool{
 			Name:       spec.Name,
@@ -86,24 +87,25 @@ func (d *FrameworkDetector) getVersion(ctx context.Context, binaryPath string) s
 	return "unknown"
 }
 
-func (d *FrameworkDetector) isProcessRunning(ctx context.Context, processName string) bool {
-	_, _, exitCode, _ := d.exec.Run(ctx, "pgrep", "-x", processName)
-	return exitCode == 0
-}
-
 func (d *FrameworkDetector) detectLMStudioApp(ctx context.Context) (model.AITool, bool) {
-	appPath := "/Applications/LM Studio.app"
-	if !d.exec.DirExists(appPath) {
-		return model.AITool{}, false
+	var appPath, version string
+
+	if d.exec.GOOS() == "windows" {
+		localAppData := d.exec.Getenv("LOCALAPPDATA")
+		appPath = filepath.Join(localAppData, "Programs", "LM Studio")
+		if !d.exec.DirExists(appPath) {
+			return model.AITool{}, false
+		}
+		version = readRegistryVersion(ctx, d.exec, "LM Studio")
+	} else {
+		appPath = "/Applications/LM Studio.app"
+		if !d.exec.DirExists(appPath) {
+			return model.AITool{}, false
+		}
+		version = readPlistVersion(ctx, d.exec, filepath.Join(appPath, "Contents", "Info.plist"))
 	}
 
-	version := readPlistVersion(ctx, d.exec, appPath+"/Contents/Info.plist")
-
-	isRunning := false
-	_, _, exitCode, _ := d.exec.Run(ctx, "pgrep", "-f", "LM Studio")
-	if exitCode == 0 {
-		isRunning = true
-	}
+	running := isProcessRunningFuzzy(ctx, d.exec, "LM Studio")
 
 	return model.AITool{
 		Name:       "lm-studio",
@@ -111,6 +113,6 @@ func (d *FrameworkDetector) detectLMStudioApp(ctx context.Context) (model.AITool
 		Type:       "framework",
 		Version:    version,
 		BinaryPath: appPath,
-		IsRunning:  &isRunning,
+		IsRunning:  &running,
 	}, true
 }

@@ -11,17 +11,62 @@ import (
 // Gather collects device information (hostname, serial, OS version, user identity).
 func Gather(ctx context.Context, exec executor.Executor) model.Device {
 	hostname, _ := exec.Hostname()
-	serial := getSerialNumber(ctx, exec)
-	osVersion := getOSVersion(ctx, exec)
 	userIdentity := getDeveloperIdentity(exec)
+	platform := exec.GOOS()
+
+	var serial, osVersion string
+	switch platform {
+	case "windows":
+		serial = getSerialNumberWindows(ctx, exec)
+		osVersion = getOSVersionWindows(ctx, exec)
+	default:
+		serial = getSerialNumber(ctx, exec)
+		osVersion = getOSVersion(ctx, exec)
+	}
 
 	return model.Device{
 		Hostname:     hostname,
 		SerialNumber: serial,
 		OSVersion:    osVersion,
-		Platform:     "darwin",
+		Platform:     platform,
 		UserIdentity: userIdentity,
 	}
+}
+
+func getSerialNumberWindows(ctx context.Context, exec executor.Executor) string {
+	// Try wmic
+	stdout, _, _, err := exec.Run(ctx, "wmic", "bios", "get", "serialnumber")
+	if err == nil {
+		lines := strings.Split(strings.TrimSpace(stdout), "\n")
+		if len(lines) >= 2 {
+			serial := strings.TrimSpace(lines[1])
+			if serial != "" && serial != "SerialNumber" {
+				return serial
+			}
+		}
+	}
+	// Fallback: PowerShell
+	stdout, _, _, err = exec.Run(ctx, "powershell", "-NoProfile", "-Command",
+		"(Get-CimInstance -ClassName Win32_BIOS).SerialNumber")
+	if err == nil {
+		s := strings.TrimSpace(stdout)
+		if s != "" {
+			return s
+		}
+	}
+	return "unknown"
+}
+
+func getOSVersionWindows(ctx context.Context, exec executor.Executor) string {
+	stdout, _, _, err := exec.Run(ctx, "powershell", "-NoProfile", "-Command",
+		"[System.Environment]::OSVersion.Version.ToString()")
+	if err == nil {
+		v := strings.TrimSpace(stdout)
+		if v != "" {
+			return v
+		}
+	}
+	return "unknown"
 }
 
 func getSerialNumber(ctx context.Context, exec executor.Executor) string {

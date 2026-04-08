@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
 	"github.com/step-security/dev-machine-guard/internal/cli"
@@ -84,6 +85,10 @@ func main() {
 
 	case "install":
 		fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
+		if runtime.GOOS == "windows" {
+			log.Error("Scheduled scanning is not yet supported on Windows. Use the scan command directly.")
+			os.Exit(1)
+		}
 		if !config.IsEnterpriseMode() {
 			log.Error("Enterprise configuration not found. Run '%s configure' or download the script from your StepSecurity dashboard.", os.Args[0])
 			os.Exit(1)
@@ -101,6 +106,10 @@ func main() {
 
 	case "uninstall":
 		fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
+		if runtime.GOOS == "windows" {
+			log.Error("Scheduled scanning is not yet supported on Windows. Use the scan command directly.")
+			os.Exit(1)
+		}
 		if err := launchd.Uninstall(exec, log); err != nil {
 			log.Error("%v", err)
 			os.Exit(1)
