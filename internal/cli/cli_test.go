@@ -181,3 +181,75 @@ func TestParse_FlagCombinations(t *testing.T) {
 		t.Errorf("unexpected config: %+v", cfg)
 	}
 }
+
+// Bug 1: --search-dirs greedily consumes single-dash flags and commands
+
+func TestParse_SearchDirsStopsAtCommand_Install(t *testing.T) {
+	cfg, err := Parse([]string{"--search-dirs", "/tmp", "install"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Command != "install" {
+		t.Errorf("expected command=install, got %q (search-dirs consumed it: %v)", cfg.Command, cfg.SearchDirs)
+	}
+	if len(cfg.SearchDirs) != 1 || cfg.SearchDirs[0] != "/tmp" {
+		t.Errorf("expected SearchDirs=[/tmp], got %v", cfg.SearchDirs)
+	}
+}
+
+func TestParse_SearchDirsRejectsSingleDashFlag(t *testing.T) {
+	// --search-dirs -v should error, not silently consume -v as a directory
+	_, err := Parse([]string{"--search-dirs", "-v"})
+	if err == nil {
+		t.Error("expected error when --search-dirs is followed by a flag")
+	}
+}
+
+func TestParse_SearchDirsStopsAtCommand_Uninstall(t *testing.T) {
+	cfg, err := Parse([]string{"--search-dirs", "/opt", "uninstall"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Command != "uninstall" {
+		t.Errorf("expected command=uninstall, got %q (search-dirs consumed it: %v)", cfg.Command, cfg.SearchDirs)
+	}
+	if len(cfg.SearchDirs) != 1 || cfg.SearchDirs[0] != "/opt" {
+		t.Errorf("expected SearchDirs=[/opt], got %v", cfg.SearchDirs)
+	}
+}
+
+func TestParse_SearchDirsStopsAtCommand_SendTelemetry(t *testing.T) {
+	cfg, err := Parse([]string{"--search-dirs", "/data", "send-telemetry"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Command != "send-telemetry" {
+		t.Errorf("expected command=send-telemetry, got %q (search-dirs consumed it: %v)", cfg.Command, cfg.SearchDirs)
+	}
+}
+
+func TestParse_SearchDirsStopsAtCommand_Configure(t *testing.T) {
+	cfg, err := Parse([]string{"--search-dirs", "/data", "configure"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Command != "configure" {
+		t.Errorf("expected command=configure, got %q (search-dirs consumed it: %v)", cfg.Command, cfg.SearchDirs)
+	}
+}
+
+// Bug 2: --html accepts flags as its filename argument
+
+func TestParse_HTMLRejectsFlag(t *testing.T) {
+	_, err := Parse([]string{"--html", "--verbose"})
+	if err == nil {
+		t.Error("expected error when --html argument looks like a flag, got nil")
+	}
+}
+
+func TestParse_HTMLRejectsDashFlag(t *testing.T) {
+	_, err := Parse([]string{"--html", "-v"})
+	if err == nil {
+		t.Error("expected error when --html argument is -v, got nil")
+	}
+}

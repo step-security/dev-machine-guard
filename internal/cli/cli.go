@@ -59,7 +59,7 @@ func Parse(args []string) (*Config, error) {
 			cfg.OutputFormat = "html"
 			cfg.OutputFormatSet = true
 			i++
-			if i >= len(args) {
+			if i >= len(args) || looksLikeFlag(args[i]) {
 				return nil, fmt.Errorf("--html requires a file path argument")
 			}
 			cfg.HTMLOutputFile = args[i]
@@ -77,15 +77,14 @@ func Parse(args []string) (*Config, error) {
 			cfg.ColorMode = mode
 		case arg == "--search-dirs":
 			i++
-			if i >= len(args) || strings.HasPrefix(args[i], "--") {
+			if i >= len(args) || looksLikeFlag(args[i]) || isCommand(args[i]) {
 				return nil, fmt.Errorf("--search-dirs requires at least one directory path argument")
 			}
 			if !searchDirsSet {
 				cfg.SearchDirs = nil
 				searchDirsSet = true
 			}
-			// Greedily consume non-flag arguments
-			for i < len(args) && !strings.HasPrefix(args[i], "--") {
+			for i < len(args) && !looksLikeFlag(args[i]) && !isCommand(args[i]) {
 				cfg.SearchDirs = append(cfg.SearchDirs, args[i])
 				i++
 			}
@@ -155,4 +154,17 @@ Configuration:
 		name, name, name, name, name, name, name, name,
 		name, name, name,
 		buildinfo.AgentURL)
+}
+
+func looksLikeFlag(s string) bool {
+	return strings.HasPrefix(s, "-")
+}
+
+var commands = map[string]bool{
+	"install": true, "uninstall": true, "send-telemetry": true,
+	"configure": true, "version": true, "help": true,
+}
+
+func isCommand(s string) bool {
+	return commands[s]
 }
