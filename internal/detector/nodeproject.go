@@ -2,11 +2,13 @@ package detector
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
 const maxNodeProjects = 1000
@@ -21,27 +23,31 @@ func NewNodeProjectDetector(exec executor.Executor) *NodeProjectDetector {
 }
 
 // CountProjects counts the number of Node.js projects found under the given directories.
-// It finds package.json files (excluding node_modules) up to a limit.
 func (d *NodeProjectDetector) CountProjects(_ context.Context, searchDirs []string) int {
-	count := 0
-	for _, dir := range searchDirs {
-		count += d.countInDir(dir)
-		if count >= maxNodeProjects {
-			return maxNodeProjects
-		}
-	}
-	return count
+	return len(d.ListProjects(searchDirs))
 }
 
-func (d *NodeProjectDetector) countInDir(dir string) int {
-	count := 0
+// ListProjects returns Node.js project paths with their detected package manager
+// and the dependencies listed in package.json.
+func (d *NodeProjectDetector) ListProjects(searchDirs []string) []model.ProjectInfo {
+	var projects []model.ProjectInfo
+	for _, dir := range searchDirs {
+		projects = append(projects, d.listInDir(dir)...)
+		if len(projects) >= maxNodeProjects {
+			return projects[:maxNodeProjects]
+		}
+	}
+	return projects
+}
+
+func (d *NodeProjectDetector) listInDir(dir string) []model.ProjectInfo {
+	var projects []model.ProjectInfo
 	_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
-			return nil // skip inaccessible dirs
+			return nil
 		}
 		if entry.IsDir() {
 			name := entry.Name()
-			// Skip node_modules, hidden dirs, and other irrelevant dirs
 			if name == "node_modules" || name == ".git" || name == ".cache" ||
 				strings.HasPrefix(name, ".") {
 				return filepath.SkipDir
@@ -49,14 +55,55 @@ func (d *NodeProjectDetector) countInDir(dir string) int {
 			return nil
 		}
 		if entry.Name() == "package.json" {
-			count++
-			if count >= maxNodeProjects {
+			projectDir := filepath.Dir(path)
+			pm := DetectProjectPM(d.exec, projectDir)
+			// Only include projects with node_modules installed.
+			// yarn-berry can use PnP (no node_modules), so check for .pnp.cjs instead.
+			hasNodeModules := d.exec.DirExists(filepath.Join(projectDir, "node_modules"))
+			isYarnBerryPnP := pm == "yarn-berry" && d.exec.FileExists(filepath.Join(projectDir, ".pnp.cjs"))
+			if !hasNodeModules && !isYarnBerryPnP {
+				return nil
+			}
+			pkgs := d.readPackageJSONDeps(path)
+			projects = append(projects, model.ProjectInfo{
+				Path:           projectDir,
+				PackageManager: pm,
+				Packages:       pkgs,
+			})
+			if len(projects) >= maxNodeProjects {
 				return filepath.SkipAll
 			}
 		}
 		return nil
 	})
-	return count
+	return projects
+}
+
+// readPackageJSONDeps reads dependencies + devDependencies from a package.json file.
+func (d *NodeProjectDetector) readPackageJSONDeps(packageJSONPath string) []model.PackageDetail {
+	data, err := d.exec.ReadFile(packageJSONPath)
+	if err != nil {
+		return nil
+	}
+	var pkg struct {
+		Dependencies    map[string]string `json:"dependencies"`
+		DevDependencies map[string]string `json:"devDependencies"`
+	}
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		return nil
+	}
+	total := len(pkg.Dependencies) + len(pkg.DevDependencies)
+	if total == 0 {
+		return nil
+	}
+	pkgs := make([]model.PackageDetail, 0, total)
+	for name, version := range pkg.Dependencies {
+		pkgs = append(pkgs, model.PackageDetail{Name: name, Version: version})
+	}
+	for name, version := range pkg.DevDependencies {
+		pkgs = append(pkgs, model.PackageDetail{Name: name, Version: version})
+	}
+	return pkgs
 }
 
 // DetectProjectPM detects which package manager a project uses based on lock files.
@@ -71,7 +118,6 @@ func DetectProjectPM(exec executor.Executor, projectDir string) string {
 		return "pnpm"
 	}
 	if exec.FileExists(filepath.Join(projectDir, "yarn.lock")) {
-		// Distinguish Yarn Classic from Yarn Berry
 		if exec.FileExists(filepath.Join(projectDir, ".yarnrc.yml")) || exec.DirExists(filepath.Join(projectDir, ".yarn", "releases")) {
 			return "yarn-berry"
 		}
@@ -80,5 +126,5 @@ func DetectProjectPM(exec executor.Executor, projectDir string) string {
 	if exec.FileExists(filepath.Join(projectDir, "package-lock.json")) {
 		return "npm"
 	}
-	return "npm" // default
+	return "npm"
 }

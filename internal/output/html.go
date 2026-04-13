@@ -11,15 +11,22 @@ import (
 )
 
 type htmlData struct {
-	ScanTime         string
-	Version          string
-	Device           model.Device
-	AITools          []model.AITool
-	IDEInstallations []model.IDE
-	IDEExtensions    []model.Extension
-	MCPConfigs       []model.MCPConfig
-	NodePkgManagers  []model.PkgManager
-	Summary          model.Summary
+	ScanTime          string
+	Version           string
+	Device            model.Device
+	AITools           []model.AITool
+	IDEInstallations  []model.IDE
+	IDEExtensions     []model.Extension
+	MCPConfigs        []model.MCPConfig
+	NodePkgManagers   []model.PkgManager
+	NodeProjects      []model.ProjectInfo
+	BrewPkgManager    *model.PkgManager
+	BrewFormulae      []model.BrewPackage
+	BrewCasks         []model.BrewPackage
+	PythonPkgManagers []model.PkgManager
+	PythonPackages    []model.PythonPackage
+	PythonProjects    []model.ProjectInfo
+	Summary           model.Summary
 }
 
 func typeLabel(t string) string {
@@ -46,20 +53,28 @@ func HTML(outputFile string, result *model.ScanResult) error {
 	scanTime := time.Unix(result.ScanTimestamp, 0).Format("2006-01-02 15:04:05")
 
 	data := htmlData{
-		ScanTime:         scanTime,
-		Version:          buildinfo.Version,
-		Device:           result.Device,
-		AITools:          result.AIAgentsAndTools,
-		IDEInstallations: result.IDEInstallations,
-		IDEExtensions:    result.IDEExtensions,
-		MCPConfigs:       result.MCPConfigs,
-		NodePkgManagers:  result.NodePkgManagers,
-		Summary:          result.Summary,
+		ScanTime:          scanTime,
+		Version:           buildinfo.Version,
+		Device:            result.Device,
+		AITools:           result.AIAgentsAndTools,
+		IDEInstallations:  result.IDEInstallations,
+		IDEExtensions:     result.IDEExtensions,
+		MCPConfigs:        result.MCPConfigs,
+		NodePkgManagers:   result.NodePkgManagers,
+		NodeProjects:      result.NodeProjects,
+		BrewPkgManager:    result.BrewPkgManager,
+		BrewFormulae:      result.BrewFormulae,
+		BrewCasks:         result.BrewCasks,
+		PythonPkgManagers: result.PythonPkgManagers,
+		PythonPackages:    result.PythonPackages,
+		PythonProjects:    result.PythonProjects,
+		Summary:           result.Summary,
 	}
 
 	funcMap := template.FuncMap{
 		"ideDisplayName": ideDisplayName,
 		"typeLabel":      typeLabel,
+		"add":            func(a, b int) int { return a + b },
 	}
 
 	tmpl, err := template.New("report").Funcs(funcMap).Parse(htmlTemplate)
@@ -93,7 +108,7 @@ const htmlTemplate = `<!DOCTYPE html>
     display: flex; gap: 12px; margin-bottom: 28px; flex-wrap: wrap;
   }
   .card {
-    flex: 1; min-width: 140px; background: #fff; border-radius: 10px;
+    flex: 1; min-width: 120px; background: #fff; border-radius: 10px;
     padding: 18px 16px; text-align: center;
     border: 1px solid #e8e0f0; box-shadow: 0 1px 3px rgba(112,55,245,0.06);
   }
@@ -108,14 +123,23 @@ const htmlTemplate = `<!DOCTYPE html>
   .device-grid .field-label { color: #8a94a6; min-width: 90px; font-size: 0.9em; }
   .device-grid .field-value { font-weight: 500; }
   .section { margin-bottom: 28px; }
-  .section h2 {
-    font-size: 1.1em; color: #7037f5; margin-bottom: 12px;
-    padding-bottom: 6px; border-bottom: 2px solid #f0ebff;
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between; cursor: pointer;
+    padding-bottom: 6px; border-bottom: 2px solid #f0ebff; margin-bottom: 12px;
+    user-select: none;
   }
-  .section h2 .count {
-    float: right; background: #f0ebff; color: #7037f5;
+  .section-header h2 { font-size: 1.1em; color: #7037f5; margin: 0; }
+  .section-header .count {
+    background: #f0ebff; color: #7037f5;
     padding: 2px 10px; border-radius: 10px; font-size: 0.85em;
   }
+  .section-header .toggle {
+    font-size: 1.2em; color: #7037f5; transition: transform 0.2s;
+    margin-left: 8px;
+  }
+  .section-header .toggle.collapsed { transform: rotate(-90deg); }
+  .section-body { overflow: hidden; transition: max-height 0.3s ease; }
+  .section-body.collapsed { max-height: 0 !important; overflow: hidden; }
   table {
     width: 100%; border-collapse: collapse; background: #fff;
     border-radius: 10px; overflow: hidden; border: 1px solid #e8e0f0;
@@ -131,6 +155,9 @@ const htmlTemplate = `<!DOCTYPE html>
     background: #f0ebff; color: #7037f5; padding: 2px 8px;
     border-radius: 10px; font-size: 0.8em;
   }
+  .project-row { background: #f8f5ff; }
+  .project-row td { font-weight: 600; color: #7037f5; border-top: 2px solid #e8e0f0; }
+  .pkg-row td { padding-left: 36px; color: #555; font-size: 0.88em; }
   .footer {
     text-align: center; padding: 24px; color: #8a94a6; font-size: 0.85em;
     border-top: 1px solid #e8e0f0; margin-top: 12px;
@@ -142,6 +169,8 @@ const htmlTemplate = `<!DOCTYPE html>
     body { background: #fff; }
     .header { background: #7037f5; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .card { break-inside: avoid; }
+    .section-body.collapsed { max-height: none !important; }
+    .toggle { display: none; }
   }
   @media (max-width: 600px) {
     .summary-cards { flex-direction: column; }
@@ -159,11 +188,13 @@ const htmlTemplate = `<!DOCTYPE html>
 <p class="scan-meta">Scanned at {{.ScanTime}} &middot; Agent v{{.Version}}</p>
 
 <div class="summary-cards">
-  <div class="card"><div class="number">{{.Summary.AIAgentsAndToolsCount}}</div><div class="label">AI Agents and Tools</div></div>
-  <div class="card"><div class="number">{{.Summary.IDEInstallationsCount}}</div><div class="label">IDEs & Desktop Apps</div></div>
+  <div class="card"><div class="number">{{.Summary.AIAgentsAndToolsCount}}</div><div class="label">AI Agents & Tools</div></div>
+  <div class="card"><div class="number">{{.Summary.IDEInstallationsCount}}</div><div class="label">IDEs & Apps</div></div>
   <div class="card"><div class="number">{{.Summary.IDEExtensionsCount}}</div><div class="label">IDE Extensions</div></div>
   <div class="card"><div class="number">{{.Summary.MCPConfigsCount}}</div><div class="label">MCP Servers</div></div>
   <div class="card"><div class="number">{{.Summary.NodeProjectsCount}}</div><div class="label">Node.js Projects</div></div>
+  <div class="card"><div class="number">{{add .Summary.BrewFormulaeCount .Summary.BrewCasksCount}}</div><div class="label">Brew Packages</div></div>
+  <div class="card"><div class="number">{{.Summary.PythonProjectsCount}}</div><div class="label">Python Venvs</div></div>
 </div>
 
 <div class="device-grid">
@@ -174,53 +205,157 @@ const htmlTemplate = `<!DOCTYPE html>
 </div>
 
 <div class="section">
-  <h2>AI Agents and Tools <span class="count">{{.Summary.AIAgentsAndToolsCount}}</span></h2>
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>AI Agents and Tools <span class="count">{{.Summary.AIAgentsAndToolsCount}}</span></h2>
+    <span class="toggle">&#9660;</span>
+  </div>
+  <div class="section-body">
   <table>
     <tr><th>Name</th><th>Version</th><th>Type</th><th>Vendor</th></tr>
     {{if .AITools}}{{range .AITools}}<tr><td>{{.Name}}</td><td>{{.Version}}</td><td><span class="type-badge">{{typeLabel .Type}}</span></td><td>{{.Vendor}}</td></tr>
     {{end}}{{else}}<tr><td colspan="4" style="text-align:center;color:#8a94a6;">None detected</td></tr>{{end}}
   </table>
+  </div>
 </div>
 
 <div class="section">
-  <h2>IDE &amp; AI Desktop Apps <span class="count">{{.Summary.IDEInstallationsCount}}</span></h2>
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>IDE &amp; AI Desktop Apps <span class="count">{{.Summary.IDEInstallationsCount}}</span></h2>
+    <span class="toggle">&#9660;</span>
+  </div>
+  <div class="section-body">
   <table>
     <tr><th>Name</th><th>Version</th><th>Vendor</th><th>Path</th></tr>
     {{if .IDEInstallations}}{{range .IDEInstallations}}<tr><td>{{ideDisplayName .IDEType}}</td><td>{{.Version}}</td><td>{{.Vendor}}</td><td style="color:#8a94a6;font-size:0.85em;">{{.InstallPath}}</td></tr>
     {{end}}{{else}}<tr><td colspan="4" style="text-align:center;color:#8a94a6;">None detected</td></tr>{{end}}
   </table>
+  </div>
 </div>
 
 <div class="section">
-  <h2>MCP Servers <span class="count">{{.Summary.MCPConfigsCount}}</span></h2>
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>MCP Servers <span class="count">{{.Summary.MCPConfigsCount}}</span></h2>
+    <span class="toggle">&#9660;</span>
+  </div>
+  <div class="section-body">
   <table>
     <tr><th>Source</th><th>Vendor</th></tr>
     {{if .MCPConfigs}}{{range .MCPConfigs}}<tr><td>{{.ConfigSource}}</td><td>{{.Vendor}}</td></tr>
     {{end}}{{else}}<tr><td colspan="2" style="text-align:center;color:#8a94a6;">None detected</td></tr>{{end}}
   </table>
+  </div>
 </div>
 
 <div class="section">
-  <h2>IDE Extensions <span class="count">{{.Summary.IDEExtensionsCount}}</span></h2>
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>IDE Extensions <span class="count">{{.Summary.IDEExtensionsCount}}</span></h2>
+    <span class="toggle collapsed">&#9660;</span>
+  </div>
+  <div class="section-body collapsed">
   <table>
     <tr><th>Extension ID</th><th>Version</th><th>Publisher</th><th>IDE</th></tr>
     {{if .IDEExtensions}}{{range .IDEExtensions}}<tr><td>{{.ID}}</td><td>{{.Version}}</td><td>{{.Publisher}}</td><td>{{.IDEType}}</td></tr>
     {{end}}{{else}}<tr><td colspan="4" style="text-align:center;color:#8a94a6;">None detected</td></tr>{{end}}
   </table>
+  </div>
 </div>
 
+{{if .NodePkgManagers}}
 <div class="section">
-  <h2>Node.js Packages</h2>
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>Node.js Projects <span class="count">{{.Summary.NodeProjectsCount}}</span></h2>
+    <span class="toggle collapsed">&#9660;</span>
+  </div>
+  <div class="section-body collapsed">
   <table>
     <tr><th>Package Manager</th><th>Version</th><th>Path</th></tr>
-    {{if .NodePkgManagers}}{{range .NodePkgManagers}}<tr><td>{{.Name}}</td><td>{{.Version}}</td><td>{{.Path}}</td></tr>
-    {{end}}{{else}}<tr><td colspan="3" style="text-align:center;color:#8a94a6;">No packages found (use --enable-npm-scan)</td></tr>{{end}}
+    {{range .NodePkgManagers}}<tr><td>{{.Name}}</td><td>{{.Version}}</td><td style="color:#8a94a6;font-size:0.85em;">{{.Path}}</td></tr>
+    {{end}}
   </table>
+  {{if .NodeProjects}}
+  <table style="margin-top:12px;">
+    <tr><th>Project Path</th><th>PM</th><th>Packages</th></tr>
+    {{range .NodeProjects}}<tr class="project-row"><td>{{.Path}}</td><td>{{.PackageManager}}</td><td>{{len .Packages}}</td></tr>
+    {{range .Packages}}<tr class="pkg-row"><td>{{.Name}}</td><td colspan="2">{{.Version}}</td></tr>
+    {{end}}{{end}}
+  </table>
+  {{end}}
+  </div>
 </div>
+{{end}}
+
+{{if .BrewPkgManager}}
+<div class="section">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>Homebrew <span class="count">{{add .Summary.BrewFormulaeCount .Summary.BrewCasksCount}} packages</span></h2>
+    <span class="toggle collapsed">&#9660;</span>
+  </div>
+  <div class="section-body collapsed">
+  <p style="margin-bottom:12px;color:#8a94a6;">Homebrew v{{.BrewPkgManager.Version}} &middot; {{.BrewPkgManager.Path}}</p>
+  {{if .BrewFormulae}}
+  <h3 style="font-size:0.95em;color:#7037f5;margin:8px 0;">Formulae ({{.Summary.BrewFormulaeCount}})</h3>
+  <table>
+    <tr><th>Name</th><th>Version</th></tr>
+    {{range .BrewFormulae}}<tr><td>{{.Name}}</td><td>{{.Version}}</td></tr>
+    {{end}}
+  </table>
+  {{end}}
+  {{if .BrewCasks}}
+  <h3 style="font-size:0.95em;color:#7037f5;margin:12px 0 8px;">Casks ({{.Summary.BrewCasksCount}})</h3>
+  <table>
+    <tr><th>Name</th><th>Version</th></tr>
+    {{range .BrewCasks}}<tr><td>{{.Name}}</td><td>{{.Version}}</td></tr>
+    {{end}}
+  </table>
+  {{end}}
+  </div>
+</div>
+{{end}}
+
+{{if .PythonPkgManagers}}
+<div class="section">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>Python <span class="count">{{.Summary.PythonProjectsCount}} venvs</span></h2>
+    <span class="toggle">&#9660;</span>
+  </div>
+  <div class="section-body">
+  <table>
+    <tr><th>Package Manager</th><th>Version</th><th>Path</th></tr>
+    {{range .PythonPkgManagers}}<tr><td>{{.Name}}</td><td>{{.Version}}</td><td style="color:#8a94a6;font-size:0.85em;">{{.Path}}</td></tr>
+    {{end}}
+  </table>
+  {{if .PythonPackages}}
+  <h3 style="font-size:0.95em;color:#7037f5;margin:12px 0 8px;">Global Packages ({{len .PythonPackages}})</h3>
+  <table>
+    <tr><th>Package</th><th>Version</th></tr>
+    {{range .PythonPackages}}<tr><td>{{.Name}}</td><td>{{.Version}}</td></tr>
+    {{end}}
+  </table>
+  {{end}}
+  {{if .PythonProjects}}
+  <h3 style="font-size:0.95em;color:#7037f5;margin:12px 0 8px;">Virtual Environment Projects ({{.Summary.PythonProjectsCount}})</h3>
+  <table>
+    <tr><th>Project Path</th><th>PM</th><th>Packages</th></tr>
+    {{range .PythonProjects}}<tr class="project-row"><td>{{.Path}}</td><td>{{.PackageManager}}</td><td>{{len .Packages}}</td></tr>
+    {{range .Packages}}<tr class="pkg-row"><td>{{.Name}}</td><td colspan="2">{{.Version}}</td></tr>
+    {{end}}{{end}}
+  </table>
+  {{end}}
+  </div>
+</div>
+{{end}}
 
 </div>
 <div class="footer">
   Generated by <a href="https://github.com/step-security/dev-machine-guard">StepSecurity Dev Machine Guard</a> v{{.Version}}
 </div>
+<script>
+function toggleSection(header) {
+  var body = header.nextElementSibling;
+  var toggle = header.querySelector('.toggle');
+  body.classList.toggle('collapsed');
+  toggle.classList.toggle('collapsed');
+}
+</script>
 </body>
 </html>`

@@ -17,6 +17,8 @@ var (
 	ScanFrequencyHours = "{{SCAN_FREQUENCY_HOURS}}"
 	SearchDirs         []string
 	EnableNPMScan      *bool  // nil=auto
+	EnableBrewScan     *bool  // nil=auto
+	EnablePythonScan   *bool  // nil=auto
 	ColorMode          string // "" means auto
 	OutputFormat       string // "" means default (pretty)
 	HTMLOutputFile     string // "" means not set
@@ -31,6 +33,8 @@ type ConfigFile struct {
 	ScanFrequencyHours string   `json:"scan_frequency_hours,omitempty"`
 	SearchDirs         []string `json:"search_dirs,omitempty"`
 	EnableNPMScan      *bool    `json:"enable_npm_scan,omitempty"`
+	EnableBrewScan     *bool    `json:"enable_brew_scan,omitempty"`
+	EnablePythonScan   *bool    `json:"enable_python_scan,omitempty"`
 	ColorMode          string   `json:"color_mode,omitempty"`
 	OutputFormat       string   `json:"output_format,omitempty"`
 	HTMLOutputFile     string   `json:"html_output_file,omitempty"`
@@ -78,6 +82,12 @@ func Load() {
 	}
 	if cfg.EnableNPMScan != nil && EnableNPMScan == nil {
 		EnableNPMScan = cfg.EnableNPMScan
+	}
+	if cfg.EnableBrewScan != nil && EnableBrewScan == nil {
+		EnableBrewScan = cfg.EnableBrewScan
+	}
+	if cfg.EnablePythonScan != nil && EnablePythonScan == nil {
+		EnablePythonScan = cfg.EnablePythonScan
 	}
 	if cfg.ColorMode != "" && ColorMode == "" {
 		ColorMode = cfg.ColorMode
@@ -154,6 +164,48 @@ func RunConfigure() error {
 		existing.EnableNPMScan = &v
 	default:
 		existing.EnableNPMScan = nil // auto
+	}
+
+	// Enable brew scan
+	currentBrew := "auto"
+	if existing.EnableBrewScan != nil {
+		if *existing.EnableBrewScan {
+			currentBrew = "true"
+		} else {
+			currentBrew = "false"
+		}
+	}
+	brewInput := promptValue(reader, "Enable Homebrew Scan (auto/true/false)", currentBrew)
+	switch strings.ToLower(brewInput) {
+	case "true":
+		v := true
+		existing.EnableBrewScan = &v
+	case "false":
+		v := false
+		existing.EnableBrewScan = &v
+	default:
+		existing.EnableBrewScan = nil
+	}
+
+	// Enable python scan
+	currentPython := "auto"
+	if existing.EnablePythonScan != nil {
+		if *existing.EnablePythonScan {
+			currentPython = "true"
+		} else {
+			currentPython = "false"
+		}
+	}
+	pythonInput := promptValue(reader, "Enable Python Scan (auto/true/false)", currentPython)
+	switch strings.ToLower(pythonInput) {
+	case "true":
+		v := true
+		existing.EnablePythonScan = &v
+	case "false":
+		v := false
+		existing.EnablePythonScan = &v
+	default:
+		existing.EnablePythonScan = nil
 	}
 
 	// Color mode
@@ -287,7 +339,9 @@ func ShowConfigure() {
 	fmt.Printf("  %-24s %s\n", "API Key:", maskSecret(cfg.APIKey))
 	fmt.Printf("  %-24s %s\n", "Scan Frequency:", displayFrequency(cfg.ScanFrequencyHours))
 	fmt.Printf("  %-24s %s\n", "Search Directories:", displayDirs(cfg.SearchDirs))
-	fmt.Printf("  %-24s %s\n", "Enable NPM Scan:", displayNPMScan(cfg.EnableNPMScan))
+	fmt.Printf("  %-24s %s\n", "Enable NPM Scan:", displayBoolScan(cfg.EnableNPMScan))
+	fmt.Printf("  %-24s %s\n", "Enable Brew Scan:", displayBoolScan(cfg.EnableBrewScan))
+	fmt.Printf("  %-24s %s\n", "Enable Python Scan:", displayBoolScan(cfg.EnablePythonScan))
 	fmt.Printf("  %-24s %s\n", "Color Mode:", displayColorMode(cfg.ColorMode))
 	fmt.Printf("  %-24s %s\n", "Output Format:", displayOutputFormat(cfg.OutputFormat))
 	if cfg.OutputFormat == "html" {
@@ -330,7 +384,7 @@ func displayDirs(dirs []string) string {
 	return strings.Join(dirs, ", ")
 }
 
-func displayNPMScan(v *bool) string {
+func displayBoolScan(v *bool) string {
 	if v == nil {
 		return "auto"
 	}

@@ -126,11 +126,56 @@
     }
   ],
   "node_packages": [],
+  "node_projects": [
+    { "path": "/Users/developer/projects/my-app", "package_manager": "npm" },
+    { "path": "/Users/developer/projects/api-server", "package_manager": "yarn" },
+    { "path": "/Users/developer/projects/frontend", "package_manager": "pnpm" }
+  ],
+  "brew_package_manager": {
+    "name": "homebrew",
+    "version": "4.3.5",
+    "path": "/opt/homebrew/bin/brew"
+  },
+  "brew_formulae": [
+    { "name": "ca-certificates", "version": "2024.2.2" },
+    { "name": "curl", "version": "8.4.0" },
+    { "name": "git", "version": "2.43.0" },
+    { "name": "openssl@3", "version": "3.2.0" }
+  ],
+  "brew_casks": [
+    { "name": "visual-studio-code", "version": "1.85.0" },
+    { "name": "firefox", "version": "120.0" }
+  ],
+  "python_package_managers": [
+    {
+      "name": "python3",
+      "version": "3.12.0",
+      "path": "/usr/local/bin/python3"
+    },
+    {
+      "name": "pip",
+      "version": "24.0",
+      "path": "/usr/local/bin/pip3"
+    }
+  ],
+  "python_packages": [
+    { "name": "requests", "version": "2.31.0" },
+    { "name": "numpy", "version": "1.26.2" },
+    { "name": "pip", "version": "24.0" }
+  ],
+  "python_projects": [
+    { "path": "/Users/developer/projects/ml-pipeline", "package_manager": "poetry" },
+    { "path": "/Users/developer/projects/data-analysis", "package_manager": "pip" },
+    { "path": "/Users/developer/projects/web-scraper", "package_manager": "uv" }
+  ],
   "summary": {
     "ai_agents_and_tools_count": 5,
     "ide_installations_count": 3,
     "ide_extensions_count": 4,
     "mcp_configs_count": 2,
-    "node_projects_count": 0
+    "node_projects_count": 3,
+    "brew_formulae_count": 42,
+    "brew_casks_count": 15,
+    "python_projects_count": 3
   }
 }

@@ -55,6 +55,13 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 	if len(result.NodePkgManagers) > 0 {
 		fmt.Fprintf(w, "    %-24s %s%d%s\n", "Node.js Projects", c.green, result.Summary.NodeProjectsCount, c.reset)
 	}
+	if result.BrewPkgManager != nil {
+		fmt.Fprintf(w, "    %-24s %s%d%s\n", "Homebrew Formulae", c.green, result.Summary.BrewFormulaeCount, c.reset)
+		fmt.Fprintf(w, "    %-24s %s%d%s\n", "Homebrew Casks", c.green, result.Summary.BrewCasksCount, c.reset)
+	}
+	if len(result.PythonPkgManagers) > 0 {
+		fmt.Fprintf(w, "    %-24s %s%d%s\n", "Python Projects", c.green, result.Summary.PythonProjectsCount, c.reset)
+	}
 	fmt.Fprintln(w)
 
 	// AI AGENTS AND TOOLS
@@ -139,6 +146,67 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 		fmt.Fprintln(w)
 
 		printSectionHeader(w, c, "NODE.JS PROJECTS", result.Summary.NodeProjectsCount)
+		for _, proj := range result.NodeProjects {
+			fmt.Fprintf(w, "    %s%s%s  %s[%s]%s\n", c.bold, proj.Path, c.reset, c.dim, proj.PackageManager, c.reset)
+			for _, pkg := range proj.Packages {
+				fmt.Fprintf(w, "      %-36s %s%s%s\n", pkg.Name, c.dim, pkg.Version, c.reset)
+			}
+		}
+		fmt.Fprintln(w)
+	}
+
+	// HOMEBREW (only if brew scan was enabled and brew found)
+	if result.BrewPkgManager != nil {
+		fmt.Fprintf(w, "  %s%sHOMEBREW%s%*s%sv%s%s\n",
+			c.purple, c.bold, c.reset, 27, "", c.dim, result.BrewPkgManager.Version, c.reset)
+		fmt.Fprintln(w)
+
+		if len(result.BrewFormulae) > 0 {
+			fmt.Fprintf(w, "    %s%sFormulae%s%*s%s%d found%s\n",
+				c.purple, c.bold, c.reset, 25, "", c.green, len(result.BrewFormulae), c.reset)
+			for _, pkg := range result.BrewFormulae {
+				fmt.Fprintf(w, "      %-36s %s%s%s\n", pkg.Name, c.dim, pkg.Version, c.reset)
+			}
+		} else {
+			fmt.Fprintf(w, "    %s%sFormulae%s%*s%s0 found%s\n",
+				c.purple, c.bold, c.reset, 25, "", c.green, c.reset)
+		}
+		fmt.Fprintln(w)
+
+		if len(result.BrewCasks) > 0 {
+			fmt.Fprintf(w, "    %s%sCasks%s%*s%s%d found%s\n",
+				c.purple, c.bold, c.reset, 28, "", c.green, len(result.BrewCasks), c.reset)
+			for _, pkg := range result.BrewCasks {
+				fmt.Fprintf(w, "      %-36s %s%s%s\n", pkg.Name, c.dim, pkg.Version, c.reset)
+			}
+		} else {
+			fmt.Fprintf(w, "    %s%sCasks%s%*s%s0 found%s\n",
+				c.purple, c.bold, c.reset, 28, "", c.green, c.reset)
+		}
+		fmt.Fprintln(w)
+	}
+
+	// PYTHON (only if python scan was enabled)
+	if len(result.PythonPkgManagers) > 0 {
+		printSectionHeader(w, c, "PYTHON PACKAGE MANAGERS", len(result.PythonPkgManagers))
+		for _, pm := range result.PythonPkgManagers {
+			fmt.Fprintf(w, "    %-24s %sv%s%s\n", pm.Name, c.dim, pm.Version, c.reset)
+		}
+		fmt.Fprintln(w)
+
+		printSectionHeader(w, c, "PYTHON GLOBAL PACKAGES", len(result.PythonPackages))
+		for _, pkg := range result.PythonPackages {
+			fmt.Fprintf(w, "    %-36s %s%s%s\n", pkg.Name, c.dim, pkg.Version, c.reset)
+		}
+		fmt.Fprintln(w)
+
+		printSectionHeader(w, c, "PYTHON VENV PROJECTS", result.Summary.PythonProjectsCount)
+		for _, proj := range result.PythonProjects {
+			fmt.Fprintf(w, "    %s%s%s  %s[%s]%s\n", c.bold, proj.Path, c.reset, c.dim, proj.PackageManager, c.reset)
+			for _, pkg := range proj.Packages {
+				fmt.Fprintf(w, "      %-36s %s%s%s\n", pkg.Name, c.dim, pkg.Version, c.reset)
+			}
+		}
 		fmt.Fprintln(w)
 	}
 

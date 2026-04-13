@@ -69,7 +69,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	// auto: disabled in community mode
 
 	var pkgManagers []model.PkgManager
-	nodeProjectsCount := 0
+	var nodeProjects []model.ProjectInfo
 
 	if npmEnabled {
 		log.StepStart("Detecting package managers")
@@ -81,11 +81,68 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		log.StepStart("Scanning Node.js projects")
 		start = time.Now()
 		projectDetector := detector.NewNodeProjectDetector(exec)
-		nodeProjectsCount = projectDetector.CountProjects(ctx, searchDirs)
+		nodeProjects = projectDetector.ListProjects(searchDirs)
 		log.StepDone(time.Since(start))
 	} else {
 		log.StepStart("Node.js package scanning")
 		log.StepSkip("disabled (use --enable-npm-scan to enable)")
+	}
+
+	// Homebrew scanning (community mode defaults to off, explicit flag overrides)
+	brewEnabled := false
+	if cfg.EnableBrewScan != nil {
+		brewEnabled = *cfg.EnableBrewScan
+	}
+
+	var brewPkgManager *model.PkgManager
+	var brewFormulae []model.BrewPackage
+	var brewCasks []model.BrewPackage
+
+	if brewEnabled {
+		log.StepStart("Detecting Homebrew packages")
+		start = time.Now()
+		brewDetector := detector.NewBrewDetector(exec)
+		brewPkgManager = brewDetector.DetectBrew(ctx)
+		if brewPkgManager != nil {
+			brewFormulae = brewDetector.ListFormulae(ctx)
+			brewCasks = brewDetector.ListCasks(ctx)
+		}
+		log.StepDone(time.Since(start))
+	} else {
+		log.StepStart("Homebrew package scanning")
+		log.StepSkip("disabled (use --enable-brew-scan to enable)")
+	}
+
+	// Python scanning (community mode defaults to off, explicit flag overrides)
+	pythonEnabled := false
+	if cfg.EnablePythonScan != nil {
+		pythonEnabled = *cfg.EnablePythonScan
+	}
+
+	var pythonPkgManagers []model.PkgManager
+	var pythonPackages []model.PythonPackage
+	var pythonProjects []model.ProjectInfo
+
+	if pythonEnabled {
+		log.StepStart("Detecting Python package managers")
+		start = time.Now()
+		pyDetector := detector.NewPythonPMDetector(exec)
+		pythonPkgManagers = pyDetector.DetectManagers(ctx)
+		log.StepDone(time.Since(start))
+
+		log.StepStart("Listing Python packages")
+		start = time.Now()
+		pythonPackages = pyDetector.ListPackages(ctx)
+		log.StepDone(time.Since(start))
+
+		log.StepStart("Scanning Python projects")
+		start = time.Now()
+		pyProjectDetector := detector.NewPythonProjectDetector(exec)
+		pythonProjects = pyProjectDetector.ListProjects(searchDirs)
+		log.StepDone(time.Since(start))
+	} else {
+		log.StepStart("Python package scanning")
+		log.StepSkip("disabled (use --enable-python-scan to enable)")
 	}
 
 	// Ensure no nil slices (JSON must emit [] not null)
@@ -101,27 +158,55 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	if pkgManagers == nil {
 		pkgManagers = []model.PkgManager{}
 	}
+	if nodeProjects == nil {
+		nodeProjects = []model.ProjectInfo{}
+	}
+	if pythonPkgManagers == nil {
+		pythonPkgManagers = []model.PkgManager{}
+	}
+	if pythonProjects == nil {
+		pythonProjects = []model.ProjectInfo{}
+	}
+	if brewFormulae == nil {
+		brewFormulae = []model.BrewPackage{}
+	}
+	if brewCasks == nil {
+		brewCasks = []model.BrewPackage{}
+	}
+	if pythonPackages == nil {
+		pythonPackages = []model.PythonPackage{}
+	}
 
 	// Build result
 	now := time.Now()
 	result := &model.ScanResult{
-		AgentVersion:     buildinfo.Version,
-		AgentURL:         buildinfo.AgentURL,
-		ScanTimestamp:    now.Unix(),
-		ScanTimestampISO: now.UTC().Format(time.RFC3339),
-		Device:           dev,
-		AIAgentsAndTools: aiTools,
-		IDEInstallations: ides,
-		IDEExtensions:    extensions,
-		MCPConfigs:       mcpConfigsToCommunity(mcpConfigs),
-		NodePkgManagers:  pkgManagers,
-		NodePackages:     []any{},
+		AgentVersion:      buildinfo.Version,
+		AgentURL:          buildinfo.AgentURL,
+		ScanTimestamp:     now.Unix(),
+		ScanTimestampISO:  now.UTC().Format(time.RFC3339),
+		Device:            dev,
+		AIAgentsAndTools:  aiTools,
+		IDEInstallations:  ides,
+		IDEExtensions:     extensions,
+		MCPConfigs:        mcpConfigsToCommunity(mcpConfigs),
+		NodePkgManagers:   pkgManagers,
+		NodePackages:      []any{},
+		NodeProjects:      nodeProjects,
+		BrewPkgManager:    brewPkgManager,
+		BrewFormulae:      brewFormulae,
+		BrewCasks:         brewCasks,
+		PythonPkgManagers: pythonPkgManagers,
+		PythonPackages:    pythonPackages,
+		PythonProjects:    pythonProjects,
 		Summary: model.Summary{
 			AIAgentsAndToolsCount: len(aiTools),
 			IDEInstallationsCount: len(ides),
 			IDEExtensionsCount:    len(extensions),
 			MCPConfigsCount:       len(mcpConfigs),
-			NodeProjectsCount:     nodeProjectsCount,
+			NodeProjectsCount:     len(nodeProjects),
+			BrewFormulaeCount:     len(brewFormulae),
+			BrewCasksCount:        len(brewCasks),
+			PythonProjectsCount:   len(pythonProjects),
 		},
 	}
 

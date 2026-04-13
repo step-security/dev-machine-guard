@@ -34,13 +34,18 @@ type Payload struct {
 	CollectedAt    int64  `json:"collected_at"`
 	NoUserLoggedIn bool   `json:"no_user_logged_in"`
 
-	IDEExtensions      []model.Extension           `json:"ide_extensions"`
-	IDEInstallations   []model.IDE                 `json:"ide_installations"`
-	NodePkgManagers    []model.PkgManager          `json:"node_package_managers"`
-	NodeGlobalPackages []model.NodeScanResult      `json:"node_global_packages"`
-	NodeProjects       []model.NodeScanResult      `json:"node_projects"`
-	AIAgents           []model.AITool              `json:"ai_agents"`
-	MCPConfigs         []model.MCPConfigEnterprise `json:"mcp_configs"`
+	IDEExtensions        []model.Extension           `json:"ide_extensions"`
+	IDEInstallations     []model.IDE                 `json:"ide_installations"`
+	NodePkgManagers      []model.PkgManager          `json:"node_package_managers"`
+	NodeGlobalPackages   []model.NodeScanResult      `json:"node_global_packages"`
+	NodeProjects         []model.NodeScanResult      `json:"node_projects"`
+	BrewPkgManager       *model.PkgManager           `json:"brew_package_manager,omitempty"`
+	BrewScans            []model.BrewScanResult      `json:"brew_scans"`
+	PythonPkgManagers    []model.PkgManager          `json:"python_package_managers"`
+	PythonGlobalPackages []model.PythonScanResult    `json:"python_global_packages"`
+	PythonProjects       []model.ProjectInfo         `json:"python_projects"`
+	AIAgents             []model.AITool              `json:"ai_agents"`
+	MCPConfigs           []model.MCPConfigEnterprise `json:"mcp_configs"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -55,10 +60,14 @@ type ExecutionLogs struct {
 }
 
 type PerformanceMetrics struct {
-	ExtensionsCount     int   `json:"extensions_count"`
-	NodePackagesScanMs  int64 `json:"node_packages_scan_ms"`
-	NodeGlobalPkgsCount int   `json:"node_global_packages_count"`
-	NodeProjectsCount   int   `json:"node_projects_count"`
+	ExtensionsCount       int   `json:"extensions_count"`
+	NodePackagesScanMs    int64 `json:"node_packages_scan_ms"`
+	NodeGlobalPkgsCount   int   `json:"node_global_packages_count"`
+	NodeProjectsCount     int   `json:"node_projects_count"`
+	BrewFormulaeCount     int   `json:"brew_formulae_count"`
+	BrewCasksCount        int   `json:"brew_casks_count"`
+	PythonGlobalPkgsCount int   `json:"python_global_packages_count"`
+	PythonProjectsCount   int   `json:"python_projects_count"`
 }
 
 // Run executes enterprise telemetry: scan, build payload, upload to S3.
@@ -186,6 +195,73 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	}
 	fmt.Fprintln(os.Stderr)
 
+	// Homebrew scanning
+	brewEnabled := true
+	if cfg.EnableBrewScan != nil {
+		brewEnabled = *cfg.EnableBrewScan
+	}
+
+	var brewPkgMgr *model.PkgManager
+	var brewScans []model.BrewScanResult
+
+	if brewEnabled {
+		log.Progress("Detecting Homebrew...")
+		brewDetector := detector.NewBrewDetector(exec)
+		brewPkgMgr = brewDetector.DetectBrew(ctx)
+		if brewPkgMgr != nil {
+			log.Progress("  Found: Homebrew v%s at %s", brewPkgMgr.Version, brewPkgMgr.Path)
+			brewScanner := detector.NewBrewScanner(exec, log)
+			if r, ok := brewScanner.ScanFormulae(ctx); ok {
+				brewScans = append(brewScans, r)
+			}
+			if r, ok := brewScanner.ScanCasks(ctx); ok {
+				brewScans = append(brewScans, r)
+			}
+		} else {
+			log.Progress("  Homebrew not found")
+		}
+		fmt.Fprintln(os.Stderr)
+	} else {
+		log.Progress("Homebrew scanning is DISABLED")
+		fmt.Fprintln(os.Stderr)
+	}
+
+	// Python scanning
+	pythonEnabled := true
+	if cfg.EnablePythonScan != nil {
+		pythonEnabled = *cfg.EnablePythonScan
+	}
+
+	var pythonPkgManagers []model.PkgManager
+	var pythonGlobalPkgs []model.PythonScanResult
+	var pythonProjects []model.ProjectInfo
+
+	if pythonEnabled {
+		log.Progress("Detecting Python package managers...")
+		pyDetector := detector.NewPythonPMDetector(exec)
+		pythonPkgManagers = pyDetector.DetectManagers(ctx)
+		for _, pm := range pythonPkgManagers {
+			log.Progress("  Found: %s v%s at %s", pm.Name, pm.Version, pm.Path)
+		}
+		if len(pythonPkgManagers) == 0 {
+			log.Progress("  No Python package managers found")
+		}
+
+		log.Progress("Scanning Python global packages...")
+		pyScanner := detector.NewPythonScanner(exec, log)
+		pythonGlobalPkgs = pyScanner.ScanGlobalPackages(ctx)
+		log.Progress("  Found %d Python global package source(s)", len(pythonGlobalPkgs))
+
+		log.Progress("Searching for Python projects...")
+		pyProjectDetector := detector.NewPythonProjectDetector(exec)
+		pythonProjects = pyProjectDetector.ListProjects(searchDirs)
+		log.Progress("  Found %d Python projects", len(pythonProjects))
+		fmt.Fprintln(os.Stderr)
+	} else {
+		log.Progress("Python scanning is DISABLED")
+		fmt.Fprintln(os.Stderr)
+	}
+
 	// Node.js scanning
 	npmEnabled := true
 	if cfg.EnableNPMScan != nil {
@@ -232,6 +308,18 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	if nodeProjects == nil {
 		nodeProjects = []model.NodeScanResult{}
 	}
+	if brewScans == nil {
+		brewScans = []model.BrewScanResult{}
+	}
+	if pythonPkgManagers == nil {
+		pythonPkgManagers = []model.PkgManager{}
+	}
+	if pythonGlobalPkgs == nil {
+		pythonGlobalPkgs = []model.PythonScanResult{}
+	}
+	if pythonProjects == nil {
+		pythonProjects = []model.ProjectInfo{}
+	}
 
 	// Finalize execution logs before building payload
 	execLogsBase64 := capture.Finalize()
@@ -250,13 +338,18 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		CollectedAt:    endTime.Unix(),
 		NoUserLoggedIn: dev.UserIdentity == "" || dev.UserIdentity == "unknown",
 
-		IDEExtensions:      extensions,
-		IDEInstallations:   ides,
-		NodePkgManagers:    pkgManagers,
-		NodeGlobalPackages: globalPkgs,
-		NodeProjects:       nodeProjects,
-		AIAgents:           allAI,
-		MCPConfigs:         mcpConfigs,
+		IDEExtensions:        extensions,
+		IDEInstallations:     ides,
+		NodePkgManagers:      pkgManagers,
+		NodeGlobalPackages:   globalPkgs,
+		NodeProjects:         nodeProjects,
+		BrewPkgManager:       brewPkgMgr,
+		BrewScans:            brewScans,
+		PythonPkgManagers:    pythonPkgManagers,
+		PythonGlobalPackages: pythonGlobalPkgs,
+		PythonProjects:       pythonProjects,
+		AIAgents:             allAI,
+		MCPConfigs:           mcpConfigs,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,
