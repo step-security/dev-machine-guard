@@ -11,6 +11,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
+//nolint:errcheck // fmt.Fprint* to io.Writer; errors surface through the writer
 // Pretty writes human-readable formatted output.
 func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 	c := setupColors(colorMode)
@@ -143,6 +144,7 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 	return nil
 }
 
+//nolint:errcheck // terminal output
 func printSectionHeader(w io.Writer, c *colors, title string, count int) {
 	padding := 35 - len(title)
 	if padding < 1 {

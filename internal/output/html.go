@@ -41,7 +41,7 @@ func HTML(outputFile string, result *model.ScanResult) error {
 	if err != nil {
 		return fmt.Errorf("creating HTML file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanTime := time.Unix(result.ScanTimestamp, 0).Format("2006-01-02 15:04:05")
 

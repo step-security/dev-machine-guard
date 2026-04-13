@@ -18,8 +18,9 @@
 !docs/**/*.html
 !images/**/*.html
 
-# Go build artifacts
-/stepsecurity-dev-machine-guard
+# Go build artifacts — never commit compiled binaries
+**/stepsecurity-dev-machine-guard
+*.exe
 dist/
 
 # Temporary files

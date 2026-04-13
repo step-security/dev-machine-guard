@@ -177,14 +177,6 @@ func readPlistVersion(ctx context.Context, exec executor.Executor, plistPath str
 	return "unknown"
 }
 
-// readAppVersion reads app version using platform-appropriate method.
-func readAppVersion(ctx context.Context, exec executor.Executor, darwinPlistPath, winAppName string) string {
-	if exec.GOOS() == "windows" {
-		return readRegistryVersion(ctx, exec, winAppName)
-	}
-	return readPlistVersion(ctx, exec, darwinPlistPath)
-}
-
 // readRegistryVersion searches Windows Uninstall registry keys for DisplayVersion.
 func readRegistryVersion(ctx context.Context, exec executor.Executor, appName string) string {
 	for _, root := range []string{

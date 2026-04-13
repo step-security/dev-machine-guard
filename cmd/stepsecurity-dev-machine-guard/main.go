@@ -84,7 +84,7 @@ func main() {
 		}
 
 	case "install":
-		fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
+		_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
 		if runtime.GOOS == "windows" {
 			log.Error("Scheduled scanning is not yet supported on Windows. Use the scan command directly.")
 			os.Exit(1)
@@ -105,7 +105,7 @@ func main() {
 		}
 
 	case "uninstall":
-		fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
+		_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
 		if runtime.GOOS == "windows" {
 			log.Error("Scheduled scanning is not yet supported on Windows. Use the scan command directly.")
 			os.Exit(1)

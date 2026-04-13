@@ -304,7 +304,7 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 	if err != nil {
 		return fmt.Errorf("requesting upload URL: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var urlResp struct {
 		UploadURL string `json:"upload_url"`
@@ -330,7 +330,7 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 	if err != nil {
 		return fmt.Errorf("uploading to S3: %w", err)
 	}
-	defer putResp.Body.Close()
+	defer func() { _ = putResp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, putResp.Body)
 
 	if putResp.StatusCode != http.StatusOK {
@@ -360,7 +360,7 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 	if err != nil {
 		return fmt.Errorf("notifying backend: %w", err)
 	}
-	defer notifyResp.Body.Close()
+	defer func() { _ = notifyResp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, notifyResp.Body)
 
 	if notifyResp.StatusCode != http.StatusOK && notifyResp.StatusCode != http.StatusCreated {

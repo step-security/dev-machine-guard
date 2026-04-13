@@ -192,7 +192,7 @@ func stripJSONCComments(input []byte) []byte {
 		// Block comment
 		if i+1 < len(input) && input[i] == '/' && input[i+1] == '*' {
 			i += 2
-			for i+1 < len(input) && !(input[i] == '*' && input[i+1] == '/') {
+			for i+1 < len(input) && (input[i] != '*' || input[i+1] != '/') {
 				i++
 			}
 			i += 2 // skip */

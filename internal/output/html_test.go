@@ -10,7 +10,7 @@ import (
 
 func TestHTML_GeneratesFile(t *testing.T) {
 	tmpFile := os.TempDir() + "/test-dmg-report.html"
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	result := &model.ScanResult{
 		AgentVersion:     "1.9.0",
@@ -55,7 +55,7 @@ func TestHTML_GeneratesFile(t *testing.T) {
 
 func TestHTML_ContainsData(t *testing.T) {
 	tmpFile := os.TempDir() + "/test-dmg-data.html"
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	result := &model.ScanResult{
 		ScanTimestamp: 1700000000,

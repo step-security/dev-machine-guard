@@ -93,13 +93,13 @@ func Parse(args []string) (*Config, error) {
 		case arg == "--verbose":
 			cfg.Verbose = true
 		case arg == "-v" || arg == "--version" || arg == "version":
-			fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n", buildinfo.VersionString())
+			_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n", buildinfo.VersionString())
 			os.Exit(0)
 		case arg == "-h" || arg == "--help" || arg == "help":
 			printHelp()
 			os.Exit(0)
 		default:
-			return nil, fmt.Errorf("Unknown option: %s\nRun '%s --help' for usage information.", arg, filepath.Base(os.Args[0]))
+			return nil, fmt.Errorf("unknown option: %s, run '%s --help' for usage information", arg, filepath.Base(os.Args[0]))
 		}
 		i++
 	}
@@ -109,7 +109,7 @@ func Parse(args []string) (*Config, error) {
 
 func printHelp() {
 	name := filepath.Base(os.Args[0])
-	fmt.Fprintf(os.Stdout, `StepSecurity Dev Machine Guard v%s
+	_, _ = fmt.Fprintf(os.Stdout, `StepSecurity Dev Machine Guard v%s
 
 Usage: %s [COMMAND] [OPTIONS]
 

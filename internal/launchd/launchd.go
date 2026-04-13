@@ -80,7 +80,7 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	if err != nil {
 		return fmt.Errorf("creating plist file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	tmpl, err := template.New("plist").Parse(plistTmpl)
 	if err != nil {
@@ -136,7 +136,7 @@ func doUninstall(ctx context.Context, exec executor.Executor, log *progress.Logg
 
 	// Remove plist
 	if exec.FileExists(plistPath) {
-		os.Remove(plistPath)
+		_ = os.Remove(plistPath)
 		log.Progress("Removed plist file: %s", plistPath)
 	}
 

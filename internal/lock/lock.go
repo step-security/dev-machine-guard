@@ -42,7 +42,7 @@ func Acquire(_ executor.Executor) (*Lock, error) {
 	}
 
 	_, err = fmt.Fprintf(f, "%d", os.Getpid())
-	f.Close()
+	_ = f.Close()
 	if err != nil {
 		_ = os.Remove(lockFilePath)
 		return nil, fmt.Errorf("writing PID to lock file: %w", err)

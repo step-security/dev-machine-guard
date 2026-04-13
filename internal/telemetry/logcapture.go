@@ -71,7 +71,7 @@ func (lc *LogCapture) Finalize() string {
 	}
 
 	// Close write end so the reader goroutine exits
-	lc.pipeWrite.Close()
+	_ = lc.pipeWrite.Close()
 	lc.pipeWrite = nil
 	lc.mu.Unlock()
 	<-lc.done
@@ -79,7 +79,7 @@ func (lc *LogCapture) Finalize() string {
 
 	// Restore stderr
 	os.Stderr = lc.origErr
-	lc.pipeRead.Close()
+	_ = lc.pipeRead.Close()
 
 	return base64.StdEncoding.EncodeToString(lc.buf.Bytes())
 }
