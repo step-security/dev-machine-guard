@@ -7,12 +7,12 @@ permissions: {}
 
 jobs:
   release:
-    name: Build, Sign & Release
+    name: Build & Draft Release
     runs-on: ubuntu-latest
     permissions:
-      contents: write # create tag, release, and upload assets
-      id-token: write # OIDC token for cosign keyless signing and build provenance
-      attestations: write # SLSA build provenance
+      contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -36,12 +36,11 @@ jobs:
           tag="v${version}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "Detected version: ${version} (tag: ${tag})"
 
       - name: Check tag does not already exist
         run: |
           if git rev-parse "refs/tags/${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
-            echo "::error::Tag ${{ steps.version.outputs.tag }} already exists. Bump Version in internal/buildinfo/version.go before releasing."
+            echo "::error::Tag ${{ steps.version.outputs.tag }} already exists."
             exit 1
           fi
 
@@ -69,81 +68,53 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
 
-      - name: Prepare release artifacts for signing
+      - name: Locate binaries
+        id: binaries
         run: |
-          # Copy binaries to match the exact names users download from the release.
-          # GoReleaser uploads as name_template (e.g. stepsecurity-dev-machine-guard_darwin_amd64)
-          # but keeps them in build subdirs locally. We copy to dist/ with release names
-          # so cosign signs the same bytes users verify against.
+          DARWIN=$(find dist -type f -name '*darwin_unnotarized' | head -1)
+          WIN_AMD64=$(find dist -type f -name '*windows_amd64.exe' | head -1)
+          WIN_ARM64=$(find dist -type f -name '*windows_arm64.exe' | head -1)
 
-          declare -A ARTIFACTS=(
-            ["darwin_amd64"]="stepsecurity-dev-machine-guard"
-            ["darwin_arm64"]="stepsecurity-dev-machine-guard"
-            ["windows_amd64"]="stepsecurity-dev-machine-guard.exe"
-            ["windows_arm64"]="stepsecurity-dev-machine-guard.exe"
-          )
-
-          for target in "${!ARTIFACTS[@]}"; do
-            binary="${ARTIFACTS[$target]}"
-            src=$(find dist -type f -name "$binary" -path "*${target}*" | head -1)
-            if [ -z "$src" ] || [ ! -f "$src" ]; then
-              echo "::error::Binary not found for ${target}"
+          for label in "darwin:${DARWIN}" "windows_amd64:${WIN_AMD64}" "windows_arm64:${WIN_ARM64}"; do
+            name="${label%%:*}"
+            path="${label#*:}"
+            if [ -z "$path" ] || [ ! -f "$path" ]; then
+              echo "::error::Binary not found for ${name}"
               find dist -type f
               exit 1
             fi
-            cp "$src" "dist/stepsecurity-dev-machine-guard_${target}${binary##stepsecurity-dev-machine-guard}"
           done
-          echo "Prepared release artifacts for signing"
 
-      - name: Sign artifacts with Sigstore (keyless)
+          echo "darwin=$DARWIN" >> "$GITHUB_OUTPUT"
+          echo "win_amd64=$WIN_AMD64" >> "$GITHUB_OUTPUT"
+          echo "win_arm64=$WIN_ARM64" >> "$GITHUB_OUTPUT"
+
+      - name: Sign artifacts with Sigstore
         run: |
           for artifact in \
-            dist/stepsecurity-dev-machine-guard_darwin_amd64 \
-            dist/stepsecurity-dev-machine-guard_darwin_arm64 \
-            dist/stepsecurity-dev-machine-guard_windows_amd64.exe \
-            dist/stepsecurity-dev-machine-guard_windows_arm64.exe \
+            "${{ steps.binaries.outputs.darwin }}" \
+            "${{ steps.binaries.outputs.win_amd64 }}" \
+            "${{ steps.binaries.outputs.win_arm64 }}" \
             stepsecurity-dev-machine-guard.sh; do
             cosign sign-blob "$artifact" --bundle "${artifact}.bundle" --yes
           done
 
-      - name: Generate checksums
-        run: |
-          sha256sum \
-            dist/stepsecurity-dev-machine-guard_darwin_amd64 \
-            dist/stepsecurity-dev-machine-guard_darwin_arm64 \
-            dist/stepsecurity-dev-machine-guard_windows_amd64.exe \
-            dist/stepsecurity-dev-machine-guard_windows_arm64.exe \
-            stepsecurity-dev-machine-guard.sh \
-            > dist/cosign-checksums.txt
-
-      - name: Upload signature bundles and checksums to release
+      - name: Upload cosign bundles
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ steps.version.outputs.tag }}" \
-            dist/stepsecurity-dev-machine-guard_darwin_amd64.bundle \
-            dist/stepsecurity-dev-machine-guard_darwin_arm64.bundle \
-            dist/stepsecurity-dev-machine-guard_windows_amd64.exe.bundle \
-            dist/stepsecurity-dev-machine-guard_windows_arm64.exe.bundle \
+            "${{ steps.binaries.outputs.darwin }}.bundle" \
+            "${{ steps.binaries.outputs.win_amd64 }}.bundle" \
+            "${{ steps.binaries.outputs.win_arm64 }}.bundle" \
             dist/stepsecurity-dev-machine-guard.sh.bundle \
-            dist/cosign-checksums.txt \
             --clobber
-
-      - name: Mark release as immutable (not a draft, not a prerelease)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release edit "${{ steps.version.outputs.tag }}" \
-            --draft=false \
-            --prerelease=false \
-            --latest
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
-            dist/stepsecurity-dev-machine-guard_darwin_amd64
-            dist/stepsecurity-dev-machine-guard_darwin_arm64
-            dist/stepsecurity-dev-machine-guard_windows_amd64.exe
-            dist/stepsecurity-dev-machine-guard_windows_arm64.exe
+            ${{ steps.binaries.outputs.darwin }}
+            ${{ steps.binaries.outputs.win_amd64 }}
+            ${{ steps.binaries.outputs.win_arm64 }}
             stepsecurity-dev-machine-guard.sh

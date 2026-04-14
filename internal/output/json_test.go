@@ -10,7 +10,7 @@ import (
 
 func TestJSON_ValidOutput(t *testing.T) {
 	result := &model.ScanResult{
-		AgentVersion:     "1.9.0",
+		AgentVersion:     "1.9.1",
 		AgentURL:         "https://github.com/step-security/dev-machine-guard",
 		ScanTimestamp:    1700000000,
 		ScanTimestampISO: "2023-11-14T22:13:20Z",

@@ -39,26 +39,27 @@ func main() {
 	}
 	if !cfg.OutputFormatSet && config.OutputFormat != "" {
 		cfg.OutputFormat = config.OutputFormat
-		cfg.OutputFormatSet = true // treat saved format as explicitly set
+		// Note: do NOT set OutputFormatSet here — saved config is a default preference,
+		// not an explicit CLI flag. Enterprise auto-detection should still work
+		// when no CLI flags are passed.
 		if config.OutputFormat == "html" && cfg.HTMLOutputFile == "" && config.HTMLOutputFile != "" {
 			cfg.HTMLOutputFile = config.HTMLOutputFile
 		}
 	}
 
 	exec := executor.NewReal()
-	quiet := !cfg.Verbose
-	// Apply saved quiet preference
-	if config.Quiet != nil && *config.Quiet {
-		quiet = true
+
+	// Quiet resolution: config is the base, CLI overrides.
+	quiet := true
+	if config.Quiet != nil {
+		quiet = *config.Quiet
 	}
-	// --verbose always overrides quiet config
 	if cfg.Verbose {
 		quiet = false
 	}
 	if cfg.OutputFormat == "json" {
 		quiet = true
 	}
-	// Enterprise commands (send-telemetry, install) always show progress
 	if cfg.Command == "send-telemetry" || cfg.Command == "install" {
 		quiet = false
 	}

@@ -12,7 +12,7 @@
   <a href="https://github.com/step-security/dev-machine-guard/actions/workflows/go.yml"><img src="https://github.com/step-security/dev-machine-guard/actions/workflows/go.yml/badge.svg" alt="Go CI"></a>
   <a href="https://github.com/step-security/dev-machine-guard/actions/workflows/shellcheck.yml"><img src="https://github.com/step-security/dev-machine-guard/actions/workflows/shellcheck.yml/badge.svg" alt="ShellCheck CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License: Apache 2.0"></a>
-  <a href="https://github.com/step-security/dev-machine-guard/releases"><img src="https://img.shields.io/badge/version-1.9.0-purple.svg" alt="Version 1.9.0"></a>
+  <a href="https://github.com/step-security/dev-machine-guard/releases"><img src="https://img.shields.io/badge/version-1.9.1-purple.svg" alt="Version 1.9.1"></a>
 </p>
 
 <p align="center">

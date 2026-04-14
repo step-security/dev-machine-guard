@@ -13,7 +13,7 @@ func TestHTML_GeneratesFile(t *testing.T) {
 	defer func() { _ = os.Remove(tmpFile) }()
 
 	result := &model.ScanResult{
-		AgentVersion:     "1.9.0",
+		AgentVersion:     "1.9.1",
 		ScanTimestamp:    1700000000,
 		ScanTimestampISO: "2023-11-14T22:13:20Z",
 		Device: model.Device{

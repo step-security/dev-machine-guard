@@ -3,14 +3,14 @@ package buildinfo
 import "fmt"
 
 const (
-	Version  = "1.9.0"
+	Version  = "1.9.1"
 	AgentURL = "https://github.com/step-security/dev-machine-guard"
 )
 
 // Build-time variables set via -ldflags by goreleaser or Makefile.
 var (
 	GitCommit     string // short commit hash (Makefile) or full commit (goreleaser)
-	ReleaseTag    string // e.g., "v1.9.0" (goreleaser only)
+	ReleaseTag    string // e.g., "v1.9.1" (goreleaser only)
 	ReleaseBranch string // e.g., "main" (goreleaser only)
 )
 

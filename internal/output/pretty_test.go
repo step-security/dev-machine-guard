@@ -10,7 +10,7 @@ import (
 
 func TestPretty_ContainsHeaders(t *testing.T) {
 	result := &model.ScanResult{
-		AgentVersion:     "1.9.0",
+		AgentVersion:     "1.9.1",
 		ScanTimestamp:    1700000000,
 		ScanTimestampISO: "2023-11-14T22:13:20Z",
 		Device: model.Device{
@@ -40,7 +40,7 @@ func TestPretty_ContainsHeaders(t *testing.T) {
 
 func TestPretty_ContainsBanner(t *testing.T) {
 	result := &model.ScanResult{
-		AgentVersion:     "1.9.0",
+		AgentVersion:     "1.9.1",
 		ScanTimestamp:    1700000000,
 		Device:           model.Device{Hostname: "test"},
 		AIAgentsAndTools: []model.AITool{},

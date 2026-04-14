@@ -22,14 +22,28 @@ builds:
     env:
       - CGO_ENABLED=0
 
-archives:
-  - format: binary
-    name_template: "{{ .Binary }}_{{ .Os }}_{{ .Arch }}"
+universal_binaries:
+  - id: universal
+    ids:
+      - stepsecurity-dev-machine-guard
+    replace: true
+    name_template: "stepsecurity-dev-machine-guard-{{ .Version }}-darwin_unnotarized"
 
-checksum:
-  name_template: "{{ .ProjectName }}_{{ .Version }}_SHA256SUMS"
-  algorithm: sha256
+archives:
+  - id: darwin
+    ids:
+      - universal
+    formats:
+      - binary
+    name_template: "stepsecurity-dev-machine-guard-{{ .Version }}-darwin_unnotarized"
+  - id: windows
+    ids:
+      - stepsecurity-dev-machine-guard
+    formats:
+      - binary
+    name_template: "stepsecurity-dev-machine-guard-{{ .Version }}-windows_{{ .Arch }}"
 
 release:
+  draft: true
   extra_files:
     - glob: stepsecurity-dev-machine-guard.sh
