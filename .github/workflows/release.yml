@@ -75,39 +75,46 @@ jobs:
           # GoReleaser uploads as name_template (e.g. stepsecurity-dev-machine-guard_darwin_amd64)
           # but keeps them in build subdirs locally. We copy to dist/ with release names
           # so cosign signs the same bytes users verify against.
-          AMD64_SRC=$(find dist -type f -name 'stepsecurity-dev-machine-guard' -path '*darwin_amd64*' | head -1)
-          ARM64_SRC=$(find dist -type f -name 'stepsecurity-dev-machine-guard' -path '*darwin_arm64*' | head -1)
 
-          for label in "amd64:${AMD64_SRC}" "arm64:${ARM64_SRC}"; do
-            name="${label%%:*}"
-            path="${label#*:}"
-            if [ -z "$path" ] || [ ! -f "$path" ]; then
-              echo "::error::Binary not found for ${name}"
+          declare -A ARTIFACTS=(
+            ["darwin_amd64"]="stepsecurity-dev-machine-guard"
+            ["darwin_arm64"]="stepsecurity-dev-machine-guard"
+            ["windows_amd64"]="stepsecurity-dev-machine-guard.exe"
+            ["windows_arm64"]="stepsecurity-dev-machine-guard.exe"
+          )
+
+          for target in "${!ARTIFACTS[@]}"; do
+            binary="${ARTIFACTS[$target]}"
+            src=$(find dist -type f -name "$binary" -path "*${target}*" | head -1)
+            if [ -z "$src" ] || [ ! -f "$src" ]; then
+              echo "::error::Binary not found for ${target}"
               find dist -type f
               exit 1
             fi
+            cp "$src" "dist/stepsecurity-dev-machine-guard_${target}${binary##stepsecurity-dev-machine-guard}"
           done
-
-          cp "$AMD64_SRC" dist/stepsecurity-dev-machine-guard_darwin_amd64
-          cp "$ARM64_SRC" dist/stepsecurity-dev-machine-guard_darwin_arm64
           echo "Prepared release artifacts for signing"
 
       - name: Sign artifacts with Sigstore (keyless)
         run: |
-          cosign sign-blob dist/stepsecurity-dev-machine-guard_darwin_amd64 \
-            --bundle dist/stepsecurity-dev-machine-guard_darwin_amd64.bundle --yes
-          cosign sign-blob dist/stepsecurity-dev-machine-guard_darwin_arm64 \
-            --bundle dist/stepsecurity-dev-machine-guard_darwin_arm64.bundle --yes
-          cosign sign-blob stepsecurity-dev-machine-guard.sh \
-            --bundle dist/stepsecurity-dev-machine-guard.sh.bundle --yes
+          for artifact in \
+            dist/stepsecurity-dev-machine-guard_darwin_amd64 \
+            dist/stepsecurity-dev-machine-guard_darwin_arm64 \
+            dist/stepsecurity-dev-machine-guard_windows_amd64.exe \
+            dist/stepsecurity-dev-machine-guard_windows_arm64.exe \
+            stepsecurity-dev-machine-guard.sh; do
+            cosign sign-blob "$artifact" --bundle "${artifact}.bundle" --yes
+          done
 
       - name: Generate checksums
         run: |
-          # Separate checksum file for cosign-signed artifacts (script + bundles).
-          # GoReleaser already generates checksums for the Go binaries in its own SHA256SUMS file.
-          sha256sum dist/stepsecurity-dev-machine-guard_darwin_amd64 > dist/cosign-checksums.txt
-          sha256sum dist/stepsecurity-dev-machine-guard_darwin_arm64 >> dist/cosign-checksums.txt
-          sha256sum stepsecurity-dev-machine-guard.sh >> dist/cosign-checksums.txt
+          sha256sum \
+            dist/stepsecurity-dev-machine-guard_darwin_amd64 \
+            dist/stepsecurity-dev-machine-guard_darwin_arm64 \
+            dist/stepsecurity-dev-machine-guard_windows_amd64.exe \
+            dist/stepsecurity-dev-machine-guard_windows_arm64.exe \
+            stepsecurity-dev-machine-guard.sh \
+            > dist/cosign-checksums.txt
 
       - name: Upload signature bundles and checksums to release
         env:
@@ -116,6 +123,8 @@ jobs:
           gh release upload "${{ steps.version.outputs.tag }}" \
             dist/stepsecurity-dev-machine-guard_darwin_amd64.bundle \
             dist/stepsecurity-dev-machine-guard_darwin_arm64.bundle \
+            dist/stepsecurity-dev-machine-guard_windows_amd64.exe.bundle \
+            dist/stepsecurity-dev-machine-guard_windows_arm64.exe.bundle \
             dist/stepsecurity-dev-machine-guard.sh.bundle \
             dist/cosign-checksums.txt \
             --clobber
@@ -135,4 +144,6 @@ jobs:
           subject-path: |
             dist/stepsecurity-dev-machine-guard_darwin_amd64
             dist/stepsecurity-dev-machine-guard_darwin_arm64
+            dist/stepsecurity-dev-machine-guard_windows_amd64.exe
+            dist/stepsecurity-dev-machine-guard_windows_arm64.exe
             stepsecurity-dev-machine-guard.sh

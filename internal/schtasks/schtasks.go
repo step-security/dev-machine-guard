@@ -11,7 +11,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
-const taskName = "StepSecurity Agent"
+const taskName = "StepSecurity Dev Machine Guard"
 
 // Install configures Windows Task Scheduler for periodic scanning.
 // If already installed, upgrades by removing and re-creating the task.
