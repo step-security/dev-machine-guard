@@ -116,8 +116,8 @@ Usage: %s [COMMAND] [OPTIONS]
 Commands:
   configure            Configure enterprise settings and search directories
   configure show       Show current configuration
-  install              Install launchd for periodic scanning (enterprise)
-  uninstall            Remove launchd configuration (enterprise)
+  install              Install scheduled scanning (enterprise)
+  uninstall            Remove scheduled scanning (enterprise)
   send-telemetry       Upload scan results to the StepSecurity dashboard (enterprise)
 
 Output formats (community mode, mutually exclusive):

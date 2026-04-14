@@ -12,6 +12,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/launchd"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 	"github.com/step-security/dev-machine-guard/internal/scan"
+	"github.com/step-security/dev-machine-guard/internal/schtasks"
 	"github.com/step-security/dev-machine-guard/internal/telemetry"
 )
 
@@ -85,17 +86,20 @@ func main() {
 
 	case "install":
 		_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
-		if runtime.GOOS == "windows" {
-			log.Error("Scheduled scanning is not yet supported on Windows. Use the scan command directly.")
-			os.Exit(1)
-		}
 		if !config.IsEnterpriseMode() {
 			log.Error("Enterprise configuration not found. Run '%s configure' or download the script from your StepSecurity dashboard.", os.Args[0])
 			os.Exit(1)
 		}
-		if err := launchd.Install(exec, log); err != nil {
-			log.Error("%v", err)
-			os.Exit(1)
+		if runtime.GOOS == "windows" {
+			if err := schtasks.Install(exec, log); err != nil {
+				log.Error("%v", err)
+				os.Exit(1)
+			}
+		} else {
+			if err := launchd.Install(exec, log); err != nil {
+				log.Error("%v", err)
+				os.Exit(1)
+			}
 		}
 		log.Progress("Sending initial telemetry...")
 		fmt.Println()
@@ -107,12 +111,15 @@ func main() {
 	case "uninstall":
 		_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
 		if runtime.GOOS == "windows" {
-			log.Error("Scheduled scanning is not yet supported on Windows. Use the scan command directly.")
-			os.Exit(1)
-		}
-		if err := launchd.Uninstall(exec, log); err != nil {
-			log.Error("%v", err)
-			os.Exit(1)
+			if err := schtasks.Uninstall(exec, log); err != nil {
+				log.Error("%v", err)
+				os.Exit(1)
+			}
+		} else {
+			if err := launchd.Uninstall(exec, log); err != nil {
+				log.Error("%v", err)
+				os.Exit(1)
+			}
 		}
 
 	default:
