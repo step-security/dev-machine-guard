@@ -53,12 +53,12 @@ var ideDefinitions = []ideSpec{
 	},
 	{
 		AppName: "Claude", IDEType: "claude_desktop", Vendor: "Anthropic",
-		AppPath: "/Applications/Claude.app",
+		AppPath:  "/Applications/Claude.app",
 		WinPaths: []string{`%LOCALAPPDATA%\Programs\Claude`},
 	},
 	{
 		AppName: "Microsoft Copilot", IDEType: "microsoft_copilot_desktop", Vendor: "Microsoft",
-		AppPath: "/Applications/Copilot.app",
+		AppPath:  "/Applications/Copilot.app",
 		WinPaths: []string{`%LOCALAPPDATA%\Programs\Copilot`},
 	},
 }

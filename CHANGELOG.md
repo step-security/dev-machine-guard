@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [1.9.2] - 2026-04-15
+
+### Fixed
+
+- LaunchDaemon now sets `HOME` in the plist environment so `configDir()` resolves correctly at runtime (fixes "Enterprise configuration not found" error in periodic scans).
+- Progress and error log lines now include timestamps for easier debugging.
+
 ## [1.9.1] - 2026-04-07
 
 ### Fixed
@@ -65,6 +72,7 @@ First open-source release. The scanning engine was previously an internal enterp
 - Execution log capture and base64 encoding
 - Instance locking to prevent concurrent runs
 
+[1.9.2]: https://github.com/step-security/dev-machine-guard/compare/v1.9.1...v1.9.2
 [1.9.1]: https://github.com/step-security/dev-machine-guard/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/step-security/dev-machine-guard/compare/v1.8.2...v1.9.0
 [1.8.2]: https://github.com/step-security/dev-machine-guard/compare/v1.8.1...v1.8.2

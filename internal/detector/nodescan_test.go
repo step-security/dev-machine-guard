@@ -12,7 +12,7 @@ import (
 
 func newTestScanner(exec *executor.Mock) *NodeScanner {
 	log := progress.NewLogger(false)
-	return NewNodeScanner(exec, log)
+	return NewNodeScanner(exec, log, "")
 }
 
 func TestNodeScanner_ScanNPMGlobal(t *testing.T) {

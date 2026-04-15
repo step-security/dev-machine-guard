@@ -68,12 +68,24 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 		}
 	}
 
+	// Resolve the real user's home directory for the plist.
+	// When running as root (LaunchDaemon), launchd provides a minimal environment
+	// without HOME, so os.UserHomeDir() would fail at runtime. We detect the
+	// logged-in console user now and bake their HOME into the plist.
+	userHome := ""
+	if exec.IsRoot() {
+		if u, err := exec.LoggedInUser(); err == nil {
+			userHome = u.HomeDir
+		}
+	}
+
 	// Generate plist
 	plistData := plistTemplateData{
 		Label:           label,
 		BinaryPath:      binaryPath,
 		IntervalSeconds: intervalSeconds,
 		LogDir:          logDir,
+		UserHome:        userHome,
 	}
 
 	f, err := os.Create(plistPath)
@@ -163,6 +175,7 @@ type plistTemplateData struct {
 	BinaryPath      string
 	IntervalSeconds int
 	LogDir          string
+	UserHome        string // non-empty when running as root; baked into plist as HOME env var
 }
 
 const plistTmpl = `<?xml version="1.0" encoding="UTF-8"?>
@@ -179,7 +192,12 @@ const plistTmpl = `<?xml version="1.0" encoding="UTF-8"?>
     <key>StartInterval</key>
     <integer>{{.IntervalSeconds}}</integer>
     <key>RunAtLoad</key>
-    <false/>
+    <false/>{{if .UserHome}}
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>{{.UserHome}}</string>
+    </dict>{{end}}
     <key>StandardOutPath</key>
     <string>{{.LogDir}}/agent.log</string>
     <key>StandardErrorPath</key>

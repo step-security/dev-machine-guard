@@ -3,6 +3,7 @@ package detector
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,12 +31,72 @@ func getMaxProjectScanBytes() int64 {
 
 // NodeScanner performs enterprise-mode node scanning (raw output, base64 encoded).
 type NodeScanner struct {
-	exec executor.Executor
-	log  *progress.Logger
+	exec         executor.Executor
+	log          *progress.Logger
+	loggedInUser string // when non-empty and running as root, commands run as this user
 }
 
-func NewNodeScanner(exec executor.Executor, log *progress.Logger) *NodeScanner {
-	return &NodeScanner{exec: exec, log: log}
+func NewNodeScanner(exec executor.Executor, log *progress.Logger, loggedInUser string) *NodeScanner {
+	return &NodeScanner{exec: exec, log: log, loggedInUser: loggedInUser}
+}
+
+// shouldRunAsUser returns true when commands should be delegated to the logged-in user.
+// Only applies on Unix — RunAsUser uses sudo which is not available on Windows.
+func (s *NodeScanner) shouldRunAsUser() bool {
+	return s.exec.GOOS() != "windows" && s.exec.IsRoot() && s.loggedInUser != ""
+}
+
+// runCmd runs a command, delegating to the logged-in user when running as root.
+// This ensures package manager commands use the real user's PATH and config.
+func (s *NodeScanner) runCmd(ctx context.Context, timeout time.Duration, name string, args ...string) (string, string, int, error) {
+	if s.shouldRunAsUser() {
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		cmd := name
+		for _, a := range args {
+			cmd += " " + a
+		}
+		stdout, err := s.exec.RunAsUser(ctx, s.loggedInUser, cmd)
+		if err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				return stdout, "", 124, fmt.Errorf("command timed out after %s", timeout)
+			}
+			return stdout, "", 1, err
+		}
+		return stdout, "", 0, nil
+	}
+	return s.exec.RunWithTimeout(ctx, timeout, name, args...)
+}
+
+// runShellCmd runs a shell command string, delegating to the logged-in user when running as root.
+// Falls through to the platform-aware free function for the normal (non-delegation) path.
+func (s *NodeScanner) runShellCmd(ctx context.Context, timeout time.Duration, shellCmd string) (string, string, int, error) {
+	if s.shouldRunAsUser() {
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		stdout, err := s.exec.RunAsUser(ctx, s.loggedInUser, shellCmd)
+		if err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				return stdout, "", 124, fmt.Errorf("command timed out after %s", timeout)
+			}
+			return stdout, "", 1, err
+		}
+		return stdout, "", 0, nil
+	}
+	return runShellCmd(ctx, s.exec, timeout, shellCmd)
+}
+
+// checkPath checks if a binary is available, using the logged-in user's PATH when running as root.
+func (s *NodeScanner) checkPath(ctx context.Context, name string) error {
+	if s.shouldRunAsUser() {
+		path, err := s.exec.RunAsUser(ctx, s.loggedInUser, "which "+name)
+		if err != nil || path == "" {
+			return fmt.Errorf("%s not found in user PATH", name)
+		}
+		return nil
+	}
+	_, err := s.exec.LookPath(name)
+	return err
 }
 
 // ScanGlobalPackages runs npm/yarn/pnpm list -g and returns raw base64-encoded results.
@@ -61,7 +122,7 @@ func (s *NodeScanner) ScanGlobalPackages(ctx context.Context) []model.NodeScanRe
 }
 
 func (s *NodeScanner) scanNPMGlobal(ctx context.Context) (model.NodeScanResult, bool) {
-	if _, err := s.exec.LookPath("npm"); err != nil {
+	if err := s.checkPath(ctx, "npm"); err != nil {
 		return model.NodeScanResult{}, false
 	}
 
@@ -72,7 +133,7 @@ func (s *NodeScanner) scanNPMGlobal(ctx context.Context) (model.NodeScanResult, 
 	}
 
 	start := time.Now()
-	stdout, stderr, exitCode, _ := s.exec.RunWithTimeout(ctx, 60*time.Second, "npm", "list", "-g", "--json", "--depth=3")
+	stdout, stderr, exitCode, _ := s.runCmd(ctx, 60*time.Second, "npm", "list", "-g", "--json", "--depth=3")
 	duration := time.Since(start).Milliseconds()
 
 	errMsg := ""
@@ -94,7 +155,7 @@ func (s *NodeScanner) scanNPMGlobal(ctx context.Context) (model.NodeScanResult, 
 }
 
 func (s *NodeScanner) scanYarnGlobal(ctx context.Context) (model.NodeScanResult, bool) {
-	if _, err := s.exec.LookPath("yarn"); err != nil {
+	if err := s.checkPath(ctx, "yarn"); err != nil {
 		return model.NodeScanResult{}, false
 	}
 
@@ -106,7 +167,7 @@ func (s *NodeScanner) scanYarnGlobal(ctx context.Context) (model.NodeScanResult,
 
 	start := time.Now()
 	shellCmd := "cd " + platformShellQuote(s.exec, globalDir) + " && yarn list --json --depth=0"
-	stdout, stderr, exitCode, _ := runShellCmd(ctx, s.exec, 60*time.Second, shellCmd)
+	stdout, stderr, exitCode, _ := s.runShellCmd(ctx, 60*time.Second, shellCmd)
 	duration := time.Since(start).Milliseconds()
 
 	errMsg := ""
@@ -128,7 +189,7 @@ func (s *NodeScanner) scanYarnGlobal(ctx context.Context) (model.NodeScanResult,
 }
 
 func (s *NodeScanner) scanPnpmGlobal(ctx context.Context) (model.NodeScanResult, bool) {
-	if _, err := s.exec.LookPath("pnpm"); err != nil {
+	if err := s.checkPath(ctx, "pnpm"); err != nil {
 		return model.NodeScanResult{}, false
 	}
 
@@ -140,7 +201,7 @@ func (s *NodeScanner) scanPnpmGlobal(ctx context.Context) (model.NodeScanResult,
 	globalDir = filepath.Dir(globalDir)
 
 	start := time.Now()
-	stdout, stderr, exitCode, _ := s.exec.RunWithTimeout(ctx, 60*time.Second, "pnpm", "list", "-g", "--json", "--depth=3")
+	stdout, stderr, exitCode, _ := s.runCmd(ctx, 60*time.Second, "pnpm", "list", "-g", "--json", "--depth=3")
 	duration := time.Since(start).Milliseconds()
 
 	errMsg := ""
@@ -286,7 +347,7 @@ func (s *NodeScanner) scanProject(ctx context.Context, projectDir string) model.
 	for _, a := range args {
 		cmdStr += " " + a
 	}
-	stdout, stderr, exitCode, _ := runShellCmd(ctx, s.exec, 30*time.Second, cmdStr)
+	stdout, stderr, exitCode, _ := s.runShellCmd(ctx, 30*time.Second, cmdStr)
 	duration := time.Since(start).Milliseconds()
 
 	errMsg := ""
@@ -308,7 +369,7 @@ func (s *NodeScanner) scanProject(ctx context.Context, projectDir string) model.
 }
 
 func (s *NodeScanner) getVersion(ctx context.Context, binary, flag string) string {
-	stdout, _, _, err := s.exec.RunWithTimeout(ctx, 10*time.Second, binary, flag)
+	stdout, _, _, err := s.runCmd(ctx, 10*time.Second, binary, flag)
 	if err != nil {
 		return "unknown"
 	}
@@ -316,7 +377,7 @@ func (s *NodeScanner) getVersion(ctx context.Context, binary, flag string) strin
 }
 
 func (s *NodeScanner) getOutput(ctx context.Context, binary string, args ...string) string {
-	stdout, _, _, err := s.exec.RunWithTimeout(ctx, 10*time.Second, binary, args...)
+	stdout, _, _, err := s.runCmd(ctx, 10*time.Second, binary, args...)
 	if err != nil {
 		return ""
 	}

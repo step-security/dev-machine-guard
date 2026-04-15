@@ -124,8 +124,8 @@ func getDeveloperIdentity(exec executor.Executor) string {
 			return v
 		}
 	}
-	// Fallback to current username
-	u, err := exec.CurrentUser()
+	// Fallback to logged-in username (detects console user when running as root)
+	u, err := exec.LoggedInUser()
 	if err == nil {
 		return u.Username
 	}

@@ -140,7 +140,7 @@ func resolveSearchDirs(exec executor.Executor, dirs []string) []string {
 	resolved := make([]string, 0, len(dirs))
 	for _, d := range dirs {
 		if d == "$HOME" {
-			u, err := exec.CurrentUser()
+			u, err := exec.LoggedInUser()
 			if err == nil {
 				d = u.HomeDir
 			}

@@ -34,9 +34,9 @@ type Payload struct {
 	CollectedAt    int64  `json:"collected_at"`
 	NoUserLoggedIn bool   `json:"no_user_logged_in"`
 
-	IDEExtensions      []model.Extension          `json:"ide_extensions"`
-	IDEInstallations   []model.IDE                `json:"ide_installations"`
-	NodePkgManagers    []model.PkgManager         `json:"node_package_managers"`
+	IDEExtensions      []model.Extension           `json:"ide_extensions"`
+	IDEInstallations   []model.IDE                 `json:"ide_installations"`
+	NodePkgManagers    []model.PkgManager          `json:"node_package_managers"`
 	NodeGlobalPackages []model.NodeScanResult      `json:"node_global_packages"`
 	NodeProjects       []model.NodeScanResult      `json:"node_projects"`
 	AIAgents           []model.AITool              `json:"ai_agents"`
@@ -102,6 +102,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	log.Progress("Device ID (Serial): %s", dev.SerialNumber)
 	log.Progress("OS Version: %s", dev.OSVersion)
 	log.Progress("Developer: %s", dev.UserIdentity)
+
+	// Detect logged-in user for running commands as the real user when root.
+	// Skip "root" — if LoggedInUser() fell back to CurrentUser(), delegating
+	// via sudo -H -u root is pointless and changes PATH/env behavior.
+	loggedInUsername := ""
+	if u, err := exec.LoggedInUser(); err == nil && u.Username != "root" {
+		loggedInUsername = u.Username
+	}
 
 	// Resolve search dirs
 	searchDirs := resolveSearchDirs(exec, cfg.SearchDirs)
@@ -201,7 +209,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		fmt.Fprintln(os.Stderr)
 
 		log.Progress("Scanning globally installed packages...")
-		nodeScanner := detector.NewNodeScanner(exec, log)
+		nodeScanner := detector.NewNodeScanner(exec, log, loggedInUsername)
 		globalPkgs = nodeScanner.ScanGlobalPackages(ctx)
 		log.Progress("  Found %d global package location(s)", len(globalPkgs))
 		fmt.Fprintln(os.Stderr)
@@ -375,7 +383,7 @@ func resolveSearchDirs(exec executor.Executor, dirs []string) []string {
 	resolved := make([]string, 0, len(dirs))
 	for _, d := range dirs {
 		if d == "$HOME" {
-			u, err := exec.CurrentUser()
+			u, err := exec.LoggedInUser()
 			if err == nil {
 				d = u.HomeDir
 			}

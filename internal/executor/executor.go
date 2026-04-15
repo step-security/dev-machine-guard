@@ -9,6 +9,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -45,6 +46,11 @@ type Executor interface {
 	HomeDir(username string) (string, error)
 	// Glob returns filenames matching a pattern.
 	Glob(pattern string) ([]string, error)
+	// LoggedInUser returns the actual logged-in console user.
+	// When running as root on macOS (e.g., via LaunchDaemon), this detects the
+	// real console user via /dev/console rather than returning root.
+	// Falls back to CurrentUser() when not root or on non-macOS platforms.
+	LoggedInUser() (*user.User, error)
 	// GOOS returns the runtime operating system.
 	GOOS() string
 }
@@ -129,6 +135,33 @@ func (r *Real) HomeDir(username string) (string, error) {
 
 func (r *Real) Glob(pattern string) ([]string, error) {
 	return filepath.Glob(pattern)
+}
+
+func (r *Real) LoggedInUser() (*user.User, error) {
+	if runtime.GOOS != "darwin" || !r.IsRoot() {
+		return r.CurrentUser()
+	}
+
+	// On macOS running as root, detect the console user.
+	// This mirrors the bash script's get_logged_in_user_info() which uses
+	// stat -f%Su /dev/console to find who is actually logged in.
+	ctx := context.Background()
+	stdout, _, _, err := r.Run(ctx, "stat", "-f%Su", "/dev/console")
+	if err != nil {
+		return r.CurrentUser()
+	}
+
+	username := strings.TrimSpace(stdout)
+	if username == "" || username == "root" || username == "_windowserver" {
+		return r.CurrentUser()
+	}
+
+	u, err := user.Lookup(username)
+	if err != nil {
+		return r.CurrentUser()
+	}
+
+	return u, nil
 }
 
 func (r *Real) GOOS() string {

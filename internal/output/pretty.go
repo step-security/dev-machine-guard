@@ -11,8 +11,9 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
-//nolint:errcheck // fmt.Fprint* to io.Writer; errors surface through the writer
 // Pretty writes human-readable formatted output.
+//
+//nolint:errcheck // fmt.Fprint* to io.Writer; errors surface through the writer
 func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 	c := setupColors(colorMode)
 

@@ -57,4 +57,3 @@ func (l *Lock) Release() {
 		_ = os.Remove(l.path)
 	}
 }
-
