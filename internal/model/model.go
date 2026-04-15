@@ -2,18 +2,18 @@ package model
 
 // ScanResult is the community-mode JSON output structure.
 type ScanResult struct {
-	AgentVersion     string        `json:"agent_version"`
-	AgentURL         string        `json:"agent_url"`
-	ScanTimestamp    int64         `json:"scan_timestamp"`
-	ScanTimestampISO string        `json:"scan_timestamp_iso"`
-	Device           Device        `json:"device"`
-	AIAgentsAndTools []AITool      `json:"ai_agents_and_tools"`
-	IDEInstallations []IDE         `json:"ide_installations"`
-	IDEExtensions    []Extension   `json:"ide_extensions"`
-	MCPConfigs       []MCPConfig   `json:"mcp_configs"`
-	NodePkgManagers  []PkgManager  `json:"node_package_managers"`
-	NodePackages     []any `json:"node_packages"`
-	Summary          Summary       `json:"summary"`
+	AgentVersion     string       `json:"agent_version"`
+	AgentURL         string       `json:"agent_url"`
+	ScanTimestamp    int64        `json:"scan_timestamp"`
+	ScanTimestampISO string       `json:"scan_timestamp_iso"`
+	Device           Device       `json:"device"`
+	AIAgentsAndTools []AITool     `json:"ai_agents_and_tools"`
+	IDEInstallations []IDE        `json:"ide_installations"`
+	IDEExtensions    []Extension  `json:"ide_extensions"`
+	MCPConfigs       []MCPConfig  `json:"mcp_configs"`
+	NodePkgManagers  []PkgManager `json:"node_package_managers"`
+	NodePackages     []any        `json:"node_packages"`
+	Summary          Summary      `json:"summary"`
 }
 
 type Device struct {
@@ -63,9 +63,9 @@ type MCPConfig struct {
 
 // MCPConfigEnterprise includes base64-encoded content for enterprise mode.
 type MCPConfigEnterprise struct {
-	ConfigSource       string `json:"config_source"`
-	ConfigPath         string `json:"config_path"`
-	Vendor             string `json:"vendor"`
+	ConfigSource        string `json:"config_source"`
+	ConfigPath          string `json:"config_path"`
+	Vendor              string `json:"vendor"`
 	ConfigContentBase64 string `json:"config_content_base64,omitempty"`
 }
 
@@ -86,13 +86,13 @@ type Summary struct {
 // NodeScanResult holds raw scan output for enterprise telemetry.
 // Used for both global packages and per-project scans.
 type NodeScanResult struct {
-	ProjectPath       string `json:"project_path"`
-	PackageManager    string `json:"package_manager"`
-	PMVersion         string `json:"package_manager_version"`
-	WorkingDirectory  string `json:"working_directory"`
-	RawStdoutBase64   string `json:"raw_stdout_base64"`
-	RawStderrBase64   string `json:"raw_stderr_base64"`
-	Error             string `json:"error"`
-	ExitCode          int    `json:"exit_code"`
-	ScanDurationMs    int64  `json:"scan_duration_ms"`
+	ProjectPath      string `json:"project_path"`
+	PackageManager   string `json:"package_manager"`
+	PMVersion        string `json:"package_manager_version"`
+	WorkingDirectory string `json:"working_directory"`
+	RawStdoutBase64  string `json:"raw_stdout_base64"`
+	RawStderrBase64  string `json:"raw_stderr_base64"`
+	Error            string `json:"error"`
+	ExitCode         int    `json:"exit_code"`
+	ScanDurationMs   int64  `json:"scan_duration_ms"`
 }

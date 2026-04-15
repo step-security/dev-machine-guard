@@ -290,9 +290,9 @@ type mockFileInfo struct {
 	dir  bool
 }
 
-func (fi *mockFileInfo) Name() string      { return fi.name }
-func (fi *mockFileInfo) Size() int64       { return fi.size }
-func (fi *mockFileInfo) IsDir() bool       { return fi.dir }
+func (fi *mockFileInfo) Name() string       { return fi.name }
+func (fi *mockFileInfo) Size() int64        { return fi.size }
+func (fi *mockFileInfo) IsDir() bool        { return fi.dir }
 func (fi *mockFileInfo) ModTime() time.Time { return time.Time{} }
 func (fi *mockFileInfo) Mode() os.FileMode  { return 0o644 }
 func (fi *mockFileInfo) Sys() any           { return nil }

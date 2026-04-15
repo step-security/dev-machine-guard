@@ -41,8 +41,9 @@ func NewNodeScanner(exec executor.Executor, log *progress.Logger, loggedInUser s
 }
 
 // shouldRunAsUser returns true when commands should be delegated to the logged-in user.
+// Only applies on Unix — RunAsUser uses sudo which is not available on Windows.
 func (s *NodeScanner) shouldRunAsUser() bool {
-	return s.exec.IsRoot() && s.loggedInUser != ""
+	return s.exec.GOOS() != "windows" && s.exec.IsRoot() && s.loggedInUser != ""
 }
 
 // runCmd runs a command, delegating to the logged-in user when running as root.
@@ -68,6 +69,7 @@ func (s *NodeScanner) runCmd(ctx context.Context, timeout time.Duration, name st
 }
 
 // runShellCmd runs a shell command string, delegating to the logged-in user when running as root.
+// Falls through to the platform-aware free function for the normal (non-delegation) path.
 func (s *NodeScanner) runShellCmd(ctx context.Context, timeout time.Duration, shellCmd string) (string, string, int, error) {
 	if s.shouldRunAsUser() {
 		ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -81,7 +83,7 @@ func (s *NodeScanner) runShellCmd(ctx context.Context, timeout time.Duration, sh
 		}
 		return stdout, "", 0, nil
 	}
-	return s.exec.RunWithTimeout(ctx, timeout, "bash", "-c", shellCmd)
+	return runShellCmd(ctx, s.exec, timeout, shellCmd)
 }
 
 // checkPath checks if a binary is available, using the logged-in user's PATH when running as root.
@@ -165,7 +167,7 @@ func (s *NodeScanner) scanYarnGlobal(ctx context.Context) (model.NodeScanResult,
 
 	start := time.Now()
 	shellCmd := "cd " + platformShellQuote(s.exec, globalDir) + " && yarn list --json --depth=0"
-	stdout, stderr, exitCode, _ := runShellCmd(ctx, s.exec, 60*time.Second, shellCmd)
+	stdout, stderr, exitCode, _ := s.runShellCmd(ctx, 60*time.Second, shellCmd)
 	duration := time.Since(start).Milliseconds()
 
 	errMsg := ""
@@ -345,7 +347,7 @@ func (s *NodeScanner) scanProject(ctx context.Context, projectDir string) model.
 	for _, a := range args {
 		cmdStr += " " + a
 	}
-	stdout, stderr, exitCode, _ := runShellCmd(ctx, s.exec, 30*time.Second, cmdStr)
+	stdout, stderr, exitCode, _ := s.runShellCmd(ctx, 30*time.Second, cmdStr)
 	duration := time.Since(start).Milliseconds()
 
 	errMsg := ""

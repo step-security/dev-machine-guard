@@ -54,10 +54,10 @@ var cliToolDefinitions = []cliToolSpec{
 		},
 	},
 	{
-		Name:        "github-copilot-cli",
-		Vendor:      "Microsoft",
-		Binaries:    []string{"copilot", "gh-copilot"},
-		ConfigDirs:  []string{"~/.config/github-copilot"},
+		Name:       "github-copilot-cli",
+		Vendor:     "Microsoft",
+		Binaries:   []string{"copilot", "gh-copilot"},
+		ConfigDirs: []string{"~/.config/github-copilot"},
 	},
 	{
 		Name:       "microsoft-ai-shell",
