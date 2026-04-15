@@ -107,7 +107,7 @@ jobs:
             "${{ steps.binaries.outputs.darwin }}.bundle" \
             "${{ steps.binaries.outputs.win_amd64 }}.bundle" \
             "${{ steps.binaries.outputs.win_arm64 }}.bundle" \
-            dist/stepsecurity-dev-machine-guard.sh.bundle \
+            stepsecurity-dev-machine-guard.sh.bundle \
             --clobber
 
       - name: Attest build provenance
