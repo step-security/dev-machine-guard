@@ -70,6 +70,13 @@
       "install_path": "/Applications/Claude.app",
       "vendor": "Anthropic",
       "is_installed": true
+    },
+    {
+      "ide_type": "goland",
+      "version": "2024.3.1",
+      "install_path": "/Applications/GoLand.app",
+      "vendor": "JetBrains",
+      "is_installed": true
     }
   ],
   "ide_extensions": [
@@ -128,7 +135,7 @@
   "node_packages": [],
   "summary": {
     "ai_agents_and_tools_count": 5,
-    "ide_installations_count": 3,
+    "ide_installations_count": 4,
     "ide_extensions_count": 4,
     "mcp_configs_count": 2,
     "node_projects_count": 0

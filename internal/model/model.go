@@ -52,6 +52,7 @@ type Extension struct {
 	Publisher   string `json:"publisher"`
 	InstallDate int64  `json:"install_date"`
 	IDEType     string `json:"ide_type"`
+	Source      string `json:"source,omitempty"` // "bundled" or "user_installed"
 }
 
 // MCPConfig represents a detected MCP server configuration (community mode).

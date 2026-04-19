@@ -111,18 +111,16 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 			groups[ext.IDEType] = append(groups[ext.IDEType], ext)
 		}
 		for ideType, exts := range groups {
-			displayType := ideType
-			switch ideType {
-			case "vscode":
-				displayType = "VSCode"
-			case "openvsx":
-				displayType = "Cursor"
-			}
+			displayType := ideDisplayName(ideType)
 			fmt.Fprintf(w, "    %s%s%s%s%*s%s%d found%s\n",
 				c.purple, c.bold, displayType, c.reset, 33-len(displayType), "", c.green, len(exts), c.reset)
 			for _, ext := range exts {
-				fmt.Fprintf(w, "      %-42s %sv%-14s %s%s\n",
-					truncate(ext.ID, 42), c.dim, truncate(ext.Version, 14), ext.Publisher, c.reset)
+				sourceTag := ""
+				if ext.Source == "bundled" {
+					sourceTag = " [bundled]"
+				}
+				fmt.Fprintf(w, "      %-42s %sv%-14s %s%s%s\n",
+					truncate(ext.ID, 42), c.dim, truncate(ext.Version, 14), ext.Publisher, sourceTag, c.reset)
 			}
 		}
 	} else {
@@ -212,6 +210,36 @@ func ideDisplayName(ideType string) string {
 		return "Claude"
 	case "microsoft_copilot_desktop":
 		return "Microsoft Copilot"
+	case "intellij_idea":
+		return "IntelliJ IDEA"
+	case "intellij_idea_ce":
+		return "IntelliJ IDEA CE"
+	case "pycharm":
+		return "PyCharm"
+	case "pycharm_ce":
+		return "PyCharm CE"
+	case "webstorm":
+		return "WebStorm"
+	case "goland":
+		return "GoLand"
+	case "rider":
+		return "Rider"
+	case "phpstorm":
+		return "PhpStorm"
+	case "rubymine":
+		return "RubyMine"
+	case "clion":
+		return "CLion"
+	case "datagrip":
+		return "DataGrip"
+	case "fleet":
+		return "Fleet"
+	case "android_studio":
+		return "Android Studio"
+	case "eclipse":
+		return "Eclipse"
+	case "xcode":
+		return "Xcode"
 	default:
 		return ideType
 	}

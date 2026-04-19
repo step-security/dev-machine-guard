@@ -18,7 +18,9 @@ type ideExtensionSpec struct {
 
 var extensionDirs = []ideExtensionSpec{
 	{"VS Code", "vscode", "~/.vscode/extensions"},
-	{"Cursor", "openvsx", "~/.cursor/extensions"},
+	{"Cursor", "cursor", "~/.cursor/extensions"},
+	{"Windsurf", "windsurf", "~/.windsurf/extensions"},
+	{"Antigravity", "antigravity", "~/.antigravity/extensions"},
 }
 
 // ExtensionDetector collects IDE extensions.
@@ -30,15 +32,25 @@ func NewExtensionDetector(exec executor.Executor) *ExtensionDetector {
 	return &ExtensionDetector{exec: exec}
 }
 
-func (d *ExtensionDetector) Detect(_ context.Context, searchDirs []string) []model.Extension {
+func (d *ExtensionDetector) Detect(ctx context.Context, searchDirs []string) []model.Extension {
 	homeDir := getHomeDir(d.exec)
 	var results []model.Extension
 
+	// VS Code-style extensions (publisher.name-version directory format)
 	for _, spec := range extensionDirs {
 		extDir := expandTilde(spec.ExtDir, homeDir)
 		exts := d.collectFromDir(extDir, spec.IDEType)
 		results = append(results, exts...)
 	}
+
+	// JetBrains and Android Studio plugins (META-INF/plugin.xml format)
+	results = append(results, d.DetectJetBrainsPlugins()...)
+
+	// Xcode Source Editor extensions (via macOS pluginkit)
+	results = append(results, d.DetectXcodeExtensions(ctx)...)
+
+	// Eclipse plugins (id_version.jar format)
+	results = append(results, d.DetectEclipsePlugins()...)
 
 	return results
 }
@@ -77,6 +89,9 @@ func (d *ExtensionDetector) collectFromDir(extDir, ideType string) []model.Exten
 		if ext == nil {
 			continue
 		}
+
+		// VS Code-style extensions are always user-installed
+		ext.Source = "user_installed"
 
 		// Get install date from directory modification time
 		info, err := d.exec.Stat(filepath.Join(extDir, dirname))
