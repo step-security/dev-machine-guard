@@ -6,13 +6,13 @@ import (
 
 func TestParsePluginkitLine(t *testing.T) {
 	tests := []struct {
-		name      string
-		line      string
-		wantID    string
-		wantVer   string
-		wantPub   string
-		wantName  string
-		wantNil   bool
+		name     string
+		line     string
+		wantID   string
+		wantVer  string
+		wantPub  string
+		wantName string
+		wantNil  bool
 	}{
 		{
 			name:     "enabled extension",

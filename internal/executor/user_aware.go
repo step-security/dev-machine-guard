@@ -67,8 +67,8 @@ func (e *UserAwareExecutor) LookPath(name string) (string, error) {
 
 // --- Pass-through methods ---
 
-func (e *UserAwareExecutor) FileExists(path string) bool         { return e.inner.FileExists(path) }
-func (e *UserAwareExecutor) DirExists(path string) bool          { return e.inner.DirExists(path) }
+func (e *UserAwareExecutor) FileExists(path string) bool          { return e.inner.FileExists(path) }
+func (e *UserAwareExecutor) DirExists(path string) bool           { return e.inner.DirExists(path) }
 func (e *UserAwareExecutor) ReadFile(path string) ([]byte, error) { return e.inner.ReadFile(path) }
 func (e *UserAwareExecutor) ReadDir(path string) ([]os.DirEntry, error) {
 	return e.inner.ReadDir(path)

@@ -141,6 +141,7 @@ type BrewScanResult struct {
 	Error           string `json:"error"`
 	ExitCode        int    `json:"exit_code"`
 	ScanDurationMs  int64  `json:"scan_duration_ms"`
+	LineCount       int    `json:"line_count"`
 }
 
 // PythonScanResult holds raw Python scan output for enterprise telemetry.

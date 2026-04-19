@@ -374,10 +374,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		},
 
 		PerformanceMetrics: &PerformanceMetrics{
-			ExtensionsCount:     len(extensions),
-			NodePackagesScanMs:  nodeScanMs,
-			NodeGlobalPkgsCount: len(globalPkgs),
-			NodeProjectsCount:   len(nodeProjects),
+			ExtensionsCount:       len(extensions),
+			NodePackagesScanMs:    nodeScanMs,
+			NodeGlobalPkgsCount:   len(globalPkgs),
+			NodeProjectsCount:     len(nodeProjects),
+			BrewFormulaeCount:     brewFormulaeCount(brewScans),
+			BrewCasksCount:        brewCasksCount(brewScans),
+			PythonGlobalPkgsCount: len(pythonGlobalPkgs),
+			PythonProjectsCount:   len(pythonProjects),
 		},
 	}
 
@@ -390,6 +394,24 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	fmt.Fprintln(os.Stderr)
 	log.Progress("Telemetry collection completed successfully")
 	return nil
+}
+
+func brewFormulaeCount(scans []model.BrewScanResult) int {
+	for _, s := range scans {
+		if s.ScanType == "formulae" {
+			return s.LineCount
+		}
+	}
+	return 0
+}
+
+func brewCasksCount(scans []model.BrewScanResult) int {
+	for _, s := range scans {
+		if s.ScanType == "casks" {
+			return s.LineCount
+		}
+	}
+	return 0
 }
 
 func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) error {
@@ -473,11 +495,15 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 		// Log retry and backoff
 		backoff := time.Duration(attempt) * 2 * time.Second
 		if err != nil {
-			log.Progress("S3 upload attempt %d/%d failed (%s), retrying in %s...", attempt, maxRetries, elapsed, backoff)
+			log.Progress("S3 upload attempt %d/%d failed after %s: %v; retrying in %s...", attempt, maxRetries, elapsed, err, backoff)
 		} else {
 			log.Progress("S3 upload attempt %d/%d got status %d, retrying in %s...", attempt, maxRetries, putResp.StatusCode, backoff)
 		}
-		time.Sleep(backoff)
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	defer func() { _ = putResp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, putResp.Body)

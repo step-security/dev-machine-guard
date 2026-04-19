@@ -52,6 +52,7 @@ func (s *BrewScanner) ScanFormulae(ctx context.Context) (model.BrewScanResult, b
 		Error:           errMsg,
 		ExitCode:        exitCode,
 		ScanDurationMs:  duration,
+		LineCount:       lineCount,
 	}, true
 }
 
@@ -86,5 +87,6 @@ func (s *BrewScanner) ScanCasks(ctx context.Context) (model.BrewScanResult, bool
 		Error:           errMsg,
 		ExitCode:        exitCode,
 		ScanDurationMs:  duration,
+		LineCount:       lineCount,
 	}, true
 }

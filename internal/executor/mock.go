@@ -307,7 +307,14 @@ type mockDirEntry struct {
 	dir  bool
 }
 
-func (e *mockDirEntry) Name() string               { return e.name }
-func (e *mockDirEntry) IsDir() bool                { return e.dir }
-func (e *mockDirEntry) Type() os.FileMode          { if e.dir { return os.ModeDir }; return 0 }
-func (e *mockDirEntry) Info() (os.FileInfo, error)  { return &mockFileInfo{name: e.name, dir: e.dir}, nil }
+func (e *mockDirEntry) Name() string { return e.name }
+func (e *mockDirEntry) IsDir() bool  { return e.dir }
+func (e *mockDirEntry) Type() os.FileMode {
+	if e.dir {
+		return os.ModeDir
+	}
+	return 0
+}
+func (e *mockDirEntry) Info() (os.FileInfo, error) {
+	return &mockFileInfo{name: e.name, dir: e.dir}, nil
+}
