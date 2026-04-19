@@ -120,6 +120,13 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		loggedInUsername = u.Username
 	}
 
+	// Create a user-aware executor that delegates commands to the logged-in user
+	// when running as root. This ensures tools like brew, pip3, npm etc. execute
+	// in the correct user context (many refuse to run as root or return different
+	// results). File-based detectors (IDE, extensions, MCP) use the original exec
+	// since file operations don't need user delegation.
+	userExec := executor.NewUserAwareExecutor(exec, loggedInUsername)
+
 	// Resolve search dirs
 	searchDirs := resolveSearchDirs(exec, cfg.SearchDirs)
 	fmt.Fprintln(os.Stderr)
@@ -148,7 +155,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	fmt.Fprintln(os.Stderr)
 
 	log.Progress("Detecting AI CLI tools...")
-	cliTools := detector.NewAICLIDetector(exec).Detect(ctx)
+	cliTools := detector.NewAICLIDetector(userExec).Detect(ctx)
 	for _, t := range cliTools {
 		log.Progress("  Found: %s (%s) v%s at %s", t.Name, t.Vendor, t.Version, t.BinaryPath)
 	}
@@ -158,7 +165,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	fmt.Fprintln(os.Stderr)
 
 	log.Progress("Detecting general-purpose AI agents...")
-	agents := detector.NewAgentDetector(exec).Detect(ctx, searchDirs)
+	agents := detector.NewAgentDetector(userExec).Detect(ctx, searchDirs)
 	for _, a := range agents {
 		log.Progress("  Found: %s (%s) at %s", a.Name, a.Vendor, a.InstallPath)
 	}
@@ -168,7 +175,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	fmt.Fprintln(os.Stderr)
 
 	log.Progress("Detecting AI frameworks and runtimes...")
-	frameworks := detector.NewFrameworkDetector(exec).Detect(ctx)
+	frameworks := detector.NewFrameworkDetector(userExec).Detect(ctx)
 	for _, f := range frameworks {
 		running := "false"
 		if f.IsRunning != nil && *f.IsRunning {
@@ -206,17 +213,24 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 
 	if brewEnabled {
 		log.Progress("Detecting Homebrew...")
-		brewDetector := detector.NewBrewDetector(exec)
+		brewDetector := detector.NewBrewDetector(userExec)
 		brewPkgMgr = brewDetector.DetectBrew(ctx)
 		if brewPkgMgr != nil {
 			log.Progress("  Found: Homebrew v%s at %s", brewPkgMgr.Version, brewPkgMgr.Path)
-			brewScanner := detector.NewBrewScanner(exec, log)
+			brewScanner := detector.NewBrewScanner(userExec, log)
 			if r, ok := brewScanner.ScanFormulae(ctx); ok {
 				brewScans = append(brewScans, r)
+				log.Progress("  Formulae scan: exit_code=%d, error=%q, raw_len=%d", r.ExitCode, r.Error, len(r.RawStdoutBase64))
+			} else {
+				log.Progress("  Formulae scan: skipped (brew not in PATH)")
 			}
 			if r, ok := brewScanner.ScanCasks(ctx); ok {
 				brewScans = append(brewScans, r)
+				log.Progress("  Casks scan: exit_code=%d, error=%q, raw_len=%d", r.ExitCode, r.Error, len(r.RawStdoutBase64))
+			} else {
+				log.Progress("  Casks scan: skipped (brew not in PATH)")
 			}
+			log.Progress("  Total brew scans: %d", len(brewScans))
 		} else {
 			log.Progress("  Homebrew not found")
 		}
@@ -238,7 +252,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 
 	if pythonEnabled {
 		log.Progress("Detecting Python package managers...")
-		pyDetector := detector.NewPythonPMDetector(exec)
+		pyDetector := detector.NewPythonPMDetector(userExec)
 		pythonPkgManagers = pyDetector.DetectManagers(ctx)
 		for _, pm := range pythonPkgManagers {
 			log.Progress("  Found: %s v%s at %s", pm.Name, pm.Version, pm.Path)
@@ -248,7 +262,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		}
 
 		log.Progress("Scanning Python global packages...")
-		pyScanner := detector.NewPythonScanner(exec, log)
+		pyScanner := detector.NewPythonScanner(userExec, log)
 		pythonGlobalPkgs = pyScanner.ScanGlobalPackages(ctx)
 		log.Progress("  Found %d Python global package source(s)", len(pythonGlobalPkgs))
 
@@ -277,7 +291,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		log.Progress("Node.js package scanning is ENABLED")
 
 		log.Progress("Detecting Node.js package managers...")
-		npmDetector := detector.NewNodePMDetector(exec)
+		npmDetector := detector.NewNodePMDetector(userExec)
 		pkgManagers = npmDetector.DetectManagers(ctx)
 		for _, pm := range pkgManagers {
 			log.Progress("  Found: %s v%s at %s", pm.Name, pm.Version, pm.Path)

@@ -111,6 +111,25 @@ func (d *PythonProjectDetector) listInDir(dir string) []model.ProjectInfo {
 				(strings.HasPrefix(name, ".") && name != ".venv") {
 				return filepath.SkipDir
 			}
+
+			// Detect directories that contain a venv even without a marker file.
+			// A venv/ or .venv/ subdirectory is itself evidence of a Python project.
+			if !seen[path] {
+				if pipPath := d.findVenvPip(path); pipPath != "" {
+					seen[path] = true
+					pm := d.detectPM(path)
+					pkgs := d.listVenvPackages(ctx, pipPath)
+					projects = append(projects, model.ProjectInfo{
+						Path:           path,
+						PackageManager: pm,
+						Packages:       pkgs,
+					})
+					if len(projects) >= maxPythonProjects {
+						return filepath.SkipAll
+					}
+				}
+			}
+
 			return nil
 		}
 		if pythonMarkerFiles[entry.Name()] {
@@ -120,20 +139,13 @@ func (d *PythonProjectDetector) listInDir(dir string) []model.ProjectInfo {
 			}
 			seen[projectDir] = true
 
-			// Only include projects that have a virtual environment
+			// Only include marker-based projects that have a virtual environment
 			pipPath := d.findVenvPip(projectDir)
 			if pipPath == "" {
 				return nil
 			}
 
-			pm := pythonPMFromMarker[entry.Name()]
-			if d.exec.FileExists(filepath.Join(projectDir, "poetry.lock")) {
-				pm = "poetry"
-			} else if d.exec.FileExists(filepath.Join(projectDir, "Pipfile.lock")) {
-				pm = "pipenv"
-			} else if d.exec.FileExists(filepath.Join(projectDir, "uv.lock")) {
-				pm = "uv"
-			}
+			pm := d.detectPM(projectDir)
 
 			pkgs := d.listVenvPackages(ctx, pipPath)
 
@@ -149,4 +161,23 @@ func (d *PythonProjectDetector) listInDir(dir string) []model.ProjectInfo {
 		return nil
 	})
 	return projects
+}
+
+// detectPM determines the package manager for a project directory based on lock/marker files.
+func (d *PythonProjectDetector) detectPM(projectDir string) string {
+	if d.exec.FileExists(filepath.Join(projectDir, "poetry.lock")) {
+		return "poetry"
+	}
+	if d.exec.FileExists(filepath.Join(projectDir, "Pipfile.lock")) {
+		return "pipenv"
+	}
+	if d.exec.FileExists(filepath.Join(projectDir, "uv.lock")) {
+		return "uv"
+	}
+	for marker, pm := range pythonPMFromMarker {
+		if d.exec.FileExists(filepath.Join(projectDir, marker)) {
+			return pm
+		}
+	}
+	return "pip"
 }
