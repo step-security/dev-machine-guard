@@ -419,25 +419,54 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 		return fmt.Errorf("empty upload URL in response")
 	}
 
-	// Upload payload to S3
-	log.Progress("Uploading telemetry to S3...")
-	putReq, err := http.NewRequestWithContext(ctx, http.MethodPut, urlResp.UploadURL, bytes.NewReader(payloadJSON))
-	if err != nil {
-		return fmt.Errorf("creating S3 PUT request: %w", err)
-	}
-	putReq.Header.Set("Content-Type", "application/json")
+	// Upload payload to S3 with retry — use a longer timeout since payloads
+	// with npm scan data and execution logs can be several MB.
+	log.Progress("Uploading telemetry to S3 (%d bytes)...", len(payloadJSON))
+	s3Client := &http.Client{Timeout: 60 * time.Second}
+	const maxRetries = 3
+	var putResp *http.Response
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		uploadStart := time.Now()
+		putReq, reqErr := http.NewRequestWithContext(ctx, http.MethodPut, urlResp.UploadURL, bytes.NewReader(payloadJSON))
+		if reqErr != nil {
+			return fmt.Errorf("creating S3 PUT request: %w", reqErr)
+		}
+		putReq.Header.Set("Content-Type", "application/json")
 
-	putResp, err := client.Do(putReq)
-	if err != nil {
-		return fmt.Errorf("uploading to S3: %w", err)
+		putResp, err = s3Client.Do(putReq)
+		elapsed := time.Since(uploadStart)
+
+		if err == nil && putResp.StatusCode == http.StatusOK {
+			log.Progress("Uploaded to S3 in %s", elapsed)
+			break
+		}
+
+		// Clean up response body before retry
+		if putResp != nil {
+			_, _ = io.Copy(io.Discard, putResp.Body)
+			_ = putResp.Body.Close()
+		}
+
+		if attempt == maxRetries {
+			if err != nil {
+				return fmt.Errorf("uploading to S3 (payload: %d bytes, elapsed: %s, attempts: %d): %w",
+					len(payloadJSON), elapsed, maxRetries, err)
+			}
+			return fmt.Errorf("S3 upload failed with status %d (payload: %d bytes, attempts: %d)",
+				putResp.StatusCode, len(payloadJSON), maxRetries)
+		}
+
+		// Log retry and backoff
+		backoff := time.Duration(attempt) * 2 * time.Second
+		if err != nil {
+			log.Progress("S3 upload attempt %d/%d failed (%s), retrying in %s...", attempt, maxRetries, elapsed, backoff)
+		} else {
+			log.Progress("S3 upload attempt %d/%d got status %d, retrying in %s...", attempt, maxRetries, putResp.StatusCode, backoff)
+		}
+		time.Sleep(backoff)
 	}
 	defer func() { _ = putResp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, putResp.Body)
-
-	if putResp.StatusCode != http.StatusOK {
-		return fmt.Errorf("S3 upload failed with status %d", putResp.StatusCode)
-	}
-	log.Progress("Uploaded to S3")
 
 	// Notify backend
 	log.Progress("Notifying backend of upload...")
