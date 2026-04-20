@@ -55,6 +55,13 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 	if len(result.NodePkgManagers) > 0 {
 		fmt.Fprintf(w, "    %-24s %s%d%s\n", "Node.js Projects", c.green, result.Summary.NodeProjectsCount, c.reset)
 	}
+	if result.BrewPkgManager != nil {
+		fmt.Fprintf(w, "    %-24s %s%d%s\n", "Homebrew Formulae", c.green, result.Summary.BrewFormulaeCount, c.reset)
+		fmt.Fprintf(w, "    %-24s %s%d%s\n", "Homebrew Casks", c.green, result.Summary.BrewCasksCount, c.reset)
+	}
+	if len(result.PythonPkgManagers) > 0 {
+		fmt.Fprintf(w, "    %-24s %s%d%s\n", "Python Projects", c.green, result.Summary.PythonProjectsCount, c.reset)
+	}
 	fmt.Fprintln(w)
 
 	// AI AGENTS AND TOOLS
@@ -111,18 +118,16 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 			groups[ext.IDEType] = append(groups[ext.IDEType], ext)
 		}
 		for ideType, exts := range groups {
-			displayType := ideType
-			switch ideType {
-			case "vscode":
-				displayType = "VSCode"
-			case "openvsx":
-				displayType = "Cursor"
-			}
+			displayType := ideDisplayName(ideType)
 			fmt.Fprintf(w, "    %s%s%s%s%*s%s%d found%s\n",
 				c.purple, c.bold, displayType, c.reset, 33-len(displayType), "", c.green, len(exts), c.reset)
 			for _, ext := range exts {
-				fmt.Fprintf(w, "      %-42s %sv%-14s %s%s\n",
-					truncate(ext.ID, 42), c.dim, truncate(ext.Version, 14), ext.Publisher, c.reset)
+				sourceTag := ""
+				if ext.Source == "bundled" {
+					sourceTag = " [bundled]"
+				}
+				fmt.Fprintf(w, "      %-42s %sv%-14s %s%s%s\n",
+					truncate(ext.ID, 42), c.dim, truncate(ext.Version, 14), ext.Publisher, sourceTag, c.reset)
 			}
 		}
 	} else {
@@ -139,6 +144,67 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 		fmt.Fprintln(w)
 
 		printSectionHeader(w, c, "NODE.JS PROJECTS", result.Summary.NodeProjectsCount)
+		for _, proj := range result.NodeProjects {
+			fmt.Fprintf(w, "    %s%s%s  %s[%s]%s\n", c.bold, proj.Path, c.reset, c.dim, proj.PackageManager, c.reset)
+			for _, pkg := range proj.Packages {
+				fmt.Fprintf(w, "      %-36s %s%s%s\n", pkg.Name, c.dim, pkg.Version, c.reset)
+			}
+		}
+		fmt.Fprintln(w)
+	}
+
+	// HOMEBREW (only if brew scan was enabled and brew found)
+	if result.BrewPkgManager != nil {
+		fmt.Fprintf(w, "  %s%sHOMEBREW%s%*s%sv%s%s\n",
+			c.purple, c.bold, c.reset, 27, "", c.dim, result.BrewPkgManager.Version, c.reset)
+		fmt.Fprintln(w)
+
+		if len(result.BrewFormulae) > 0 {
+			fmt.Fprintf(w, "    %s%sFormulae%s%*s%s%d found%s\n",
+				c.purple, c.bold, c.reset, 25, "", c.green, len(result.BrewFormulae), c.reset)
+			for _, pkg := range result.BrewFormulae {
+				fmt.Fprintf(w, "      %-36s %s%s%s\n", pkg.Name, c.dim, pkg.Version, c.reset)
+			}
+		} else {
+			fmt.Fprintf(w, "    %s%sFormulae%s%*s%s0 found%s\n",
+				c.purple, c.bold, c.reset, 25, "", c.green, c.reset)
+		}
+		fmt.Fprintln(w)
+
+		if len(result.BrewCasks) > 0 {
+			fmt.Fprintf(w, "    %s%sCasks%s%*s%s%d found%s\n",
+				c.purple, c.bold, c.reset, 28, "", c.green, len(result.BrewCasks), c.reset)
+			for _, pkg := range result.BrewCasks {
+				fmt.Fprintf(w, "      %-36s %s%s%s\n", pkg.Name, c.dim, pkg.Version, c.reset)
+			}
+		} else {
+			fmt.Fprintf(w, "    %s%sCasks%s%*s%s0 found%s\n",
+				c.purple, c.bold, c.reset, 28, "", c.green, c.reset)
+		}
+		fmt.Fprintln(w)
+	}
+
+	// PYTHON (only if python scan was enabled)
+	if len(result.PythonPkgManagers) > 0 {
+		printSectionHeader(w, c, "PYTHON PACKAGE MANAGERS", len(result.PythonPkgManagers))
+		for _, pm := range result.PythonPkgManagers {
+			fmt.Fprintf(w, "    %-24s %sv%s%s\n", pm.Name, c.dim, pm.Version, c.reset)
+		}
+		fmt.Fprintln(w)
+
+		printSectionHeader(w, c, "PYTHON GLOBAL PACKAGES", len(result.PythonPackages))
+		for _, pkg := range result.PythonPackages {
+			fmt.Fprintf(w, "    %-36s %s%s%s\n", pkg.Name, c.dim, pkg.Version, c.reset)
+		}
+		fmt.Fprintln(w)
+
+		printSectionHeader(w, c, "PYTHON VENV PROJECTS", result.Summary.PythonProjectsCount)
+		for _, proj := range result.PythonProjects {
+			fmt.Fprintf(w, "    %s%s%s  %s[%s]%s\n", c.bold, proj.Path, c.reset, c.dim, proj.PackageManager, c.reset)
+			for _, pkg := range proj.Packages {
+				fmt.Fprintf(w, "      %-36s %s%s%s\n", pkg.Name, c.dim, pkg.Version, c.reset)
+			}
+		}
 		fmt.Fprintln(w)
 	}
 
@@ -212,6 +278,36 @@ func ideDisplayName(ideType string) string {
 		return "Claude"
 	case "microsoft_copilot_desktop":
 		return "Microsoft Copilot"
+	case "intellij_idea":
+		return "IntelliJ IDEA"
+	case "intellij_idea_ce":
+		return "IntelliJ IDEA CE"
+	case "pycharm":
+		return "PyCharm"
+	case "pycharm_ce":
+		return "PyCharm CE"
+	case "webstorm":
+		return "WebStorm"
+	case "goland":
+		return "GoLand"
+	case "rider":
+		return "Rider"
+	case "phpstorm":
+		return "PhpStorm"
+	case "rubymine":
+		return "RubyMine"
+	case "clion":
+		return "CLion"
+	case "datagrip":
+		return "DataGrip"
+	case "fleet":
+		return "Fleet"
+	case "android_studio":
+		return "Android Studio"
+	case "eclipse":
+		return "Eclipse"
+	case "xcode":
+		return "Xcode"
 	default:
 		return ideType
 	}

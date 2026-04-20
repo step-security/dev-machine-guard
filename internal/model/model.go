@@ -2,18 +2,25 @@ package model
 
 // ScanResult is the community-mode JSON output structure.
 type ScanResult struct {
-	AgentVersion     string       `json:"agent_version"`
-	AgentURL         string       `json:"agent_url"`
-	ScanTimestamp    int64        `json:"scan_timestamp"`
-	ScanTimestampISO string       `json:"scan_timestamp_iso"`
-	Device           Device       `json:"device"`
-	AIAgentsAndTools []AITool     `json:"ai_agents_and_tools"`
-	IDEInstallations []IDE        `json:"ide_installations"`
-	IDEExtensions    []Extension  `json:"ide_extensions"`
-	MCPConfigs       []MCPConfig  `json:"mcp_configs"`
-	NodePkgManagers  []PkgManager `json:"node_package_managers"`
-	NodePackages     []any        `json:"node_packages"`
-	Summary          Summary      `json:"summary"`
+	AgentVersion      string          `json:"agent_version"`
+	AgentURL          string          `json:"agent_url"`
+	ScanTimestamp     int64           `json:"scan_timestamp"`
+	ScanTimestampISO  string          `json:"scan_timestamp_iso"`
+	Device            Device          `json:"device"`
+	AIAgentsAndTools  []AITool        `json:"ai_agents_and_tools"`
+	IDEInstallations  []IDE           `json:"ide_installations"`
+	IDEExtensions     []Extension     `json:"ide_extensions"`
+	MCPConfigs        []MCPConfig     `json:"mcp_configs"`
+	NodePkgManagers   []PkgManager    `json:"node_package_managers"`
+	NodePackages      []any           `json:"node_packages"`
+	NodeProjects      []ProjectInfo   `json:"node_projects"`
+	BrewPkgManager    *PkgManager     `json:"brew_package_manager,omitempty"`
+	BrewFormulae      []BrewPackage   `json:"brew_formulae"`
+	BrewCasks         []BrewPackage   `json:"brew_casks"`
+	PythonPkgManagers []PkgManager    `json:"python_package_managers"`
+	PythonPackages    []PythonPackage `json:"python_packages"`
+	PythonProjects    []ProjectInfo   `json:"python_projects"`
+	Summary           Summary         `json:"summary"`
 }
 
 type Device struct {
@@ -52,6 +59,7 @@ type Extension struct {
 	Publisher   string `json:"publisher"`
 	InstallDate int64  `json:"install_date"`
 	IDEType     string `json:"ide_type"`
+	Source      string `json:"source,omitempty"` // "bundled" or "user_installed"
 }
 
 // MCPConfig represents a detected MCP server configuration (community mode).
@@ -81,6 +89,9 @@ type Summary struct {
 	IDEExtensionsCount    int `json:"ide_extensions_count"`
 	MCPConfigsCount       int `json:"mcp_configs_count"`
 	NodeProjectsCount     int `json:"node_projects_count"`
+	BrewFormulaeCount     int `json:"brew_formulae_count"`
+	BrewCasksCount        int `json:"brew_casks_count"`
+	PythonProjectsCount   int `json:"python_projects_count"`
 }
 
 // NodeScanResult holds raw scan output for enterprise telemetry.
@@ -95,4 +106,52 @@ type NodeScanResult struct {
 	Error            string `json:"error"`
 	ExitCode         int    `json:"exit_code"`
 	ScanDurationMs   int64  `json:"scan_duration_ms"`
+}
+
+// PackageDetail represents a single package name and version.
+type PackageDetail struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// ProjectInfo represents a detected project directory with its packages.
+type ProjectInfo struct {
+	Path           string          `json:"path"`
+	PackageManager string          `json:"package_manager,omitempty"`
+	Packages       []PackageDetail `json:"packages,omitempty"`
+}
+
+// BrewPackage represents a single installed Homebrew formula or cask.
+type BrewPackage struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// PythonPackage represents a single installed Python package.
+type PythonPackage struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// BrewScanResult holds raw Homebrew scan output for enterprise telemetry.
+type BrewScanResult struct {
+	ScanType        string `json:"scan_type"` // "formulae" or "casks"
+	RawStdoutBase64 string `json:"raw_stdout_base64"`
+	RawStderrBase64 string `json:"raw_stderr_base64"`
+	Error           string `json:"error"`
+	ExitCode        int    `json:"exit_code"`
+	ScanDurationMs  int64  `json:"scan_duration_ms"`
+	LineCount       int    `json:"line_count"`
+}
+
+// PythonScanResult holds raw Python scan output for enterprise telemetry.
+type PythonScanResult struct {
+	PackageManager  string `json:"package_manager"`
+	PMVersion       string `json:"package_manager_version"`
+	BinaryPath      string `json:"binary_path"` // Resolved path to the package manager binary
+	RawStdoutBase64 string `json:"raw_stdout_base64"`
+	RawStderrBase64 string `json:"raw_stderr_base64"`
+	Error           string `json:"error"`
+	ExitCode        int    `json:"exit_code"`
+	ScanDurationMs  int64  `json:"scan_duration_ms"`
 }

@@ -61,6 +61,25 @@ var ideDefinitions = []ideSpec{
 		AppPath:  "/Applications/Copilot.app",
 		WinPaths: []string{`%LOCALAPPDATA%\Programs\Copilot`},
 	},
+
+	// JetBrains IDEs
+	{AppName: "IntelliJ IDEA", IDEType: "intellij_idea", Vendor: "JetBrains", AppPath: "/Applications/IntelliJ IDEA.app"},
+	{AppName: "IntelliJ IDEA CE", IDEType: "intellij_idea_ce", Vendor: "JetBrains", AppPath: "/Applications/IntelliJ IDEA CE.app"},
+	{AppName: "PyCharm", IDEType: "pycharm", Vendor: "JetBrains", AppPath: "/Applications/PyCharm.app"},
+	{AppName: "PyCharm CE", IDEType: "pycharm_ce", Vendor: "JetBrains", AppPath: "/Applications/PyCharm CE.app"},
+	{AppName: "WebStorm", IDEType: "webstorm", Vendor: "JetBrains", AppPath: "/Applications/WebStorm.app"},
+	{AppName: "GoLand", IDEType: "goland", Vendor: "JetBrains", AppPath: "/Applications/GoLand.app"},
+	{AppName: "Rider", IDEType: "rider", Vendor: "JetBrains", AppPath: "/Applications/Rider.app"},
+	{AppName: "PhpStorm", IDEType: "phpstorm", Vendor: "JetBrains", AppPath: "/Applications/PhpStorm.app"},
+	{AppName: "RubyMine", IDEType: "rubymine", Vendor: "JetBrains", AppPath: "/Applications/RubyMine.app"},
+	{AppName: "CLion", IDEType: "clion", Vendor: "JetBrains", AppPath: "/Applications/CLion.app"},
+	{AppName: "DataGrip", IDEType: "datagrip", Vendor: "JetBrains", AppPath: "/Applications/DataGrip.app"},
+	{AppName: "Fleet", IDEType: "fleet", Vendor: "JetBrains", AppPath: "/Applications/Fleet.app"},
+	{AppName: "Android Studio", IDEType: "android_studio", Vendor: "Google", AppPath: "/Applications/Android Studio.app"},
+
+	// Other IDEs
+	{AppName: "Eclipse", IDEType: "eclipse", Vendor: "Eclipse Foundation", AppPath: "/Applications/Eclipse.app"},
+	{AppName: "Xcode", IDEType: "xcode", Vendor: "Apple", AppPath: "/Applications/Xcode.app"},
 }
 
 // IDEDetector detects installed IDEs and AI desktop apps.

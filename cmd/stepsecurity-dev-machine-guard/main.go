@@ -34,6 +34,12 @@ func main() {
 	if cfg.EnableNPMScan == nil && config.EnableNPMScan != nil {
 		cfg.EnableNPMScan = config.EnableNPMScan
 	}
+	if cfg.EnableBrewScan == nil && config.EnableBrewScan != nil {
+		cfg.EnableBrewScan = config.EnableBrewScan
+	}
+	if cfg.EnablePythonScan == nil && config.EnablePythonScan != nil {
+		cfg.EnablePythonScan = config.EnablePythonScan
+	}
 	if cfg.ColorMode == "auto" && config.ColorMode != "" {
 		cfg.ColorMode = config.ColorMode
 	}

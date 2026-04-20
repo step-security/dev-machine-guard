@@ -88,9 +88,13 @@ func (d *MCPDetector) DetectEnterprise(_ context.Context) []model.MCPConfigEnter
 			continue
 		}
 
-		// Filter JSON configs to extract only MCP-relevant fields
-		filteredContent := d.filterMCPContent(spec.SourceName, configPath, content)
-		contentBase64 := base64.StdEncoding.EncodeToString(filteredContent)
+		// Filter JSON configs to extract only MCP-relevant fields.
+		// If filtering fails (non-JSON, parse error, etc.), omit content
+		// to avoid leaking secrets like env vars and auth headers.
+		var contentBase64 string
+		if filtered, ok := d.filterMCPContent(spec.SourceName, configPath, content); ok {
+			contentBase64 = base64.StdEncoding.EncodeToString(filtered)
+		}
 
 		results = append(results, model.MCPConfigEnterprise{
 			ConfigSource:        spec.SourceName,
@@ -107,8 +111,10 @@ func (d *MCPDetector) DetectEnterprise(_ context.Context) []model.MCPConfigEnter
 			continue
 		}
 
-		filteredContent := d.filterMCPContent(projectMCP.SourceName, projectMCP.ConfigPath, content)
-		contentBase64 := base64.StdEncoding.EncodeToString(filteredContent)
+		var contentBase64 string
+		if filtered, ok := d.filterMCPContent(projectMCP.SourceName, projectMCP.ConfigPath, content); ok {
+			contentBase64 = base64.StdEncoding.EncodeToString(filtered)
+		}
 
 		results = append(results, model.MCPConfigEnterprise{
 			ConfigSource:        projectMCP.SourceName,
@@ -171,9 +177,11 @@ func (d *MCPDetector) resolveConfigPath(spec mcpConfigSpec, homeDir string) stri
 }
 
 // filterMCPContent extracts MCP-relevant fields from a config file.
-func (d *MCPDetector) filterMCPContent(sourceName, configPath string, content []byte) []byte {
+// Returns the filtered content and true on success, or nil and false if
+// filtering failed (to avoid leaking secrets from raw fallback).
+func (d *MCPDetector) filterMCPContent(sourceName, configPath string, content []byte) ([]byte, bool) {
 	if !strings.HasSuffix(configPath, ".json") {
-		return content // Return as-is for TOML/YAML
+		return nil, false // Non-JSON formats cannot be safely filtered
 	}
 
 	jsonInput := content
@@ -185,19 +193,19 @@ func (d *MCPDetector) filterMCPContent(sourceName, configPath string, content []
 
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(jsonInput, &raw); err != nil {
-		return content // Can't parse, return as-is
+		return nil, false // Can't parse; don't return raw content
 	}
 
 	filtered := d.extractMCPServers(raw)
 	if filtered == nil {
-		return content
+		return nil, false // No MCP servers found
 	}
 
 	out, err := json.Marshal(filtered)
 	if err != nil {
-		return content
+		return nil, false
 	}
-	return out
+	return out, true
 }
 
 // extractMCPServers extracts mcpServers/context_servers/servers, keeping only command/args/serverUrl/url.

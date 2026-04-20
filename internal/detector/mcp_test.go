@@ -2,7 +2,9 @@ package detector
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -81,6 +83,102 @@ func TestMCPDetector_Enterprise(t *testing.T) {
 	if results[0].ConfigContentBase64 == "" {
 		t.Error("expected non-empty base64 content")
 	}
+
+	// Verify secrets are stripped from filtered output
+	decoded, err := base64.StdEncoding.DecodeString(results[0].ConfigContentBase64)
+	if err != nil {
+		t.Fatalf("failed to decode base64: %v", err)
+	}
+	content := string(decoded)
+	if strings.Contains(content, "SECRET") {
+		t.Error("filtered content must not contain env var secrets")
+	}
+	if strings.Contains(content, "env") {
+		t.Error("filtered content must not contain env field")
+	}
+	if !strings.Contains(content, "command") {
+		t.Error("filtered content should contain command field")
+	}
+	if !strings.Contains(content, "args") {
+		t.Error("filtered content should contain args field")
+	}
+}
+
+func TestMCPDetector_Enterprise_NonJSON_OmitsContent(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetFile("/Users/testuser/.config/open-interpreter/config.yaml",
+		[]byte("api_key: sk-secret-12345\nmodel: gpt-4\n"))
+
+	det := NewMCPDetector(mock)
+	results := det.DetectEnterprise(context.Background())
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 enterprise config, got %d", len(results))
+	}
+	if results[0].ConfigContentBase64 != "" {
+		t.Error("non-JSON config must have empty content to avoid leaking secrets")
+	}
+	if results[0].ConfigSource != "open_interpreter" {
+		t.Errorf("expected open_interpreter source, got %s", results[0].ConfigSource)
+	}
+}
+
+func TestMCPDetector_Enterprise_InvalidJSON_OmitsContent(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetFile("/Users/testuser/Library/Application Support/Claude/claude_desktop_config.json",
+		[]byte(`{invalid json with "env":{"API_KEY":"sk-secret"}}`))
+
+	det := NewMCPDetector(mock)
+	results := det.DetectEnterprise(context.Background())
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 enterprise config, got %d", len(results))
+	}
+	if results[0].ConfigContentBase64 != "" {
+		t.Error("invalid JSON config must have empty content to avoid leaking secrets")
+	}
+}
+
+func TestMCPDetector_Enterprise_NoMCPServers_OmitsContent(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetFile("/Users/testuser/Library/Application Support/Claude/claude_desktop_config.json",
+		[]byte(`{"theme":"dark","api_key":"sk-secret-12345"}`))
+
+	det := NewMCPDetector(mock)
+	results := det.DetectEnterprise(context.Background())
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 enterprise config, got %d", len(results))
+	}
+	if results[0].ConfigContentBase64 != "" {
+		t.Error("config without mcpServers must have empty content to avoid leaking secrets")
+	}
+}
+
+func TestFilterMCPContent_StripsSecrets(t *testing.T) {
+	mock := executor.NewMock()
+	det := NewMCPDetector(mock)
+
+	input := []byte(`{"mcpServers":{"myserver":{"command":"npx","args":["-y","server"],"env":{"API_KEY":"sk-secret"},"headers":{"Authorization":"Bearer token"}}}}`)
+
+	filtered, ok := det.filterMCPContent("claude_desktop", "/path/config.json", input)
+	if !ok {
+		t.Fatal("expected filtering to succeed")
+	}
+
+	content := string(filtered)
+	if strings.Contains(content, "sk-secret") {
+		t.Error("filtered content must not contain API key")
+	}
+	if strings.Contains(content, "Bearer") {
+		t.Error("filtered content must not contain auth headers")
+	}
+	if !strings.Contains(content, "command") || !strings.Contains(content, "npx") {
+		t.Error("filtered content should preserve command")
+	}
+	if !strings.Contains(content, "args") {
+		t.Error("filtered content should preserve args")
+	}
 }
 
 func TestExtractMCPServers_ClaudeCodeProjectScoped(t *testing.T) {
@@ -108,7 +206,10 @@ func TestExtractMCPServers_ClaudeCodeProjectScoped(t *testing.T) {
 		}
 	}`)
 
-	filtered := det.filterMCPContent("claude_code", "/Users/test/.claude.json", content)
+	filtered, ok := det.filterMCPContent("claude_code", "/Users/test/.claude.json", content)
+	if !ok {
+		t.Fatal("expected filtering to succeed")
+	}
 
 	// Parse the result to verify structure
 	var result map[string]any
@@ -162,7 +263,10 @@ func TestExtractMCPServers_VSCodeFormat(t *testing.T) {
 		}
 	}`)
 
-	filtered := det.filterMCPContent("vscode", "/Users/test/.vscode/mcp.json", content)
+	filtered, ok := det.filterMCPContent("vscode", "/Users/test/.vscode/mcp.json", content)
+	if !ok {
+		t.Fatal("expected filtering to succeed")
+	}
 
 	var result map[string]any
 	if err := json.Unmarshal(filtered, &result); err != nil {

@@ -34,13 +34,18 @@ type Payload struct {
 	CollectedAt    int64  `json:"collected_at"`
 	NoUserLoggedIn bool   `json:"no_user_logged_in"`
 
-	IDEExtensions      []model.Extension           `json:"ide_extensions"`
-	IDEInstallations   []model.IDE                 `json:"ide_installations"`
-	NodePkgManagers    []model.PkgManager          `json:"node_package_managers"`
-	NodeGlobalPackages []model.NodeScanResult      `json:"node_global_packages"`
-	NodeProjects       []model.NodeScanResult      `json:"node_projects"`
-	AIAgents           []model.AITool              `json:"ai_agents"`
-	MCPConfigs         []model.MCPConfigEnterprise `json:"mcp_configs"`
+	IDEExtensions        []model.Extension           `json:"ide_extensions"`
+	IDEInstallations     []model.IDE                 `json:"ide_installations"`
+	NodePkgManagers      []model.PkgManager          `json:"node_package_managers"`
+	NodeGlobalPackages   []model.NodeScanResult      `json:"node_global_packages"`
+	NodeProjects         []model.NodeScanResult      `json:"node_projects"`
+	BrewPkgManager       *model.PkgManager           `json:"brew_package_manager,omitempty"`
+	BrewScans            []model.BrewScanResult      `json:"brew_scans"`
+	PythonPkgManagers    []model.PkgManager          `json:"python_package_managers"`
+	PythonGlobalPackages []model.PythonScanResult    `json:"python_global_packages"`
+	PythonProjects       []model.ProjectInfo         `json:"python_projects"`
+	AIAgents             []model.AITool              `json:"ai_agents"`
+	MCPConfigs           []model.MCPConfigEnterprise `json:"mcp_configs"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -55,10 +60,14 @@ type ExecutionLogs struct {
 }
 
 type PerformanceMetrics struct {
-	ExtensionsCount     int   `json:"extensions_count"`
-	NodePackagesScanMs  int64 `json:"node_packages_scan_ms"`
-	NodeGlobalPkgsCount int   `json:"node_global_packages_count"`
-	NodeProjectsCount   int   `json:"node_projects_count"`
+	ExtensionsCount       int   `json:"extensions_count"`
+	NodePackagesScanMs    int64 `json:"node_packages_scan_ms"`
+	NodeGlobalPkgsCount   int   `json:"node_global_packages_count"`
+	NodeProjectsCount     int   `json:"node_projects_count"`
+	BrewFormulaeCount     int   `json:"brew_formulae_count"`
+	BrewCasksCount        int   `json:"brew_casks_count"`
+	PythonGlobalPkgsCount int   `json:"python_global_packages_count"`
+	PythonProjectsCount   int   `json:"python_projects_count"`
 }
 
 // Run executes enterprise telemetry: scan, build payload, upload to S3.
@@ -111,6 +120,13 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		loggedInUsername = u.Username
 	}
 
+	// Create a user-aware executor that delegates commands to the logged-in user
+	// when running as root. This ensures tools like brew, pip3, npm etc. execute
+	// in the correct user context (many refuse to run as root or return different
+	// results). File-based detectors (IDE, extensions, MCP) use the original exec
+	// since file operations don't need user delegation.
+	userExec := executor.NewUserAwareExecutor(exec, loggedInUsername)
+
 	// Resolve search dirs
 	searchDirs := resolveSearchDirs(exec, cfg.SearchDirs)
 	fmt.Fprintln(os.Stderr)
@@ -139,7 +155,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	fmt.Fprintln(os.Stderr)
 
 	log.Progress("Detecting AI CLI tools...")
-	cliTools := detector.NewAICLIDetector(exec).Detect(ctx)
+	cliTools := detector.NewAICLIDetector(userExec).Detect(ctx)
 	for _, t := range cliTools {
 		log.Progress("  Found: %s (%s) v%s at %s", t.Name, t.Vendor, t.Version, t.BinaryPath)
 	}
@@ -149,7 +165,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	fmt.Fprintln(os.Stderr)
 
 	log.Progress("Detecting general-purpose AI agents...")
-	agents := detector.NewAgentDetector(exec).Detect(ctx, searchDirs)
+	agents := detector.NewAgentDetector(userExec).Detect(ctx, searchDirs)
 	for _, a := range agents {
 		log.Progress("  Found: %s (%s) at %s", a.Name, a.Vendor, a.InstallPath)
 	}
@@ -159,7 +175,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	fmt.Fprintln(os.Stderr)
 
 	log.Progress("Detecting AI frameworks and runtimes...")
-	frameworks := detector.NewFrameworkDetector(exec).Detect(ctx)
+	frameworks := detector.NewFrameworkDetector(userExec).Detect(ctx)
 	for _, f := range frameworks {
 		running := "false"
 		if f.IsRunning != nil && *f.IsRunning {
@@ -186,6 +202,80 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	}
 	fmt.Fprintln(os.Stderr)
 
+	// Homebrew scanning
+	brewEnabled := true
+	if cfg.EnableBrewScan != nil {
+		brewEnabled = *cfg.EnableBrewScan
+	}
+
+	var brewPkgMgr *model.PkgManager
+	var brewScans []model.BrewScanResult
+
+	if brewEnabled {
+		log.Progress("Detecting Homebrew...")
+		brewDetector := detector.NewBrewDetector(userExec)
+		brewPkgMgr = brewDetector.DetectBrew(ctx)
+		if brewPkgMgr != nil {
+			log.Progress("  Found: Homebrew v%s at %s", brewPkgMgr.Version, brewPkgMgr.Path)
+			brewScanner := detector.NewBrewScanner(userExec, log)
+			if r, ok := brewScanner.ScanFormulae(ctx); ok {
+				brewScans = append(brewScans, r)
+				log.Progress("  Formulae scan: exit_code=%d, error=%q, raw_len=%d", r.ExitCode, r.Error, len(r.RawStdoutBase64))
+			} else {
+				log.Progress("  Formulae scan: skipped (brew not in PATH)")
+			}
+			if r, ok := brewScanner.ScanCasks(ctx); ok {
+				brewScans = append(brewScans, r)
+				log.Progress("  Casks scan: exit_code=%d, error=%q, raw_len=%d", r.ExitCode, r.Error, len(r.RawStdoutBase64))
+			} else {
+				log.Progress("  Casks scan: skipped (brew not in PATH)")
+			}
+			log.Progress("  Total brew scans: %d", len(brewScans))
+		} else {
+			log.Progress("  Homebrew not found")
+		}
+		fmt.Fprintln(os.Stderr)
+	} else {
+		log.Progress("Homebrew scanning is DISABLED")
+		fmt.Fprintln(os.Stderr)
+	}
+
+	// Python scanning
+	pythonEnabled := true
+	if cfg.EnablePythonScan != nil {
+		pythonEnabled = *cfg.EnablePythonScan
+	}
+
+	var pythonPkgManagers []model.PkgManager
+	var pythonGlobalPkgs []model.PythonScanResult
+	var pythonProjects []model.ProjectInfo
+
+	if pythonEnabled {
+		log.Progress("Detecting Python package managers...")
+		pyDetector := detector.NewPythonPMDetector(userExec)
+		pythonPkgManagers = pyDetector.DetectManagers(ctx)
+		for _, pm := range pythonPkgManagers {
+			log.Progress("  Found: %s v%s at %s", pm.Name, pm.Version, pm.Path)
+		}
+		if len(pythonPkgManagers) == 0 {
+			log.Progress("  No Python package managers found")
+		}
+
+		log.Progress("Scanning Python global packages...")
+		pyScanner := detector.NewPythonScanner(userExec, log)
+		pythonGlobalPkgs = pyScanner.ScanGlobalPackages(ctx)
+		log.Progress("  Found %d Python global package source(s)", len(pythonGlobalPkgs))
+
+		log.Progress("Searching for Python projects...")
+		pyProjectDetector := detector.NewPythonProjectDetector(exec)
+		pythonProjects = pyProjectDetector.ListProjects(searchDirs)
+		log.Progress("  Found %d Python projects", len(pythonProjects))
+		fmt.Fprintln(os.Stderr)
+	} else {
+		log.Progress("Python scanning is DISABLED")
+		fmt.Fprintln(os.Stderr)
+	}
+
 	// Node.js scanning
 	npmEnabled := true
 	if cfg.EnableNPMScan != nil {
@@ -201,7 +291,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		log.Progress("Node.js package scanning is ENABLED")
 
 		log.Progress("Detecting Node.js package managers...")
-		npmDetector := detector.NewNodePMDetector(exec)
+		npmDetector := detector.NewNodePMDetector(userExec)
 		pkgManagers = npmDetector.DetectManagers(ctx)
 		for _, pm := range pkgManagers {
 			log.Progress("  Found: %s v%s at %s", pm.Name, pm.Version, pm.Path)
@@ -232,6 +322,18 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	if nodeProjects == nil {
 		nodeProjects = []model.NodeScanResult{}
 	}
+	if brewScans == nil {
+		brewScans = []model.BrewScanResult{}
+	}
+	if pythonPkgManagers == nil {
+		pythonPkgManagers = []model.PkgManager{}
+	}
+	if pythonGlobalPkgs == nil {
+		pythonGlobalPkgs = []model.PythonScanResult{}
+	}
+	if pythonProjects == nil {
+		pythonProjects = []model.ProjectInfo{}
+	}
 
 	// Finalize execution logs before building payload
 	execLogsBase64 := capture.Finalize()
@@ -250,13 +352,18 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		CollectedAt:    endTime.Unix(),
 		NoUserLoggedIn: dev.UserIdentity == "" || dev.UserIdentity == "unknown",
 
-		IDEExtensions:      extensions,
-		IDEInstallations:   ides,
-		NodePkgManagers:    pkgManagers,
-		NodeGlobalPackages: globalPkgs,
-		NodeProjects:       nodeProjects,
-		AIAgents:           allAI,
-		MCPConfigs:         mcpConfigs,
+		IDEExtensions:        extensions,
+		IDEInstallations:     ides,
+		NodePkgManagers:      pkgManagers,
+		NodeGlobalPackages:   globalPkgs,
+		NodeProjects:         nodeProjects,
+		BrewPkgManager:       brewPkgMgr,
+		BrewScans:            brewScans,
+		PythonPkgManagers:    pythonPkgManagers,
+		PythonGlobalPackages: pythonGlobalPkgs,
+		PythonProjects:       pythonProjects,
+		AIAgents:             allAI,
+		MCPConfigs:           mcpConfigs,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,
@@ -267,10 +374,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		},
 
 		PerformanceMetrics: &PerformanceMetrics{
-			ExtensionsCount:     len(extensions),
-			NodePackagesScanMs:  nodeScanMs,
-			NodeGlobalPkgsCount: len(globalPkgs),
-			NodeProjectsCount:   len(nodeProjects),
+			ExtensionsCount:       len(extensions),
+			NodePackagesScanMs:    nodeScanMs,
+			NodeGlobalPkgsCount:   len(globalPkgs),
+			NodeProjectsCount:     len(nodeProjects),
+			BrewFormulaeCount:     brewFormulaeCount(brewScans),
+			BrewCasksCount:        brewCasksCount(brewScans),
+			PythonGlobalPkgsCount: len(pythonGlobalPkgs),
+			PythonProjectsCount:   len(pythonProjects),
 		},
 	}
 
@@ -283,6 +394,24 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	fmt.Fprintln(os.Stderr)
 	log.Progress("Telemetry collection completed successfully")
 	return nil
+}
+
+func brewFormulaeCount(scans []model.BrewScanResult) int {
+	for _, s := range scans {
+		if s.ScanType == "formulae" {
+			return s.LineCount
+		}
+	}
+	return 0
+}
+
+func brewCasksCount(scans []model.BrewScanResult) int {
+	for _, s := range scans {
+		if s.ScanType == "casks" {
+			return s.LineCount
+		}
+	}
+	return 0
 }
 
 func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) error {
@@ -326,25 +455,58 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 		return fmt.Errorf("empty upload URL in response")
 	}
 
-	// Upload payload to S3
-	log.Progress("Uploading telemetry to S3...")
-	putReq, err := http.NewRequestWithContext(ctx, http.MethodPut, urlResp.UploadURL, bytes.NewReader(payloadJSON))
-	if err != nil {
-		return fmt.Errorf("creating S3 PUT request: %w", err)
-	}
-	putReq.Header.Set("Content-Type", "application/json")
+	// Upload payload to S3 with retry — use a longer timeout since payloads
+	// with npm scan data and execution logs can be several MB.
+	log.Progress("Uploading telemetry to S3 (%d bytes)...", len(payloadJSON))
+	s3Client := &http.Client{Timeout: 60 * time.Second}
+	const maxRetries = 3
+	var putResp *http.Response
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		uploadStart := time.Now()
+		putReq, reqErr := http.NewRequestWithContext(ctx, http.MethodPut, urlResp.UploadURL, bytes.NewReader(payloadJSON))
+		if reqErr != nil {
+			return fmt.Errorf("creating S3 PUT request: %w", reqErr)
+		}
+		putReq.Header.Set("Content-Type", "application/json")
 
-	putResp, err := client.Do(putReq)
-	if err != nil {
-		return fmt.Errorf("uploading to S3: %w", err)
+		putResp, err = s3Client.Do(putReq)
+		elapsed := time.Since(uploadStart)
+
+		if err == nil && putResp.StatusCode == http.StatusOK {
+			log.Progress("Uploaded to S3 in %s", elapsed)
+			break
+		}
+
+		// Clean up response body before retry
+		if putResp != nil {
+			_, _ = io.Copy(io.Discard, putResp.Body)
+			_ = putResp.Body.Close()
+		}
+
+		if attempt == maxRetries {
+			if err != nil {
+				return fmt.Errorf("uploading to S3 (payload: %d bytes, elapsed: %s, attempts: %d): %w",
+					len(payloadJSON), elapsed, maxRetries, err)
+			}
+			return fmt.Errorf("S3 upload failed with status %d (payload: %d bytes, attempts: %d)",
+				putResp.StatusCode, len(payloadJSON), maxRetries)
+		}
+
+		// Log retry and backoff
+		backoff := time.Duration(attempt) * 2 * time.Second
+		if err != nil {
+			log.Progress("S3 upload attempt %d/%d failed after %s: %v; retrying in %s...", attempt, maxRetries, elapsed, err, backoff)
+		} else {
+			log.Progress("S3 upload attempt %d/%d got status %d, retrying in %s...", attempt, maxRetries, putResp.StatusCode, backoff)
+		}
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	defer func() { _ = putResp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, putResp.Body)
-
-	if putResp.StatusCode != http.StatusOK {
-		return fmt.Errorf("S3 upload failed with status %d", putResp.StatusCode)
-	}
-	log.Progress("Uploaded to S3")
 
 	// Notify backend
 	log.Progress("Notifying backend of upload...")
@@ -409,6 +571,36 @@ func ideDisplayName(ideType string) string {
 		return "Claude"
 	case "microsoft_copilot_desktop":
 		return "Microsoft Copilot"
+	case "intellij_idea":
+		return "IntelliJ IDEA"
+	case "intellij_idea_ce":
+		return "IntelliJ IDEA CE"
+	case "pycharm":
+		return "PyCharm"
+	case "pycharm_ce":
+		return "PyCharm CE"
+	case "webstorm":
+		return "WebStorm"
+	case "goland":
+		return "GoLand"
+	case "rider":
+		return "Rider"
+	case "phpstorm":
+		return "PhpStorm"
+	case "rubymine":
+		return "RubyMine"
+	case "clion":
+		return "CLion"
+	case "datagrip":
+		return "DataGrip"
+	case "fleet":
+		return "Fleet"
+	case "android_studio":
+		return "Android Studio"
+	case "eclipse":
+		return "Eclipse"
+	case "xcode":
+		return "Xcode"
 	default:
 		return ideType
 	}
