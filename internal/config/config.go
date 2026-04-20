@@ -240,9 +240,9 @@ func RunConfigure() error {
 	}
 
 	// Quiet mode
-	currentQuiet := "false"
-	if existing.Quiet != nil && *existing.Quiet {
-		currentQuiet = "true"
+	currentQuiet := "true"
+	if existing.Quiet != nil && !*existing.Quiet {
+		currentQuiet = "false"
 	}
 	quietInput := promptValue(reader, "Quiet Mode (true/false)", currentQuiet)
 	switch strings.ToLower(quietInput) {
@@ -250,7 +250,8 @@ func RunConfigure() error {
 		v := true
 		existing.Quiet = &v
 	default:
-		existing.Quiet = nil // false is the default (omit from config)
+		v := false
+		existing.Quiet = &v
 	}
 
 	// Save
@@ -409,7 +410,7 @@ func displayOutputFormat(v string) string {
 }
 
 func displayQuiet(v *bool) string {
-	if v == nil || !*v {
+	if v != nil && !*v {
 		return "false"
 	}
 	return "true"
