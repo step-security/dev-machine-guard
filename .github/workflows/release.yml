@@ -74,7 +74,7 @@ jobs:
           # so gh release upload by version tag returns 404. Look up the
           # actual tag GitHub assigned to the draft.
           release_tag=$(gh api "repos/${{ github.repository }}/releases" \
-            --jq '[.[] | select(.draft and .name == "${{ steps.version.outputs.tag }}")] | first | .tag_name')
+            --jq '[.[] | select(.draft and .tag_name == "${{ steps.version.outputs.tag }}")] | first | .tag_name')
           if [ -z "$release_tag" ] || [ "$release_tag" = "null" ]; then
             echo "::error::Could not find draft release for ${{ steps.version.outputs.tag }}"
             exit 1
