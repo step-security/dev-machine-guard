@@ -167,6 +167,10 @@ func (m *Mock) RunWithTimeout(ctx context.Context, _ time.Duration, name string,
 	return m.Run(ctx, name, args...)
 }
 
+func (m *Mock) RunInDir(ctx context.Context, _ string, _ time.Duration, name string, args ...string) (string, string, int, error) {
+	return m.Run(ctx, name, args...)
+}
+
 func (m *Mock) RunAsUser(ctx context.Context, _ string, command string) (string, error) {
 	stdout, _, _, err := m.Run(ctx, "bash", "-c", command)
 	return stdout, err

@@ -58,7 +58,19 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	log.StepStart("Collecting IDE extensions")
 	start = time.Now()
 	extDetector := detector.NewExtensionDetector(exec)
-	extensions := extDetector.Detect(ctx, searchDirs)
+	extensions := extDetector.Detect(ctx, searchDirs, ides)
+
+	// Collect JetBrains plugins
+	jbDetector := detector.NewJetBrainsPluginDetector(exec)
+	jbPlugins := jbDetector.Detect(ctx, ides)
+	extensions = append(extensions, jbPlugins...)
+
+	// On Windows, filter out bundled/platform plugins (e.g., Eclipse's 500+ OSGi
+	// bundles) unless explicitly requested. macOS detection doesn't produce bundled
+	// plugins in significant volume, so this filter is Windows-only.
+	if exec.GOOS() == "windows" && !cfg.IncludeBundledPlugins {
+		extensions = model.FilterUserInstalledExtensions(extensions)
+	}
 	log.StepDone(time.Since(start))
 
 	// Node.js scanning (community mode defaults to off, explicit flag overrides)
@@ -249,3 +261,4 @@ func mcpConfigsToCommunity(configs []model.MCPConfig) []model.MCPConfig {
 	}
 	return configs
 }
+

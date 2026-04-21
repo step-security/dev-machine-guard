@@ -4,6 +4,7 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"runtime"
 	"strings"
@@ -44,13 +45,34 @@ func (r *Real) resolveUserShell(ctx context.Context, username string) string {
 
 func (r *Real) RunAsUser(ctx context.Context, username, command string) (string, error) {
 	if !r.IsRoot() {
-		stdout, _, _, err := r.Run(ctx, "bash", "-c", command)
-		return strings.TrimSpace(stdout), err
+		stdout, _, exitCode, err := r.Run(ctx, "bash", "-c", command)
+		if err != nil {
+			return strings.TrimSpace(stdout), err
+		}
+		if exitCode != 0 {
+			return strings.TrimSpace(stdout), fmt.Errorf("command exited with code %d", exitCode)
+		}
+		return strings.TrimSpace(stdout), nil
 	}
 	shell := r.resolveUserShell(ctx, username)
 	if shell == "" {
 		shell = "/bin/bash"
 	}
-	stdout, _, _, err := r.Run(ctx, "sudo", "-H", "-u", username, shell, "-l", "-c", command)
-	return strings.TrimSpace(stdout), err
+
+	// Source the shell's interactive rc file for full PATH.
+	// Login shells (-l) source .zprofile/.bash_profile but skip .zshrc/.bashrc,
+	// where most users add PATH entries for nvm, n, fnm, bun, npm-global, etc.
+	rcSource := "[ -f ~/.bashrc ] && . ~/.bashrc 2>/dev/null; "
+	if strings.HasSuffix(shell, "zsh") {
+		rcSource = "[ -f ~/.zshrc ] && . ~/.zshrc 2>/dev/null; "
+	}
+
+	stdout, _, exitCode, err := r.Run(ctx, "sudo", "-H", "-u", username, shell, "-l", "-c", rcSource+command)
+	if err != nil {
+		return strings.TrimSpace(stdout), err
+	}
+	if exitCode != 0 {
+		return strings.TrimSpace(stdout), fmt.Errorf("command exited with code %d", exitCode)
+	}
+	return strings.TrimSpace(stdout), nil
 }

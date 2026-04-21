@@ -4,15 +4,28 @@ This document catalogs everything Dev Machine Guard detects. Contributions to ex
 
 ## IDEs & AI Desktop Apps
 
-| Application           | Vendor    | Detection Method            | Version Extraction              |
-|-----------------------|-----------|-----------------------------|---------------------------------|
-| Visual Studio Code    | Microsoft | `/Applications/Visual Studio Code.app` | Binary `--version`     |
-| Cursor                | Cursor    | `/Applications/Cursor.app`  | Binary `--version`              |
-| Windsurf              | Codeium   | `/Applications/Windsurf.app`| Binary `--version`              |
-| Antigravity           | Google    | `/Applications/Antigravity.app` | Binary `--version`          |
-| Zed                   | Zed       | `/Applications/Zed.app`     | `Info.plist`                    |
-| Claude Desktop        | Anthropic | `/Applications/Claude.app`  | `Info.plist`                    |
-| Microsoft Copilot     | Microsoft | `/Applications/Copilot.app` | `Info.plist`                    |
+| Application           | Vendor            | macOS Detection                          | Windows Detection                                        | Version Extraction                  |
+|-----------------------|-------------------|------------------------------------------|----------------------------------------------------------|-------------------------------------|
+| Visual Studio Code    | Microsoft         | `/Applications/Visual Studio Code.app`   | `%PROGRAMFILES%\Microsoft VS Code`                       | Binary `--version`                  |
+| Cursor                | Cursor            | `/Applications/Cursor.app`               | `%LOCALAPPDATA%\Programs\cursor`                         | Binary `--version`                  |
+| Windsurf              | Codeium           | `/Applications/Windsurf.app`             | `%LOCALAPPDATA%\Programs\Windsurf`                       | Binary `--version`                  |
+| Antigravity           | Google            | `/Applications/Antigravity.app`          | `%LOCALAPPDATA%\Programs\Antigravity`                    | Binary `--version`                  |
+| Zed                   | Zed               | `/Applications/Zed.app`                  | `%LOCALAPPDATA%\Zed`                                     | `Info.plist`                        |
+| Claude Desktop        | Anthropic         | `/Applications/Claude.app`               | `%LOCALAPPDATA%\Programs\Claude`                         | `Info.plist` / Registry             |
+| Microsoft Copilot     | Microsoft         | `/Applications/Copilot.app`              | `%LOCALAPPDATA%\Programs\Copilot`                        | `Info.plist` / Registry             |
+| IntelliJ IDEA Ultimate| JetBrains         | `/Applications/IntelliJ IDEA.app`        | `%PROGRAMFILES%\JetBrains\IntelliJ IDEA <ver>`          | `product-info.json` / `Info.plist`  |
+| IntelliJ IDEA CE      | JetBrains         | `/Applications/IntelliJ IDEA CE.app`     | `%PROGRAMFILES%\JetBrains\IntelliJ IDEA Community Edition <ver>` | `product-info.json` / `Info.plist`  |
+| PyCharm Professional  | JetBrains         | `/Applications/PyCharm.app`              | `%PROGRAMFILES%\JetBrains\PyCharm <ver>`                 | `product-info.json` / `Info.plist`  |
+| PyCharm CE            | JetBrains         | `/Applications/PyCharm CE.app`           | `%PROGRAMFILES%\JetBrains\PyCharm Community Edition <ver>` | `product-info.json` / `Info.plist`  |
+| WebStorm              | JetBrains         | `/Applications/WebStorm.app`             | `%PROGRAMFILES%\JetBrains\WebStorm <ver>`                | `product-info.json` / `Info.plist`  |
+| GoLand                | JetBrains         | `/Applications/GoLand.app`               | `%PROGRAMFILES%\JetBrains\GoLand <ver>`                  | `product-info.json` / `Info.plist`  |
+| PhpStorm              | JetBrains         | `/Applications/PhpStorm.app`             | `%PROGRAMFILES%\JetBrains\PhpStorm <ver>`                | `product-info.json` / `Info.plist`  |
+| CLion                 | JetBrains         | `/Applications/CLion.app`                | `%PROGRAMFILES%\JetBrains\CLion <ver>`                   | `product-info.json` / `Info.plist`  |
+| Rider                 | JetBrains         | `/Applications/Rider.app`                | `%PROGRAMFILES%\JetBrains\JetBrains Rider <ver>`        | `product-info.json` / `Info.plist`  |
+| RubyMine              | JetBrains         | `/Applications/RubyMine.app`             | `%PROGRAMFILES%\JetBrains\RubyMine <ver>`               | `product-info.json` / `Info.plist`  |
+| DataGrip              | JetBrains         | `/Applications/DataGrip.app`             | `%PROGRAMFILES%\JetBrains\DataGrip <ver>`               | `product-info.json` / `Info.plist`  |
+| Android Studio        | Google            | `/Applications/Android Studio.app`       | `%PROGRAMFILES%\Android\Android Studio`                  | `product-info.json` / `Info.plist`  |
+| Eclipse IDE           | Eclipse Foundation| `/Applications/Eclipse.app`              | `%PROGRAMFILES%\eclipse`, `C:\eclipse`, `%USERPROFILE%\eclipse\*\eclipse` | `.eclipseproduct` / `Info.plist` |
 
 ## AI CLI Tools
 
@@ -60,12 +73,16 @@ This document catalogs everything Dev Machine Guard detects. Contributions to ex
 | Open Interpreter      | `~/.config/open-interpreter/config.yaml`            | OpenSource|
 | Codex                 | `~/.codex/config.toml`                              | OpenAI    |
 
-## IDE Extensions
+## IDE Extensions & Plugins
 
-| IDE         | Extensions Directory           | Format                        |
-|-------------|--------------------------------|-------------------------------|
-| VS Code     | `~/.vscode/extensions`         | `publisher.name-version`      |
-| Cursor      | `~/.cursor/extensions`         | `publisher.name-version`      |
+| IDE              | Extensions/Plugins Directory                                                  | Format                        |
+|------------------|-------------------------------------------------------------------------------|-------------------------------|
+| VS Code          | `~/.vscode/extensions`                                                        | `publisher.name-version`      |
+| Cursor           | `~/.cursor/extensions`                                                        | `publisher.name-version`      |
+| JetBrains IDEs   | macOS: `~/Library/Application Support/JetBrains/<dataDir>/plugins/`           | `<name>/lib/<name>-version.jar` |
+|                  | Windows: `%APPDATA%\JetBrains\<dataDir>\plugins\`                            |                               |
+
+JetBrains plugin detection reads `product-info.json` from the IDE install path to resolve the `dataDirectoryName` (e.g., `GoLand2025.1`), then scans user-installed plugins. Only user-installed plugins are reported (bundled plugins in the install directory are excluded).
 
 ## Node.js Package Scanning (Optional)
 

@@ -107,16 +107,32 @@ jobs:
           echo "win_arm64=$WIN_ARM64" >> "$GITHUB_OUTPUT"
 
       - name: Sign artifacts with Sigstore
+        shell: bash
         run: |
-          cosign sign-blob "${{ steps.binaries.outputs.darwin }}" \
-            --bundle dist/stepsecurity-dev-machine-guard-darwin_unnotarized.bundle --yes
-          cosign sign-blob "${{ steps.binaries.outputs.win_amd64 }}" \
-            --bundle dist/stepsecurity-dev-machine-guard-windows_amd64.exe.bundle --yes
-          cosign sign-blob "${{ steps.binaries.outputs.win_arm64 }}" \
-            --bundle dist/stepsecurity-dev-machine-guard-windows_arm64.exe.bundle --yes
-          cosign sign-blob stepsecurity-dev-machine-guard.sh \
-            --bundle dist/stepsecurity-dev-machine-guard.sh.bundle --yes
+          sign_with_retry() {
+            local blob="$1"
+            local bundle="$2"
 
+            for attempt in 1 2 3; do
+              if cosign sign-blob "$blob" --bundle "$bundle" --yes; then
+                return 0
+              fi
+              echo "::warning::Signing attempt $attempt failed for $(basename "$blob"), retrying in 10s..."
+              sleep 10
+            done
+
+            echo "::error::Signing failed for $(basename "$blob") after 3 attempts"
+            return 1
+          }
+
+          sign_with_retry "${{ steps.binaries.outputs.darwin }}" \
+            "dist/stepsecurity-dev-machine-guard-darwin_unnotarized.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.win_amd64 }}" \
+            "dist/stepsecurity-dev-machine-guard-windows_amd64.exe.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.win_arm64 }}" \
+            "dist/stepsecurity-dev-machine-guard-windows_arm64.exe.bundle"
+          sign_with_retry "stepsecurity-dev-machine-guard.sh" \
+            "dist/stepsecurity-dev-machine-guard.sh.bundle"
       - name: Upload cosign bundles
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

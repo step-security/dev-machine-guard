@@ -171,7 +171,7 @@ func TestExtensionDetector_IncludesJetBrains(t *testing.T) {
 		`<idea-plugin><name>IdeaVim</name><version>2.10.0</version><vendor>JetBrains</vendor></idea-plugin>`))
 
 	det := NewExtensionDetector(mock)
-	results := det.Detect(context.Background(), nil)
+	results := det.Detect(context.Background(), nil, nil)
 
 	vscodeCount := 0
 	jetbrainsCount := 0

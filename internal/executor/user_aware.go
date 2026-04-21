@@ -38,7 +38,9 @@ func (e *UserAwareExecutor) Run(ctx context.Context, name string, args ...string
 	}
 	stdout, err := e.inner.RunAsUser(ctx, e.username, cmd)
 	if err != nil {
-		return stdout, err.Error(), 1, err
+		exitCode := 1
+		_, _ = fmt.Sscanf(err.Error(), "command exited with code %d", &exitCode)
+		return stdout, err.Error(), exitCode, err
 	}
 	return stdout, "", 0, nil
 }
@@ -53,16 +55,35 @@ func (e *UserAwareExecutor) RunWithTimeout(ctx context.Context, timeout time.Dur
 	return stdout, stderr, code, err
 }
 
+func (e *UserAwareExecutor) RunInDir(ctx context.Context, dir string, timeout time.Duration, name string, args ...string) (string, string, int, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	// For user-aware execution, use cd + command via RunAsUser
+	cmd := "cd " + dir + " && " + name
+	for _, a := range args {
+		cmd += " " + a
+	}
+	stdout, err := e.inner.RunAsUser(ctx, e.username, cmd)
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return stdout, "", 124, fmt.Errorf("command timed out after %s", timeout)
+		}
+		return stdout, err.Error(), 1, err
+	}
+	return stdout, "", 0, nil
+}
+
 func (e *UserAwareExecutor) RunAsUser(ctx context.Context, username, command string) (string, error) {
 	return e.inner.RunAsUser(ctx, username, command)
 }
 
 func (e *UserAwareExecutor) LookPath(name string) (string, error) {
 	stdout, err := e.inner.RunAsUser(context.Background(), e.username, "which "+name)
-	if err != nil || strings.TrimSpace(stdout) == "" {
+	path := strings.TrimSpace(stdout)
+	if err != nil || path == "" || !strings.HasPrefix(path, "/") {
 		return "", fmt.Errorf("%s not found in user PATH", name)
 	}
-	return strings.TrimSpace(stdout), nil
+	return path, nil
 }
 
 // --- Pass-through methods ---

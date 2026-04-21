@@ -17,10 +17,11 @@ type Config struct {
 	HTMLOutputFile   string   // set by --html (not persisted)
 	ColorMode        string   // "auto", "always", "never"
 	Verbose          bool     // --verbose
-	EnableNPMScan    *bool    // nil=auto, true/false=explicit
-	EnableBrewScan   *bool    // nil=auto, true/false=explicit
-	EnablePythonScan *bool    // nil=auto, true/false=explicit
-	SearchDirs       []string // defaults to ["$HOME"]
+	EnableNPMScan        *bool    // nil=auto, true/false=explicit
+	EnableBrewScan       *bool    // nil=auto, true/false=explicit
+	EnablePythonScan     *bool    // nil=auto, true/false=explicit
+	IncludeBundledPlugins bool   // --include-bundled-plugins: include bundled/platform plugins in output
+	SearchDirs           []string // defaults to ["$HOME"]
 }
 
 // Parse parses CLI arguments and returns a Config.
@@ -83,6 +84,8 @@ func Parse(args []string) (*Config, error) {
 		case arg == "--disable-python-scan":
 			v := false
 			cfg.EnablePythonScan = &v
+		case arg == "--include-bundled-plugins":
+			cfg.IncludeBundledPlugins = true
 		case strings.HasPrefix(arg, "--color="):
 			mode := strings.TrimPrefix(arg, "--color=")
 			if mode != "auto" && mode != "always" && mode != "never" {
@@ -145,9 +148,10 @@ Options:
   --disable-npm-scan     Disable Node.js package scanning
   --enable-brew-scan     Enable Homebrew package scanning
   --disable-brew-scan    Disable Homebrew package scanning
-  --enable-python-scan   Enable Python package scanning
-  --disable-python-scan  Disable Python package scanning
-  --verbose              Show progress messages (suppressed by default)
+  --enable-python-scan          Enable Python package scanning
+  --disable-python-scan         Disable Python package scanning
+  --include-bundled-plugins     Include bundled/platform plugins in output (Windows)
+  --verbose                     Show progress messages (suppressed by default)
   --color=WHEN           Color mode: auto | always | never (default: auto)
   -v, --version          Show version
   -h, --help             Show this help

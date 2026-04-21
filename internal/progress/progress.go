@@ -40,6 +40,13 @@ func (l *Logger) Progress(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "\033[2m%s [scanning]\033[0m %s\n", ts, fmt.Sprintf(format, args...))
 }
 
+// Warn always prints to stderr regardless of quiet mode.
+// Use for important operational messages that should be visible even in enterprise (quiet) mode.
+func (l *Logger) Warn(format string, args ...any) {
+	ts := time.Now().Format("2006-01-02 15:04:05")
+	fmt.Fprintf(os.Stderr, "%s \033[0;33m[warning]\033[0m %s\n", ts, fmt.Sprintf(format, args...))
+}
+
 // Error always prints to stderr regardless of quiet mode.
 // Format: [error] message
 func (l *Logger) Error(format string, args ...any) {

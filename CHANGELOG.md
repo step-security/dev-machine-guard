@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [1.10.1] - 2026-04-21
+
+### Added
+
+- **Glob-based Windows path matching**: `detectWindows` supports wildcard patterns in `WinPaths` for JetBrains IDEs that embed version numbers in folder names. Picks the newest installation when multiple versions are present.
+- **`product-info.json` version extraction**: Reads JetBrains `product-info.json` for accurate marketing version numbers on Windows (avoids registry build numbers).
+- **`.eclipseproduct` version extraction**: Reads Eclipse's `.eclipseproduct` properties file for version detection on Windows.
+- **JetBrains plugin detection enhancements**: Reads `productVendor` from `product-info.json` for correct config paths (handles Android Studio's `Google` vendor). Checks `idea.plugins.path` override in `idea.properties`.
+
+### Fixed
+
+- **Windows project package scanning**: Added `RunInDir` to Executor interface to bypass `cmd.exe` quote escaping issues. Fixes project-level NPM packages not being collected on Windows.
+- `RunAsUser` now sources `~/.zshrc` (or `~/.bashrc`) for full PATH resolution when running as root. Tools installed via nvm, n, fnm, bun, or npm-global were invisible in LaunchDaemon/IRU contexts because the login shell skipped `.zshrc`.
+- `RunAsUser` now propagates non-zero exit codes as errors instead of silently returning nil.
+- `LookPath` validates that `which` output is an absolute path, preventing zsh's "not found" stdout messages from being treated as valid binary paths.
+- `UserAwareExecutor.Run` now extracts actual exit codes from `RunAsUser` errors, fixing `isProcessRunning` false positives for AI frameworks.
+
 ## [1.10.0] - 2026-04-20
 
 ### Added

@@ -66,9 +66,8 @@ func main() {
 	if cfg.OutputFormat == "json" {
 		quiet = true
 	}
-	if cfg.Command == "send-telemetry" || cfg.Command == "install" {
-		quiet = false
-	}
+	// Note: send-telemetry and bare command (auto-detected enterprise) both
+	// respect the same quiet logic — config value wins, default is true.
 	log := progress.NewLogger(quiet)
 
 	switch cfg.Command {

@@ -32,7 +32,7 @@ func NewExtensionDetector(exec executor.Executor) *ExtensionDetector {
 	return &ExtensionDetector{exec: exec}
 }
 
-func (d *ExtensionDetector) Detect(ctx context.Context, searchDirs []string) []model.Extension {
+func (d *ExtensionDetector) Detect(ctx context.Context, searchDirs []string, ides []model.IDE) []model.Extension {
 	homeDir := getHomeDir(d.exec)
 	var results []model.Extension
 
@@ -49,8 +49,8 @@ func (d *ExtensionDetector) Detect(ctx context.Context, searchDirs []string) []m
 	// Xcode Source Editor extensions (via macOS pluginkit)
 	results = append(results, d.DetectXcodeExtensions(ctx)...)
 
-	// Eclipse plugins (id_version.jar format)
-	results = append(results, d.DetectEclipsePlugins()...)
+	// Eclipse plugins — use detected IDE install paths for accurate discovery
+	results = append(results, d.DetectEclipsePlugins(ctx, ides)...)
 
 	return results
 }
