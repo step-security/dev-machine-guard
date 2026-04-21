@@ -38,7 +38,9 @@ func (e *UserAwareExecutor) Run(ctx context.Context, name string, args ...string
 	}
 	stdout, err := e.inner.RunAsUser(ctx, e.username, cmd)
 	if err != nil {
-		return stdout, err.Error(), 1, err
+		exitCode := 1
+		_, _ = fmt.Sscanf(err.Error(), "command exited with code %d", &exitCode)
+		return stdout, err.Error(), exitCode, err
 	}
 	return stdout, "", 0, nil
 }
@@ -59,10 +61,11 @@ func (e *UserAwareExecutor) RunAsUser(ctx context.Context, username, command str
 
 func (e *UserAwareExecutor) LookPath(name string) (string, error) {
 	stdout, err := e.inner.RunAsUser(context.Background(), e.username, "which "+name)
-	if err != nil || strings.TrimSpace(stdout) == "" {
+	path := strings.TrimSpace(stdout)
+	if err != nil || path == "" || !strings.HasPrefix(path, "/") {
 		return "", fmt.Errorf("%s not found in user PATH", name)
 	}
-	return strings.TrimSpace(stdout), nil
+	return path, nil
 }
 
 // --- Pass-through methods ---
