@@ -41,19 +41,22 @@ var ideDefinitions = []ideSpec{
 	{
 		AppName: "Cursor", IDEType: "cursor", Vendor: "Cursor",
 		AppPath: "/Applications/Cursor.app", BinaryPath: "Contents/Resources/app/bin/cursor",
-		WinPaths: []string{`%LOCALAPPDATA%\Programs\cursor`}, WinBinary: "Cursor.exe",
+		// Use the .cmd console wrapper, not Cursor.exe (GUI binary that briefly opens a window)
+		WinPaths: []string{`%LOCALAPPDATA%\Programs\cursor`}, WinBinary: `resources\app\bin\cursor.cmd`,
 		VersionFlag: "--version",
 	},
 	{
 		AppName: "Windsurf", IDEType: "windsurf", Vendor: "Codeium",
 		AppPath: "/Applications/Windsurf.app", BinaryPath: "Contents/MacOS/Windsurf",
-		WinPaths: []string{`%LOCALAPPDATA%\Programs\Windsurf`}, WinBinary: "Windsurf.exe",
+		// Use the .cmd console wrapper to avoid launching the GUI
+		WinPaths: []string{`%LOCALAPPDATA%\Programs\Windsurf`}, WinBinary: `resources\app\bin\windsurf.cmd`,
 		VersionFlag: "--version",
 	},
 	{
 		AppName: "Antigravity", IDEType: "antigravity", Vendor: "Google",
 		AppPath: "/Applications/Antigravity.app", BinaryPath: "Contents/MacOS/Antigravity",
-		WinPaths: []string{`%LOCALAPPDATA%\Programs\Antigravity`}, WinBinary: "Antigravity.exe",
+		// Use the .cmd console wrapper to avoid launching the GUI
+		WinPaths: []string{`%LOCALAPPDATA%\Programs\Antigravity`}, WinBinary: `resources\app\bin\antigravity.cmd`,
 		VersionFlag: "--version",
 	},
 	{
