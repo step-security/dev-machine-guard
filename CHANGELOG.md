@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
-## [Unreleased]
+## [1.10.1] - 2026-04-21
 
 ### Added
 
@@ -19,6 +19,10 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 ### Fixed
 
 - **Windows project package scanning**: Added `RunInDir` to Executor interface to bypass `cmd.exe` quote escaping issues. Fixes project-level NPM packages not being collected on Windows.
+- `RunAsUser` now sources `~/.zshrc` (or `~/.bashrc`) for full PATH resolution when running as root. Tools installed via nvm, n, fnm, bun, or npm-global were invisible in LaunchDaemon/IRU contexts because the login shell skipped `.zshrc`.
+- `RunAsUser` now propagates non-zero exit codes as errors instead of silently returning nil.
+- `LookPath` validates that `which` output is an absolute path, preventing zsh's "not found" stdout messages from being treated as valid binary paths.
+- `UserAwareExecutor.Run` now extracts actual exit codes from `RunAsUser` errors, fixing `isProcessRunning` false positives for AI frameworks.
 
 ## [1.10.0] - 2026-04-20
 
