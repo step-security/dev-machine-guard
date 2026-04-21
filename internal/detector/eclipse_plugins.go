@@ -10,30 +10,68 @@ import (
 
 // eclipseBundledPrefixes are bundle ID prefixes that ship as part of the
 // base Eclipse platform. Bundles matching these are tagged as "bundled".
+// eclipseBundledPrefixes identifies bundles that ship as part of the Eclipse
+// platform or are standard dependencies. Everything NOT matching is classified
+// as "marketplace" (user-installed from Eclipse Marketplace or update sites).
 var eclipseBundledPrefixes = []string{
+	// Eclipse platform
 	"org.eclipse.",
-	"org.apache.",
-	"org.objectweb.",
+	"epp.",
+	"configure.",
+	// OSGi / Equinox runtime
 	"org.osgi.",
-	"org.sat4j.",
-	"org.tukaani.",
-	"org.w3c.",
+	// Apache libraries
+	"org.apache.",
+	// JVM / standard APIs
 	"javax.",
 	"jakarta.",
 	"com.sun.",
 	"com.ibm.icu",
-	"com.jcraft.",
-	"com.google.gson",
-	"com.google.guava",
+	// Common platform dependencies
+	"org.objectweb.",
+	"org.sat4j.",
+	"org.tukaani.",
+	"org.w3c.",
+	"org.xml.sax",
+	"org.hamcrest",
+	"org.junit",
+	"org.opentest4j",
+	"org.apiguardian",
+	"org.commonmark",
+	"org.mortbay.",
+	"org.jdom",
+	"org.jsoup",
+	"org.snakeyaml",
+	"org.jcodings",
+	"org.joni",
+	"org.glassfish.",
+	"org.gradle.",
+	"org.jacoco.",
+	// JUnit platform (ships with Eclipse JDT)
+	"junit-jupiter",
+	"junit-platform",
+	"junit-vintage",
+	// Crypto / SSH / networking
 	"bcpg",
 	"bcpkix",
 	"bcprov",
 	"bcutil",
-	"ch.qos.logback",
+	"com.jcraft.",
 	"net.i2p.crypto",
+	"net.bytebuddy",
+	// Google / JSON / utilities
+	"com.google.gson",
+	"com.google.guava",
+	"com.googlecode.",
+	// Logging
+	"ch.qos.logback",
 	"slf4j.",
+	// Build tooling
 	"args4j",
 	"biz.aQute.",
+	// Other standard Eclipse deps
+	"com.sun.xml.",
+	"jaxen",
 }
 
 // eclipseExePatterns are executable names that indicate an Eclipse-family install.
