@@ -4,14 +4,62 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
-// eclipseFeatureDirs are Eclipse feature directories to scan.
-// Features represent installed plugins/extensions (both bundled and user-installed).
-var eclipseFeatureDirs = []string{
+// macOS Eclipse feature directories (fixed paths).
+var eclipseFeatureDirsDarwin = []string{
 	"/Applications/Eclipse.app/Contents/Eclipse/features",
 	"/Applications/Eclipse.app/Contents/Eclipse/dropins",
+}
+
+// resolveEclipseFeatureDirs returns the Eclipse feature directories to scan
+// for the current platform.
+func resolveEclipseFeatureDirs(exec executor.Executor) []string {
+	if exec.GOOS() != "windows" {
+		return eclipseFeatureDirsDarwin
+	}
+
+	// On Windows, Eclipse installs to variable paths. Check the same locations
+	// as ideDefinitions and resolve features/dropins under each.
+	var dirs []string
+	candidates := []string{
+		filepath.Join(exec.Getenv("PROGRAMFILES"), "eclipse"),
+		`C:\eclipse`,
+	}
+
+	// Also check user profile eclipse dirs (Oomph installer)
+	userProfile := exec.Getenv("USERPROFILE")
+	if userProfile != "" {
+		eclipseUserDir := filepath.Join(userProfile, "eclipse")
+		if exec.DirExists(eclipseUserDir) {
+			entries, err := exec.ReadDir(eclipseUserDir)
+			if err == nil {
+				for _, e := range entries {
+					if e.IsDir() {
+						candidates = append(candidates, filepath.Join(eclipseUserDir, e.Name(), "eclipse"))
+					}
+				}
+			}
+		}
+	}
+
+	for _, base := range candidates {
+		if !exec.DirExists(base) {
+			continue
+		}
+		featuresDir := filepath.Join(base, "features")
+		if exec.DirExists(featuresDir) {
+			dirs = append(dirs, featuresDir)
+		}
+		dropinsDir := filepath.Join(base, "dropins")
+		if exec.DirExists(dropinsDir) {
+			dirs = append(dirs, dropinsDir)
+		}
+	}
+
+	return dirs
 }
 
 // eclipseBundledPrefixes are feature ID prefixes that ship as part of the
@@ -31,10 +79,7 @@ var eclipseBundledPrefixes = []string{
 // all features tagged as "bundled" or "user_installed".
 func (d *ExtensionDetector) DetectEclipsePlugins() []model.Extension {
 	var results []model.Extension
-	for _, dir := range eclipseFeatureDirs {
-		if !d.exec.DirExists(dir) {
-			continue
-		}
+	for _, dir := range resolveEclipseFeatureDirs(d.exec) {
 		results = append(results, d.collectEclipseFeatures(dir)...)
 	}
 	return results
