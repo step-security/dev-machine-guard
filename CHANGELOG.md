@@ -16,6 +16,7 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 - **Glob-based Windows path matching**: `detectWindows` now supports wildcard patterns in `WinPaths` for IDEs that embed version numbers in folder names (e.g., `C:\Program Files\JetBrains\GoLand 2025.1.3\`). Picks the newest installation when multiple versions are present.
 - **`product-info.json` version extraction**: Reads the JetBrains `product-info.json` file for accurate marketing version numbers (avoids registry build numbers).
 - **`.eclipseproduct` version extraction**: Reads Eclipse's `.eclipseproduct` properties file for version detection on Windows (Eclipse does not register in the Windows registry).
+- **JetBrains plugin detection** (macOS + Windows): Detects user-installed plugins for all JetBrains IDEs by reading `product-info.json` to resolve the config directory, then scanning the plugins directory. Version extracted from JAR filenames.
 
 ## [1.9.2] - 2026-04-15
 

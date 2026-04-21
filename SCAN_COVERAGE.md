@@ -73,12 +73,16 @@ This document catalogs everything Dev Machine Guard detects. Contributions to ex
 | Open Interpreter      | `~/.config/open-interpreter/config.yaml`            | OpenSource|
 | Codex                 | `~/.codex/config.toml`                              | OpenAI    |
 
-## IDE Extensions
+## IDE Extensions & Plugins
 
-| IDE         | Extensions Directory           | Format                        |
-|-------------|--------------------------------|-------------------------------|
-| VS Code     | `~/.vscode/extensions`         | `publisher.name-version`      |
-| Cursor      | `~/.cursor/extensions`         | `publisher.name-version`      |
+| IDE              | Extensions/Plugins Directory                                                  | Format                        |
+|------------------|-------------------------------------------------------------------------------|-------------------------------|
+| VS Code          | `~/.vscode/extensions`                                                        | `publisher.name-version`      |
+| Cursor           | `~/.cursor/extensions`                                                        | `publisher.name-version`      |
+| JetBrains IDEs   | macOS: `~/Library/Application Support/JetBrains/<dataDir>/plugins/`           | `<name>/lib/<name>-version.jar` |
+|                  | Windows: `%APPDATA%\JetBrains\<dataDir>\plugins\`                            |                               |
+
+JetBrains plugin detection reads `product-info.json` from the IDE install path to resolve the `dataDirectoryName` (e.g., `GoLand2025.1`), then scans user-installed plugins. Only user-installed plugins are reported (bundled plugins in the install directory are excluded).
 
 ## Node.js Package Scanning (Optional)
 
