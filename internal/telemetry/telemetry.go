@@ -156,7 +156,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	// On Windows, filter out bundled/platform plugins (e.g., Eclipse's 500+ OSGi
 	// bundles) unless explicitly requested. macOS is unaffected.
 	if exec.GOOS() == "windows" && !cfg.IncludeBundledPlugins {
-		extensions = filterUserInstalledExtensions(extensions)
+		extensions = model.FilterUserInstalledExtensions(extensions)
 	}
 	log.Progress("Found total of %d IDE extensions", len(extensions))
 	fmt.Fprintln(os.Stderr)
@@ -617,14 +617,3 @@ func ideDisplayName(ideType string) string {
 	}
 }
 
-// filterUserInstalledExtensions removes bundled/platform extensions,
-// keeping only user-installed and marketplace extensions.
-func filterUserInstalledExtensions(exts []model.Extension) []model.Extension {
-	var filtered []model.Extension
-	for _, ext := range exts {
-		if ext.Source != "bundled" {
-			filtered = append(filtered, ext)
-		}
-	}
-	return filtered
-}

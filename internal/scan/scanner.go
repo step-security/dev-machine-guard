@@ -69,7 +69,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	// bundles) unless explicitly requested. macOS detection doesn't produce bundled
 	// plugins in significant volume, so this filter is Windows-only.
 	if exec.GOOS() == "windows" && !cfg.IncludeBundledPlugins {
-		extensions = filterUserInstalledExtensions(extensions)
+		extensions = model.FilterUserInstalledExtensions(extensions)
 	}
 	log.StepDone(time.Since(start))
 
@@ -262,14 +262,3 @@ func mcpConfigsToCommunity(configs []model.MCPConfig) []model.MCPConfig {
 	return configs
 }
 
-// filterUserInstalledExtensions removes bundled/platform extensions,
-// keeping only user-installed and marketplace extensions.
-func filterUserInstalledExtensions(exts []model.Extension) []model.Extension {
-	var filtered []model.Extension
-	for _, ext := range exts {
-		if ext.Source != "bundled" {
-			filtered = append(filtered, ext)
-		}
-	}
-	return filtered
-}

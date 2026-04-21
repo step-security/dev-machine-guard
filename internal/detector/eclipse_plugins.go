@@ -12,8 +12,9 @@ import (
 // eclipseBundledPrefixes are bundle ID prefixes that ship as part of the
 // base Eclipse platform. Bundles matching these are tagged as "bundled".
 // eclipseBundledPrefixes identifies bundles that ship as part of the Eclipse
-// platform or are standard dependencies. Everything NOT matching is classified
-// as "marketplace" (user-installed from Eclipse Marketplace or update sites).
+// platform or are standard dependencies. Bundles that do not match these
+// prefixes are treated as non-bundled and may be classified into source
+// categories such as "marketplace", "user_installed", or "dropins".
 var eclipseBundledPrefixes = []string{
 	// Eclipse platform
 	"org.eclipse.",
@@ -96,7 +97,7 @@ var eclipseFeatureDirsDarwin = []string{
 // On macOS: scans features/dropins directories.
 // On Windows: multi-stage pipeline using detected IDE paths, path probes,
 // and drive letter scanning, with validation before reporting.
-func (d *ExtensionDetector) DetectEclipsePlugins(ides []model.IDE) []model.Extension {
+func (d *ExtensionDetector) DetectEclipsePlugins(ctx context.Context, ides []model.IDE) []model.Extension {
 	if d.exec.GOOS() != "windows" {
 		var results []model.Extension
 		for _, dir := range eclipseFeatureDirsDarwin {
@@ -106,12 +107,12 @@ func (d *ExtensionDetector) DetectEclipsePlugins(ides []model.IDE) []model.Exten
 		}
 		return results
 	}
-	return d.detectEclipsePluginsWindows(ides)
+	return d.detectEclipsePluginsWindows(ctx, ides)
 }
 
 // ---------- Windows multi-stage pipeline ----------
 
-func (d *ExtensionDetector) detectEclipsePluginsWindows(ides []model.IDE) []model.Extension {
+func (d *ExtensionDetector) detectEclipsePluginsWindows(ctx context.Context, ides []model.IDE) []model.Extension {
 	// Stage 1+2: Collect candidate paths from detected IDEs + well-known locations
 	candidates := d.gatherEclipseCandidates(ides)
 
@@ -134,7 +135,7 @@ func (d *ExtensionDetector) detectEclipsePluginsWindows(ides []model.IDE) []mode
 	pluginSeen := make(map[string]bool)
 	var results []model.Extension
 	for _, installDir := range validInstalls {
-		plugins := d.enumerateEclipsePlugins(installDir)
+		plugins := d.enumerateEclipsePlugins(ctx, installDir)
 		for _, p := range plugins {
 			dedupKey := p.ID + "@" + p.Version
 			if pluginSeen[dedupKey] {
@@ -200,10 +201,14 @@ func (d *ExtensionDetector) gatherEclipseCandidates(ides []model.IDE) []string {
 		candidates = append(candidates, d.globDirs(filepath.Join(localAppData, "Programs", "Spring*"))...)
 	}
 
-	// Drive letter probe: D:\eclipse through Z:\eclipse (fixed drives only)
+	// Drive letter probe: D:\eclipse through Z:\eclipse.
+	// Only probe drives that actually exist to avoid slow network drive timeouts.
 	for drive := 'D'; drive <= 'Z'; drive++ {
-		driveRoot := string(drive) + `:\eclipse`
-		candidates = append(candidates, driveRoot)
+		driveRoot := string(drive) + `:\`
+		if !d.exec.DirExists(driveRoot) {
+			continue
+		}
+		candidates = append(candidates, string(drive)+`:\eclipse`)
 	}
 
 	return candidates
@@ -257,9 +262,9 @@ func (d *ExtensionDetector) validateEclipseInstall(installDir string) bool {
 // enumerateEclipsePlugins collects plugins from a validated Eclipse install.
 // Uses the p2 director API (eclipsec.exe -listInstalledRoots) to get authoritative
 // installed features, then enriches with bundles.info for full bundle details.
-func (d *ExtensionDetector) enumerateEclipsePlugins(installDir string) []model.Extension {
+func (d *ExtensionDetector) enumerateEclipsePlugins(ctx context.Context, installDir string) []model.Extension {
 	// Try p2 director first — returns authoritative list of installed root features
-	roots := d.queryP2InstalledRoots(installDir)
+	roots := d.queryP2InstalledRoots(ctx, installDir)
 
 	// Build a set of root feature prefixes for marketplace classification.
 	// Root features that are NOT org.eclipse.* or epp.* are marketplace-installed.
@@ -336,7 +341,7 @@ func (d *ExtensionDetector) enumerateEclipsePlugins(installDir string) []model.E
 // queryP2InstalledRoots invokes Eclipse's p2 director to get the authoritative
 // list of installed root features. Returns nil if eclipsec.exe is not available
 // or the command fails. Output format: "feature.id/version" per line.
-func (d *ExtensionDetector) queryP2InstalledRoots(installDir string) []model.Extension {
+func (d *ExtensionDetector) queryP2InstalledRoots(ctx context.Context, installDir string) []model.Extension {
 	// Find eclipsec.exe (console launcher)
 	eclipsec := filepath.Join(installDir, "eclipsec.exe")
 	if !d.exec.FileExists(eclipsec) {
@@ -347,7 +352,6 @@ func (d *ExtensionDetector) queryP2InstalledRoots(installDir string) []model.Ext
 		}
 	}
 
-	ctx := context.Background()
 	stdout, _, exitCode, err := d.exec.RunWithTimeout(ctx, 30*time.Second,
 		eclipsec, "-nosplash",
 		"-application", "org.eclipse.equinox.p2.director",

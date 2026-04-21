@@ -148,9 +148,10 @@ Options:
   --disable-npm-scan     Disable Node.js package scanning
   --enable-brew-scan     Enable Homebrew package scanning
   --disable-brew-scan    Disable Homebrew package scanning
-  --enable-python-scan   Enable Python package scanning
-  --disable-python-scan  Disable Python package scanning
-  --verbose              Show progress messages (suppressed by default)
+  --enable-python-scan          Enable Python package scanning
+  --disable-python-scan         Disable Python package scanning
+  --include-bundled-plugins     Include bundled/platform plugins in output (Windows)
+  --verbose                     Show progress messages (suppressed by default)
   --color=WHEN           Color mode: auto | always | never (default: auto)
   -v, --version          Show version
   -h, --help             Show this help

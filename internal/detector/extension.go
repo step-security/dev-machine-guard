@@ -50,7 +50,7 @@ func (d *ExtensionDetector) Detect(ctx context.Context, searchDirs []string, ide
 	results = append(results, d.DetectXcodeExtensions(ctx)...)
 
 	// Eclipse plugins — use detected IDE install paths for accurate discovery
-	results = append(results, d.DetectEclipsePlugins(ides)...)
+	results = append(results, d.DetectEclipsePlugins(ctx, ides)...)
 
 	return results
 }

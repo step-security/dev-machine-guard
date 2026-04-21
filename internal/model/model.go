@@ -155,3 +155,15 @@ type PythonScanResult struct {
 	ExitCode        int    `json:"exit_code"`
 	ScanDurationMs  int64  `json:"scan_duration_ms"`
 }
+
+// FilterUserInstalledExtensions removes bundled/platform extensions,
+// keeping only user-installed, marketplace, and dropins extensions.
+func FilterUserInstalledExtensions(exts []Extension) []Extension {
+	var filtered []Extension
+	for _, ext := range exts {
+		if ext.Source != "bundled" {
+			filtered = append(filtered, ext)
+		}
+	}
+	return filtered
+}
