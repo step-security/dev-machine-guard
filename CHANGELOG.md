@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [1.11.0] - 2026-04-21
+
+### Added
+
+- **Windows Eclipse plugin detection**: Multi-stage detection pipeline that resolves Eclipse install paths from detected IDEs (registry-aware), well-known paths (`%PROGRAMFILES%\eclipse`, `C:\eclipse`, `%USERPROFILE%\eclipse\<variant>\eclipse`), vendor variants (STS, MyEclipse), and drive letter scanning (D:-Z:). Validates installs (`eclipse.ini` + `plugins/` + `configuration/`) before reporting to eliminate false positives.
+- **p2 director integration**: Uses Eclipse's own `eclipsec.exe -listInstalledRoots` to get the authoritative list of installed root features. Marketplace-installed features are identified as those not prefixed with `org.eclipse.*` or `epp.*`, and bundles belonging to marketplace features are tagged with `marketplace` source. Falls back to `bundles.info`-only parsing if `eclipsec.exe` is unavailable.
+- **`bundles.info` parsing**: Primary plugin detection method on Windows (modern Eclipse uses p2 provisioning) with `dropins/` scanning as secondary. Dedupes by `symbolicName@version`.
+- **`--include-bundled-plugins` flag**: Opt-in to include bundled/platform plugins in scan output and telemetry. By default only user-installed and marketplace plugins are reported on Windows, reducing payload from ~124KB to ~21KB on a typical Eclipse install.
+- Unit tests covering the Eclipse detection pipeline (validation, `bundles.info` parsing, p2 director output parsing, dropins scanning).
+
+### Fixed
+
+- Eclipse plugin detection now uses the actual install path from detected IDEs (which may have been discovered via the Windows registry) instead of hardcoded candidate paths.
+- Expanded `eclipseBundledPrefixes` to cover standard Eclipse platform dependencies (JUnit, JaCoCo, Gradle tooling, crypto libs). Reduces false positives from 45 to 4 on a typical install — only genuinely marketplace-installed plugins are classified as `user_installed`.
+- Threaded `context.Context` through the Eclipse detection pipeline (previously used `context.Background()`).
+- Drive letter probes now check whether the drive exists before probing, avoiding network drive timeouts.
+- Moved `filterUserInstalledExtensions` to the model package (was duplicated).
+
 ## [1.10.1] - 2026-04-21
 
 ### Added
@@ -108,6 +126,8 @@ First open-source release. The scanning engine was previously an internal enterp
 - Execution log capture and base64 encoding
 - Instance locking to prevent concurrent runs
 
+[1.11.0]: https://github.com/step-security/dev-machine-guard/compare/v1.10.1...v1.11.0
+[1.10.1]: https://github.com/step-security/dev-machine-guard/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/step-security/dev-machine-guard/compare/v1.9.2...v1.10.0
 [1.9.2]: https://github.com/step-security/dev-machine-guard/compare/v1.9.1...v1.9.2
 [1.9.1]: https://github.com/step-security/dev-machine-guard/compare/v1.9.0...v1.9.1
