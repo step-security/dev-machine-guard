@@ -59,6 +59,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	start = time.Now()
 	extDetector := detector.NewExtensionDetector(exec)
 	extensions := extDetector.Detect(ctx, searchDirs)
+
+	// Collect JetBrains plugins
+	jbDetector := detector.NewJetBrainsPluginDetector(exec)
+	jbPlugins := jbDetector.Detect(ctx, ides)
+	extensions = append(extensions, jbPlugins...)
 	log.StepDone(time.Since(start))
 
 	// Node.js scanning (community mode defaults to off, explicit flag overrides)

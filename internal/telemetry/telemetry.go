@@ -147,6 +147,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	log.Progress("Scanning extensions...")
 	extDetector := detector.NewExtensionDetector(exec)
 	extensions := extDetector.Detect(ctx, searchDirs)
+
+	// Collect JetBrains plugins
+	jbDetector := detector.NewJetBrainsPluginDetector(exec)
+	jbPlugins := jbDetector.Detect(ctx, ides)
+	extensions = append(extensions, jbPlugins...)
 	log.Progress("Found total of %d IDE extensions", len(extensions))
 	fmt.Fprintln(os.Stderr)
 

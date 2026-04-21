@@ -55,6 +55,24 @@ func (e *UserAwareExecutor) RunWithTimeout(ctx context.Context, timeout time.Dur
 	return stdout, stderr, code, err
 }
 
+func (e *UserAwareExecutor) RunInDir(ctx context.Context, dir string, timeout time.Duration, name string, args ...string) (string, string, int, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	// For user-aware execution, use cd + command via RunAsUser
+	cmd := "cd " + dir + " && " + name
+	for _, a := range args {
+		cmd += " " + a
+	}
+	stdout, err := e.inner.RunAsUser(ctx, e.username, cmd)
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return stdout, "", 124, fmt.Errorf("command timed out after %s", timeout)
+		}
+		return stdout, err.Error(), 1, err
+	}
+	return stdout, "", 0, nil
+}
+
 func (e *UserAwareExecutor) RunAsUser(ctx context.Context, username, command string) (string, error) {
 	return e.inner.RunAsUser(ctx, username, command)
 }
