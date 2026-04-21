@@ -146,12 +146,18 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	// Collect extensions
 	log.Progress("Scanning extensions...")
 	extDetector := detector.NewExtensionDetector(exec)
-	extensions := extDetector.Detect(ctx, searchDirs)
+	extensions := extDetector.Detect(ctx, searchDirs, ides)
 
 	// Collect JetBrains plugins
 	jbDetector := detector.NewJetBrainsPluginDetector(exec)
 	jbPlugins := jbDetector.Detect(ctx, ides)
 	extensions = append(extensions, jbPlugins...)
+
+	// On Windows, filter out bundled/platform plugins (e.g., Eclipse's 500+ OSGi
+	// bundles) unless explicitly requested. macOS is unaffected.
+	if exec.GOOS() == "windows" && !cfg.IncludeBundledPlugins {
+		extensions = model.FilterUserInstalledExtensions(extensions)
+	}
 	log.Progress("Found total of %d IDE extensions", len(extensions))
 	fmt.Fprintln(os.Stderr)
 
@@ -610,3 +616,4 @@ func ideDisplayName(ideType string) string {
 		return ideType
 	}
 }
+
