@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [1.10.2] - 2026-04-22
+
+### Added
+
+- **Windows Eclipse plugin detection**: Multi-stage detection pipeline using detected IDE install paths (registry-aware), well-known path probes (Oomph installer, vendor variants like STS/MyEclipse, D:-Z: drive scanning), and install validation to eliminate false positives.
+- **Eclipse p2 director integration**: Uses `eclipsec.exe -listInstalledRoots` for authoritative marketplace plugin identification. Falls back to `bundles.info` parsing if unavailable.
+- **`--include-bundled-plugins` flag**: Bundled/platform plugins (e.g., Eclipse's 500+ OSGi bundles) are now filtered out by default to reduce noise and payload size (~124KB → ~21KB). Use the flag to include them.
+- **Sigstore signing retry logic**: Release workflow retries artifact signing with Sigstore on transient failures.
+
 ## [1.10.1] - 2026-04-21
 
 ### Added
@@ -108,6 +117,8 @@ First open-source release. The scanning engine was previously an internal enterp
 - Execution log capture and base64 encoding
 - Instance locking to prevent concurrent runs
 
+[1.10.2]: https://github.com/step-security/dev-machine-guard/compare/v1.10.1...v1.10.2
+[1.10.1]: https://github.com/step-security/dev-machine-guard/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/step-security/dev-machine-guard/compare/v1.9.2...v1.10.0
 [1.9.2]: https://github.com/step-security/dev-machine-guard/compare/v1.9.1...v1.9.2
 [1.9.1]: https://github.com/step-security/dev-machine-guard/compare/v1.9.0...v1.9.1
