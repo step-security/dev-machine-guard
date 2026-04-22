@@ -84,6 +84,38 @@ func TestPretty_ShowsDeviceInfo(t *testing.T) {
 	}
 }
 
+func TestPretty_PlatformLabels(t *testing.T) {
+	tests := []struct {
+		platform  string
+		wantLabel string
+	}{
+		{"darwin", "macOS"},
+		{"windows", "Windows"},
+		{"linux", "Linux"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.platform, func(t *testing.T) {
+			result := &model.ScanResult{
+				ScanTimestamp: 1700000000,
+				Device: model.Device{
+					Hostname:  "test",
+					OSVersion: "1.0",
+					Platform:  tt.platform,
+				},
+			}
+
+			var buf bytes.Buffer
+			_ = Pretty(&buf, result, "never")
+			output := buf.String()
+
+			if !strings.Contains(output, tt.wantLabel) {
+				t.Errorf("platform %q: output missing label %q", tt.platform, tt.wantLabel)
+			}
+		})
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	tests := []struct {
 		input string

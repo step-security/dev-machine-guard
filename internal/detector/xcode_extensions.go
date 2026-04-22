@@ -11,6 +11,9 @@ import (
 // DetectXcodeExtensions uses macOS pluginkit to find installed
 // Xcode Source Editor extensions.
 func (d *ExtensionDetector) DetectXcodeExtensions(ctx context.Context) []model.Extension {
+	if d.exec.GOOS() != "darwin" {
+		return nil
+	}
 	stdout, _, _, err := d.exec.RunWithTimeout(ctx, 10*time.Second,
 		"pluginkit", "-mAD", "-p", "com.apple.dt.Xcode.extension.source-editor")
 	if err != nil {

@@ -12,22 +12,23 @@ import (
 )
 
 type mcpConfigSpec struct {
-	SourceName    string
-	ConfigPath    string // macOS/Unix path (~/... expanded)
-	WinConfigPath string // Windows path (%ENVVAR%/... expanded); empty means same as ConfigPath
-	Vendor        string
+	SourceName      string
+	ConfigPath      string // macOS/Unix path (~/... expanded)
+	WinConfigPath   string // Windows path (%ENVVAR%/... expanded); empty means same as ConfigPath
+	LinuxConfigPath string // Linux path (~/... expanded); empty means same as ConfigPath
+	Vendor          string
 }
 
 var mcpConfigDefinitions = []mcpConfigSpec{
-	{"claude_desktop", "~/Library/Application Support/Claude/claude_desktop_config.json", "%APPDATA%/Claude/claude_desktop_config.json", "Anthropic"},
-	{"claude_code", "~/.claude/settings.json", "", "Anthropic"},
-	{"claude_code", "~/.claude.json", "", "Anthropic"},
-	{"cursor", "~/.cursor/mcp.json", "", "Cursor"},
-	{"windsurf", "~/.codeium/windsurf/mcp_config.json", "", "Codeium"},
-	{"antigravity", "~/.gemini/antigravity/mcp_config.json", "", "Google"},
-	{"zed", "~/.config/zed/settings.json", "", "Zed"},
-	{"open_interpreter", "~/.config/open-interpreter/config.yaml", "", "OpenSource"},
-	{"codex", "~/.codex/config.toml", "", "OpenAI"},
+	{"claude_desktop", "~/Library/Application Support/Claude/claude_desktop_config.json", "%APPDATA%/Claude/claude_desktop_config.json", "~/.config/Claude/claude_desktop_config.json", "Anthropic"},
+	{"claude_code", "~/.claude/settings.json", "", "", "Anthropic"},
+	{"claude_code", "~/.claude.json", "", "", "Anthropic"},
+	{"cursor", "~/.cursor/mcp.json", "", "", "Cursor"},
+	{"windsurf", "~/.codeium/windsurf/mcp_config.json", "", "", "Codeium"},
+	{"antigravity", "~/.gemini/antigravity/mcp_config.json", "", "", "Google"},
+	{"zed", "~/.config/zed/settings.json", "", "", "Zed"},
+	{"open_interpreter", "~/.config/open-interpreter/config.yaml", "", "", "OpenSource"},
+	{"codex", "~/.codex/config.toml", "", "", "OpenAI"},
 }
 
 // MCPDetector collects MCP configuration files.
@@ -172,6 +173,9 @@ func (d *MCPDetector) discoverProjectMCPConfigs(homeDir string) []mcpConfigSpec 
 func (d *MCPDetector) resolveConfigPath(spec mcpConfigSpec, homeDir string) string {
 	if d.exec.GOOS() == "windows" && spec.WinConfigPath != "" {
 		return resolveEnvPath(d.exec, spec.WinConfigPath)
+	}
+	if d.exec.GOOS() != "darwin" && spec.LinuxConfigPath != "" {
+		return expandTilde(spec.LinuxConfigPath, homeDir)
 	}
 	return expandTilde(spec.ConfigPath, homeDir)
 }

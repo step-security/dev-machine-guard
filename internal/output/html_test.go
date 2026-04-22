@@ -53,6 +53,44 @@ func TestHTML_GeneratesFile(t *testing.T) {
 	}
 }
 
+func TestHTML_PlatformLabels(t *testing.T) {
+	tests := []struct {
+		platform  string
+		wantLabel string
+	}{
+		{"darwin", "macOS"},
+		{"windows", "Windows"},
+		{"linux", "Linux"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.platform, func(t *testing.T) {
+			tmpFile := os.TempDir() + "/test-dmg-platform-" + tt.platform + ".html"
+			defer func() { _ = os.Remove(tmpFile) }()
+
+			result := &model.ScanResult{
+				ScanTimestamp: 1700000000,
+				Device: model.Device{
+					Hostname:  "test",
+					OSVersion: "1.0",
+					Platform:  tt.platform,
+				},
+			}
+
+			if err := HTML(tmpFile, result); err != nil {
+				t.Fatal(err)
+			}
+
+			content, _ := os.ReadFile(tmpFile)
+			html := string(content)
+
+			if !strings.Contains(html, tt.wantLabel) {
+				t.Errorf("platform %q: HTML missing label %q", tt.platform, tt.wantLabel)
+			}
+		})
+	}
+}
+
 func TestHTML_ContainsData(t *testing.T) {
 	tmpFile := os.TempDir() + "/test-dmg-data.html"
 	defer func() { _ = os.Remove(tmpFile) }()

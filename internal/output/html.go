@@ -200,7 +200,7 @@ const htmlTemplate = `<!DOCTYPE html>
 <div class="device-grid">
   <div class="field"><span class="field-label">Hostname</span><span class="field-value">{{.Device.Hostname}}</span></div>
   <div class="field"><span class="field-label">Serial</span><span class="field-value">{{.Device.SerialNumber}}</span></div>
-  <div class="field"><span class="field-label">{{if eq .Device.Platform "windows"}}Windows{{else}}macOS{{end}}</span><span class="field-value">{{.Device.OSVersion}}</span></div>
+  <div class="field"><span class="field-label">{{if eq .Device.Platform "windows"}}Windows{{else if eq .Device.Platform "linux"}}Linux{{else}}macOS{{end}}</span><span class="field-value">{{.Device.OSVersion}}</span></div>
   <div class="field"><span class="field-label">User</span><span class="field-value">{{.Device.UserIdentity}}</span></div>
 </div>
 
