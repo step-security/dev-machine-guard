@@ -56,7 +56,7 @@ func main() {
 	exec := executor.NewReal()
 
 	// Quiet resolution: config is the base, CLI overrides.
-	quiet := true
+	quiet := false
 	if config.Quiet != nil {
 		quiet = *config.Quiet
 	}

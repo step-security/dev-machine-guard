@@ -109,7 +109,7 @@ var ideDefinitions = []ideSpec{
 		WinPaths: []string{`%PROGRAMFILES%\JetBrains\GoLand *`},
 	},
 	{
-		AppName:      "Rider", IDEType: "rider", Vendor: "JetBrains",
+		AppName: "Rider", IDEType: "rider", Vendor: "JetBrains",
 		AppPath:      "/Applications/Rider.app",
 		WinPaths:     []string{`%PROGRAMFILES%\JetBrains\JetBrains Rider *`},
 		RegistryName: "JetBrains Rider",

@@ -469,7 +469,7 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 	// Upload payload to S3 with retry — use a longer timeout since payloads
 	// with npm scan data and execution logs can be several MB.
 	log.Progress("Uploading telemetry to S3 (%d bytes)...", len(payloadJSON))
-	s3Client := &http.Client{Timeout: 60 * time.Second}
+	s3Client := &http.Client{Timeout: 10 * time.Minute}
 	const maxRetries = 3
 	var putResp *http.Response
 	for attempt := 1; attempt <= maxRetries; attempt++ {
@@ -616,4 +616,3 @@ func ideDisplayName(ideType string) string {
 		return ideType
 	}
 }
-

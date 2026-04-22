@@ -90,7 +90,6 @@ func (s *NodeScanner) runInDir(ctx context.Context, dir string, timeout time.Dur
 	return s.exec.RunInDir(ctx, dir, timeout, name, args...)
 }
 
-
 // checkPath checks if a binary is available, using the logged-in user's PATH when running as root.
 func (s *NodeScanner) checkPath(ctx context.Context, name string) error {
 	if s.shouldRunAsUser() {

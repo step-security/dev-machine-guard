@@ -597,4 +597,3 @@ func parseEclipsePluginName(name string) *model.Extension {
 		IDEType:   "eclipse",
 	}
 }
-

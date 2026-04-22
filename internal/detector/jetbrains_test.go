@@ -409,10 +409,12 @@ type mockDirEntry struct {
 	isDir bool
 }
 
-func (e *mockDirEntry) Name() string              { return e.name }
-func (e *mockDirEntry) IsDir() bool               { return e.isDir }
-func (e *mockDirEntry) Type() os.FileMode         { return 0 }
-func (e *mockDirEntry) Info() (os.FileInfo, error) { return &testFileInfo{name: e.name, dir: e.isDir}, nil }
+func (e *mockDirEntry) Name() string      { return e.name }
+func (e *mockDirEntry) IsDir() bool       { return e.isDir }
+func (e *mockDirEntry) Type() os.FileMode { return 0 }
+func (e *mockDirEntry) Info() (os.FileInfo, error) {
+	return &testFileInfo{name: e.name, dir: e.isDir}, nil
+}
 
 // testFileInfo implements os.FileInfo for testing.
 type testFileInfo struct {
@@ -420,9 +422,9 @@ type testFileInfo struct {
 	dir  bool
 }
 
-func (fi *testFileInfo) Name() string      { return fi.name }
-func (fi *testFileInfo) Size() int64       { return 0 }
-func (fi *testFileInfo) IsDir() bool       { return fi.dir }
+func (fi *testFileInfo) Name() string       { return fi.name }
+func (fi *testFileInfo) Size() int64        { return 0 }
+func (fi *testFileInfo) IsDir() bool        { return fi.dir }
 func (fi *testFileInfo) ModTime() time.Time { return time.Time{} }
 func (fi *testFileInfo) Mode() os.FileMode  { return 0o644 }
 func (fi *testFileInfo) Sys() any           { return nil }

@@ -290,4 +290,3 @@ func TestFilterUserInstalledExtensions(t *testing.T) {
 		}
 	}
 }
-

@@ -261,4 +261,3 @@ func mcpConfigsToCommunity(configs []model.MCPConfig) []model.MCPConfig {
 	}
 	return configs
 }
-

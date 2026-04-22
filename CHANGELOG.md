@@ -16,6 +16,11 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 - **`--include-bundled-plugins` flag**: Bundled/platform plugins (e.g., Eclipse's 500+ OSGi bundles) are now filtered out by default to reduce noise and payload size (~124KB → ~21KB). Use the flag to include them.
 - **Sigstore signing retry logic**: Release workflow retries artifact signing with Sigstore on transient failures.
 
+### Changed
+
+- **Quiet mode now defaults to `false`**: Progress output is shown by default in community mode, matching the behavior already documented in the README. `configure` prompt and `configure show` now display `false` when the value is unset.
+- **S3 telemetry upload timeout increased from 60 seconds to 10 minutes**: Large scan payloads on slower networks were exhausting the previous 60 s budget and forcing the retry loop to redo the entire upload.
+
 ## [1.10.1] - 2026-04-21
 
 ### Added
