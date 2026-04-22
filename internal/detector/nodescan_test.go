@@ -1,8 +1,11 @@
 package detector
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
+	"io"
 	"path/filepath"
 	"testing"
 
@@ -39,8 +42,8 @@ func TestNodeScanner_ScanNPMGlobal(t *testing.T) {
 				t.Errorf("expected ExitCode 0, got %d", r.ExitCode)
 			}
 			decoded, _ := base64.StdEncoding.DecodeString(r.RawStdoutBase64)
-			if len(decoded) == 0 {
-				t.Error("expected non-empty RawStdoutBase64")
+			if len(decoded) < 2 || decoded[0] != 0x1f || decoded[1] != 0x8b {
+				t.Error("expected gzip-compressed RawStdoutBase64")
 			}
 		}
 	}
@@ -174,8 +177,8 @@ func TestNodeScanner_ScanProject_Windows(t *testing.T) {
 		t.Errorf("expected PMVersion 10.2.0, got %s", result.PMVersion)
 	}
 	decoded, _ := base64.StdEncoding.DecodeString(result.RawStdoutBase64)
-	if len(decoded) == 0 {
-		t.Error("expected non-empty RawStdoutBase64")
+	if len(decoded) < 2 || decoded[0] != 0x1f || decoded[1] != 0x8b {
+		t.Error("expected gzip-compressed RawStdoutBase64")
 	}
 }
 
@@ -213,6 +216,48 @@ func TestNodeScanner_ScanGlobalPackages_NoneInstalled(t *testing.T) {
 
 	if len(results) != 0 {
 		t.Errorf("expected 0 results when no PMs installed, got %d", len(results))
+	}
+}
+
+func TestCompressAndEncode_RoundTrip(t *testing.T) {
+	original := `{"dependencies":{"express":{"version":"4.18.2"}}}`
+	encoded := compressAndEncode([]byte(original))
+	if encoded == "" {
+		t.Fatal("expected non-empty encoded string")
+	}
+
+	// Decode base64
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("base64 decode failed: %v", err)
+	}
+
+	// Verify gzip magic bytes
+	if len(decoded) < 2 || decoded[0] != 0x1f || decoded[1] != 0x8b {
+		t.Fatal("expected gzip magic bytes")
+	}
+
+	// Decompress and verify content
+	gz, err := gzip.NewReader(bytes.NewReader(decoded))
+	if err != nil {
+		t.Fatalf("gzip reader failed: %v", err)
+	}
+	defer gz.Close()
+	result, err := io.ReadAll(gz)
+	if err != nil {
+		t.Fatalf("gzip read failed: %v", err)
+	}
+	if string(result) != original {
+		t.Errorf("round-trip mismatch: got %q, want %q", string(result), original)
+	}
+}
+
+func TestCompressAndEncode_Empty(t *testing.T) {
+	if got := compressAndEncode([]byte("")); got != "" {
+		t.Errorf("expected empty string for empty input, got %q", got)
+	}
+	if got := compressAndEncode(nil); got != "" {
+		t.Errorf("expected empty string for nil input, got %q", got)
 	}
 }
 

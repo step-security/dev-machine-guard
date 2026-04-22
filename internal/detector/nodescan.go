@@ -1,6 +1,8 @@
 package detector
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -17,6 +19,23 @@ import (
 )
 
 const defaultMaxProjectScanBytes = 500 * 1024 * 1024 // 500MB total limit
+
+// compressAndEncode gzip-compresses data and returns it as a base64 string.
+// Falls back to plain base64 encoding if compression fails.
+func compressAndEncode(data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(data); err != nil {
+		return base64.StdEncoding.EncodeToString(data)
+	}
+	if err := gz.Close(); err != nil {
+		return base64.StdEncoding.EncodeToString(data)
+	}
+	return base64.StdEncoding.EncodeToString(buf.Bytes())
+}
 
 // getMaxProjectScanBytes returns the size limit, overridable via
 // STEPSEC_MAX_NODE_SCAN_BYTES environment variable.
@@ -153,8 +172,8 @@ func (s *NodeScanner) scanNPMGlobal(ctx context.Context) (model.NodeScanResult, 
 		PackageManager:   "npm",
 		PMVersion:        version,
 		WorkingDirectory: prefix,
-		RawStdoutBase64:  base64.StdEncoding.EncodeToString([]byte(stdout)),
-		RawStderrBase64:  base64.StdEncoding.EncodeToString([]byte(stderr)),
+		RawStdoutBase64:  compressAndEncode([]byte(stdout)),
+		RawStderrBase64:  compressAndEncode([]byte(stderr)),
 		Error:            errMsg,
 		ExitCode:         exitCode,
 		ScanDurationMs:   duration,
@@ -189,8 +208,8 @@ func (s *NodeScanner) scanYarnGlobal(ctx context.Context) (model.NodeScanResult,
 		PackageManager:   "yarn",
 		PMVersion:        version,
 		WorkingDirectory: globalDir,
-		RawStdoutBase64:  base64.StdEncoding.EncodeToString([]byte(stdout)),
-		RawStderrBase64:  base64.StdEncoding.EncodeToString([]byte(stderr)),
+		RawStdoutBase64:  compressAndEncode([]byte(stdout)),
+		RawStderrBase64:  compressAndEncode([]byte(stderr)),
 		Error:            errMsg,
 		ExitCode:         exitCode,
 		ScanDurationMs:   duration,
@@ -225,8 +244,8 @@ func (s *NodeScanner) scanPnpmGlobal(ctx context.Context) (model.NodeScanResult,
 		PackageManager:   "pnpm",
 		PMVersion:        version,
 		WorkingDirectory: globalDir,
-		RawStdoutBase64:  base64.StdEncoding.EncodeToString([]byte(stdout)),
-		RawStderrBase64:  base64.StdEncoding.EncodeToString([]byte(stderr)),
+		RawStdoutBase64:  compressAndEncode([]byte(stdout)),
+		RawStderrBase64:  compressAndEncode([]byte(stderr)),
 		Error:            errMsg,
 		ExitCode:         exitCode,
 		ScanDurationMs:   duration,
@@ -373,8 +392,8 @@ func (s *NodeScanner) scanProject(ctx context.Context, projectDir string) model.
 		PackageManager:   pm,
 		PMVersion:        version,
 		WorkingDirectory: projectDir,
-		RawStdoutBase64:  base64.StdEncoding.EncodeToString([]byte(stdout)),
-		RawStderrBase64:  base64.StdEncoding.EncodeToString([]byte(stderr)),
+		RawStdoutBase64:  compressAndEncode([]byte(stdout)),
+		RawStderrBase64:  compressAndEncode([]byte(stderr)),
 		Error:            errMsg,
 		ExitCode:         exitCode,
 		ScanDurationMs:   duration,
