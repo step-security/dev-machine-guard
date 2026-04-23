@@ -236,7 +236,7 @@ func readFileFromZip(zipPath, targetFile string) []byte {
 	if err != nil {
 		return nil
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	for _, f := range r.File {
 		if f.Name == targetFile {
@@ -244,7 +244,7 @@ func readFileFromZip(zipPath, targetFile string) []byte {
 			if err != nil {
 				return nil
 			}
-			defer rc.Close()
+			defer func() { _ = rc.Close() }()
 			data, err := io.ReadAll(rc)
 			if err != nil {
 				return nil

@@ -126,9 +126,10 @@ func TestQueryP2InstalledRoots_ParsesOutput(t *testing.T) {
 	marketplace := 0
 	bundled := 0
 	for _, r := range results {
-		if r.Source == "marketplace" {
+		switch r.Source {
+		case "marketplace":
 			marketplace++
-		} else if r.Source == "bundled" {
+		case "bundled":
 			bundled++
 		}
 	}
