@@ -1371,6 +1371,31 @@ collect_user_extensions() {
         fi
     fi
 
+    # 2. IntelliJ / JetBrains Plugins Detection
+    local jb_root="$user_home/Library/Application Support/JetBrains"
+    if [ -d "$jb_root" ]; then
+        print_progress "Scanning JetBrains plugins for ${username}..."
+        # Loop through every folder in the JetBrains directory
+        for jb_dir in "$jb_root"/*; do
+        # Check if a 'plugins' subdirectory exists within that versioned folder
+        local plugins_path="$jb_dir/plugins"
+        if [ -d "$plugins_path" ]; then
+            # Loop through the actual installed plugins
+            for plugin in "$plugins_path"/*; do
+                if [ -d "$plugin" ]; then
+                    local p_name=$(basename "$plugin")
+                    [ "$first" = false ] && all_extensions="${all_extensions},"
+                    
+                    # Format as JSON to match the VSCode extension schema
+                    all_extensions="${all_extensions}{\"id\":\"${p_name}\",\"name\":\"${p_name}\",\"version\":\"unknown\",\"publisher\":\"JetBrains\",\"ide_type\":\"intellij\"}"
+                    total_count=$((total_count + 1))
+                    first=false
+                fi
+            done
+        fi
+        done
+    fi
+
     # Collect Cursor extensions
     local cursor_ext_dir="$user_home/.cursor/extensions"
     if [ -d "$cursor_ext_dir" ]; then
