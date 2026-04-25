@@ -322,44 +322,61 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 func (s *NodeScanner) scanProject(ctx context.Context, projectDir string) model.NodeScanResult {
 	pm := DetectProjectPM(s.exec, projectDir)
 
-	// For npm projects, try lockfile-based scanning first.
+	// Try lockfile-based scanning first for supported package managers.
 	// This avoids spawning a subprocess per project, which is extremely slow
 	// on Windows (~2.7s per project due to CreateProcess overhead).
-	if pm == "npm" {
-		if r, ok := s.scanProjectFromLockfile(ctx, projectDir, pm); ok {
-			return r
-		}
+	if r, ok := s.scanProjectFromLockfile(ctx, projectDir, pm); ok {
+		return r
 	}
 
 	// Fallback: spawn the package manager CLI (original behavior).
 	return s.scanProjectSubprocess(ctx, projectDir, pm)
 }
 
-// scanProjectFromLockfile reads the npm lockfile directly and parses it in Go.
+// scanProjectFromLockfile reads the lockfile directly and parses it in Go.
+// Supports npm (package-lock.json), yarn (yarn.lock), and pnpm (pnpm-lock.yaml).
 // Returns the result and true if successful, or zero-value and false to fall back.
 func (s *NodeScanner) scanProjectFromLockfile(ctx context.Context, projectDir, pm string) (model.NodeScanResult, bool) {
 	start := time.Now()
 
-	// Try node_modules/.package-lock.json first (always v3 format, reflects disk state).
-	// Then fall back to package-lock.json.
-	lockfilePaths := []string{
-		filepath.Join(projectDir, "node_modules", ".package-lock.json"),
-		filepath.Join(projectDir, "package-lock.json"),
+	type lockfileCandidate struct {
+		path    string
+		parseFn func([]byte) (*LockfileResult, error)
 	}
 
-	for _, lockPath := range lockfilePaths {
-		data, err := s.exec.ReadFile(lockPath)
+	var candidates []lockfileCandidate
+
+	switch pm {
+	case "npm":
+		candidates = []lockfileCandidate{
+			{filepath.Join(projectDir, "node_modules", ".package-lock.json"), ParseNPMLockfile},
+			{filepath.Join(projectDir, "package-lock.json"), ParseNPMLockfile},
+		}
+	case "yarn":
+		candidates = []lockfileCandidate{
+			{filepath.Join(projectDir, "yarn.lock"), ParseYarnLockV1},
+		}
+	case "pnpm":
+		candidates = []lockfileCandidate{
+			{filepath.Join(projectDir, "pnpm-lock.yaml"), ParsePnpmLock},
+		}
+	default:
+		// yarn-berry and bun: no lockfile parser yet, fall through to subprocess
+		return model.NodeScanResult{}, false
+	}
+
+	for _, c := range candidates {
+		data, err := s.exec.ReadFile(c.path)
 		if err != nil || len(data) == 0 {
 			continue
 		}
 
-		result, err := ParseNPMLockfile(data)
+		result, err := c.parseFn(data)
 		if err != nil {
-			s.log.Progress("    Lockfile parse error (%s): %v", lockPath, err)
+			s.log.Progress("    Lockfile parse error (%s): %v", c.path, err)
 			continue
 		}
 
-		// Serialize the parsed result as JSON and base64-encode it.
 		jsonBytes, err := json.Marshal(result)
 		if err != nil {
 			continue
