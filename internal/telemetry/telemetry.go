@@ -41,10 +41,11 @@ type Payload struct {
 	NodeProjects         []model.NodeScanResult      `json:"node_projects"`
 	BrewPkgManager       *model.PkgManager           `json:"brew_package_manager,omitempty"`
 	BrewScans            []model.BrewScanResult      `json:"brew_scans"`
-	PythonPkgManagers    []model.PkgManager          `json:"python_package_managers"`
-	PythonGlobalPackages []model.PythonScanResult    `json:"python_global_packages"`
-	PythonProjects       []model.ProjectInfo         `json:"python_projects"`
-	AIAgents             []model.AITool              `json:"ai_agents"`
+	PythonPkgManagers    []model.PkgManager                `json:"python_package_managers"`
+	PythonGlobalPackages []model.PythonScanResult          `json:"python_global_packages"`
+	PythonProjects       []model.ProjectInfo               `json:"python_projects"`
+	SystemPackageScans   []model.SystemPackageScanResult   `json:"system_package_scans"`
+	AIAgents             []model.AITool                    `json:"ai_agents"`
 	MCPConfigs           []model.MCPConfigEnterprise `json:"mcp_configs"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
@@ -68,6 +69,7 @@ type PerformanceMetrics struct {
 	BrewCasksCount        int   `json:"brew_casks_count"`
 	PythonGlobalPkgsCount int   `json:"python_global_packages_count"`
 	PythonProjectsCount   int   `json:"python_projects_count"`
+	SystemPackagesCount   int   `json:"system_packages_count"`
 }
 
 // Run executes enterprise telemetry: scan, build payload, upload to S3.
@@ -287,6 +289,67 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		fmt.Fprintln(os.Stderr)
 	}
 
+	// System package scanning (Linux only — rpm, dpkg, pacman, apk, snap, flatpak)
+	var systemPackageScans []model.SystemPackageScanResult
+
+	if exec.GOOS() == model.PlatformLinux {
+		log.Progress("Detecting system packages...")
+		sysPkgDetector := detector.NewSystemPkgDetector(userExec)
+
+		// Primary system PM (rpm, dpkg, pacman, or apk)
+		if pm := sysPkgDetector.Detect(ctx); pm != nil {
+			log.Progress("  Found: %s v%s at %s", pm.Name, pm.Version, pm.Path)
+			start := time.Now()
+			packages := sysPkgDetector.ListPackages(ctx)
+			duration := time.Since(start).Milliseconds()
+			if packages == nil {
+				packages = []model.SystemPackage{}
+			}
+			systemPackageScans = append(systemPackageScans, model.SystemPackageScanResult{
+				ScanType:       pm.Name,
+				PackageManager: pm,
+				Packages:       packages,
+				PackagesCount:  len(packages),
+				ScanDurationMs: duration,
+			})
+			log.Progress("  %s: %d packages in %dms", pm.Name, len(packages), duration)
+		}
+
+		// Additional PMs (snap, flatpak) — coexist with system PM
+		for _, mgr := range sysPkgDetector.DetectAdditionalManagers(ctx) {
+			mgr := mgr
+			log.Progress("  Found: %s v%s at %s", mgr.Name, mgr.Version, mgr.Path)
+			start := time.Now()
+			var packages []model.SystemPackage
+			switch mgr.Name {
+			case "snap":
+				packages = sysPkgDetector.ListSnapPackages(ctx)
+			case "flatpak":
+				packages = sysPkgDetector.ListFlatpakPackages(ctx)
+			}
+			duration := time.Since(start).Milliseconds()
+			if packages == nil {
+				packages = []model.SystemPackage{}
+			}
+			systemPackageScans = append(systemPackageScans, model.SystemPackageScanResult{
+				ScanType:       mgr.Name,
+				PackageManager: &mgr,
+				Packages:       packages,
+				PackagesCount:  len(packages),
+				ScanDurationMs: duration,
+			})
+			log.Progress("  %s: %d packages in %dms", mgr.Name, len(packages), duration)
+		}
+
+		if len(systemPackageScans) == 0 {
+			log.Progress("  No system package managers found")
+		}
+		fmt.Fprintln(os.Stderr)
+	} else {
+		log.Progress("System package scanning: skipped (non-Linux)")
+		fmt.Fprintln(os.Stderr)
+	}
+
 	// Node.js scanning
 	npmEnabled := true
 	if cfg.EnableNPMScan != nil {
@@ -345,6 +408,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	if pythonProjects == nil {
 		pythonProjects = []model.ProjectInfo{}
 	}
+	if systemPackageScans == nil {
+		systemPackageScans = []model.SystemPackageScanResult{}
+	}
 
 	// Finalize execution logs before building payload
 	execLogsBase64 := capture.Finalize()
@@ -373,6 +439,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		PythonPkgManagers:    pythonPkgManagers,
 		PythonGlobalPackages: pythonGlobalPkgs,
 		PythonProjects:       pythonProjects,
+		SystemPackageScans:   systemPackageScans,
 		AIAgents:             allAI,
 		MCPConfigs:           mcpConfigs,
 
@@ -393,6 +460,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 			BrewCasksCount:        brewCasksCount(brewScans),
 			PythonGlobalPkgsCount: len(pythonGlobalPkgs),
 			PythonProjectsCount:   len(pythonProjects),
+			SystemPackagesCount:   totalSystemPackagesCount(systemPackageScans),
 		},
 	}
 
@@ -423,6 +491,14 @@ func brewCasksCount(scans []model.BrewScanResult) int {
 		}
 	}
 	return 0
+}
+
+func totalSystemPackagesCount(scans []model.SystemPackageScanResult) int {
+	total := 0
+	for _, s := range scans {
+		total += s.PackagesCount
+	}
+	return total
 }
 
 func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) error {
