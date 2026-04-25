@@ -3,6 +3,7 @@ package detector
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -213,6 +214,111 @@ func TestNodeScanner_ScanGlobalPackages_NoneInstalled(t *testing.T) {
 
 	if len(results) != 0 {
 		t.Errorf("expected 0 results when no PMs installed, got %d", len(results))
+	}
+}
+
+func TestNodeScanner_ScanProject_LockfilePath(t *testing.T) {
+	// When a package-lock.json with valid content exists, the scanner should
+	// parse it directly instead of spawning a subprocess.
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	mock.SetPath("npm", `C:\Program Files\nodejs\npm.cmd`)
+	mock.SetCommand("10.2.0\n", "", 0, "npm", "--version")
+
+	projectDir := `C:\Users\dev\myapp`
+	lockfileContent := `{
+		"lockfileVersion": 3,
+		"packages": {
+			"": {"name": "myapp", "version": "1.0.0"},
+			"node_modules/express": {"version": "4.18.2"},
+			"node_modules/lodash": {"version": "4.17.21", "dev": true}
+		}
+	}`
+	mock.SetFile(filepath.Join(projectDir, "package-lock.json"), []byte(lockfileContent))
+	// No subprocess command stubbed for "npm ls" — if it falls through, the test
+	// would get empty output, proving lockfile path was used.
+
+	scanner := newTestScanner(mock)
+	result := scanner.scanProject(context.Background(), projectDir)
+
+	if result.PackageManager != "npm" {
+		t.Errorf("expected npm, got %s", result.PackageManager)
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("expected ExitCode 0, got %d", result.ExitCode)
+	}
+	if result.Error != "" {
+		t.Errorf("expected no error, got %q", result.Error)
+	}
+
+	// Decode and verify the lockfile result
+	decoded, err := base64.StdEncoding.DecodeString(result.RawStdoutBase64)
+	if err != nil {
+		t.Fatalf("failed to decode base64: %v", err)
+	}
+	if len(decoded) == 0 {
+		t.Fatal("expected non-empty RawStdoutBase64 from lockfile parse")
+	}
+
+	var lockResult LockfileResult
+	if err := json.Unmarshal(decoded, &lockResult); err != nil {
+		t.Fatalf("failed to unmarshal lockfile result: %v", err)
+	}
+	if lockResult.Source != "lockfile" {
+		t.Errorf("expected source 'lockfile', got %q", lockResult.Source)
+	}
+	if len(lockResult.Packages) != 2 {
+		t.Errorf("expected 2 packages, got %d", len(lockResult.Packages))
+	}
+}
+
+func TestNodeScanner_ScanProject_FallsBackToSubprocess(t *testing.T) {
+	// When no lockfile exists, should fall back to running npm ls subprocess.
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	mock.SetPath("npm", `C:\Program Files\nodejs\npm.cmd`)
+	mock.SetCommand("10.2.0\n", "", 0, "npm", "--version")
+	// package-lock.json exists but is empty / not set — lockfile parse fails.
+	// Subprocess command is stubbed:
+	mock.SetCommand(`{"dependencies":{"lodash":{"version":"4.17.21"}}}`, "", 0,
+		"npm", "ls", "--json", "--depth=3")
+
+	scanner := newTestScanner(mock)
+	result := scanner.scanProject(context.Background(), `C:\Users\dev\myapp`)
+
+	if result.PackageManager != "npm" {
+		t.Errorf("expected npm, got %s", result.PackageManager)
+	}
+	if result.PMVersion != "10.2.0" {
+		t.Errorf("expected PMVersion 10.2.0, got %s", result.PMVersion)
+	}
+
+	// Should contain the subprocess output
+	decoded, _ := base64.StdEncoding.DecodeString(result.RawStdoutBase64)
+	if len(decoded) == 0 {
+		t.Error("expected non-empty RawStdoutBase64 from subprocess fallback")
+	}
+}
+
+func TestNodeScanner_VersionCaching(t *testing.T) {
+	// Verify that getVersionOrFetch caches and reuses values.
+	mock := executor.NewMock()
+	mock.SetPath("npm", "/usr/local/bin/npm")
+	mock.SetCommand("10.2.0\n", "", 0, "npm", "--version")
+
+	scanner := newTestScanner(mock)
+	ctx := context.Background()
+
+	v1 := scanner.getVersionOrFetch(ctx, "npm")
+	if v1 != "10.2.0" {
+		t.Errorf("first call: expected 10.2.0, got %s", v1)
+	}
+
+	// Change the mock to return a different version — but cache should prevent re-fetch
+	mock.SetCommand("99.0.0\n", "", 0, "npm", "--version")
+	v2 := scanner.getVersionOrFetch(ctx, "npm")
+	if v2 != "10.2.0" {
+		t.Errorf("cached call: expected 10.2.0 (cached), got %s", v2)
 	}
 }
 

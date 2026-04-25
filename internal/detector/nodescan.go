@@ -3,6 +3,7 @@ package detector
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,10 +35,19 @@ type NodeScanner struct {
 	exec         executor.Executor
 	log          *progress.Logger
 	loggedInUser string // when non-empty and running as root, commands run as this user
+
+	// versionCache avoids repeated subprocess calls for the same binary version.
+	// For example, "npm --version" only needs to run once, not once per project.
+	versionCache map[string]string
 }
 
 func NewNodeScanner(exec executor.Executor, log *progress.Logger, loggedInUser string) *NodeScanner {
-	return &NodeScanner{exec: exec, log: log, loggedInUser: loggedInUser}
+	return &NodeScanner{
+		exec:         exec,
+		log:          log,
+		loggedInUser: loggedInUser,
+		versionCache: make(map[string]string),
+	}
 }
 
 // shouldRunAsUser returns true when commands should be delegated to the logged-in user.
@@ -131,6 +141,7 @@ func (s *NodeScanner) scanNPMGlobal(ctx context.Context) (model.NodeScanResult, 
 	}
 
 	version := s.getVersion(ctx, "npm", "--version")
+	s.cacheVersion("npm", version)
 	prefix := s.getOutput(ctx, "npm", "config", "get", "prefix")
 	if prefix == "" {
 		return model.NodeScanResult{}, false
@@ -164,6 +175,7 @@ func (s *NodeScanner) scanYarnGlobal(ctx context.Context) (model.NodeScanResult,
 	}
 
 	version := s.getVersion(ctx, "yarn", "--version")
+	s.cacheVersion("yarn", version)
 	globalDir := s.getOutput(ctx, "yarn", "global", "dir")
 	if globalDir == "" {
 		return model.NodeScanResult{}, false
@@ -198,6 +210,7 @@ func (s *NodeScanner) scanPnpmGlobal(ctx context.Context) (model.NodeScanResult,
 	}
 
 	version := s.getVersion(ctx, "pnpm", "--version")
+	s.cacheVersion("pnpm", version)
 	globalDir := s.getOutput(ctx, "pnpm", "root", "-g")
 	if globalDir == "" {
 		return model.NodeScanResult{}, false
@@ -244,9 +257,7 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 				return nil
 			}
 			if entry.IsDir() {
-				name := entry.Name()
-				if name == "node_modules" || name == ".git" || name == ".cache" ||
-					strings.HasPrefix(name, ".") {
+				if shouldSkipDir(entry.Name(), path) {
 					return filepath.SkipDir
 				}
 				return nil
@@ -290,10 +301,9 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 		}
 
 		s.log.Progress("  Found project: %s", p.dir)
-		pm := DetectProjectPM(s.exec, p.dir)
-		s.log.Progress("    Package manager: %s", pm)
 
 		r := s.scanProject(ctx, p.dir)
+		s.log.Progress("    Package manager: %s", r.PackageManager)
 		resultSize := int64(len(r.RawStdoutBase64)) + int64(len(r.RawStderrBase64))
 
 		if totalSize+resultSize > maxBytes {
@@ -311,30 +321,96 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 
 func (s *NodeScanner) scanProject(ctx context.Context, projectDir string) model.NodeScanResult {
 	pm := DetectProjectPM(s.exec, projectDir)
-	version := ""
 
+	// For npm projects, try lockfile-based scanning first.
+	// This avoids spawning a subprocess per project, which is extremely slow
+	// on Windows (~2.7s per project due to CreateProcess overhead).
+	if pm == "npm" {
+		if r, ok := s.scanProjectFromLockfile(ctx, projectDir, pm); ok {
+			return r
+		}
+	}
+
+	// Fallback: spawn the package manager CLI (original behavior).
+	return s.scanProjectSubprocess(ctx, projectDir, pm)
+}
+
+// scanProjectFromLockfile reads the npm lockfile directly and parses it in Go.
+// Returns the result and true if successful, or zero-value and false to fall back.
+func (s *NodeScanner) scanProjectFromLockfile(ctx context.Context, projectDir, pm string) (model.NodeScanResult, bool) {
+	start := time.Now()
+
+	// Try node_modules/.package-lock.json first (always v3 format, reflects disk state).
+	// Then fall back to package-lock.json.
+	lockfilePaths := []string{
+		filepath.Join(projectDir, "node_modules", ".package-lock.json"),
+		filepath.Join(projectDir, "package-lock.json"),
+	}
+
+	for _, lockPath := range lockfilePaths {
+		data, err := s.exec.ReadFile(lockPath)
+		if err != nil || len(data) == 0 {
+			continue
+		}
+
+		result, err := ParseNPMLockfile(data)
+		if err != nil {
+			s.log.Progress("    Lockfile parse error (%s): %v", lockPath, err)
+			continue
+		}
+
+		// Serialize the parsed result as JSON and base64-encode it.
+		jsonBytes, err := json.Marshal(result)
+		if err != nil {
+			continue
+		}
+
+		duration := time.Since(start).Milliseconds()
+		version := s.getVersionOrFetch(ctx, pm)
+
+		return model.NodeScanResult{
+			ProjectPath:      projectDir,
+			PackageManager:   pm,
+			PMVersion:        version,
+			WorkingDirectory: projectDir,
+			RawStdoutBase64:  base64.StdEncoding.EncodeToString(jsonBytes),
+			RawStderrBase64:  "",
+			Error:            "",
+			ExitCode:         0,
+			ScanDurationMs:   duration,
+		}, true
+	}
+
+	return model.NodeScanResult{}, false
+}
+
+// scanProjectSubprocess is the original subprocess-based scanning approach.
+// Used as fallback when lockfile parsing is not available (yarn, pnpm, bun)
+// or when no lockfile is found.
+func (s *NodeScanner) scanProjectSubprocess(ctx context.Context, projectDir, pm string) model.NodeScanResult {
+	version := ""
 	var cmd string
 	var args []string
 
 	switch pm {
 	case "npm":
-		version = s.getVersion(ctx, "npm", "--version")
+		version = s.getVersionOrFetch(ctx, "npm")
 		cmd = "npm"
 		args = []string{"ls", "--json", "--depth=3"}
 	case "yarn":
-		version = s.getVersion(ctx, "yarn", "--version")
+		version = s.getVersionOrFetch(ctx, "yarn")
 		cmd = "yarn"
 		args = []string{"list", "--json"}
 	case "yarn-berry":
-		version = s.getVersion(ctx, "yarn", "--version")
+		version = s.getVersionOrFetch(ctx, "yarn")
 		cmd = "yarn"
 		args = []string{"info", "--all", "--json"}
 	case "pnpm":
-		version = s.getVersion(ctx, "pnpm", "--version")
+		version = s.getVersionOrFetch(ctx, "pnpm")
 		cmd = "pnpm"
 		args = []string{"ls", "--json", "--depth=3"}
 	case "bun":
-		version = s.getVersion(ctx, "bun", "--version")
+		version = s.getVersionOrFetch(ctx, "bun")
 		cmd = "bun"
 		args = []string{"pm", "ls", "--all"}
 	default:
@@ -347,9 +423,6 @@ func (s *NodeScanner) scanProject(ctx context.Context, projectDir string) model.
 	}
 
 	start := time.Now()
-	// Run the package manager command directly in the project directory.
-	// Avoids shell cd + quoting issues on Windows where cmd.exe misinterprets
-	// Go's backslash-escaped quotes in paths.
 	stdout, stderr, exitCode, _ := s.runInDir(ctx, projectDir, 30*time.Second, cmd, args...)
 	duration := time.Since(start).Milliseconds()
 
@@ -377,6 +450,26 @@ func (s *NodeScanner) getVersion(ctx context.Context, binary, flag string) strin
 		return "unknown"
 	}
 	return strings.TrimSpace(stdout)
+}
+
+// getVersionOrFetch returns the cached version for a package manager binary,
+// or fetches it via subprocess and caches it. This avoids running "npm --version"
+// hundreds of times when scanning many projects.
+func (s *NodeScanner) getVersionOrFetch(ctx context.Context, pm string) string {
+	if v, ok := s.versionCache[pm]; ok {
+		return v
+	}
+	v := s.getVersion(ctx, pm, "--version")
+	s.cacheVersion(pm, v)
+	return v
+}
+
+// cacheVersion stores a PM version for later reuse.
+func (s *NodeScanner) cacheVersion(pm, version string) {
+	if s.versionCache == nil {
+		s.versionCache = make(map[string]string)
+	}
+	s.versionCache[pm] = version
 }
 
 func (s *NodeScanner) getOutput(ctx context.Context, binary string, args ...string) string {

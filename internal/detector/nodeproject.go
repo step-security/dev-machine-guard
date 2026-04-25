@@ -47,9 +47,7 @@ func (d *NodeProjectDetector) listInDir(dir string) []model.ProjectInfo {
 			return nil
 		}
 		if entry.IsDir() {
-			name := entry.Name()
-			if name == "node_modules" || name == ".git" || name == ".cache" ||
-				strings.HasPrefix(name, ".") {
+			if shouldSkipDir(entry.Name(), path) {
 				return filepath.SkipDir
 			}
 			return nil
