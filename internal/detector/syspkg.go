@@ -2,6 +2,7 @@ package detector
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,41 +12,46 @@ import (
 
 // sysPkgSpec defines how to detect and query a system package manager.
 type sysPkgSpec struct {
-	Name       string   // display name: "dnf", "apt", "pacman", "apk"
+	Name       string   // display name: "rpm", "dpkg", "pacman", "apk"
 	Binary     string   // binary to look for in PATH
 	VersionCmd []string // command + args to get version (e.g., ["--version"])
 	ListCmd    []string // command + args to list installed packages
-	ParseLine  func(line string) (name, version string, ok bool)
+	ParseLine  func(line string) model.SystemPackage
 }
 
 var sysPkgSpecs = []sysPkgSpec{
 	{
 		// RPM: works on Fedora, RHEL, CentOS, SUSE, Amazon Linux
+		// Fields: NAME, VERSION-RELEASE, ARCH, INSTALLTIME (epoch), SOURCERPM
 		Name: "rpm", Binary: "rpm",
 		VersionCmd: []string{"--version"},
-		ListCmd:    []string{"-qa", "--queryformat", "%{NAME} %{VERSION}-%{RELEASE}\n"},
-		ParseLine:  parseSpaceSeparated,
+		ListCmd:    []string{"-qa", "--queryformat", "%{NAME}\t%{VERSION}-%{RELEASE}\t%{ARCH}\t%{INSTALLTIME}\t%{SOURCERPM}\n"},
+		ParseLine:  parseRPMLine,
 	},
 	{
 		// dpkg: works on Debian, Ubuntu, Mint, Pop!_OS
+		// Fields: Package, Version, Architecture, Source
 		Name: "dpkg", Binary: "dpkg-query",
 		VersionCmd: []string{"--version"},
-		ListCmd:    []string{"-W", "-f", "${Package} ${Version}\n"},
-		ParseLine:  parseSpaceSeparated,
+		ListCmd:    []string{"-W", "-f", "${Package}\t${Version}\t${Architecture}\t${Source}\n"},
+		ParseLine:  parseDpkgLine,
 	},
 	{
 		// pacman: Arch Linux, Manjaro, EndeavourOS
+		// -Q only gives name+version; architecture requires -Qi which is too slow per-package.
+		// We get arch from the version string suffix when present.
 		Name: "pacman", Binary: "pacman",
 		VersionCmd: []string{"--version"},
 		ListCmd:    []string{"-Q"},
-		ParseLine:  parseSpaceSeparated,
+		ParseLine:  parsePacmanLine,
 	},
 	{
 		// apk: Alpine Linux
+		// Format: "name-version arch {origin} (license)"
 		Name: "apk", Binary: "apk",
 		VersionCmd: []string{"--version"},
 		ListCmd:    []string{"list", "--installed"},
-		ParseLine:  parseApkLine,
+		ParseLine:  parseApkLineRich,
 	},
 }
 
@@ -112,7 +118,7 @@ func (d *SystemPkgDetector) ListPackages(ctx context.Context) []model.SystemPack
 	return nil
 }
 
-func parsePackageList(stdout string, parseLine func(string) (string, string, bool)) []model.SystemPackage {
+func parsePackageList(stdout string, parseLine func(string) model.SystemPackage) []model.SystemPackage {
 	stdout = strings.TrimSpace(stdout)
 	if stdout == "" {
 		return nil
@@ -124,9 +130,9 @@ func parsePackageList(stdout string, parseLine func(string) (string, string, boo
 		if line == "" {
 			continue
 		}
-		name, version, ok := parseLine(line)
-		if ok {
-			packages = append(packages, model.SystemPackage{Name: name, Version: version})
+		pkg := parseLine(line)
+		if pkg.Name != "" {
+			packages = append(packages, pkg)
 		}
 	}
 	return packages
@@ -197,7 +203,15 @@ func (d *SystemPkgDetector) ListSnapPackages(ctx context.Context) []model.System
 	for _, line := range lines[1:] {
 		fields := strings.Fields(line)
 		if len(fields) >= 2 {
-			packages = append(packages, model.SystemPackage{Name: fields[0], Version: fields[1]})
+			pkg := model.SystemPackage{
+				Name:    fields[0],
+				Version: fields[1],
+			}
+			// Publisher is column 5 (0-indexed: 4)
+			if len(fields) >= 5 {
+				pkg.Source = fields[4] // publisher name
+			}
+			packages = append(packages, pkg)
 		}
 	}
 	return packages
@@ -209,8 +223,9 @@ func (d *SystemPkgDetector) ListFlatpakPackages(ctx context.Context) []model.Sys
 		return nil
 	}
 
+	// Columns: application, version, arch, origin
 	stdout, _, exitCode, err := d.exec.RunWithTimeout(ctx, 30*time.Second,
-		"flatpak", "list", "--app", "--columns=application,version")
+		"flatpak", "list", "--app", "--columns=application,version,arch,origin")
 	if err != nil || exitCode != 0 {
 		return nil
 	}
@@ -226,55 +241,131 @@ func (d *SystemPkgDetector) ListFlatpakPackages(ctx context.Context) []model.Sys
 		if line == "" {
 			continue
 		}
-		// Format: "app.id\tversion" (tab-separated)
-		parts := strings.SplitN(line, "\t", 2)
-		version := "unknown"
+		// Format: "app.id\tversion\tarch\torigin" (tab-separated)
+		parts := strings.Split(line, "\t")
+		if len(parts) == 0 || parts[0] == "" {
+			continue
+		}
+		pkg := model.SystemPackage{Name: parts[0]}
 		if len(parts) >= 2 && parts[1] != "" {
-			version = parts[1]
+			pkg.Version = parts[1]
+		} else {
+			pkg.Version = "unknown"
 		}
-		if parts[0] != "" {
-			packages = append(packages, model.SystemPackage{Name: parts[0], Version: version})
+		if len(parts) >= 3 {
+			pkg.Arch = parts[2]
 		}
+		if len(parts) >= 4 {
+			pkg.Source = parts[3] // e.g. "flathub"
+		}
+		packages = append(packages, pkg)
 	}
 	return packages
 }
 
-// parseSpaceSeparated handles "name version" format (rpm, dpkg, pacman).
-func parseSpaceSeparated(line string) (string, string, bool) {
-	parts := strings.SplitN(line, " ", 2)
-	if len(parts) < 2 {
-		return parts[0], "unknown", len(parts) == 1 && parts[0] != ""
+// ---------- Per-PM line parsers ----------
+
+// parseRPMLine parses tab-separated: NAME\tVERSION-RELEASE\tARCH\tINSTALLTIME\tSOURCERPM
+func parseRPMLine(line string) model.SystemPackage {
+	parts := strings.Split(line, "\t")
+	pkg := model.SystemPackage{}
+	if len(parts) >= 1 {
+		pkg.Name = parts[0]
 	}
-	return parts[0], parts[1], true
+	if len(parts) >= 2 {
+		pkg.Version = parts[1]
+	}
+	if len(parts) >= 3 {
+		pkg.Arch = parts[2]
+	}
+	if len(parts) >= 4 {
+		if ts, err := strconv.ParseInt(parts[3], 10, 64); err == nil {
+			pkg.InstallTimeUnix = ts
+		}
+	}
+	if len(parts) >= 5 && parts[4] != "(none)" {
+		pkg.Source = parts[4]
+	}
+	return pkg
 }
 
-// parseApkLine handles apk's "name-version description" format.
+// parseDpkgLine parses tab-separated: Package\tVersion\tArchitecture\tSource
+func parseDpkgLine(line string) model.SystemPackage {
+	parts := strings.Split(line, "\t")
+	pkg := model.SystemPackage{}
+	if len(parts) >= 1 {
+		pkg.Name = parts[0]
+	}
+	if len(parts) >= 2 {
+		pkg.Version = parts[1]
+	}
+	if len(parts) >= 3 {
+		pkg.Arch = parts[2]
+	}
+	if len(parts) >= 4 && parts[3] != "" {
+		pkg.Source = parts[3]
+	}
+	return pkg
+}
+
+// parsePacmanLine parses space-separated: name version
+// pacman -Q only gives name + version; no arch/source without -Qi (too slow).
+func parsePacmanLine(line string) model.SystemPackage {
+	parts := strings.SplitN(line, " ", 2)
+	pkg := model.SystemPackage{}
+	if len(parts) >= 1 {
+		pkg.Name = parts[0]
+	}
+	if len(parts) >= 2 {
+		pkg.Version = parts[1]
+	}
+	return pkg
+}
+
+// parseApkLineRich parses apk's "name-version arch {origin} (license)" format.
 // Example: "curl-8.9.1-r2 x86_64 {curl} (MIT)"
-func parseApkLine(line string) (string, string, bool) {
-	// First token is "name-version-rN arch"
+func parseApkLineRich(line string) model.SystemPackage {
 	fields := strings.Fields(line)
 	if len(fields) == 0 {
-		return "", "", false
+		return model.SystemPackage{}
 	}
-	nameVer := fields[0]
 
-	// Split on last hyphen that separates name from version
-	// e.g., "curl-8.9.1-r2" -> "curl", "8.9.1-r2"
-	// Alpine packages use "name-version-rRELEASE"
+	pkg := model.SystemPackage{}
+
+	// Extract arch (second field)
+	if len(fields) >= 2 {
+		pkg.Arch = fields[1]
+	}
+
+	// Extract origin (field in curly braces: {origin})
+	for _, f := range fields {
+		if strings.HasPrefix(f, "{") && strings.HasSuffix(f, "}") {
+			pkg.Source = f[1 : len(f)-1]
+			break
+		}
+	}
+
+	// Parse name-version from first field
+	nameVer := fields[0]
 	lastDash := strings.LastIndex(nameVer, "-")
 	if lastDash <= 0 {
-		return nameVer, "unknown", true
+		pkg.Name = nameVer
+		pkg.Version = "unknown"
+		return pkg
 	}
-	// Check if what follows the dash starts with a digit (version)
-	// If not, look further back
 	rest := nameVer[lastDash+1:]
 	if len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9' {
-		return nameVer[:lastDash], rest, true
+		pkg.Name = nameVer[:lastDash]
+		pkg.Version = rest
+		return pkg
 	}
-	// Try second-to-last dash
 	secondDash := strings.LastIndex(nameVer[:lastDash], "-")
 	if secondDash > 0 {
-		return nameVer[:secondDash], nameVer[secondDash+1:], true
+		pkg.Name = nameVer[:secondDash]
+		pkg.Version = nameVer[secondDash+1:]
+		return pkg
 	}
-	return nameVer, "unknown", true
+	pkg.Name = nameVer
+	pkg.Version = "unknown"
+	return pkg
 }

@@ -131,10 +131,13 @@ type ProjectInfo struct {
 }
 
 // SystemPackage represents a package installed via the system package manager
-// (rpm, dpkg, pacman, apk).
+// (rpm, dpkg, pacman, apk, snap, flatpak).
 type SystemPackage struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Name            string `json:"name"`
+	Version         string `json:"version"`
+	Arch            string `json:"arch,omitempty"`              // CPU architecture: x86_64, amd64, noarch, arm64, etc.
+	Source          string `json:"source,omitempty"`            // Origin: source RPM, dpkg source, snap publisher, flatpak remote
+	InstallTimeUnix int64  `json:"install_time_unix,omitempty"` // Unix epoch seconds when installed (rpm, pacman)
 }
 
 // BrewPackage represents a single installed Homebrew formula or cask.
