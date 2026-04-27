@@ -149,6 +149,18 @@ type PythonPackage struct {
 	Version string `json:"version"`
 }
 
+// SystemPackageScanResult holds parsed system package data for enterprise telemetry.
+// Unlike BrewScanResult (which sends raw base64), this sends pre-parsed packages
+// since syspkg.go already handles the format-specific parsing edge cases.
+type SystemPackageScanResult struct {
+	ScanType       string          `json:"scan_type"`                    // "rpm", "dpkg", "pacman", "apk", "snap", "flatpak"
+	PackageManager *PkgManager     `json:"package_manager,omitempty"`
+	Packages       []SystemPackage `json:"packages"`
+	PackagesCount  int             `json:"packages_count"`
+	Error          string          `json:"error,omitempty"`
+	ScanDurationMs int64           `json:"scan_duration_ms"`
+}
+
 // BrewScanResult holds raw Homebrew scan output for enterprise telemetry.
 type BrewScanResult struct {
 	ScanType        string `json:"scan_type"` // "formulae" or "casks"
