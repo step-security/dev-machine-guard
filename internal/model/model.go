@@ -137,7 +137,26 @@ type SystemPackage struct {
 	Version         string `json:"version"`
 	Arch            string `json:"arch,omitempty"`              // CPU architecture: x86_64, amd64, noarch, arm64, etc.
 	Source          string `json:"source,omitempty"`            // Origin: source RPM, dpkg source, snap publisher, flatpak remote
-	InstallTimeUnix int64  `json:"install_time_unix,omitempty"` // Unix epoch seconds when installed (rpm, pacman)
+	InstallTimeUnix int64  `json:"install_time_unix,omitempty"` // Unix epoch seconds when installed (rpm, dpkg, pacman)
+
+	// Provenance & trust signals
+	Vendor       string `json:"vendor,omitempty"`          // Distributor: rpm VENDOR, dpkg Origin
+	Maintainer   string `json:"maintainer,omitempty"`      // Packager identity: rpm PACKAGER, dpkg Maintainer, apk maintainer, pacman Packager
+	URL          string `json:"url,omitempty"`             // Upstream project URL
+	License      string `json:"license,omitempty"`         // SPDX license expression
+	Signature    string `json:"signature,omitempty"`       // Signature info: rpm SIGPGP/RSAHEADER, pacman Validated By
+	BuildTimeUnix int64  `json:"build_time_unix,omitempty"` // Unix epoch when package was built (rpm, apk, pacman)
+
+	// Size
+	InstalledSize int64 `json:"installed_size,omitempty"` // Installed size in bytes (rpm SIZE, dpkg Installed-Size * 1024)
+
+	// Sandboxing / confinement (snap, flatpak)
+	Confinement string `json:"confinement,omitempty"` // snap: strict/classic/devmode
+	Channel     string `json:"channel,omitempty"`     // snap tracking channel, flatpak branch
+	Runtime     string `json:"runtime,omitempty"`     // flatpak runtime ref
+
+	// Source control
+	CommitHash string `json:"commit_hash,omitempty"` // apk commit, flatpak active commit
 }
 
 // BrewPackage represents a single installed Homebrew formula or cask.
