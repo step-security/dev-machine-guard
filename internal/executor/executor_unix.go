@@ -19,7 +19,7 @@ func (r *Real) IsRoot() bool {
 // the lookup fails, or if the resolved path isn't an executable file — in which
 // case callers should fall back to /bin/bash.
 //
-// Mirrors stepsecurity-dev-machine-guard.sh:run_as_logged_in_user. Matters when
+// Matters when
 // the user's PATH (including npm/pnpm/yarn via nvm/fnm/homebrew) is configured
 // only in zsh profile files (.zprofile/.zshrc) — bash -l on such a user sources
 // nothing and runs with a stripped PATH, producing empty package scans.

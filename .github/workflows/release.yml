@@ -131,8 +131,6 @@ jobs:
             "dist/stepsecurity-dev-machine-guard-windows_amd64.exe.bundle"
           sign_with_retry "${{ steps.binaries.outputs.win_arm64 }}" \
             "dist/stepsecurity-dev-machine-guard-windows_arm64.exe.bundle"
-          sign_with_retry "stepsecurity-dev-machine-guard.sh" \
-            "dist/stepsecurity-dev-machine-guard.sh.bundle"
       - name: Upload cosign bundles
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -141,7 +139,6 @@ jobs:
             dist/stepsecurity-dev-machine-guard-darwin_unnotarized.bundle \
             dist/stepsecurity-dev-machine-guard-windows_amd64.exe.bundle \
             dist/stepsecurity-dev-machine-guard-windows_arm64.exe.bundle \
-            dist/stepsecurity-dev-machine-guard.sh.bundle \
             --clobber
 
       - name: Attest build provenance
@@ -151,4 +148,3 @@ jobs:
             ${{ steps.binaries.outputs.darwin }}
             ${{ steps.binaries.outputs.win_amd64 }}
             ${{ steps.binaries.outputs.win_arm64 }}
-            stepsecurity-dev-machine-guard.sh
