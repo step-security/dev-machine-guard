@@ -45,7 +45,11 @@ assert_eq() {
 
 assert_contains() {
     local label="$1" haystack="$2" needle="$3"
-    if echo "$haystack" | grep -q "$needle"; then
+    # Here-string instead of `echo "$h" | grep`: under `set -o pipefail`, a
+    # large haystack triggers SIGPIPE on echo when grep -q exits early after
+    # the first match, which propagates as exit 141 and falsely fails the
+    # check.
+    if grep -q "$needle" <<<"$haystack"; then
         pass "$label"
     else
         fail "$label" "output does not contain: $needle"

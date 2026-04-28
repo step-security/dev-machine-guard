@@ -98,7 +98,8 @@ func TestUploadToS3_SendsCompressedBodyAndIsCompressedFlag(t *testing.T) {
 		DeviceID:   "dev-1",
 	}
 
-	if err := uploadToS3(context.Background(), progress.NewLogger(progress.LevelInfo), payload); err != nil {
+	const testExecutionID = "11111111-2222-4333-8444-555555555555"
+	if err := uploadToS3(context.Background(), progress.NewLogger(progress.LevelInfo), payload, testExecutionID); err != nil {
 		t.Fatalf("uploadToS3 failed: %v", err)
 	}
 
@@ -150,5 +151,8 @@ func TestUploadToS3_SendsCompressedBodyAndIsCompressedFlag(t *testing.T) {
 	}
 	if !strings.HasSuffix(notify["s3_key"], ".json.gz") {
 		t.Errorf("expected s3_key with .json.gz suffix, got %q", notify["s3_key"])
+	}
+	if notify["execution_id"] != testExecutionID {
+		t.Errorf("expected execution_id=%q in notify body, got %q", testExecutionID, notify["execution_id"])
 	}
 }

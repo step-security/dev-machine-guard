@@ -9,6 +9,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
@@ -35,19 +38,19 @@ type Payload struct {
 	CollectedAt    int64  `json:"collected_at"`
 	NoUserLoggedIn bool   `json:"no_user_logged_in"`
 
-	IDEExtensions        []model.Extension           `json:"ide_extensions"`
-	IDEInstallations     []model.IDE                 `json:"ide_installations"`
-	NodePkgManagers      []model.PkgManager          `json:"node_package_managers"`
-	NodeGlobalPackages   []model.NodeScanResult      `json:"node_global_packages"`
-	NodeProjects         []model.NodeScanResult      `json:"node_projects"`
-	BrewPkgManager       *model.PkgManager           `json:"brew_package_manager,omitempty"`
-	BrewScans            []model.BrewScanResult      `json:"brew_scans"`
-	PythonPkgManagers    []model.PkgManager                `json:"python_package_managers"`
-	PythonGlobalPackages []model.PythonScanResult          `json:"python_global_packages"`
-	PythonProjects       []model.ProjectInfo               `json:"python_projects"`
-	SystemPackageScans   []model.SystemPackageScanResult   `json:"system_package_scans"`
-	AIAgents             []model.AITool                    `json:"ai_agents"`
-	MCPConfigs           []model.MCPConfigEnterprise `json:"mcp_configs"`
+	IDEExtensions        []model.Extension               `json:"ide_extensions"`
+	IDEInstallations     []model.IDE                     `json:"ide_installations"`
+	NodePkgManagers      []model.PkgManager              `json:"node_package_managers"`
+	NodeGlobalPackages   []model.NodeScanResult          `json:"node_global_packages"`
+	NodeProjects         []model.NodeScanResult          `json:"node_projects"`
+	BrewPkgManager       *model.PkgManager               `json:"brew_package_manager,omitempty"`
+	BrewScans            []model.BrewScanResult          `json:"brew_scans"`
+	PythonPkgManagers    []model.PkgManager              `json:"python_package_managers"`
+	PythonGlobalPackages []model.PythonScanResult        `json:"python_global_packages"`
+	PythonProjects       []model.ProjectInfo             `json:"python_projects"`
+	SystemPackageScans   []model.SystemPackageScanResult `json:"system_package_scans"`
+	AIAgents             []model.AITool                  `json:"ai_agents"`
+	MCPConfigs           []model.MCPConfigEnterprise     `json:"mcp_configs"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -82,9 +85,75 @@ type PerformanceMetrics struct {
 //	[scanning] Lock acquired (PID: 32560)
 //	[scanning] Device ID (Serial): ...
 //	...
-func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
+func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err error) {
 	ctx := context.Background()
 	startTime := time.Now()
+
+	// Generate a per-run execution ID up front so failures before device.Gather
+	// can still be attributed. Fall back to a timestamp-derived ID if crypto/rand
+	// errors (vanishingly unlikely) — reporting is best-effort and must never
+	// block the scan itself.
+	executionID, idErr := newExecutionID()
+	if idErr != nil {
+		executionID = fmt.Sprintf("nouuid-%d", time.Now().UnixNano())
+		fmt.Fprintf(os.Stderr, "[warn] failed to generate execution id, using fallback: %v\n", idErr)
+	}
+
+	// deviceID is populated once device.Gather completes; the closure below
+	// captures it by reference so the deferred failure report uses whatever is
+	// known at the point of failure (empty is tolerated by the backend).
+	var deviceID string
+
+	// Ensures exactly one "failed" report lands per run. The signal handler
+	// goroutine and the deferred recovery can both fire in quick succession
+	// during cancellation — only the first one through should post.
+	var reportedFailed atomic.Bool
+	reportFailedOnce := func(errMsg string) {
+		if reportedFailed.CompareAndSwap(false, true) {
+			reportRunStatus(context.Background(), log, executionID, deviceID, runStatusFailed, errMsg)
+		}
+	}
+
+	// Catch SIGINT / SIGTERM so cancellation (Ctrl+C, launchd stop, kill)
+	// still records a failure row and fires the Slack alert before exit.
+	// Go's default signal disposition terminates the process without running
+	// defers, which would silently drop the signal — we intercept it here.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	sigHandlerDone := make(chan struct{})
+	go func() {
+		select {
+		case sig := <-sigCh:
+			fmt.Fprintf(os.Stderr, "\n[cancel] received %s, reporting failure before exit\n", sig)
+			reportFailedOnce(fmt.Sprintf("%s: %s", runStatusCancelled, sig))
+			// Best-effort lock cleanup. A new run can recover from a stale
+			// lock file on its own via lock.Acquire; this is just polite.
+			os.Exit(130) // conventional exit code for SIGINT
+		case <-sigHandlerDone:
+			return
+		}
+	}()
+
+	// Global recovery + failure report. Runs on panic and on any non-nil error
+	// return. Uses context.Background() because the original ctx may be the
+	// source of the failure (e.g., context deadline exceeded). Success is
+	// reported by the backend worker after it finishes processing the uploaded
+	// telemetry — not here.
+	defer func() {
+		// Stop the signal goroutine so it doesn't leak between test runs /
+		// subsequent invocations in long-running processes.
+		signal.Stop(sigCh)
+		close(sigHandlerDone)
+
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic in telemetry.Run: %v", r)
+			reportFailedOnce(err.Error())
+			return
+		}
+		if err != nil {
+			reportFailedOnce(err.Error())
+		}
+	}()
 
 	// Start capturing all stderr output for execution_logs.
 	// Defer Finalize immediately to ensure stderr is always restored,
@@ -113,6 +182,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	// Device info
 	log.Progress("Gathering device information...")
 	dev := device.Gather(ctx, exec)
+	deviceID = dev.SerialNumber
 	log.Progress("Device ID (Serial): %s", dev.SerialNumber)
 	log.Progress("OS Version: %s", dev.OSVersion)
 	log.Progress("Developer: %s", dev.UserIdentity)
@@ -123,6 +193,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	if dev.UserIdentity == "" || dev.UserIdentity == "unknown" {
 		log.Warn("user identity could not be determined — telemetry will be marked no_user_logged_in")
 	}
+
+	// Report "started" now that we have a device_id. Fire-and-forget.
+	reportRunStatus(ctx, log, executionID, deviceID, runStatusStarted, "")
 
 	// Detect logged-in user for running commands as the real user when root.
 	// Skip "root" — if LoggedInUser() fell back to CurrentUser(), delegating
@@ -485,7 +558,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 
 	// Upload to S3
 	log.Progress("Requesting upload URL from backend...")
-	if err := uploadToS3(ctx, log, payload); err != nil {
+	if err := uploadToS3(ctx, log, payload, executionID); err != nil {
 		return fmt.Errorf("uploading telemetry: %w", err)
 	}
 
@@ -520,7 +593,7 @@ func totalSystemPackagesCount(scans []model.SystemPackageScanResult) int {
 	return total
 }
 
-func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) error {
+func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, executionID string) error {
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshaling payload: %w", err)
@@ -633,8 +706,9 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 	// Notify backend
 	log.Progress("Notifying backend of upload...")
 	notifyBody, _ := json.Marshal(map[string]string{
-		"s3_key":    urlResp.S3Key,
-		"device_id": payload.DeviceID,
+		"s3_key":       urlResp.S3Key,
+		"device_id":    payload.DeviceID,
+		"execution_id": executionID,
 	})
 
 	notifyEndpoint := fmt.Sprintf("%s/v1/%s/developer-mdm-agent/telemetry/process-uploaded",
