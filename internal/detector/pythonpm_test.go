@@ -87,22 +87,24 @@ func TestParsePythonVersion(t *testing.T) {
 func TestPythonProjectDetector_CountProjects(t *testing.T) {
 	dir := t.TempDir()
 
-	// project1: has venv — should be detected
+	// project1: pyproject.toml + .venv with pyvenv.cfg — detected
 	mustCreateFile(t, filepath.Join(dir, "project1", "pyproject.toml"))
+	mustCreateFile(t, filepath.Join(dir, "project1", ".venv", "pyvenv.cfg"))
 	mustCreateFile(t, filepath.Join(dir, "project1", ".venv", "bin", "pip"))
 
-	// project2: has venv — should be detected
+	// project2: setup.py + venv with pyvenv.cfg — detected
 	mustCreateFile(t, filepath.Join(dir, "project2", "setup.py"))
+	mustCreateFile(t, filepath.Join(dir, "project2", "venv", "pyvenv.cfg"))
 	mustCreateFile(t, filepath.Join(dir, "project2", "venv", "bin", "pip"))
 
-	// project3: no venv — should be skipped
+	// project3: no venv — skipped
 	mustCreateFile(t, filepath.Join(dir, "project3", "Pipfile"))
 
 	mock := executor.NewMock()
-	// Mock FileExists for venv pip paths
+	mock.SetFile(filepath.Join(dir, "project1", ".venv", "pyvenv.cfg"), []byte(""))
 	mock.SetFile(filepath.Join(dir, "project1", ".venv", "bin", "pip"), []byte(""))
+	mock.SetFile(filepath.Join(dir, "project2", "venv", "pyvenv.cfg"), []byte(""))
 	mock.SetFile(filepath.Join(dir, "project2", "venv", "bin", "pip"), []byte(""))
-	// Mock pip list output
 	mock.SetCommand(`[{"name":"flask","version":"3.0.0"}]`, "", 0,
 		filepath.Join(dir, "project1", ".venv", "bin", "pip"), "list", "--format", "json")
 	mock.SetCommand(`[{"name":"django","version":"5.0"}]`, "", 0,
@@ -116,6 +118,160 @@ func TestPythonProjectDetector_CountProjects(t *testing.T) {
 	}
 	if len(projects[0].Packages) == 0 {
 		t.Error("expected packages in first project")
+	}
+}
+
+// Venvs created by `python -m venv myenv` (or virtualenv >= 20) carry a
+// pyvenv.cfg regardless of folder name. Folder names other than venv/.venv
+// must be detected via that marker.
+func TestPythonProjectDetector_ArbitraryVenvName(t *testing.T) {
+	dir := t.TempDir()
+
+	mustCreateFile(t, filepath.Join(dir, "proj", "myenv", "pyvenv.cfg"))
+	mustCreateFile(t, filepath.Join(dir, "proj", "myenv", "bin", "pip"))
+
+	mock := executor.NewMock()
+	mock.SetFile(filepath.Join(dir, "proj", "myenv", "pyvenv.cfg"), []byte(""))
+	mock.SetFile(filepath.Join(dir, "proj", "myenv", "bin", "pip"), []byte(""))
+	mock.SetCommand(`[{"name":"requests","version":"2.32.0"}]`, "", 0,
+		filepath.Join(dir, "proj", "myenv", "bin", "pip"), "list", "--format", "json")
+
+	det := NewPythonProjectDetector(mock)
+	projects := det.ListProjects([]string{dir})
+
+	if len(projects) != 1 {
+		t.Fatalf("expected 1 project, got %d", len(projects))
+	}
+	wantPath := filepath.Join(dir, "proj", "myenv")
+	if projects[0].Path != wantPath {
+		t.Errorf("expected project path %q, got %q", wantPath, projects[0].Path)
+	}
+}
+
+// Two venvs under the same parent must both be surfaced — keying by venv
+// path (not parent) prevents the second from being silently dropped.
+func TestPythonProjectDetector_MultipleVenvsSameParent(t *testing.T) {
+	dir := t.TempDir()
+
+	mustCreateFile(t, filepath.Join(dir, "proj", "venv-a", "pyvenv.cfg"))
+	mustCreateFile(t, filepath.Join(dir, "proj", "venv-a", "bin", "pip"))
+	mustCreateFile(t, filepath.Join(dir, "proj", "venv-b", "pyvenv.cfg"))
+	mustCreateFile(t, filepath.Join(dir, "proj", "venv-b", "bin", "pip"))
+
+	mock := executor.NewMock()
+	mock.SetFile(filepath.Join(dir, "proj", "venv-a", "pyvenv.cfg"), []byte(""))
+	mock.SetFile(filepath.Join(dir, "proj", "venv-a", "bin", "pip"), []byte(""))
+	mock.SetFile(filepath.Join(dir, "proj", "venv-b", "pyvenv.cfg"), []byte(""))
+	mock.SetFile(filepath.Join(dir, "proj", "venv-b", "bin", "pip"), []byte(""))
+	mock.SetCommand(`[{"name":"requests","version":"2.32.0"}]`, "", 0,
+		filepath.Join(dir, "proj", "venv-a", "bin", "pip"), "list", "--format", "json")
+	mock.SetCommand(`[{"name":"flask","version":"3.0.0"}]`, "", 0,
+		filepath.Join(dir, "proj", "venv-b", "bin", "pip"), "list", "--format", "json")
+
+	det := NewPythonProjectDetector(mock)
+	projects := det.ListProjects([]string{dir})
+
+	if len(projects) != 2 {
+		t.Fatalf("expected 2 projects (one per venv), got %d", len(projects))
+	}
+	got := map[string]bool{projects[0].Path: true, projects[1].Path: true}
+	wantA := filepath.Join(dir, "proj", "venv-a")
+	wantB := filepath.Join(dir, "proj", "venv-b")
+	if !got[wantA] || !got[wantB] {
+		t.Errorf("expected both %q and %q, got %+v", wantA, wantB, got)
+	}
+}
+
+// Older virtualenvs (pre-pyvenv.cfg) ship bin/activate alongside bin/pip;
+// detection should fall back to that pair.
+func TestPythonProjectDetector_LegacyVenvWithActivate(t *testing.T) {
+	dir := t.TempDir()
+
+	mustCreateFile(t, filepath.Join(dir, "proj", "env", "bin", "pip"))
+	mustCreateFile(t, filepath.Join(dir, "proj", "env", "bin", "activate"))
+
+	mock := executor.NewMock()
+	mock.SetFile(filepath.Join(dir, "proj", "env", "bin", "pip"), []byte(""))
+	mock.SetFile(filepath.Join(dir, "proj", "env", "bin", "activate"), []byte(""))
+	mock.SetCommand(`[]`, "", 0,
+		filepath.Join(dir, "proj", "env", "bin", "pip"), "list", "--format", "json")
+
+	det := NewPythonProjectDetector(mock)
+	projects := det.ListProjects([]string{dir})
+
+	if len(projects) != 1 {
+		t.Fatalf("expected 1 project, got %d", len(projects))
+	}
+}
+
+// A bin/pip with neither pyvenv.cfg nor an activate script is not a venv —
+// guards against, e.g., system /usr/local pretending to be a project.
+func TestPythonProjectDetector_NotAVenv(t *testing.T) {
+	dir := t.TempDir()
+
+	mustCreateFile(t, filepath.Join(dir, "fake", "bin", "pip"))
+
+	mock := executor.NewMock()
+	mock.SetFile(filepath.Join(dir, "fake", "bin", "pip"), []byte(""))
+
+	det := NewPythonProjectDetector(mock)
+	projects := det.ListProjects([]string{dir})
+
+	if len(projects) != 0 {
+		t.Fatalf("expected 0 projects, got %d", len(projects))
+	}
+}
+
+// Windows venvs use Scripts/pip.exe instead of bin/pip.
+func TestPythonProjectDetector_WindowsLayout(t *testing.T) {
+	dir := t.TempDir()
+
+	mustCreateFile(t, filepath.Join(dir, "proj", ".venv", "pyvenv.cfg"))
+	mustCreateFile(t, filepath.Join(dir, "proj", ".venv", "Scripts", "pip.exe"))
+
+	mock := executor.NewMock()
+	mock.SetFile(filepath.Join(dir, "proj", ".venv", "pyvenv.cfg"), []byte(""))
+	mock.SetFile(filepath.Join(dir, "proj", ".venv", "Scripts", "pip.exe"), []byte(""))
+	mock.SetCommand(`[{"name":"pytest","version":"8.0.0"}]`, "", 0,
+		filepath.Join(dir, "proj", ".venv", "Scripts", "pip.exe"), "list", "--format", "json")
+
+	det := NewPythonProjectDetector(mock)
+	projects := det.ListProjects([]string{dir})
+
+	if len(projects) != 1 {
+		t.Fatalf("expected 1 project, got %d", len(projects))
+	}
+	if len(projects[0].Packages) == 0 {
+		t.Error("expected packages from Scripts/pip.exe")
+	}
+}
+
+// Venvs created with `python -m venv --without-pip` carry pyvenv.cfg but no
+// pip. They should still be reported (Packages empty), and the walker must
+// not descend into the venv tree (regression guard for the perf bug).
+func TestPythonProjectDetector_VenvWithoutPip(t *testing.T) {
+	dir := t.TempDir()
+
+	mustCreateFile(t, filepath.Join(dir, "proj", ".venv", "pyvenv.cfg"))
+	// Filler file deep inside the venv. If WalkDir descends, it will be
+	// visited; the SkipDir return on venv match prevents that.
+	mustCreateFile(t, filepath.Join(dir, "proj", ".venv", "lib", "python3.12", "site-packages", "foo", "bar.py"))
+
+	mock := executor.NewMock()
+	mock.SetFile(filepath.Join(dir, "proj", ".venv", "pyvenv.cfg"), []byte(""))
+
+	det := NewPythonProjectDetector(mock)
+	projects := det.ListProjects([]string{dir})
+
+	if len(projects) != 1 {
+		t.Fatalf("expected 1 project (venv without pip), got %d", len(projects))
+	}
+	if len(projects[0].Packages) != 0 {
+		t.Errorf("expected empty Packages when pip is absent, got %d", len(projects[0].Packages))
+	}
+	wantPath := filepath.Join(dir, "proj", ".venv")
+	if projects[0].Path != wantPath {
+		t.Errorf("expected path %q, got %q", wantPath, projects[0].Path)
 	}
 }
 
