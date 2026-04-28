@@ -32,7 +32,7 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	if isConfigured(ctx, exec) {
 		log.Progress("Existing agent installation detected. Upgrading...")
 		if err := doUninstall(ctx, exec, log); err != nil {
-			log.Progress("Warning: failed to remove previous installation: %v", err)
+			log.Warn("failed to remove previous launchd installation: %v — continuing install anyway", err)
 		}
 		log.Progress("Previous installation removed. Installing new version...")
 	}
@@ -106,8 +106,11 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 		_ = os.Chmod(plistPath, 0o644)
 	}
 
+	log.Debug("launchd install: plist=%q log_dir=%q interval=%ds user_home=%q is_root=%v", plistPath, logDir, intervalSeconds, userHome, exec.IsRoot())
+
 	// Load plist
 	_, _, exitCode, err := exec.Run(ctx, "launchctl", "load", plistPath)
+	log.Debug("launchctl load %q: exit_code=%d err=%v", plistPath, exitCode, err)
 	if err != nil || exitCode != 0 {
 		return fmt.Errorf("failed to load launchd configuration")
 	}
@@ -142,7 +145,8 @@ func doUninstall(ctx context.Context, exec executor.Executor, log *progress.Logg
 	// Unload
 	stdout, _, _, _ := exec.Run(ctx, "launchctl", "list")
 	if strings.Contains(stdout, label) {
-		_, _, _, _ = exec.Run(ctx, "launchctl", "unload", plistPath)
+		_, _, exitCode, err := exec.Run(ctx, "launchctl", "unload", plistPath)
+		log.Debug("launchctl unload %q: exit_code=%d err=%v", plistPath, exitCode, err)
 		log.Progress("Unloaded launchd agent")
 	}
 

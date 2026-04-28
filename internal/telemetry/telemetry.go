@@ -99,8 +99,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	// Acquire lock
 	lk, err := lock.Acquire(exec)
 	if err != nil {
+		log.Debug("lock acquisition failed: %v", err)
 		return fmt.Errorf("acquiring lock: %w", err)
 	}
+	log.Debug("lock acquired (pid=%d)", os.Getpid())
 	defer func() {
 		lk.Release()
 		log.Progress("Lock released (PID: %d)", os.Getpid())
@@ -113,6 +115,13 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	log.Progress("Device ID (Serial): %s", dev.SerialNumber)
 	log.Progress("OS Version: %s", dev.OSVersion)
 	log.Progress("Developer: %s", dev.UserIdentity)
+	log.Debug("device gathered: hostname=%q platform=%q serial=%q user_identity=%q", dev.Hostname, dev.Platform, dev.SerialNumber, dev.UserIdentity)
+	if dev.SerialNumber == "" {
+		log.Warn("device serial number could not be determined — telemetry will upload with empty device_id")
+	}
+	if dev.UserIdentity == "" || dev.UserIdentity == "unknown" {
+		log.Warn("user identity could not be determined — telemetry will be marked no_user_logged_in")
+	}
 
 	// Detect logged-in user for running commands as the real user when root.
 	// Skip "root" — if LoggedInUser() fell back to CurrentUser(), delegating
@@ -120,6 +129,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	loggedInUsername := ""
 	if u, err := exec.LoggedInUser(); err == nil && u.Username != "root" {
 		loggedInUsername = u.Username
+		log.Debug("logged-in user detected: username=%q home=%q — commands will delegate via sudo", u.Username, u.HomeDir)
+	} else if err != nil {
+		log.Warn("could not detect logged-in user (%v) — package manager commands will run as current user and may return different results", err)
+	} else {
+		log.Debug("LoggedInUser() returned root — not delegating")
 	}
 
 	// Create a user-aware executor that delegates commands to the logged-in user
@@ -131,6 +145,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 
 	// Resolve search dirs
 	searchDirs := resolveSearchDirs(exec, cfg.SearchDirs)
+	log.Debug("search directories resolved: %v", searchDirs)
 	fmt.Fprintln(os.Stderr)
 
 	// Detect IDEs
@@ -213,6 +228,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	if len(mcpConfigs) == 0 {
 		log.Progress("  No MCP config files found")
 	}
+	log.Debug("scan totals: ides=%d extensions=%d ai_cli=%d agents=%d frameworks=%d mcp_configs=%d",
+		len(ides), len(extensions), len(cliTools), len(agents), len(frameworks), len(mcpConfigs))
 	fmt.Fprintln(os.Stderr)
 
 	// Homebrew scanning
@@ -228,6 +245,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		log.Progress("Detecting Homebrew...")
 		brewDetector := detector.NewBrewDetector(userExec)
 		brewPkgMgr = brewDetector.DetectBrew(ctx)
+		log.Debug("brew detection: found=%v", brewPkgMgr != nil)
 		if brewPkgMgr != nil {
 			log.Progress("  Found: Homebrew v%s at %s", brewPkgMgr.Version, brewPkgMgr.Path)
 			brewScanner := detector.NewBrewScanner(userExec, log)
@@ -538,6 +556,8 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 		return fmt.Errorf("decoding upload URL response: %w", err)
 	}
 
+	log.Debug("upload URL response: status=%d s3_key=%q url_len=%d", resp.StatusCode, urlResp.S3Key, len(urlResp.UploadURL))
+
 	if urlResp.UploadURL == "" {
 		return fmt.Errorf("empty upload URL in response")
 	}
@@ -558,6 +578,11 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 
 		putResp, err = s3Client.Do(putReq)
 		elapsed := time.Since(uploadStart)
+		if err != nil {
+			log.Debug("s3 PUT attempt %d/%d: error=%v elapsed=%s", attempt, maxRetries, err, elapsed)
+		} else {
+			log.Debug("s3 PUT attempt %d/%d: status=%d elapsed=%s payload_bytes=%d", attempt, maxRetries, putResp.StatusCode, elapsed, len(payloadJSON))
+		}
 
 		if err == nil && putResp.StatusCode == http.StatusOK {
 			log.Progress("Uploaded to S3 in %s", elapsed)
@@ -582,9 +607,9 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 		// Log retry and backoff
 		backoff := time.Duration(attempt) * 2 * time.Second
 		if err != nil {
-			log.Progress("S3 upload attempt %d/%d failed after %s: %v; retrying in %s...", attempt, maxRetries, elapsed, err, backoff)
+			log.Warn("S3 upload attempt %d/%d failed after %s: %v; retrying in %s...", attempt, maxRetries, elapsed, err, backoff)
 		} else {
-			log.Progress("S3 upload attempt %d/%d got status %d, retrying in %s...", attempt, maxRetries, putResp.StatusCode, backoff)
+			log.Warn("S3 upload attempt %d/%d got status %d, retrying in %s...", attempt, maxRetries, putResp.StatusCode, backoff)
 		}
 		select {
 		case <-time.After(backoff):
@@ -619,6 +644,7 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 	}
 	defer func() { _ = notifyResp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, notifyResp.Body)
+	log.Debug("notify backend: status=%d s3_key=%q", notifyResp.StatusCode, urlResp.S3Key)
 
 	if notifyResp.StatusCode != http.StatusOK && notifyResp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("backend notification failed with status %d", notifyResp.StatusCode)
