@@ -98,7 +98,7 @@ func TestUploadToS3_SendsCompressedBodyAndIsCompressedFlag(t *testing.T) {
 		DeviceID:   "dev-1",
 	}
 
-	if err := uploadToS3(context.Background(), progress.NewLogger(false), payload); err != nil {
+	if err := uploadToS3(context.Background(), progress.NewLogger(progress.LevelInfo), payload); err != nil {
 		t.Fatalf("uploadToS3 failed: %v", err)
 	}
 
