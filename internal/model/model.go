@@ -20,13 +20,13 @@ type ScanResult struct {
 	PythonPkgManagers []PkgManager    `json:"python_package_managers"`
 	PythonPackages    []PythonPackage `json:"python_packages"`
 	PythonProjects    []ProjectInfo   `json:"python_projects"`
-	SystemPkgManager    *PkgManager     `json:"system_package_manager,omitempty"`
-	SystemPackages      []SystemPackage `json:"system_packages"`
-	SnapPkgManager      *PkgManager     `json:"snap_package_manager,omitempty"`
-	SnapPackages        []SystemPackage `json:"snap_packages"`
-	FlatpakPkgManager   *PkgManager     `json:"flatpak_package_manager,omitempty"`
-	FlatpakPackages     []SystemPackage `json:"flatpak_packages"`
-	Summary             Summary         `json:"summary"`
+	SystemPkgManager  *PkgManager     `json:"system_package_manager,omitempty"`
+	SystemPackages    []SystemPackage `json:"system_packages"`
+	SnapPkgManager    *PkgManager     `json:"snap_package_manager,omitempty"`
+	SnapPackages      []SystemPackage `json:"snap_packages"`
+	FlatpakPkgManager *PkgManager     `json:"flatpak_package_manager,omitempty"`
+	FlatpakPackages   []SystemPackage `json:"flatpak_packages"`
+	Summary           Summary         `json:"summary"`
 }
 
 type Device struct {
@@ -153,7 +153,7 @@ type PythonPackage struct {
 // Unlike BrewScanResult (which sends raw base64), this sends pre-parsed packages
 // since syspkg.go already handles the format-specific parsing edge cases.
 type SystemPackageScanResult struct {
-	ScanType       string          `json:"scan_type"`                    // "rpm", "dpkg", "pacman", "apk", "snap", "flatpak"
+	ScanType       string          `json:"scan_type"` // "rpm", "dpkg", "pacman", "apk", "snap", "flatpak"
 	PackageManager *PkgManager     `json:"package_manager,omitempty"`
 	Packages       []SystemPackage `json:"packages"`
 	PackagesCount  int             `json:"packages_count"`
