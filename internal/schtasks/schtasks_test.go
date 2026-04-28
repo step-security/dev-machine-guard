@@ -9,7 +9,7 @@ import (
 )
 
 func newTestLogger() *progress.Logger {
-	return progress.NewLogger(false)
+	return progress.NewLogger(progress.LevelInfo)
 }
 
 func TestIsConfigured_True(t *testing.T) {

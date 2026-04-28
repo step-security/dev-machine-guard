@@ -11,7 +11,7 @@ import (
 )
 
 func newTestScanner(exec *executor.Mock) *NodeScanner {
-	log := progress.NewLogger(false)
+	log := progress.NewLogger(progress.LevelInfo)
 	return NewNodeScanner(exec, log, "")
 }
 

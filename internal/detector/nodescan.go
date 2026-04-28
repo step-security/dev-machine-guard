@@ -133,6 +133,7 @@ func (s *NodeScanner) scanNPMGlobal(ctx context.Context) (model.NodeScanResult, 
 	version := s.getVersion(ctx, "npm", "--version")
 	prefix := s.getOutput(ctx, "npm", "config", "get", "prefix")
 	if prefix == "" {
+		s.log.Warn("npm found but `npm config get prefix` returned empty — skipping npm global scan")
 		return model.NodeScanResult{}, false
 	}
 
@@ -143,7 +144,9 @@ func (s *NodeScanner) scanNPMGlobal(ctx context.Context) (model.NodeScanResult, 
 	errMsg := ""
 	if exitCode != 0 {
 		errMsg = "npm list -g command failed with exit code"
+		s.log.Warn("npm list -g failed (exit_code=%d, %dms) — results may be incomplete", exitCode, duration)
 	}
+	s.log.Debug("npm global scan: version=%s prefix=%s exit_code=%d stdout_bytes=%d duration=%dms", version, prefix, exitCode, len(stdout), duration)
 
 	return model.NodeScanResult{
 		ProjectPath:      prefix,
@@ -177,7 +180,9 @@ func (s *NodeScanner) scanYarnGlobal(ctx context.Context) (model.NodeScanResult,
 	errMsg := ""
 	if exitCode != 0 {
 		errMsg = "yarn global list command failed"
+		s.log.Warn("yarn global list failed (exit_code=%d, %dms) — results may be incomplete", exitCode, duration)
 	}
+	s.log.Debug("yarn global scan: version=%s global_dir=%s exit_code=%d stdout_bytes=%d duration=%dms", version, globalDir, exitCode, len(stdout), duration)
 
 	return model.NodeScanResult{
 		ProjectPath:      globalDir,
@@ -211,7 +216,9 @@ func (s *NodeScanner) scanPnpmGlobal(ctx context.Context) (model.NodeScanResult,
 	errMsg := ""
 	if exitCode != 0 {
 		errMsg = "pnpm list -g command failed"
+		s.log.Warn("pnpm list -g failed (exit_code=%d, %dms) — results may be incomplete", exitCode, duration)
 	}
+	s.log.Debug("pnpm global scan: version=%s global_dir=%s exit_code=%d stdout_bytes=%d duration=%dms", version, globalDir, exitCode, len(stdout), duration)
 
 	return model.NodeScanResult{
 		ProjectPath:      globalDir,
@@ -268,6 +275,8 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 		})
 	}
 
+	s.log.Debug("node project discovery: found %d package.json files across %d search dir(s)", len(projects), len(searchDirs))
+
 	// Phase 2: Sort by modification time descending (most recent first)
 	sort.Slice(projects, func(i, j int) bool {
 		return projects[i].modTime > projects[j].modTime
@@ -281,6 +290,7 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 	for i, p := range projects {
 		if i >= maxNodeProjects {
 			s.log.Progress("  Reached maximum of %d projects, stopping search", maxNodeProjects)
+			s.log.Warn("Node project scan truncated at %d projects (total discovered: %d) — oldest projects were skipped", maxNodeProjects, len(projects))
 			break
 		}
 		if totalSize > maxBytes {

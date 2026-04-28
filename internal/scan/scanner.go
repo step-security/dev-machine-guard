@@ -21,6 +21,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 
 	// Resolve search directories
 	searchDirs := resolveSearchDirs(exec, cfg.SearchDirs)
+	log.Debug("search directories resolved: %v", searchDirs)
+	for _, d := range searchDirs {
+		if info, err := os.Stat(d); err != nil {
+			log.Warn("search directory %q is not accessible: %v — it will be skipped", d, err)
+		} else if !info.IsDir() {
+			log.Warn("search directory %q is not a directory — it will be skipped", d)
+		}
+	}
 
 	// Gather device info
 	log.StepStart("Gathering device information")
@@ -69,15 +77,20 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	// bundles) unless explicitly requested. macOS detection doesn't produce bundled
 	// plugins in significant volume, so this filter is Windows-only.
 	if exec.GOOS() == model.PlatformWindows && !cfg.IncludeBundledPlugins {
+		before := len(extensions)
 		extensions = model.FilterUserInstalledExtensions(extensions)
+		log.Debug("windows bundled-plugin filter: %d → %d extensions", before, len(extensions))
 	}
 	log.StepDone(time.Since(start))
 
 	// Node.js scanning (community mode defaults to off, explicit flag overrides)
 	npmEnabled := false
+	npmSource := "default (off)"
 	if cfg.EnableNPMScan != nil {
 		npmEnabled = *cfg.EnableNPMScan
+		npmSource = "cli/config"
 	}
+	log.Debug("npm scan: enabled=%v source=%s", npmEnabled, npmSource)
 	// auto: disabled in community mode
 
 	var pkgManagers []model.PkgManager
@@ -102,9 +115,12 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 
 	// Homebrew scanning (community mode defaults to off, explicit flag overrides)
 	brewEnabled := false
+	brewSource := "default (off)"
 	if cfg.EnableBrewScan != nil {
 		brewEnabled = *cfg.EnableBrewScan
+		brewSource = "cli/config"
 	}
+	log.Debug("brew scan: enabled=%v source=%s", brewEnabled, brewSource)
 
 	var brewPkgManager *model.PkgManager
 	var brewFormulae []model.BrewPackage
@@ -157,9 +173,12 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 
 	// Python scanning (community mode defaults to off, explicit flag overrides)
 	pythonEnabled := false
+	pythonSource := "default (off)"
 	if cfg.EnablePythonScan != nil {
 		pythonEnabled = *cfg.EnablePythonScan
+		pythonSource = "cli/config"
 	}
+	log.Debug("python scan: enabled=%v source=%s", pythonEnabled, pythonSource)
 
 	var pythonPkgManagers []model.PkgManager
 	var pythonPackages []model.PythonPackage
@@ -269,6 +288,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 			FlatpakPackagesCount:  len(flatpakPackages),
 		},
 	}
+
+	log.Debug("scan complete: ais=%d ides=%d extensions=%d mcp=%d node_projects=%d brew_formulae=%d brew_casks=%d python_projects=%d",
+		len(aiTools), len(ides), len(extensions), len(mcpConfigs), len(nodeProjects), len(brewFormulae), len(brewCasks), len(pythonProjects))
 
 	// Output
 	switch cfg.OutputFormat {
