@@ -45,5 +45,3 @@ archives:
 
 release:
   draft: true
-  extra_files:
-    - glob: stepsecurity-dev-machine-guard.sh

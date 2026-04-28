@@ -87,8 +87,6 @@ Each release includes:
 | `stepsecurity-dev-machine-guard-VERSION-darwin` | Notarized universal macOS binary (amd64 + arm64) |
 | `stepsecurity-dev-machine-guard-VERSION-darwin_unnotarized` | Original CI-built binary (for provenance verification) |
 | `stepsecurity-dev-machine-guard-VERSION-darwin_unnotarized.bundle` | Sigstore cosign bundle for the unnotarized binary |
-| `stepsecurity-dev-machine-guard.sh` | Legacy shell script |
-| `stepsecurity-dev-machine-guard.sh.bundle` | Sigstore cosign bundle for the shell script |
 
 ---
 
