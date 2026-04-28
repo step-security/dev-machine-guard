@@ -58,6 +58,21 @@ var cliToolDefinitions = []cliToolSpec{
 		Vendor:     "Microsoft",
 		Binaries:   []string{"copilot", "gh-copilot"},
 		ConfigDirs: []string{"~/.config/github-copilot"},
+		// Reject the VS Code Copilot Chat extension's shim, which lives on PATH
+		// even when the real CLI isn't installed and replies to `--version` with
+		// "GitHub Copilot CLI is not installed. Would you like to install it? (Y/n)".
+		VerifyFunc: func(ctx context.Context, exec executor.Executor, binary string) bool {
+			stdout, _, exitCode, err := exec.RunWithTimeout(ctx, 10*time.Second, binary, "--version")
+			if err != nil || exitCode != 0 {
+				return false
+			}
+			lower := strings.ToLower(stdout)
+			if strings.Contains(lower, "not installed") ||
+				strings.Contains(lower, "would you like to install") {
+				return false
+			}
+			return true
+		},
 	},
 	{
 		Name:       "microsoft-ai-shell",
@@ -175,7 +190,7 @@ func cleanVersionString(v string) string {
 			return p
 		}
 	}
-	return v
+	return "unknown"
 }
 
 func (d *AICLIDetector) findConfigDir(spec cliToolSpec, homeDir string) string {

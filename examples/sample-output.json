@@ -171,9 +171,9 @@
     { "name": "pip", "version": "24.0" }
   ],
   "python_projects": [
-    { "path": "/Users/developer/projects/ml-pipeline", "package_manager": "poetry" },
-    { "path": "/Users/developer/projects/data-analysis", "package_manager": "pip" },
-    { "path": "/Users/developer/projects/web-scraper", "package_manager": "uv" }
+    { "path": "/Users/developer/projects/ml-pipeline/.venv", "package_manager": "poetry" },
+    { "path": "/Users/developer/projects/data-analysis/venv", "package_manager": "pip" },
+    { "path": "/Users/developer/projects/web-scraper/.venv", "package_manager": "uv" }
   ],
   "summary": {
     "ai_agents_and_tools_count": 5,
