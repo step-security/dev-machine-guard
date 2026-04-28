@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -525,9 +526,18 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 		return fmt.Errorf("marshaling payload: %w", err)
 	}
 
+	// Gzip-compress the payload before upload. The backend signals support by
+	// honoring is_compressed=true on the upload-URL request and appending .gz
+	// to the S3 key, which tells GetTelemetryFromS3 to decompress on read.
+	compressedPayload, err := gzipBytes(payloadJSON)
+	if err != nil {
+		return fmt.Errorf("compressing payload: %w", err)
+	}
+
 	// Request upload URL
-	reqBody, _ := json.Marshal(map[string]string{
-		"device_id": payload.DeviceID,
+	reqBody, _ := json.Marshal(map[string]any{
+		"device_id":     payload.DeviceID,
+		"is_compressed": true,
 	})
 
 	uploadURLEndpoint := fmt.Sprintf("%s/v1/%s/developer-mdm-agent/telemetry/upload-url",
@@ -562,15 +572,15 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 		return fmt.Errorf("empty upload URL in response")
 	}
 
-	// Upload payload to S3 with retry — use a longer timeout since payloads
-	// with npm scan data and execution logs can be several MB.
-	log.Progress("Uploading telemetry to S3 (%d bytes)...", len(payloadJSON))
+	// Upload payload to S3 with retry. Content-Type stays application/json to
+	// match the presigned URL's signed headers — the body is gzipped JSON bytes.
+	log.Progress("Uploading telemetry to S3 (%d bytes)...", len(compressedPayload))
 	s3Client := &http.Client{Timeout: 10 * time.Minute}
 	const maxRetries = 3
 	var putResp *http.Response
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		uploadStart := time.Now()
-		putReq, reqErr := http.NewRequestWithContext(ctx, http.MethodPut, urlResp.UploadURL, bytes.NewReader(payloadJSON))
+		putReq, reqErr := http.NewRequestWithContext(ctx, http.MethodPut, urlResp.UploadURL, bytes.NewReader(compressedPayload))
 		if reqErr != nil {
 			return fmt.Errorf("creating S3 PUT request: %w", reqErr)
 		}
@@ -598,10 +608,10 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 		if attempt == maxRetries {
 			if err != nil {
 				return fmt.Errorf("uploading to S3 (payload: %d bytes, elapsed: %s, attempts: %d): %w",
-					len(payloadJSON), elapsed, maxRetries, err)
+					len(compressedPayload), elapsed, maxRetries, err)
 			}
 			return fmt.Errorf("S3 upload failed with status %d (payload: %d bytes, attempts: %d)",
-				putResp.StatusCode, len(payloadJSON), maxRetries)
+				putResp.StatusCode, len(compressedPayload), maxRetries)
 		}
 
 		// Log retry and backoff
@@ -652,6 +662,19 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 	log.Progress("Backend processing initiated (HTTP %d)", notifyResp.StatusCode)
 
 	return nil
+}
+
+// gzipBytes returns a gzip-compressed copy of the input bytes.
+func gzipBytes(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(data); err != nil {
+		return nil, err
+	}
+	if err := gz.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func resolveSearchDirs(exec executor.Executor, dirs []string) []string {
