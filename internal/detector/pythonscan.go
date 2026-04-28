@@ -55,7 +55,9 @@ func (s *PythonScanner) ScanGlobalPackages(ctx context.Context) []model.PythonSc
 		errMsg := ""
 		if exitCode != 0 {
 			errMsg = spec.binary + " list command failed"
+			s.log.Warn("%s list failed (exit_code=%d, %dms) — results may be incomplete", spec.binary, exitCode, duration)
 		}
+		s.log.Debug("%s global scan: version=%s binary=%s exit_code=%d stdout_bytes=%d duration=%dms", spec.name, version, binPath, exitCode, len(stdout), duration)
 
 		results = append(results, model.PythonScanResult{
 			PackageManager:  spec.name,

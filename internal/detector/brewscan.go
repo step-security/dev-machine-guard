@@ -36,7 +36,7 @@ func (s *BrewScanner) ScanFormulae(ctx context.Context) (model.BrewScanResult, b
 	errMsg := ""
 	if exitCode != 0 {
 		errMsg = "brew list --formula --versions failed"
-		s.log.Progress("  Brew formulae scan failed: exit_code=%d stderr=%s", exitCode, stderr)
+		s.log.Warn("brew formulae scan failed (exit_code=%d): %s — results may be incomplete", exitCode, strings.TrimSpace(stderr))
 	}
 
 	lineCount := len(strings.Split(strings.TrimSpace(stdout), "\n"))
@@ -44,6 +44,7 @@ func (s *BrewScanner) ScanFormulae(ctx context.Context) (model.BrewScanResult, b
 		lineCount = 0
 	}
 	s.log.Progress("  Brew formulae scan complete: %d lines, exit_code=%d, duration=%dms", lineCount, exitCode, duration)
+	s.log.Debug("brew formulae scan: line_count=%d exit_code=%d duration=%dms stdout_bytes=%d", lineCount, exitCode, duration, len(stdout))
 
 	return model.BrewScanResult{
 		ScanType:        "formulae",
@@ -71,7 +72,7 @@ func (s *BrewScanner) ScanCasks(ctx context.Context) (model.BrewScanResult, bool
 	errMsg := ""
 	if exitCode != 0 {
 		errMsg = "brew list --cask --versions failed"
-		s.log.Progress("  Brew casks scan failed: exit_code=%d stderr=%s", exitCode, stderr)
+		s.log.Warn("brew casks scan failed (exit_code=%d): %s — results may be incomplete", exitCode, strings.TrimSpace(stderr))
 	}
 
 	lineCount := len(strings.Split(strings.TrimSpace(stdout), "\n"))
@@ -79,6 +80,7 @@ func (s *BrewScanner) ScanCasks(ctx context.Context) (model.BrewScanResult, bool
 		lineCount = 0
 	}
 	s.log.Progress("  Brew casks scan complete: %d lines, exit_code=%d, duration=%dms", lineCount, exitCode, duration)
+	s.log.Debug("brew casks scan: line_count=%d exit_code=%d duration=%dms stdout_bytes=%d", lineCount, exitCode, duration, len(stdout))
 
 	return model.BrewScanResult{
 		ScanType:        "casks",

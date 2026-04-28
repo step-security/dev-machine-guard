@@ -22,7 +22,7 @@ var (
 	ColorMode          string // "" means auto
 	OutputFormat       string // "" means default (pretty)
 	HTMLOutputFile     string // "" means not set
-	Quiet              *bool  // nil=default behavior
+	LogLevel           string // "" means default (info); one of error/warn/info/debug
 )
 
 // ConfigFile is the JSON structure persisted to ~/.stepsecurity/config.json.
@@ -38,7 +38,7 @@ type ConfigFile struct {
 	ColorMode          string   `json:"color_mode,omitempty"`
 	OutputFormat       string   `json:"output_format,omitempty"`
 	HTMLOutputFile     string   `json:"html_output_file,omitempty"`
-	Quiet              *bool    `json:"quiet,omitempty"`
+	LogLevel           string   `json:"log_level,omitempty"`
 }
 
 // configDir returns ~/.stepsecurity.
@@ -98,8 +98,8 @@ func Load() {
 	if cfg.HTMLOutputFile != "" && HTMLOutputFile == "" {
 		HTMLOutputFile = cfg.HTMLOutputFile
 	}
-	if cfg.Quiet != nil && Quiet == nil {
-		Quiet = cfg.Quiet
+	if cfg.LogLevel != "" && LogLevel == "" {
+		LogLevel = cfg.LogLevel
 	}
 }
 
@@ -239,19 +239,20 @@ func RunConfigure() error {
 		existing.HTMLOutputFile = promptValue(reader, "HTML Output File", existing.HTMLOutputFile)
 	}
 
-	// Quiet mode
-	currentQuiet := "false"
-	if existing.Quiet != nil && *existing.Quiet {
-		currentQuiet = "true"
+	// Log level
+	currentLevel := existing.LogLevel
+	if currentLevel == "" {
+		currentLevel = "info"
 	}
-	quietInput := promptValue(reader, "Quiet Mode (true/false)", currentQuiet)
-	switch strings.ToLower(quietInput) {
-	case "true":
-		v := true
-		existing.Quiet = &v
+	levelInput := promptValue(reader, "Log Level (error/warn/info/debug)", currentLevel)
+	switch strings.ToLower(strings.TrimSpace(levelInput)) {
+	case "error", "warn", "warning", "info", "debug":
+		existing.LogLevel = strings.ToLower(strings.TrimSpace(levelInput))
+		if existing.LogLevel == "warning" {
+			existing.LogLevel = "warn"
+		}
 	default:
-		v := false
-		existing.Quiet = &v
+		existing.LogLevel = "info"
 	}
 
 	// Save
@@ -348,7 +349,7 @@ func ShowConfigure() {
 	if cfg.OutputFormat == "html" {
 		fmt.Printf("  %-24s %s\n", "HTML Output File:", displayValue(cfg.HTMLOutputFile))
 	}
-	fmt.Printf("  %-24s %s\n", "Quiet Mode:", displayQuiet(cfg.Quiet))
+	fmt.Printf("  %-24s %s\n", "Log Level:", displayLogLevel(cfg.LogLevel))
 }
 
 func displayValue(v string) string {
@@ -409,11 +410,16 @@ func displayOutputFormat(v string) string {
 	return v
 }
 
-func displayQuiet(v *bool) string {
-	if v != nil && *v {
-		return "true"
+func displayLogLevel(level string) string {
+	if level == "" {
+		return "info (default)"
 	}
-	return "false"
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "error", "warn", "warning", "info", "debug":
+		return level
+	default:
+		return fmt.Sprintf("%s (invalid — using info)", level)
+	}
 }
 
 func isPlaceholder(v string) bool {

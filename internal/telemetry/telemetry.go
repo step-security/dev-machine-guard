@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -99,8 +100,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	// Acquire lock
 	lk, err := lock.Acquire(exec)
 	if err != nil {
+		log.Debug("lock acquisition failed: %v", err)
 		return fmt.Errorf("acquiring lock: %w", err)
 	}
+	log.Debug("lock acquired (pid=%d)", os.Getpid())
 	defer func() {
 		lk.Release()
 		log.Progress("Lock released (PID: %d)", os.Getpid())
@@ -113,6 +116,13 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	log.Progress("Device ID (Serial): %s", dev.SerialNumber)
 	log.Progress("OS Version: %s", dev.OSVersion)
 	log.Progress("Developer: %s", dev.UserIdentity)
+	log.Debug("device gathered: hostname=%q platform=%q serial=%q user_identity=%q", dev.Hostname, dev.Platform, dev.SerialNumber, dev.UserIdentity)
+	if dev.SerialNumber == "" {
+		log.Warn("device serial number could not be determined — telemetry will upload with empty device_id")
+	}
+	if dev.UserIdentity == "" || dev.UserIdentity == "unknown" {
+		log.Warn("user identity could not be determined — telemetry will be marked no_user_logged_in")
+	}
 
 	// Detect logged-in user for running commands as the real user when root.
 	// Skip "root" — if LoggedInUser() fell back to CurrentUser(), delegating
@@ -120,6 +130,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	loggedInUsername := ""
 	if u, err := exec.LoggedInUser(); err == nil && u.Username != "root" {
 		loggedInUsername = u.Username
+		log.Debug("logged-in user detected: username=%q home=%q — commands will delegate via sudo", u.Username, u.HomeDir)
+	} else if err != nil {
+		log.Warn("could not detect logged-in user (%v) — package manager commands will run as current user and may return different results", err)
+	} else {
+		log.Debug("LoggedInUser() returned root — not delegating")
 	}
 
 	// Create a user-aware executor that delegates commands to the logged-in user
@@ -131,6 +146,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 
 	// Resolve search dirs
 	searchDirs := resolveSearchDirs(exec, cfg.SearchDirs)
+	log.Debug("search directories resolved: %v", searchDirs)
 	fmt.Fprintln(os.Stderr)
 
 	// Detect IDEs
@@ -213,6 +229,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	if len(mcpConfigs) == 0 {
 		log.Progress("  No MCP config files found")
 	}
+	log.Debug("scan totals: ides=%d extensions=%d ai_cli=%d agents=%d frameworks=%d mcp_configs=%d",
+		len(ides), len(extensions), len(cliTools), len(agents), len(frameworks), len(mcpConfigs))
 	fmt.Fprintln(os.Stderr)
 
 	// Homebrew scanning
@@ -228,6 +246,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		log.Progress("Detecting Homebrew...")
 		brewDetector := detector.NewBrewDetector(userExec)
 		brewPkgMgr = brewDetector.DetectBrew(ctx)
+		log.Debug("brew detection: found=%v", brewPkgMgr != nil)
 		if brewPkgMgr != nil {
 			log.Progress("  Found: Homebrew v%s at %s", brewPkgMgr.Version, brewPkgMgr.Path)
 			brewScanner := detector.NewBrewScanner(userExec, log)
@@ -507,9 +526,18 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 		return fmt.Errorf("marshaling payload: %w", err)
 	}
 
+	// Gzip-compress the payload before upload. The backend signals support by
+	// honoring is_compressed=true on the upload-URL request and appending .gz
+	// to the S3 key, which tells GetTelemetryFromS3 to decompress on read.
+	compressedPayload, err := gzipBytes(payloadJSON)
+	if err != nil {
+		return fmt.Errorf("compressing payload: %w", err)
+	}
+
 	// Request upload URL
-	reqBody, _ := json.Marshal(map[string]string{
-		"device_id": payload.DeviceID,
+	reqBody, _ := json.Marshal(map[string]any{
+		"device_id":     payload.DeviceID,
+		"is_compressed": true,
 	})
 
 	uploadURLEndpoint := fmt.Sprintf("%s/v1/%s/developer-mdm-agent/telemetry/upload-url",
@@ -538,19 +566,21 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 		return fmt.Errorf("decoding upload URL response: %w", err)
 	}
 
+	log.Debug("upload URL response: status=%d s3_key=%q url_len=%d", resp.StatusCode, urlResp.S3Key, len(urlResp.UploadURL))
+
 	if urlResp.UploadURL == "" {
 		return fmt.Errorf("empty upload URL in response")
 	}
 
-	// Upload payload to S3 with retry — use a longer timeout since payloads
-	// with npm scan data and execution logs can be several MB.
-	log.Progress("Uploading telemetry to S3 (%d bytes)...", len(payloadJSON))
+	// Upload payload to S3 with retry. Content-Type stays application/json to
+	// match the presigned URL's signed headers — the body is gzipped JSON bytes.
+	log.Progress("Uploading telemetry to S3 (%d bytes)...", len(compressedPayload))
 	s3Client := &http.Client{Timeout: 10 * time.Minute}
 	const maxRetries = 3
 	var putResp *http.Response
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		uploadStart := time.Now()
-		putReq, reqErr := http.NewRequestWithContext(ctx, http.MethodPut, urlResp.UploadURL, bytes.NewReader(payloadJSON))
+		putReq, reqErr := http.NewRequestWithContext(ctx, http.MethodPut, urlResp.UploadURL, bytes.NewReader(compressedPayload))
 		if reqErr != nil {
 			return fmt.Errorf("creating S3 PUT request: %w", reqErr)
 		}
@@ -558,6 +588,11 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 
 		putResp, err = s3Client.Do(putReq)
 		elapsed := time.Since(uploadStart)
+		if err != nil {
+			log.Debug("s3 PUT attempt %d/%d: error=%v elapsed=%s", attempt, maxRetries, err, elapsed)
+		} else {
+			log.Debug("s3 PUT attempt %d/%d: status=%d elapsed=%s payload_bytes=%d", attempt, maxRetries, putResp.StatusCode, elapsed, len(payloadJSON))
+		}
 
 		if err == nil && putResp.StatusCode == http.StatusOK {
 			log.Progress("Uploaded to S3 in %s", elapsed)
@@ -573,18 +608,18 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 		if attempt == maxRetries {
 			if err != nil {
 				return fmt.Errorf("uploading to S3 (payload: %d bytes, elapsed: %s, attempts: %d): %w",
-					len(payloadJSON), elapsed, maxRetries, err)
+					len(compressedPayload), elapsed, maxRetries, err)
 			}
 			return fmt.Errorf("S3 upload failed with status %d (payload: %d bytes, attempts: %d)",
-				putResp.StatusCode, len(payloadJSON), maxRetries)
+				putResp.StatusCode, len(compressedPayload), maxRetries)
 		}
 
 		// Log retry and backoff
 		backoff := time.Duration(attempt) * 2 * time.Second
 		if err != nil {
-			log.Progress("S3 upload attempt %d/%d failed after %s: %v; retrying in %s...", attempt, maxRetries, elapsed, err, backoff)
+			log.Warn("S3 upload attempt %d/%d failed after %s: %v; retrying in %s...", attempt, maxRetries, elapsed, err, backoff)
 		} else {
-			log.Progress("S3 upload attempt %d/%d got status %d, retrying in %s...", attempt, maxRetries, putResp.StatusCode, backoff)
+			log.Warn("S3 upload attempt %d/%d got status %d, retrying in %s...", attempt, maxRetries, putResp.StatusCode, backoff)
 		}
 		select {
 		case <-time.After(backoff):
@@ -619,6 +654,7 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 	}
 	defer func() { _ = notifyResp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, notifyResp.Body)
+	log.Debug("notify backend: status=%d s3_key=%q", notifyResp.StatusCode, urlResp.S3Key)
 
 	if notifyResp.StatusCode != http.StatusOK && notifyResp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("backend notification failed with status %d", notifyResp.StatusCode)
@@ -626,6 +662,19 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload) err
 	log.Progress("Backend processing initiated (HTTP %d)", notifyResp.StatusCode)
 
 	return nil
+}
+
+// gzipBytes returns a gzip-compressed copy of the input bytes.
+func gzipBytes(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(data); err != nil {
+		return nil, err
+	}
+	if err := gz.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func resolveSearchDirs(exec executor.Executor, dirs []string) []string {

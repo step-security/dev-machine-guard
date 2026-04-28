@@ -56,20 +56,32 @@ func main() {
 
 	exec := executor.NewReal()
 
-	// Quiet resolution: config is the base, CLI overrides.
-	quiet := false
-	if config.Quiet != nil {
-		quiet = *config.Quiet
+	// Log level resolution: default info → config file → CLI flag → --verbose → JSON override.
+	level := progress.LevelInfo
+	if config.LogLevel != "" {
+		if l, ok := progress.ParseLevel(config.LogLevel); ok {
+			level = l
+		}
+	}
+	if cfg.LogLevel != "" {
+		if l, ok := progress.ParseLevel(cfg.LogLevel); ok {
+			level = l
+		}
 	}
 	if cfg.Verbose {
-		quiet = false
+		level = progress.LevelDebug
 	}
 	if cfg.OutputFormat == "json" {
-		quiet = true
+		// Keep stdout clean for pipes: only errors on stderr.
+		level = progress.LevelError
 	}
-	// Note: send-telemetry and bare command (auto-detected enterprise) both
-	// respect the same quiet logic — config value wins, default is true.
-	log := progress.NewLogger(quiet)
+	log := progress.NewLogger(level)
+	log.Debug("resolved log level: %s (config=%q cli=%q verbose=%v output=%s)",
+		level, config.LogLevel, cfg.LogLevel, cfg.Verbose, cfg.OutputFormat)
+	log.Debug("config loaded: enterprise=%v api_endpoint=%q scan_freq=%q search_dirs=%v log_level=%q",
+		config.IsEnterpriseMode(), config.APIEndpoint, config.ScanFrequencyHours, config.SearchDirs, config.LogLevel)
+	log.Debug("cli parsed: command=%q output_format=%q output_format_set=%v color=%s include_bundled=%v",
+		cfg.Command, cfg.OutputFormat, cfg.OutputFormatSet, cfg.ColorMode, cfg.IncludeBundledPlugins)
 
 	switch cfg.Command {
 	case "configure":
@@ -149,18 +161,22 @@ func main() {
 
 	default:
 		// Community mode or auto-detect enterprise
-		if cfg.OutputFormatSet || cfg.HTMLOutputFile != "" {
+		switch {
+		case cfg.OutputFormatSet || cfg.HTMLOutputFile != "":
 			// Output format flag was explicitly set — community mode
+			log.Debug("dispatch: community scan (output format flag set)")
 			if err := scan.Run(exec, log, cfg); err != nil {
 				log.Error("%v", err)
 				os.Exit(1)
 			}
-		} else if config.IsEnterpriseMode() {
+		case config.IsEnterpriseMode():
+			log.Debug("dispatch: enterprise telemetry (auto-detected)")
 			if err := telemetry.Run(exec, log, cfg); err != nil {
 				log.Error("%v", err)
 				os.Exit(1)
 			}
-		} else {
+		default:
+			log.Debug("dispatch: community scan (default)")
 			if err := scan.Run(exec, log, cfg); err != nil {
 				log.Error("%v", err)
 				os.Exit(1)
