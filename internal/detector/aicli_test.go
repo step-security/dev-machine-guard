@@ -128,3 +128,64 @@ func TestAICLIDetector_VersionUnknown(t *testing.T) {
 		t.Error("codex not found")
 	}
 }
+
+func TestAICLIDetector_FindsCursorAgent(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetPath("cursor-agent", "/usr/local/bin/cursor-agent")
+	mock.SetCommand("2026.02.27-e7d2ef6\n", "", 0, "/usr/local/bin/cursor-agent", "--version")
+	mock.SetDir("/Users/testuser/.cursor")
+
+	det := NewAICLIDetector(mock)
+	results := det.Detect(context.Background())
+
+	found := false
+	for _, r := range results {
+		if r.Name == "cursor-agent" {
+			found = true
+			if r.Vendor != "Cursor" {
+				t.Errorf("expected vendor Cursor, got %s", r.Vendor)
+			}
+			if r.Type != "cli_tool" {
+				t.Errorf("expected type cli_tool, got %s", r.Type)
+			}
+			if r.Version != "2026.02.27-e7d2ef6" {
+				t.Errorf("expected version 2026.02.27-e7d2ef6, got %s", r.Version)
+			}
+			if r.BinaryPath != "/usr/local/bin/cursor-agent" {
+				t.Errorf("expected /usr/local/bin/cursor-agent, got %s", r.BinaryPath)
+			}
+			if r.ConfigDir != "/Users/testuser/.cursor" {
+				t.Errorf("expected config dir /Users/testuser/.cursor, got %s", r.ConfigDir)
+			}
+		}
+	}
+	if !found {
+		t.Error("cursor-agent not found in results")
+	}
+}
+
+func TestAICLIDetector_FindsCursorAgentInLocalBin(t *testing.T) {
+	// Binary is not on PATH, but the official installer's symlink at
+	// ~/.local/bin/cursor-agent exists. The home-relative fallback should pick it up.
+	homeBinPath := "/Users/testuser/.local/bin/cursor-agent"
+	mock := executor.NewMock()
+	mock.SetFile(homeBinPath, []byte{})
+	mock.SetCommand("2026.02.27-e7d2ef6\n", "", 0, homeBinPath, "--version")
+	mock.SetDir("/Users/testuser/.cursor")
+
+	det := NewAICLIDetector(mock)
+	results := det.Detect(context.Background())
+
+	found := false
+	for _, r := range results {
+		if r.Name == "cursor-agent" {
+			found = true
+			if r.BinaryPath != homeBinPath {
+				t.Errorf("expected %s, got %s", homeBinPath, r.BinaryPath)
+			}
+		}
+	}
+	if !found {
+		t.Error("cursor-agent not found via ~/.local/bin fallback")
+	}
+}

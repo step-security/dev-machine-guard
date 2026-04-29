@@ -93,6 +93,12 @@ var cliToolDefinitions = []cliToolSpec{
 		ConfigDirs:  []string{"~/.config/opencode"},
 		VersionFlag: "-v",
 	},
+	{
+		Name:       "cursor-agent",
+		Vendor:     "Cursor",
+		Binaries:   []string{"cursor-agent", "~/.local/bin/cursor-agent"},
+		ConfigDirs: []string{"~/.cursor"},
+	},
 }
 
 // AICLIDetector detects AI CLI tools.
