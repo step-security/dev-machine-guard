@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [Unreleased]
+
+### Added
+
+- **Cursor Agent CLI detection**: `cursor-agent` (Cursor's agent CLI, installed via `curl https://cursor.com/install`) is now detected as a distinct AI CLI tool, separate from the existing Cursor IDE record. Machines with both installed will now report two artifacts.
+
 ## [1.10.2] - 2026-04-22
 
 ### Added

@@ -27,6 +27,14 @@
       "config_dir": "/Users/developer/.codex"
     },
     {
+      "name": "cursor-agent",
+      "vendor": "Cursor",
+      "type": "cli_tool",
+      "version": "2026.02.27-e7d2ef6",
+      "binary_path": "/Users/developer/.local/bin/cursor-agent",
+      "config_dir": "/Users/developer/.cursor"
+    },
+    {
       "name": "openclaw",
       "vendor": "OpenSource",
       "type": "general_agent",
@@ -176,7 +184,7 @@
     { "path": "/Users/developer/projects/web-scraper/.venv", "package_manager": "uv" }
   ],
   "summary": {
-    "ai_agents_and_tools_count": 5,
+    "ai_agents_and_tools_count": 6,
     "ide_installations_count": 4,
     "ide_extensions_count": 4,
     "mcp_configs_count": 2,

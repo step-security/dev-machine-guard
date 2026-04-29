@@ -39,6 +39,7 @@ This document catalogs everything Dev Machine Guard detects. Contributions to ex
 | Microsoft AI Shell    | Microsoft | `aish`, `ai`                | `~/.aish`                       |
 | Aider                 | OpenSource| `aider`                     | `~/.aider`                      |
 | OpenCode              | OpenSource| `opencode`                  | `~/.config/opencode`            |
+| Cursor Agent          | Cursor    | `cursor-agent`              | `~/.cursor`                     |
 
 ## General-Purpose AI Agents
 
