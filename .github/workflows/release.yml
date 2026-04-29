@@ -85,18 +85,25 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
 
-      - name: Locate binaries
+      - name: Locate binaries and packages
         id: binaries
         run: |
           DARWIN=$(find dist -type f -name '*darwin_unnotarized' | head -1)
           WIN_AMD64=$(find dist -type f -name '*.exe' -path '*windows_amd64*' | head -1)
           WIN_ARM64=$(find dist -type f -name '*.exe' -path '*windows_arm64*' | head -1)
+          LINUX_AMD64=$(find dist -type f -name '*-linux_amd64' | head -1)
+          LINUX_ARM64=$(find dist -type f -name '*-linux_arm64' | head -1)
 
-          for label in "darwin:${DARWIN}" "windows_amd64:${WIN_AMD64}" "windows_arm64:${WIN_ARM64}"; do
+          DEB_AMD64=$(find dist -type f -name '*-amd64.deb' | head -1)
+          DEB_ARM64=$(find dist -type f -name '*-arm64.deb' | head -1)
+          RPM_AMD64=$(find dist -type f -name '*-amd64.rpm' | head -1)
+          RPM_ARM64=$(find dist -type f -name '*-arm64.rpm' | head -1)
+
+          for label in "darwin:${DARWIN}" "windows_amd64:${WIN_AMD64}" "windows_arm64:${WIN_ARM64}" "linux_amd64:${LINUX_AMD64}" "linux_arm64:${LINUX_ARM64}" "deb_amd64:${DEB_AMD64}" "deb_arm64:${DEB_ARM64}" "rpm_amd64:${RPM_AMD64}" "rpm_arm64:${RPM_ARM64}"; do
             name="${label%%:*}"
             path="${label#*:}"
             if [ -z "$path" ] || [ ! -f "$path" ]; then
-              echo "::error::Binary not found for ${name}"
+              echo "::error::Artifact not found for ${name}"
               find dist -type f
               exit 1
             fi
@@ -105,6 +112,12 @@ jobs:
           echo "darwin=$DARWIN" >> "$GITHUB_OUTPUT"
           echo "win_amd64=$WIN_AMD64" >> "$GITHUB_OUTPUT"
           echo "win_arm64=$WIN_ARM64" >> "$GITHUB_OUTPUT"
+          echo "linux_amd64=$LINUX_AMD64" >> "$GITHUB_OUTPUT"
+          echo "linux_arm64=$LINUX_ARM64" >> "$GITHUB_OUTPUT"
+          echo "deb_amd64=$DEB_AMD64" >> "$GITHUB_OUTPUT"
+          echo "deb_arm64=$DEB_ARM64" >> "$GITHUB_OUTPUT"
+          echo "rpm_amd64=$RPM_AMD64" >> "$GITHUB_OUTPUT"
+          echo "rpm_arm64=$RPM_ARM64" >> "$GITHUB_OUTPUT"
 
       - name: Sign artifacts with Sigstore
         shell: bash
@@ -131,6 +144,20 @@ jobs:
             "dist/stepsecurity-dev-machine-guard-windows_amd64.exe.bundle"
           sign_with_retry "${{ steps.binaries.outputs.win_arm64 }}" \
             "dist/stepsecurity-dev-machine-guard-windows_arm64.exe.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.linux_amd64 }}" \
+            "dist/stepsecurity-dev-machine-guard-linux_amd64.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.linux_arm64 }}" \
+            "dist/stepsecurity-dev-machine-guard-linux_arm64.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.deb_amd64 }}" \
+            "${{ steps.binaries.outputs.deb_amd64 }}.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.deb_arm64 }}" \
+            "${{ steps.binaries.outputs.deb_arm64 }}.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.rpm_amd64 }}" \
+            "${{ steps.binaries.outputs.rpm_amd64 }}.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.rpm_arm64 }}" \
+            "${{ steps.binaries.outputs.rpm_arm64 }}.bundle"
+          sign_with_retry "stepsecurity-dev-machine-guard.sh" \
+            "dist/stepsecurity-dev-machine-guard.sh.bundle"
       - name: Upload cosign bundles
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -139,6 +166,13 @@ jobs:
             dist/stepsecurity-dev-machine-guard-darwin_unnotarized.bundle \
             dist/stepsecurity-dev-machine-guard-windows_amd64.exe.bundle \
             dist/stepsecurity-dev-machine-guard-windows_arm64.exe.bundle \
+            dist/stepsecurity-dev-machine-guard-linux_amd64.bundle \
+            dist/stepsecurity-dev-machine-guard-linux_arm64.bundle \
+            "${{ steps.binaries.outputs.deb_amd64 }}.bundle" \
+            "${{ steps.binaries.outputs.deb_arm64 }}.bundle" \
+            "${{ steps.binaries.outputs.rpm_amd64 }}.bundle" \
+            "${{ steps.binaries.outputs.rpm_arm64 }}.bundle" \
+            dist/stepsecurity-dev-machine-guard.sh.bundle \
             --clobber
 
       - name: Attest build provenance
@@ -148,3 +182,10 @@ jobs:
             ${{ steps.binaries.outputs.darwin }}
             ${{ steps.binaries.outputs.win_amd64 }}
             ${{ steps.binaries.outputs.win_arm64 }}
+            ${{ steps.binaries.outputs.linux_amd64 }}
+            ${{ steps.binaries.outputs.linux_arm64 }}
+            ${{ steps.binaries.outputs.deb_amd64 }}
+            ${{ steps.binaries.outputs.deb_arm64 }}
+            ${{ steps.binaries.outputs.rpm_amd64 }}
+            ${{ steps.binaries.outputs.rpm_arm64 }}
+            stepsecurity-dev-machine-guard.sh

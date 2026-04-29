@@ -8,6 +8,7 @@ builds:
     goos:
       - darwin
       - windows
+      - linux
     goarch:
       - amd64
       - arm64
@@ -36,12 +37,28 @@ archives:
     formats:
       - binary
     name_template: "stepsecurity-dev-machine-guard-{{ .Version }}-darwin_unnotarized"
-  - id: windows
+  - id: windows-linux
     ids:
       - stepsecurity-dev-machine-guard
     formats:
       - binary
-    name_template: "stepsecurity-dev-machine-guard-{{ .Version }}-windows_{{ .Arch }}"
+    name_template: "stepsecurity-dev-machine-guard-{{ .Version }}-{{ .Os }}_{{ .Arch }}"
+
+nfpms:
+  - id: linux-packages
+    package_name: stepsecurity-dev-machine-guard
+    vendor: StepSecurity
+    homepage: https://github.com/step-security/dev-machine-guard
+    maintainer: StepSecurity <support@stepsecurity.io>
+    description: Detect compromised tools on developer machines
+    license: Apache-2.0
+    formats:
+      - deb
+      - rpm
+    ids:
+      - stepsecurity-dev-machine-guard
+    bindir: /usr/local/bin
+    file_name_template: "stepsecurity-dev-machine-guard-{{ .Version }}-{{ .Arch }}"
 
 release:
   draft: true
