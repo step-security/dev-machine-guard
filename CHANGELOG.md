@@ -7,11 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
-## [Unreleased]
+## [1.11.0] - 2026-04-29
 
 ### Added
 
+- **Linux support**: Cross-platform scanning on Linux with feature parity for the core workflow — IDE/extension/AI tool/MCP/Node.js/Python detection plus the device, telemetry, and locking subsystems.
+  - **systemd scheduling**: LaunchDaemon/LaunchAgent equivalent on Linux, using systemd timers/services to run scheduled scans.
+  - **Native Linux package detection**: rpm, deb, snap, and flatpak packages enumerated and reported.
+  - **JetBrains IDE detection on Linux**.
+  - **BIOS serial number** used for device identification on Linux when system serial is unavailable.
+- **Linux distro-native release artifacts**: Release workflow now produces `.deb` and `.rpm` packages alongside the raw Linux binaries, packaged via goreleaser.
+- **System package metadata + security context**: Brew formulae/casks (macOS) and system packages (Linux: rpm/deb/snap/flatpak) now report rich metadata — name, version, vendor, install date, and per-package security context (signature/signing-key information where available) — in the telemetry payload.
+- **Telemetry run status reporting**: Agent reports run start/success/failure status to telemetry separately from scan results, so backend can track agent health independently of scan content.
+- **Gzip compression for telemetry uploads**: Telemetry payload upload to S3 is now gzip-compressed, reducing transfer size on slow networks.
+- **Log level configuration**: New `--log-level` flag and config option replace hard-coded logging; progress and component logs honor the configured level throughout the application.
 - **Cursor Agent CLI detection**: `cursor-agent` (Cursor's agent CLI, installed via `curl https://cursor.com/install`) is now detected as a distinct AI CLI tool, separate from the existing Cursor IDE record. Machines with both installed will now report two artifacts.
+
+### Changed
+
+- **Legacy shell script removed**: The original `stepsecurity-dev-machine-guard.sh` (and its accompanying shellcheck CI workflow and shell smoke tests) has been removed. The Go binary, introduced in 1.9.0, is now the only entry point.
+- **UUID generation**: Replaced custom UUID generator with the `google/uuid` library for telemetry IDs.
+
+### Fixed
+
+- **Python project detection**: Virtual-environment path discovery now handles venvs created without pip, and project detection inside such venvs no longer skips them.
+- **GitHub Copilot CLI detection**: Detector rejects non-zero exit codes from the version probe (previously yielded false positives) and correctly parses the Copilot CLI's version output format.
 
 ## [1.10.2] - 2026-04-22
 
@@ -128,6 +148,7 @@ First open-source release. The scanning engine was previously an internal enterp
 - Execution log capture and base64 encoding
 - Instance locking to prevent concurrent runs
 
+[1.11.0]: https://github.com/step-security/dev-machine-guard/compare/v1.10.2...v1.11.0
 [1.10.2]: https://github.com/step-security/dev-machine-guard/compare/v1.10.1...v1.10.2
 [1.10.1]: https://github.com/step-security/dev-machine-guard/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/step-security/dev-machine-guard/compare/v1.9.2...v1.10.0
