@@ -132,8 +132,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		brewDetector := detector.NewBrewDetector(exec)
 		brewPkgManager = brewDetector.DetectBrew(ctx)
 		if brewPkgManager != nil {
-			brewFormulae = brewDetector.ListFormulae(ctx)
-			brewCasks = brewDetector.ListCasks(ctx)
+			brewFormulae = brewDetector.ListFormulaeRich(ctx)
+			brewCasks = brewDetector.ListCasksRich(ctx)
 		}
 		log.StepDone(time.Since(start))
 	} else {
