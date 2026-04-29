@@ -10,8 +10,8 @@ This document describes how releases are created, signed, notarized, and verifie
 
 Releases are a two-phase process:
 
-1. **CI (automated)** — GitHub Actions builds the universal macOS binary, signs it with Sigstore, and creates a **draft** release with the binary named `stepsecurity-dev-machine-guard-VERSION-darwin_unnotarized`.
-2. **Apple notarization (manual)** — Download the binary, sign and notarize it with an Apple Developer account, upload the notarized binary to the draft release, and publish.
+1. **CI (automated)** — GitHub Actions builds the universal macOS binary, Windows binaries (amd64 + arm64), and Linux binaries (amd64 + arm64), signs them all with Sigstore, and creates a **draft** release.
+2. **Apple notarization (manual)** — Download the macOS binary, sign and notarize it with an Apple Developer account, upload the notarized binary to the draft release, and publish.
 
 ---
 
@@ -34,10 +34,12 @@ Update [CHANGELOG.md](../CHANGELOG.md). Commit and push to `main`.
 
 The workflow will:
 - Create a git tag (`v1.9.1`)
-- Build a universal macOS binary (amd64 + arm64) via GoReleaser
-- Sign with Sigstore cosign (keyless)
-- Upload as `stepsecurity-dev-machine-guard-VERSION-darwin_unnotarized` to a **draft** release
-- Record the SHA256 of the unnotarized binary in the release notes
+- Build via GoReleaser:
+  - Universal macOS binary (amd64 + arm64)
+  - Windows binaries (amd64 + arm64)
+  - Linux binaries (amd64 + arm64)
+- Sign all artifacts with Sigstore cosign (keyless)
+- Upload to a **draft** release
 - Generate SLSA build provenance attestation
 
 ### 3. Apple notarization (manual)
@@ -86,13 +88,31 @@ Each release includes:
 |----------|-------------|
 | `stepsecurity-dev-machine-guard-VERSION-darwin` | Notarized universal macOS binary (amd64 + arm64) |
 | `stepsecurity-dev-machine-guard-VERSION-darwin_unnotarized` | Original CI-built binary (for provenance verification) |
-| `stepsecurity-dev-machine-guard-VERSION-darwin_unnotarized.bundle` | Sigstore cosign bundle for the unnotarized binary |
+| `stepsecurity-dev-machine-guard-darwin_unnotarized.bundle` | Sigstore cosign bundle for the unnotarized binary |
+| `stepsecurity-dev-machine-guard-VERSION-windows_amd64.exe` | Windows 64-bit binary |
+| `stepsecurity-dev-machine-guard-windows_amd64.exe.bundle` | Sigstore cosign bundle for the Windows amd64 binary |
+| `stepsecurity-dev-machine-guard-VERSION-windows_arm64.exe` | Windows ARM64 binary |
+| `stepsecurity-dev-machine-guard-windows_arm64.exe.bundle` | Sigstore cosign bundle for the Windows arm64 binary |
+| `stepsecurity-dev-machine-guard-VERSION-linux_amd64` | Linux 64-bit binary |
+| `stepsecurity-dev-machine-guard-linux_amd64.bundle` | Sigstore cosign bundle for the Linux amd64 binary |
+| `stepsecurity-dev-machine-guard-VERSION-linux_arm64` | Linux ARM64 binary |
+| `stepsecurity-dev-machine-guard-linux_arm64.bundle` | Sigstore cosign bundle for the Linux arm64 binary |
+| `stepsecurity-dev-machine-guard-VERSION-amd64.deb` | Debian/Ubuntu amd64 package |
+| `stepsecurity-dev-machine-guard-VERSION-amd64.deb.bundle` | Sigstore cosign bundle for the Debian amd64 package |
+| `stepsecurity-dev-machine-guard-VERSION-arm64.deb` | Debian/Ubuntu arm64 package |
+| `stepsecurity-dev-machine-guard-VERSION-arm64.deb.bundle` | Sigstore cosign bundle for the Debian arm64 package |
+| `stepsecurity-dev-machine-guard-VERSION-amd64.rpm` | RHEL/Fedora amd64 package |
+| `stepsecurity-dev-machine-guard-VERSION-amd64.rpm.bundle` | Sigstore cosign bundle for the RPM amd64 package |
+| `stepsecurity-dev-machine-guard-VERSION-arm64.rpm` | RHEL/Fedora arm64 package |
+| `stepsecurity-dev-machine-guard-VERSION-arm64.rpm.bundle` | Sigstore cosign bundle for the RPM arm64 package |
+| `stepsecurity-dev-machine-guard.sh` | Legacy shell script |
+| `stepsecurity-dev-machine-guard.sh.bundle` | Sigstore cosign bundle for the shell script |
 
 ---
 
 ## Verifying a Release
 
-### Verify a release
+### Verify macOS release
 
 ```bash
 VERSION="1.9.1"
@@ -107,12 +127,59 @@ spctl --assess --type execute "stepsecurity-dev-machine-guard-${VERSION}-darwin"
 
 # Verify Sigstore signature on the unnotarized binary
 cosign verify-blob "stepsecurity-dev-machine-guard-${VERSION}-darwin_unnotarized" \
-  --bundle "stepsecurity-dev-machine-guard-${VERSION}-darwin_unnotarized.bundle" \
+  --bundle "stepsecurity-dev-machine-guard-darwin_unnotarized.bundle" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-  --certificate-identity-regexp "github.com/.*/dev-machine-guard"
+  --certificate-identity-regexp "^https://github.com/step-security/dev-machine-guard/.github/workflows/"
 
 # Verify build provenance
 gh attestation verify "stepsecurity-dev-machine-guard-${VERSION}-darwin_unnotarized" \
+  --repo step-security/dev-machine-guard
+```
+
+### Install via package manager (Linux)
+
+**Debian / Ubuntu:**
+
+```bash
+VERSION="1.9.1"
+ARCH="amd64"  # or arm64
+
+gh release download "v${VERSION}" --repo step-security/dev-machine-guard \
+  --pattern "stepsecurity-dev-machine-guard-${VERSION}-${ARCH}.deb"
+
+sudo dpkg -i "stepsecurity-dev-machine-guard-${VERSION}-${ARCH}.deb"
+```
+
+**RHEL / Fedora:**
+
+```bash
+VERSION="1.9.1"
+ARCH="amd64"  # or arm64
+
+gh release download "v${VERSION}" --repo step-security/dev-machine-guard \
+  --pattern "stepsecurity-dev-machine-guard-${VERSION}-${ARCH}.rpm"
+
+sudo rpm -i "stepsecurity-dev-machine-guard-${VERSION}-${ARCH}.rpm"
+```
+
+### Verify Linux release
+
+```bash
+VERSION="1.9.1"
+ARCH="amd64"  # or arm64
+
+# Download release artifacts
+gh release download "v${VERSION}" --repo step-security/dev-machine-guard \
+  --pattern "stepsecurity-dev-machine-guard-${VERSION}-linux_${ARCH}*"
+
+# Verify Sigstore signature
+cosign verify-blob "stepsecurity-dev-machine-guard-${VERSION}-linux_${ARCH}" \
+  --bundle "stepsecurity-dev-machine-guard-linux_${ARCH}.bundle" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  --certificate-identity-regexp "^https://github.com/step-security/dev-machine-guard/.github/workflows/"
+
+# Verify build provenance
+gh attestation verify "stepsecurity-dev-machine-guard-${VERSION}-linux_${ARCH}" \
   --repo step-security/dev-machine-guard
 ```
 

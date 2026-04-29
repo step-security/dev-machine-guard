@@ -45,6 +45,8 @@ type Payload struct {
 	NodeProjects         []model.NodeScanResult          `json:"node_projects"`
 	BrewPkgManager       *model.PkgManager               `json:"brew_package_manager,omitempty"`
 	BrewScans            []model.BrewScanResult          `json:"brew_scans"`
+	BrewFormulae         []model.BrewPackage             `json:"brew_formulae,omitempty"`
+	BrewCasks            []model.BrewPackage             `json:"brew_casks,omitempty"`
 	PythonPkgManagers    []model.PkgManager              `json:"python_package_managers"`
 	PythonGlobalPackages []model.PythonScanResult        `json:"python_global_packages"`
 	PythonProjects       []model.ProjectInfo             `json:"python_projects"`
@@ -314,6 +316,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 	var brewPkgMgr *model.PkgManager
 	var brewScans []model.BrewScanResult
+	var brewFormulae, brewCasks []model.BrewPackage
 
 	if brewEnabled {
 		log.Progress("Detecting Homebrew...")
@@ -322,20 +325,21 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		log.Debug("brew detection: found=%v", brewPkgMgr != nil)
 		if brewPkgMgr != nil {
 			log.Progress("  Found: Homebrew v%s at %s", brewPkgMgr.Version, brewPkgMgr.Path)
+
+			// Collect rich metadata (pre-parsed packages with desc/license/homepage)
+			brewFormulae = brewDetector.ListFormulaeRich(ctx)
+			brewCasks = brewDetector.ListCasksRich(ctx)
+			log.Progress("  Formulae: %d, Casks: %d (pre-parsed with metadata)", len(brewFormulae), len(brewCasks))
+
+			// Also collect raw scans for backward compatibility with older backends
 			brewScanner := detector.NewBrewScanner(userExec, log)
 			if r, ok := brewScanner.ScanFormulae(ctx); ok {
 				brewScans = append(brewScans, r)
-				log.Progress("  Formulae scan: exit_code=%d, error=%q, raw_len=%d", r.ExitCode, r.Error, len(r.RawStdoutBase64))
-			} else {
-				log.Progress("  Formulae scan: skipped (brew not in PATH)")
 			}
 			if r, ok := brewScanner.ScanCasks(ctx); ok {
 				brewScans = append(brewScans, r)
-				log.Progress("  Casks scan: exit_code=%d, error=%q, raw_len=%d", r.ExitCode, r.Error, len(r.RawStdoutBase64))
-			} else {
-				log.Progress("  Casks scan: skipped (brew not in PATH)")
 			}
-			log.Progress("  Total brew scans: %d", len(brewScans))
+			log.Progress("  Raw scans: %d", len(brewScans))
 		} else {
 			log.Progress("  Homebrew not found")
 		}
@@ -528,6 +532,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		NodeProjects:         nodeProjects,
 		BrewPkgManager:       brewPkgMgr,
 		BrewScans:            brewScans,
+		BrewFormulae:         brewFormulae,
+		BrewCasks:            brewCasks,
 		PythonPkgManagers:    pythonPkgManagers,
 		PythonGlobalPackages: pythonGlobalPkgs,
 		PythonProjects:       pythonProjects,

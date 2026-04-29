@@ -131,16 +131,50 @@ type ProjectInfo struct {
 }
 
 // SystemPackage represents a package installed via the system package manager
-// (rpm, dpkg, pacman, apk).
+// (rpm, dpkg, pacman, apk, snap, flatpak).
 type SystemPackage struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Name            string `json:"name"`
+	Version         string `json:"version"`
+	Arch            string `json:"arch,omitempty"`              // CPU architecture: x86_64, amd64, noarch, arm64, etc.
+	Source          string `json:"source,omitempty"`            // Origin: source RPM, dpkg source, snap publisher, flatpak remote
+	InstallTimeUnix int64  `json:"install_time_unix,omitempty"` // Unix epoch seconds when installed (rpm, dpkg, pacman)
+
+	// Provenance & trust signals
+	Vendor       string `json:"vendor,omitempty"`          // Distributor: rpm VENDOR, dpkg Origin
+	Maintainer   string `json:"maintainer,omitempty"`      // Packager identity: rpm PACKAGER, dpkg Maintainer, apk maintainer, pacman Packager
+	URL          string `json:"url,omitempty"`             // Upstream project URL
+	License      string `json:"license,omitempty"`         // SPDX license expression
+	Section      string `json:"section,omitempty"`         // dpkg Section category (e.g. "libs", "non-free/libs")
+	Signature    string `json:"signature,omitempty"`       // Signature info: rpm SIGPGP/RSAHEADER, pacman Validated By
+	BuildTimeUnix int64  `json:"build_time_unix,omitempty"` // Unix epoch when package was built (rpm, apk, pacman)
+
+	// Size
+	InstalledSize int64 `json:"installed_size,omitempty"` // Installed size in bytes (rpm SIZE, dpkg Installed-Size * 1024)
+
+	// Sandboxing / confinement (snap, flatpak)
+	Confinement string `json:"confinement,omitempty"` // snap: strict/classic/devmode
+	Channel     string `json:"channel,omitempty"`     // snap tracking channel, flatpak branch
+	Runtime     string `json:"runtime,omitempty"`     // flatpak runtime ref
+
+	// Source control
+	CommitHash string `json:"commit_hash,omitempty"` // apk commit, flatpak active commit
 }
 
 // BrewPackage represents a single installed Homebrew formula or cask.
 type BrewPackage struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
+
+	// Metadata (populated from brew info --json=v2)
+	Tap                   string `json:"tap,omitempty"`                     // Source tap: "homebrew/core", "homebrew/cask", or custom
+	Description           string `json:"description,omitempty"`             // Package description
+	License               string `json:"license,omitempty"`                 // SPDX license (formulae only)
+	Homepage              string `json:"homepage,omitempty"`                // Upstream project URL
+	InstallTimeUnix       int64  `json:"install_time_unix,omitempty"`       // Unix epoch when installed
+	InstalledAsDependency bool   `json:"installed_as_dependency,omitempty"` // true if pulled in by another package
+	Deprecated            bool   `json:"deprecated,omitempty"`              // true if package is deprecated upstream
+	PouredFromBottle      bool   `json:"poured_from_bottle,omitempty"`      // true if installed from pre-built binary
+	AutoUpdates           bool   `json:"auto_updates,omitempty"`            // cask: app handles its own updates
 }
 
 // PythonPackage represents a single installed Python package.
