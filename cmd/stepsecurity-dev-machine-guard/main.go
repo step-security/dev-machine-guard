@@ -1,15 +1,22 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
+	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
 	"github.com/step-security/dev-machine-guard/internal/cli"
 	"github.com/step-security/dev-machine-guard/internal/config"
+	"github.com/step-security/dev-machine-guard/internal/detector"
+	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/launchd"
+	"github.com/step-security/dev-machine-guard/internal/output"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 	"github.com/step-security/dev-machine-guard/internal/scan"
 	"github.com/step-security/dev-machine-guard/internal/schtasks"
@@ -160,6 +167,17 @@ func main() {
 		}
 
 	default:
+		// --npmrc: focused, verbose pretty audit of npm config only.
+		// Bypasses all other detectors so the run is fast (~1s) and the
+		// output is exclusively about npm config — useful when the user is
+		// debugging a specific .npmrc / registry / token issue.
+		if cfg.NPMRCOnly {
+			if err := runNPMRCOnly(exec, cfg); err != nil {
+				log.Error("%v", err)
+				os.Exit(1)
+			}
+			return
+		}
 		// Community mode or auto-detect enterprise
 		switch {
 		case cfg.OutputFormatSet || cfg.HTMLOutputFile != "":
@@ -183,4 +201,50 @@ func main() {
 			}
 		}
 	}
+}
+
+// runNPMRCOnly executes only the npmrc detector and renders the verbose
+// pretty view (or JSON when --json is also passed). Skips the inventory of
+// IDEs / AI tools / brew / node / etc. for speed.
+func runNPMRCOnly(exec executor.Executor, cfg *cli.Config) error {
+	ctx := context.Background()
+
+	// Resolve search dirs the same way the main scan does, so project-level
+	// .npmrc discovery walks the same tree.
+	searchDirs := make([]string, 0, len(cfg.SearchDirs))
+	for _, d := range cfg.SearchDirs {
+		if d == "$HOME" {
+			if u, err := exec.LoggedInUser(); err == nil {
+				d = u.HomeDir
+			}
+		}
+		searchDirs = append(searchDirs, d)
+	}
+
+	dev := device.Gather(ctx, exec)
+	loggedInUser, _ := exec.LoggedInUser()
+
+	d := detector.NewNPMRCDetector(exec)
+	audit := d.Detect(ctx, searchDirs, loggedInUser)
+	// Phase B: snapshot diff. Errors are non-fatal (would just produce a
+	// FirstRun=true diff next time around).
+	_ = detector.AttachDiff(ctx, exec, &audit, time.Now().Unix(), dev.Hostname)
+
+	// JSON path: emit just the audit object so callers can pipe it into jq
+	// without wading through the rest of ScanResult.
+	if cfg.OutputFormat == "json" {
+		enc := jsonEncoder(os.Stdout)
+		return enc.Encode(audit)
+	}
+
+	output.PrettyNPMRC(os.Stdout, &audit, dev, cfg.ColorMode)
+	return nil
+}
+
+// jsonEncoder returns a 2-space-indented JSON encoder that doesn't HTML-escape.
+func jsonEncoder(w io.Writer) *json.Encoder {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
+	return enc
 }

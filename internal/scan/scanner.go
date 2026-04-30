@@ -206,6 +206,21 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		log.StepSkip("disabled (use --enable-python-scan to enable)")
 	}
 
+	// npm config audit — always on. Cheap (a few stat calls + at most two npm
+	// invocations) and high-value: every recent npm-supply-chain worm targets
+	// .npmrc as a credential-harvest artifact, so surfacing what's there is
+	// the baseline observability we want available without an opt-in flag.
+	log.StepStart("Auditing npm configuration")
+	start = time.Now()
+	npmrcDetector := detector.NewNPMRCDetector(exec)
+	loggedInUser, _ := exec.LoggedInUser()
+	npmrcAudit := npmrcDetector.Detect(ctx, searchDirs, loggedInUser)
+	// Phase B: load previous snapshot, diff, persist new baseline. Best-effort.
+	if err := detector.AttachDiff(ctx, exec, &npmrcAudit, time.Now().Unix(), dev.Hostname); err != nil {
+		log.Debug("npmrc snapshot diff: %v", err)
+	}
+	log.StepDone(time.Since(start))
+
 	// Ensure no nil slices (JSON must emit [] not null)
 	if aiTools == nil {
 		aiTools = []model.AITool{}
@@ -274,6 +289,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		SnapPackages:      snapPackages,
 		FlatpakPkgManager: flatpakPkgManager,
 		FlatpakPackages:   flatpakPackages,
+		NPMRCAudit:        &npmrcAudit,
 		Summary: model.Summary{
 			AIAgentsAndToolsCount: len(aiTools),
 			IDEInstallationsCount: len(ides),

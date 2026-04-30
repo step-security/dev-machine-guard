@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"os/user"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -53,6 +54,7 @@ type Payload struct {
 	SystemPackageScans   []model.SystemPackageScanResult `json:"system_package_scans"`
 	AIAgents             []model.AITool                  `json:"ai_agents"`
 	MCPConfigs           []model.MCPConfigEnterprise     `json:"mcp_configs"`
+	NPMRCAudit           *model.NPMRCAudit               `json:"npmrc_audit,omitempty"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -508,6 +510,23 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		systemPackageScans = []model.SystemPackageScanResult{}
 	}
 
+	// npm config audit — always on. Same rationale as community mode: the
+	// data is small and high-value. We use the user-aware executor so npm
+	// runs in the logged-in user's PATH (catches nvm/fnm/brew installs that
+	// root's PATH wouldn't see).
+	log.Progress("Auditing npm configuration...")
+	npmrcAudit := detector.NewNPMRCDetector(userExec).Detect(ctx, searchDirs, mustLoggedInUser(exec))
+	// Phase B: snapshot diff. Best-effort — never fail the run on this.
+	if err := detector.AttachDiff(ctx, exec, &npmrcAudit, time.Now().Unix(), dev.Hostname); err != nil {
+		log.Debug("npmrc snapshot diff: %v", err)
+	}
+	if npmrcAudit.Diff != nil && npmrcAudit.Diff.HasChanges() {
+		log.Progress("  changes since last scan: +%d files / -%d files / ~%d modified",
+			len(npmrcAudit.Diff.AddedFiles), len(npmrcAudit.Diff.RemovedFiles), len(npmrcAudit.Diff.ModifiedFiles))
+	}
+	log.Progress("  npm available: %v, files discovered: %d", npmrcAudit.Available, len(npmrcAudit.Files))
+	fmt.Fprintln(os.Stderr)
+
 	// Finalize execution logs before building payload
 	execLogsBase64 := capture.Finalize()
 	endTime := time.Now()
@@ -540,6 +559,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		SystemPackageScans:   systemPackageScans,
 		AIAgents:             allAI,
 		MCPConfigs:           mcpConfigs,
+		NPMRCAudit:           &npmrcAudit,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,
@@ -755,6 +775,17 @@ func gzipBytes(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// mustLoggedInUser returns the logged-in user, or nil if it can't be resolved.
+// The npmrc detector tolerates a nil user (it just skips the user-scope file
+// lookup), so we don't propagate the error.
+func mustLoggedInUser(exec executor.Executor) *user.User {
+	u, err := exec.LoggedInUser()
+	if err != nil {
+		return nil
+	}
+	return u
 }
 
 func resolveSearchDirs(exec executor.Executor, dirs []string) []string {

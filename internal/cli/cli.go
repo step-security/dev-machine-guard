@@ -22,6 +22,7 @@ type Config struct {
 	EnableBrewScan        *bool    // nil=auto, true/false=explicit
 	EnablePythonScan      *bool    // nil=auto, true/false=explicit
 	IncludeBundledPlugins bool     // --include-bundled-plugins: include bundled/platform plugins in output
+	NPMRCOnly             bool     // --npmrc: run only the npmrc audit, render verbose pretty output, skip everything else
 	SearchDirs            []string // defaults to ["$HOME"]
 }
 
@@ -87,6 +88,8 @@ func Parse(args []string) (*Config, error) {
 			cfg.EnablePythonScan = &v
 		case arg == "--include-bundled-plugins":
 			cfg.IncludeBundledPlugins = true
+		case arg == "--npmrc":
+			cfg.NPMRCOnly = true
 		case strings.HasPrefix(arg, "--color="):
 			mode := strings.TrimPrefix(arg, "--color=")
 			if mode != "auto" && mode != "always" && mode != "never" {
@@ -163,6 +166,8 @@ Options:
   --enable-python-scan          Enable Python package scanning
   --disable-python-scan         Disable Python package scanning
   --include-bundled-plugins     Include bundled/platform plugins in output (Windows)
+  --npmrc                Run ONLY the npm config audit and print a verbose pretty view
+                         (skips IDE / AI / Brew / Python / Node scans for speed)
   --log-level=LEVEL      Log level: error | warn | info | debug (default: info)
   --verbose                     Shortcut for --log-level=debug
   --color=WHEN           Color mode: auto | always | never (default: auto)
