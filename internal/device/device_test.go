@@ -58,6 +58,109 @@ func TestGather_EmailIdentity(t *testing.T) {
 	}
 }
 
+func TestGather_Linux(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetHostname("ubuntu-dev")
+	mock.SetHomeDir("/home/testuser")
+	mock.SetUsername("testuser")
+
+	// /sys/class/dmi/id/product_serial for serial
+	mock.SetFile("/sys/class/dmi/id/product_serial", []byte("LINUX-SERIAL-456\n"))
+
+	// /etc/os-release for distro name
+	mock.SetFile("/etc/os-release", []byte("NAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nPRETTY_NAME=\"Ubuntu 24.04.1 LTS\"\n"))
+	// /proc/sys/kernel/osrelease for kernel version
+	mock.SetFile("/proc/sys/kernel/osrelease", []byte("6.8.0-45-generic\n"))
+
+	dev := Gather(context.Background(), mock)
+
+	if dev.Hostname != "ubuntu-dev" {
+		t.Errorf("hostname: expected ubuntu-dev, got %s", dev.Hostname)
+	}
+	if dev.Platform != "linux" {
+		t.Errorf("platform: expected linux, got %s", dev.Platform)
+	}
+	if dev.SerialNumber != "LINUX-SERIAL-456" {
+		t.Errorf("serial: expected LINUX-SERIAL-456, got %s", dev.SerialNumber)
+	}
+	expected := "Ubuntu 24.04.1 LTS - 6.8.0-45-generic"
+	if dev.OSVersion != expected {
+		t.Errorf("os_version: expected %q, got %q", expected, dev.OSVersion)
+	}
+	if dev.UserIdentity != "testuser" {
+		t.Errorf("user_identity: expected testuser, got %s", dev.UserIdentity)
+	}
+}
+
+func TestGather_LinuxFallbackDmidecode(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetHostname("linux-vm")
+	mock.SetUsername("user")
+
+	// /sys file not available, dmidecode works
+	mock.SetCommand("VM-SERIAL-789\n", "", 0, "dmidecode", "-s", "system-serial-number")
+
+	// /etc/os-release not available, lsb_release works
+	mock.SetCommand("Ubuntu 22.04.3 LTS\n", "", 0, "lsb_release", "-d", "-s")
+	// /proc/sys/kernel/osrelease for kernel
+	mock.SetFile("/proc/sys/kernel/osrelease", []byte("5.15.0-91-generic\n"))
+
+	dev := Gather(context.Background(), mock)
+
+	if dev.SerialNumber != "VM-SERIAL-789" {
+		t.Errorf("serial: expected VM-SERIAL-789, got %s", dev.SerialNumber)
+	}
+	expected := "Ubuntu 22.04.3 LTS - 5.15.0-91-generic"
+	if dev.OSVersion != expected {
+		t.Errorf("os_version: expected %q, got %q", expected, dev.OSVersion)
+	}
+}
+
+func TestGather_LinuxFallbackMachineID(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetHostname("container")
+	mock.SetUsername("root")
+
+	// /sys returns OEM placeholder
+	mock.SetFile("/sys/class/dmi/id/product_serial", []byte("To Be Filled By O.E.M.\n"))
+	// dmidecode also returns placeholder
+	mock.SetCommand("To Be Filled By O.E.M.\n", "", 0, "dmidecode", "-s", "system-serial-number")
+	// machine-id fallback
+	mock.SetFile("/etc/machine-id", []byte("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4\n"))
+
+	// OS version: only /proc/sys/kernel/osrelease available
+	mock.SetFile("/proc/sys/kernel/osrelease", []byte("6.5.0-44-generic\n"))
+
+	dev := Gather(context.Background(), mock)
+
+	if dev.SerialNumber != "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4" {
+		t.Errorf("serial: expected machine-id, got %s", dev.SerialNumber)
+	}
+	if dev.OSVersion != "6.5.0-44-generic" {
+		t.Errorf("os_version: expected kernel version, got %s", dev.OSVersion)
+	}
+}
+
+func TestGather_LinuxDistroOnly(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetHostname("minimal")
+	mock.SetUsername("user")
+
+	mock.SetFile("/etc/machine-id", []byte("abc123\n"))
+	mock.SetFile("/etc/os-release", []byte("NAME=\"Alpine Linux\"\nVERSION_ID=3.19\n"))
+	// uname not available
+
+	dev := Gather(context.Background(), mock)
+
+	if dev.OSVersion != "3.19" {
+		t.Errorf("os_version: expected '3.19', got %q", dev.OSVersion)
+	}
+}
+
 func TestGather_Windows(t *testing.T) {
 	mock := executor.NewMock()
 	mock.SetGOOS("windows")

@@ -90,19 +90,35 @@ func (d *FrameworkDetector) getVersion(ctx context.Context, binaryPath string) s
 func (d *FrameworkDetector) detectLMStudioApp(ctx context.Context) (model.AITool, bool) {
 	var appPath, version string
 
-	if d.exec.GOOS() == "windows" {
+	switch d.exec.GOOS() {
+	case model.PlatformWindows:
 		localAppData := d.exec.Getenv("LOCALAPPDATA")
 		appPath = filepath.Join(localAppData, "Programs", "LM Studio")
 		if !d.exec.DirExists(appPath) {
 			return model.AITool{}, false
 		}
 		version = readRegistryVersion(ctx, d.exec, "LM Studio")
-	} else {
+	case model.PlatformDarwin:
 		appPath = "/Applications/LM Studio.app"
 		if !d.exec.DirExists(appPath) {
 			return model.AITool{}, false
 		}
 		version = readPlistVersion(ctx, d.exec, filepath.Join(appPath, "Contents", "Info.plist"))
+	default: // linux — check common install locations
+		homeDir := getHomeDir(d.exec)
+		for _, candidate := range []string{
+			filepath.Join(homeDir, ".local", "share", "LM Studio"),
+			"/opt/lm-studio",
+		} {
+			if d.exec.DirExists(candidate) {
+				appPath = candidate
+				break
+			}
+		}
+		if appPath == "" {
+			return model.AITool{}, false
+		}
+		version = "unknown"
 	}
 
 	running := isProcessRunningFuzzy(ctx, d.exec, "LM Studio")

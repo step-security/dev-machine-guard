@@ -106,19 +106,22 @@ func (d *AgentDetector) getVersion(ctx context.Context, spec agentSpec) string {
 func (d *AgentDetector) detectClaudeCowork(ctx context.Context) (model.AITool, bool) {
 	var claudePath, version string
 
-	if d.exec.GOOS() == "windows" {
+	switch d.exec.GOOS() {
+	case model.PlatformWindows:
 		localAppData := d.exec.Getenv("LOCALAPPDATA")
 		claudePath = filepath.Join(localAppData, "Programs", "Claude")
 		if !d.exec.DirExists(claudePath) {
 			return model.AITool{}, false
 		}
 		version = readRegistryVersion(ctx, d.exec, "Claude")
-	} else {
+	case model.PlatformDarwin:
 		claudePath = "/Applications/Claude.app"
 		if !d.exec.DirExists(claudePath) {
 			return model.AITool{}, false
 		}
 		version = readPlistVersion(ctx, d.exec, filepath.Join(claudePath, "Contents", "Info.plist"))
+	default: // linux — Claude Desktop not yet available
+		return model.AITool{}, false
 	}
 
 	if version == "unknown" {

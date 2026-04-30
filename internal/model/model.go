@@ -2,18 +2,31 @@ package model
 
 // ScanResult is the community-mode JSON output structure.
 type ScanResult struct {
-	AgentVersion     string       `json:"agent_version"`
-	AgentURL         string       `json:"agent_url"`
-	ScanTimestamp    int64        `json:"scan_timestamp"`
-	ScanTimestampISO string       `json:"scan_timestamp_iso"`
-	Device           Device       `json:"device"`
-	AIAgentsAndTools []AITool     `json:"ai_agents_and_tools"`
-	IDEInstallations []IDE        `json:"ide_installations"`
-	IDEExtensions    []Extension  `json:"ide_extensions"`
-	MCPConfigs       []MCPConfig  `json:"mcp_configs"`
-	NodePkgManagers  []PkgManager `json:"node_package_managers"`
-	NodePackages     []any        `json:"node_packages"`
-	Summary          Summary      `json:"summary"`
+	AgentVersion      string          `json:"agent_version"`
+	AgentURL          string          `json:"agent_url"`
+	ScanTimestamp     int64           `json:"scan_timestamp"`
+	ScanTimestampISO  string          `json:"scan_timestamp_iso"`
+	Device            Device          `json:"device"`
+	AIAgentsAndTools  []AITool        `json:"ai_agents_and_tools"`
+	IDEInstallations  []IDE           `json:"ide_installations"`
+	IDEExtensions     []Extension     `json:"ide_extensions"`
+	MCPConfigs        []MCPConfig     `json:"mcp_configs"`
+	NodePkgManagers   []PkgManager    `json:"node_package_managers"`
+	NodePackages      []any           `json:"node_packages"`
+	NodeProjects      []ProjectInfo   `json:"node_projects"`
+	BrewPkgManager    *PkgManager     `json:"brew_package_manager,omitempty"`
+	BrewFormulae      []BrewPackage   `json:"brew_formulae"`
+	BrewCasks         []BrewPackage   `json:"brew_casks"`
+	PythonPkgManagers []PkgManager    `json:"python_package_managers"`
+	PythonPackages    []PythonPackage `json:"python_packages"`
+	PythonProjects    []ProjectInfo   `json:"python_projects"`
+	SystemPkgManager  *PkgManager     `json:"system_package_manager,omitempty"`
+	SystemPackages    []SystemPackage `json:"system_packages"`
+	SnapPkgManager    *PkgManager     `json:"snap_package_manager,omitempty"`
+	SnapPackages      []SystemPackage `json:"snap_packages"`
+	FlatpakPkgManager *PkgManager     `json:"flatpak_package_manager,omitempty"`
+	FlatpakPackages   []SystemPackage `json:"flatpak_packages"`
+	Summary           Summary         `json:"summary"`
 }
 
 type Device struct {
@@ -52,6 +65,7 @@ type Extension struct {
 	Publisher   string `json:"publisher"`
 	InstallDate int64  `json:"install_date"`
 	IDEType     string `json:"ide_type"`
+	Source      string `json:"source,omitempty"` // "bundled" or "user_installed"
 }
 
 // MCPConfig represents a detected MCP server configuration (community mode).
@@ -81,6 +95,12 @@ type Summary struct {
 	IDEExtensionsCount    int `json:"ide_extensions_count"`
 	MCPConfigsCount       int `json:"mcp_configs_count"`
 	NodeProjectsCount     int `json:"node_projects_count"`
+	BrewFormulaeCount     int `json:"brew_formulae_count"`
+	BrewCasksCount        int `json:"brew_casks_count"`
+	PythonProjectsCount   int `json:"python_projects_count"`
+	SystemPackagesCount   int `json:"system_packages_count"`
+	SnapPackagesCount     int `json:"snap_packages_count"`
+	FlatpakPackagesCount  int `json:"flatpak_packages_count"`
 }
 
 // NodeScanResult holds raw scan output for enterprise telemetry.
@@ -95,4 +115,117 @@ type NodeScanResult struct {
 	Error            string `json:"error"`
 	ExitCode         int    `json:"exit_code"`
 	ScanDurationMs   int64  `json:"scan_duration_ms"`
+}
+
+// PackageDetail represents a single package name and version.
+type PackageDetail struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// ProjectInfo represents a detected project directory with its packages.
+type ProjectInfo struct {
+	Path           string          `json:"path"`
+	PackageManager string          `json:"package_manager,omitempty"`
+	Packages       []PackageDetail `json:"packages,omitempty"`
+}
+
+// SystemPackage represents a package installed via the system package manager
+// (rpm, dpkg, pacman, apk, snap, flatpak).
+type SystemPackage struct {
+	Name            string `json:"name"`
+	Version         string `json:"version"`
+	Arch            string `json:"arch,omitempty"`              // CPU architecture: x86_64, amd64, noarch, arm64, etc.
+	Source          string `json:"source,omitempty"`            // Origin: source RPM, dpkg source, snap publisher, flatpak remote
+	InstallTimeUnix int64  `json:"install_time_unix,omitempty"` // Unix epoch seconds when installed (rpm, dpkg, pacman)
+
+	// Provenance & trust signals
+	Vendor       string `json:"vendor,omitempty"`          // Distributor: rpm VENDOR, dpkg Origin
+	Maintainer   string `json:"maintainer,omitempty"`      // Packager identity: rpm PACKAGER, dpkg Maintainer, apk maintainer, pacman Packager
+	URL          string `json:"url,omitempty"`             // Upstream project URL
+	License      string `json:"license,omitempty"`         // SPDX license expression
+	Section      string `json:"section,omitempty"`         // dpkg Section category (e.g. "libs", "non-free/libs")
+	Signature    string `json:"signature,omitempty"`       // Signature info: rpm SIGPGP/RSAHEADER, pacman Validated By
+	BuildTimeUnix int64  `json:"build_time_unix,omitempty"` // Unix epoch when package was built (rpm, apk, pacman)
+
+	// Size
+	InstalledSize int64 `json:"installed_size,omitempty"` // Installed size in bytes (rpm SIZE, dpkg Installed-Size * 1024)
+
+	// Sandboxing / confinement (snap, flatpak)
+	Confinement string `json:"confinement,omitempty"` // snap: strict/classic/devmode
+	Channel     string `json:"channel,omitempty"`     // snap tracking channel, flatpak branch
+	Runtime     string `json:"runtime,omitempty"`     // flatpak runtime ref
+
+	// Source control
+	CommitHash string `json:"commit_hash,omitempty"` // apk commit, flatpak active commit
+}
+
+// BrewPackage represents a single installed Homebrew formula or cask.
+type BrewPackage struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+
+	// Metadata (populated from brew info --json=v2)
+	Tap                   string `json:"tap,omitempty"`                     // Source tap: "homebrew/core", "homebrew/cask", or custom
+	Description           string `json:"description,omitempty"`             // Package description
+	License               string `json:"license,omitempty"`                 // SPDX license (formulae only)
+	Homepage              string `json:"homepage,omitempty"`                // Upstream project URL
+	InstallTimeUnix       int64  `json:"install_time_unix,omitempty"`       // Unix epoch when installed
+	InstalledAsDependency bool   `json:"installed_as_dependency,omitempty"` // true if pulled in by another package
+	Deprecated            bool   `json:"deprecated,omitempty"`              // true if package is deprecated upstream
+	PouredFromBottle      bool   `json:"poured_from_bottle,omitempty"`      // true if installed from pre-built binary
+	AutoUpdates           bool   `json:"auto_updates,omitempty"`            // cask: app handles its own updates
+}
+
+// PythonPackage represents a single installed Python package.
+type PythonPackage struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// SystemPackageScanResult holds parsed system package data for enterprise telemetry.
+// Unlike BrewScanResult (which sends raw base64), this sends pre-parsed packages
+// since syspkg.go already handles the format-specific parsing edge cases.
+type SystemPackageScanResult struct {
+	ScanType       string          `json:"scan_type"` // "rpm", "dpkg", "pacman", "apk", "snap", "flatpak"
+	PackageManager *PkgManager     `json:"package_manager,omitempty"`
+	Packages       []SystemPackage `json:"packages"`
+	PackagesCount  int             `json:"packages_count"`
+	Error          string          `json:"error,omitempty"`
+	ScanDurationMs int64           `json:"scan_duration_ms"`
+}
+
+// BrewScanResult holds raw Homebrew scan output for enterprise telemetry.
+type BrewScanResult struct {
+	ScanType        string `json:"scan_type"` // "formulae" or "casks"
+	RawStdoutBase64 string `json:"raw_stdout_base64"`
+	RawStderrBase64 string `json:"raw_stderr_base64"`
+	Error           string `json:"error"`
+	ExitCode        int    `json:"exit_code"`
+	ScanDurationMs  int64  `json:"scan_duration_ms"`
+	LineCount       int    `json:"line_count"`
+}
+
+// PythonScanResult holds raw Python scan output for enterprise telemetry.
+type PythonScanResult struct {
+	PackageManager  string `json:"package_manager"`
+	PMVersion       string `json:"package_manager_version"`
+	BinaryPath      string `json:"binary_path"` // Resolved path to the package manager binary
+	RawStdoutBase64 string `json:"raw_stdout_base64"`
+	RawStderrBase64 string `json:"raw_stderr_base64"`
+	Error           string `json:"error"`
+	ExitCode        int    `json:"exit_code"`
+	ScanDurationMs  int64  `json:"scan_duration_ms"`
+}
+
+// FilterUserInstalledExtensions removes bundled/platform extensions,
+// keeping only user-installed, marketplace, and dropins extensions.
+func FilterUserInstalledExtensions(exts []Extension) []Extension {
+	var filtered []Extension
+	for _, ext := range exts {
+		if ext.Source != "bundled" {
+			filtered = append(filtered, ext)
+		}
+	}
+	return filtered
 }

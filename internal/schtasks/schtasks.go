@@ -22,7 +22,7 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	if isConfigured(ctx, exec) {
 		log.Progress("Existing agent installation detected. Upgrading...")
 		if err := doUninstall(ctx, exec, log); err != nil {
-			log.Progress("Warning: failed to remove previous installation: %v", err)
+			log.Warn("failed to remove previous scheduled task: %v — continuing install anyway", err)
 		}
 		log.Progress("Previous installation removed. Installing new version...")
 	}
@@ -43,8 +43,10 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	}
 
 	args := buildCreateArgs(binaryPath, logDir, hours, exec.IsRoot())
+	log.Debug("schtasks create: binary=%q log_dir=%q hours=%d is_admin=%v", binaryPath, logDir, hours, exec.IsRoot())
 
 	_, stderr, exitCode, err := exec.Run(ctx, "schtasks", args...)
+	log.Debug("schtasks /create: exit_code=%d err=%v", exitCode, err)
 	if err != nil {
 		return fmt.Errorf("failed to create scheduled task: %w", err)
 	}
@@ -75,6 +77,7 @@ func Uninstall(exec executor.Executor, log *progress.Logger) error {
 
 func doUninstall(ctx context.Context, exec executor.Executor, log *progress.Logger) error {
 	_, stderr, exitCode, err := exec.Run(ctx, "schtasks", "/delete", "/tn", taskName, "/f")
+	log.Debug("schtasks /delete: exit_code=%d err=%v", exitCode, err)
 	if err != nil {
 		return fmt.Errorf("failed to delete scheduled task: %w", err)
 	}

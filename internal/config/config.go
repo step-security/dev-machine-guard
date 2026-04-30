@@ -17,10 +17,12 @@ var (
 	ScanFrequencyHours = "{{SCAN_FREQUENCY_HOURS}}"
 	SearchDirs         []string
 	EnableNPMScan      *bool  // nil=auto
+	EnableBrewScan     *bool  // nil=auto
+	EnablePythonScan   *bool  // nil=auto
 	ColorMode          string // "" means auto
 	OutputFormat       string // "" means default (pretty)
 	HTMLOutputFile     string // "" means not set
-	Quiet              *bool  // nil=default behavior
+	LogLevel           string // "" means default (info); one of error/warn/info/debug
 )
 
 // ConfigFile is the JSON structure persisted to ~/.stepsecurity/config.json.
@@ -31,10 +33,12 @@ type ConfigFile struct {
 	ScanFrequencyHours string   `json:"scan_frequency_hours,omitempty"`
 	SearchDirs         []string `json:"search_dirs,omitempty"`
 	EnableNPMScan      *bool    `json:"enable_npm_scan,omitempty"`
+	EnableBrewScan     *bool    `json:"enable_brew_scan,omitempty"`
+	EnablePythonScan   *bool    `json:"enable_python_scan,omitempty"`
 	ColorMode          string   `json:"color_mode,omitempty"`
 	OutputFormat       string   `json:"output_format,omitempty"`
 	HTMLOutputFile     string   `json:"html_output_file,omitempty"`
-	Quiet              *bool    `json:"quiet,omitempty"`
+	LogLevel           string   `json:"log_level,omitempty"`
 }
 
 // configDir returns ~/.stepsecurity.
@@ -79,6 +83,12 @@ func Load() {
 	if cfg.EnableNPMScan != nil && EnableNPMScan == nil {
 		EnableNPMScan = cfg.EnableNPMScan
 	}
+	if cfg.EnableBrewScan != nil && EnableBrewScan == nil {
+		EnableBrewScan = cfg.EnableBrewScan
+	}
+	if cfg.EnablePythonScan != nil && EnablePythonScan == nil {
+		EnablePythonScan = cfg.EnablePythonScan
+	}
 	if cfg.ColorMode != "" && ColorMode == "" {
 		ColorMode = cfg.ColorMode
 	}
@@ -88,8 +98,8 @@ func Load() {
 	if cfg.HTMLOutputFile != "" && HTMLOutputFile == "" {
 		HTMLOutputFile = cfg.HTMLOutputFile
 	}
-	if cfg.Quiet != nil && Quiet == nil {
-		Quiet = cfg.Quiet
+	if cfg.LogLevel != "" && LogLevel == "" {
+		LogLevel = cfg.LogLevel
 	}
 }
 
@@ -156,6 +166,48 @@ func RunConfigure() error {
 		existing.EnableNPMScan = nil // auto
 	}
 
+	// Enable brew scan
+	currentBrew := "auto"
+	if existing.EnableBrewScan != nil {
+		if *existing.EnableBrewScan {
+			currentBrew = "true"
+		} else {
+			currentBrew = "false"
+		}
+	}
+	brewInput := promptValue(reader, "Enable Homebrew Scan (auto/true/false)", currentBrew)
+	switch strings.ToLower(brewInput) {
+	case "true":
+		v := true
+		existing.EnableBrewScan = &v
+	case "false":
+		v := false
+		existing.EnableBrewScan = &v
+	default:
+		existing.EnableBrewScan = nil
+	}
+
+	// Enable python scan
+	currentPython := "auto"
+	if existing.EnablePythonScan != nil {
+		if *existing.EnablePythonScan {
+			currentPython = "true"
+		} else {
+			currentPython = "false"
+		}
+	}
+	pythonInput := promptValue(reader, "Enable Python Scan (auto/true/false)", currentPython)
+	switch strings.ToLower(pythonInput) {
+	case "true":
+		v := true
+		existing.EnablePythonScan = &v
+	case "false":
+		v := false
+		existing.EnablePythonScan = &v
+	default:
+		existing.EnablePythonScan = nil
+	}
+
 	// Color mode
 	currentColor := existing.ColorMode
 	if currentColor == "" {
@@ -187,18 +239,20 @@ func RunConfigure() error {
 		existing.HTMLOutputFile = promptValue(reader, "HTML Output File", existing.HTMLOutputFile)
 	}
 
-	// Quiet mode
-	currentQuiet := "false"
-	if existing.Quiet != nil && *existing.Quiet {
-		currentQuiet = "true"
+	// Log level
+	currentLevel := existing.LogLevel
+	if currentLevel == "" {
+		currentLevel = "info"
 	}
-	quietInput := promptValue(reader, "Quiet Mode (true/false)", currentQuiet)
-	switch strings.ToLower(quietInput) {
-	case "true":
-		v := true
-		existing.Quiet = &v
+	levelInput := promptValue(reader, "Log Level (error/warn/info/debug)", currentLevel)
+	switch strings.ToLower(strings.TrimSpace(levelInput)) {
+	case "error", "warn", "warning", "info", "debug":
+		existing.LogLevel = strings.ToLower(strings.TrimSpace(levelInput))
+		if existing.LogLevel == "warning" {
+			existing.LogLevel = "warn"
+		}
 	default:
-		existing.Quiet = nil // false is the default (omit from config)
+		existing.LogLevel = "info"
 	}
 
 	// Save
@@ -287,13 +341,15 @@ func ShowConfigure() {
 	fmt.Printf("  %-24s %s\n", "API Key:", maskSecret(cfg.APIKey))
 	fmt.Printf("  %-24s %s\n", "Scan Frequency:", displayFrequency(cfg.ScanFrequencyHours))
 	fmt.Printf("  %-24s %s\n", "Search Directories:", displayDirs(cfg.SearchDirs))
-	fmt.Printf("  %-24s %s\n", "Enable NPM Scan:", displayNPMScan(cfg.EnableNPMScan))
+	fmt.Printf("  %-24s %s\n", "Enable NPM Scan:", displayBoolScan(cfg.EnableNPMScan))
+	fmt.Printf("  %-24s %s\n", "Enable Brew Scan:", displayBoolScan(cfg.EnableBrewScan))
+	fmt.Printf("  %-24s %s\n", "Enable Python Scan:", displayBoolScan(cfg.EnablePythonScan))
 	fmt.Printf("  %-24s %s\n", "Color Mode:", displayColorMode(cfg.ColorMode))
 	fmt.Printf("  %-24s %s\n", "Output Format:", displayOutputFormat(cfg.OutputFormat))
 	if cfg.OutputFormat == "html" {
 		fmt.Printf("  %-24s %s\n", "HTML Output File:", displayValue(cfg.HTMLOutputFile))
 	}
-	fmt.Printf("  %-24s %s\n", "Quiet Mode:", displayQuiet(cfg.Quiet))
+	fmt.Printf("  %-24s %s\n", "Log Level:", displayLogLevel(cfg.LogLevel))
 }
 
 func displayValue(v string) string {
@@ -330,7 +386,7 @@ func displayDirs(dirs []string) string {
 	return strings.Join(dirs, ", ")
 }
 
-func displayNPMScan(v *bool) string {
+func displayBoolScan(v *bool) string {
 	if v == nil {
 		return "auto"
 	}
@@ -354,11 +410,16 @@ func displayOutputFormat(v string) string {
 	return v
 }
 
-func displayQuiet(v *bool) string {
-	if v == nil || !*v {
-		return "false"
+func displayLogLevel(level string) string {
+	if level == "" {
+		return "info (default)"
 	}
-	return "true"
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "error", "warn", "warning", "info", "debug":
+		return level
+	default:
+		return fmt.Sprintf("%s (invalid — using info)", level)
+	}
 }
 
 func isPlaceholder(v string) bool {

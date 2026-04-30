@@ -11,14 +11,18 @@ import (
 
 // Config holds all parsed CLI flags.
 type Config struct {
-	Command         string   // "", "install", "uninstall", "send-telemetry", "configure", "configure show"
-	OutputFormat    string   // "pretty", "json", "html"
-	OutputFormatSet bool     // true if --pretty/--json/--html was explicitly passed (not persisted)
-	HTMLOutputFile  string   // set by --html (not persisted)
-	ColorMode       string   // "auto", "always", "never"
-	Verbose         bool     // --verbose
-	EnableNPMScan   *bool    // nil=auto, true/false=explicit
-	SearchDirs      []string // defaults to ["$HOME"]
+	Command               string   // "", "install", "uninstall", "send-telemetry", "configure", "configure show"
+	OutputFormat          string   // "pretty", "json", "html"
+	OutputFormatSet       bool     // true if --pretty/--json/--html was explicitly passed (not persisted)
+	HTMLOutputFile        string   // set by --html (not persisted)
+	ColorMode             string   // "auto", "always", "never"
+	Verbose               bool     // --verbose (shortcut for --log-level=debug)
+	LogLevel              string   // "" = unset; one of "error", "warn", "info", "debug"
+	EnableNPMScan         *bool    // nil=auto, true/false=explicit
+	EnableBrewScan        *bool    // nil=auto, true/false=explicit
+	EnablePythonScan      *bool    // nil=auto, true/false=explicit
+	IncludeBundledPlugins bool     // --include-bundled-plugins: include bundled/platform plugins in output
+	SearchDirs            []string // defaults to ["$HOME"]
 }
 
 // Parse parses CLI arguments and returns a Config.
@@ -69,6 +73,20 @@ func Parse(args []string) (*Config, error) {
 		case arg == "--disable-npm-scan":
 			v := false
 			cfg.EnableNPMScan = &v
+		case arg == "--enable-brew-scan":
+			v := true
+			cfg.EnableBrewScan = &v
+		case arg == "--disable-brew-scan":
+			v := false
+			cfg.EnableBrewScan = &v
+		case arg == "--enable-python-scan":
+			v := true
+			cfg.EnablePythonScan = &v
+		case arg == "--disable-python-scan":
+			v := false
+			cfg.EnablePythonScan = &v
+		case arg == "--include-bundled-plugins":
+			cfg.IncludeBundledPlugins = true
 		case strings.HasPrefix(arg, "--color="):
 			mode := strings.TrimPrefix(arg, "--color=")
 			if mode != "auto" && mode != "always" && mode != "never" {
@@ -92,6 +110,17 @@ func Parse(args []string) (*Config, error) {
 			continue // skip the i++ at the bottom
 		case arg == "--verbose":
 			cfg.Verbose = true
+		case strings.HasPrefix(arg, "--log-level="):
+			level := strings.ToLower(strings.TrimPrefix(arg, "--log-level="))
+			switch level {
+			case "error", "warn", "warning", "info", "debug":
+				if level == "warning" {
+					level = "warn"
+				}
+				cfg.LogLevel = level
+			default:
+				return nil, fmt.Errorf("invalid log level: %s (must be error, warn, info, or debug)", level)
+			}
 		case arg == "-v" || arg == "--version" || arg == "version":
 			_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n", buildinfo.VersionString())
 			os.Exit(0)
@@ -127,12 +156,18 @@ Output formats (community mode, mutually exclusive):
 
 Options:
   --search-dirs DIR [DIR...]  Search DIRs instead of $HOME (replaces default; repeatable)
-  --enable-npm-scan    Enable Node.js package scanning
-  --disable-npm-scan   Disable Node.js package scanning
-  --verbose            Show progress messages (suppressed by default)
-  --color=WHEN         Color mode: auto | always | never (default: auto)
-  -v, --version        Show version
-  -h, --help           Show this help
+  --enable-npm-scan      Enable Node.js package scanning
+  --disable-npm-scan     Disable Node.js package scanning
+  --enable-brew-scan     Enable Homebrew package scanning
+  --disable-brew-scan    Disable Homebrew package scanning
+  --enable-python-scan          Enable Python package scanning
+  --disable-python-scan         Disable Python package scanning
+  --include-bundled-plugins     Include bundled/platform plugins in output (Windows)
+  --log-level=LEVEL      Log level: error | warn | info | debug (default: info)
+  --verbose                     Shortcut for --log-level=debug
+  --color=WHEN           Color mode: auto | always | never (default: auto)
+  -v, --version          Show version
+  -h, --help             Show this help
 
 Examples:
   %s                                  # Pretty terminal output

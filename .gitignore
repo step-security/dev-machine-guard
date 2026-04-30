@@ -9,6 +9,8 @@
 *~
 .vscode/
 .idea/
+
+# internal
 .claude/
 .plans/
 
@@ -22,6 +24,7 @@
 **/stepsecurity-dev-machine-guard
 *.exe
 dist/
+stepsecurity-dev-machine-guard-linux
 
 # Temporary files
 todo-remove/

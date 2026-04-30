@@ -4,14 +4,13 @@ package executor
 
 import (
 	"context"
-	"os/exec"
 	"strings"
+
+	"golang.org/x/sys/windows"
 )
 
 func (r *Real) IsRoot() bool {
-	cmd := exec.Command("net", "session")
-	err := cmd.Run()
-	return err == nil
+	return windows.GetCurrentProcessToken().IsElevated()
 }
 
 func (r *Real) RunAsUser(ctx context.Context, _ string, command string) (string, error) {

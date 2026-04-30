@@ -9,13 +9,16 @@ LDFLAGS := -s -w \
 	-X $(MODULE)/internal/buildinfo.ReleaseTag=$(TAG) \
 	-X $(MODULE)/internal/buildinfo.ReleaseBranch=$(BRANCH)
 
-.PHONY: build build-windows deploy-windows test lint clean smoke
+.PHONY: build build-windows build-linux deploy-windows test lint clean smoke
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/stepsecurity-dev-machine-guard
 
 build-windows:
 	GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY).exe ./cmd/stepsecurity-dev-machine-guard
+
+build-linux:
+	GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY)-linux ./cmd/stepsecurity-dev-machine-guard
 
 deploy-windows:
 	@bash scripts/deploy-windows.sh $(DEPLOY_ARGS)
@@ -27,7 +30,7 @@ lint:
 	golangci-lint run ./...
 
 clean:
-	rm -f $(BINARY)
+	rm -f $(BINARY) $(BINARY).exe $(BINARY)-linux
 
 smoke: build
 	bash tests/test_smoke_go.sh

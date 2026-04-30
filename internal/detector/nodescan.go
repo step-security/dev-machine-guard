@@ -43,7 +43,7 @@ func NewNodeScanner(exec executor.Executor, log *progress.Logger, loggedInUser s
 // shouldRunAsUser returns true when commands should be delegated to the logged-in user.
 // Only applies on Unix — RunAsUser uses sudo which is not available on Windows.
 func (s *NodeScanner) shouldRunAsUser() bool {
-	return s.exec.GOOS() != "windows" && s.exec.IsRoot() && s.loggedInUser != ""
+	return s.exec.GOOS() != model.PlatformWindows && s.exec.IsRoot() && s.loggedInUser != ""
 }
 
 // runCmd runs a command, delegating to the logged-in user when running as root.
@@ -70,11 +70,15 @@ func (s *NodeScanner) runCmd(ctx context.Context, timeout time.Duration, name st
 
 // runShellCmd runs a shell command string, delegating to the logged-in user when running as root.
 // Falls through to the platform-aware free function for the normal (non-delegation) path.
-func (s *NodeScanner) runShellCmd(ctx context.Context, timeout time.Duration, shellCmd string) (string, string, int, error) {
+func (s *NodeScanner) runInDir(ctx context.Context, dir string, timeout time.Duration, name string, args ...string) (string, string, int, error) {
 	if s.shouldRunAsUser() {
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		stdout, err := s.exec.RunAsUser(ctx, s.loggedInUser, shellCmd)
+		cmd := "cd " + platformShellQuote(s.exec, dir) + " && " + platformShellQuote(s.exec, name)
+		for _, a := range args {
+			cmd += " " + platformShellQuote(s.exec, a)
+		}
+		stdout, err := s.exec.RunAsUser(ctx, s.loggedInUser, cmd)
 		if err != nil {
 			if ctx.Err() == context.DeadlineExceeded {
 				return stdout, "", 124, fmt.Errorf("command timed out after %s", timeout)
@@ -83,7 +87,7 @@ func (s *NodeScanner) runShellCmd(ctx context.Context, timeout time.Duration, sh
 		}
 		return stdout, "", 0, nil
 	}
-	return runShellCmd(ctx, s.exec, timeout, shellCmd)
+	return s.exec.RunInDir(ctx, dir, timeout, name, args...)
 }
 
 // checkPath checks if a binary is available, using the logged-in user's PATH when running as root.
@@ -129,6 +133,7 @@ func (s *NodeScanner) scanNPMGlobal(ctx context.Context) (model.NodeScanResult, 
 	version := s.getVersion(ctx, "npm", "--version")
 	prefix := s.getOutput(ctx, "npm", "config", "get", "prefix")
 	if prefix == "" {
+		s.log.Warn("npm found but `npm config get prefix` returned empty — skipping npm global scan")
 		return model.NodeScanResult{}, false
 	}
 
@@ -139,7 +144,9 @@ func (s *NodeScanner) scanNPMGlobal(ctx context.Context) (model.NodeScanResult, 
 	errMsg := ""
 	if exitCode != 0 {
 		errMsg = "npm list -g command failed with exit code"
+		s.log.Warn("npm list -g failed (exit_code=%d, %dms) — results may be incomplete", exitCode, duration)
 	}
+	s.log.Debug("npm global scan: version=%s prefix=%s exit_code=%d stdout_bytes=%d duration=%dms", version, prefix, exitCode, len(stdout), duration)
 
 	return model.NodeScanResult{
 		ProjectPath:      prefix,
@@ -166,14 +173,16 @@ func (s *NodeScanner) scanYarnGlobal(ctx context.Context) (model.NodeScanResult,
 	}
 
 	start := time.Now()
-	shellCmd := "cd " + platformShellQuote(s.exec, globalDir) + " && yarn list --json --depth=0"
-	stdout, stderr, exitCode, _ := s.runShellCmd(ctx, 60*time.Second, shellCmd)
+	// Run directly in the global dir instead of shell cd (avoids Windows quoting issues).
+	stdout, stderr, exitCode, _ := s.runInDir(ctx, globalDir, 60*time.Second, "yarn", "list", "--json", "--depth=0")
 	duration := time.Since(start).Milliseconds()
 
 	errMsg := ""
 	if exitCode != 0 {
 		errMsg = "yarn global list command failed"
+		s.log.Warn("yarn global list failed (exit_code=%d, %dms) — results may be incomplete", exitCode, duration)
 	}
+	s.log.Debug("yarn global scan: version=%s global_dir=%s exit_code=%d stdout_bytes=%d duration=%dms", version, globalDir, exitCode, len(stdout), duration)
 
 	return model.NodeScanResult{
 		ProjectPath:      globalDir,
@@ -207,7 +216,9 @@ func (s *NodeScanner) scanPnpmGlobal(ctx context.Context) (model.NodeScanResult,
 	errMsg := ""
 	if exitCode != 0 {
 		errMsg = "pnpm list -g command failed"
+		s.log.Warn("pnpm list -g failed (exit_code=%d, %dms) — results may be incomplete", exitCode, duration)
 	}
+	s.log.Debug("pnpm global scan: version=%s global_dir=%s exit_code=%d stdout_bytes=%d duration=%dms", version, globalDir, exitCode, len(stdout), duration)
 
 	return model.NodeScanResult{
 		ProjectPath:      globalDir,
@@ -264,6 +275,8 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 		})
 	}
 
+	s.log.Debug("node project discovery: found %d package.json files across %d search dir(s)", len(projects), len(searchDirs))
+
 	// Phase 2: Sort by modification time descending (most recent first)
 	sort.Slice(projects, func(i, j int) bool {
 		return projects[i].modTime > projects[j].modTime
@@ -277,11 +290,12 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 	for i, p := range projects {
 		if i >= maxNodeProjects {
 			s.log.Progress("  Reached maximum of %d projects, stopping search", maxNodeProjects)
+			s.log.Warn("Node project scan truncated at %d projects (total discovered: %d) — oldest projects were skipped", maxNodeProjects, len(projects))
 			break
 		}
 		if totalSize > maxBytes {
-			s.log.Progress("  Reached data size limit (%d bytes collected, limit: %d bytes)", totalSize, maxBytes)
-			s.log.Progress("  Skipping remaining projects (prioritized by most recently modified)")
+			s.log.Warn("Reached data size limit (%d bytes collected, limit: %d bytes)", totalSize, maxBytes)
+			s.log.Warn("Skipping remaining projects (prioritized by most recently modified)")
 			break
 		}
 
@@ -293,8 +307,8 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 		resultSize := int64(len(r.RawStdoutBase64)) + int64(len(r.RawStderrBase64))
 
 		if totalSize+resultSize > maxBytes {
-			s.log.Progress("  Reached data size limit (%d bytes collected, limit: %d bytes)", totalSize, maxBytes)
-			s.log.Progress("  Skipping remaining projects (prioritized by most recently modified)")
+			s.log.Warn("Reached data size limit (%d bytes collected, limit: %d bytes)", totalSize, maxBytes)
+			s.log.Warn("Skipping remaining projects (prioritized by most recently modified)")
 			break
 		}
 
@@ -343,11 +357,10 @@ func (s *NodeScanner) scanProject(ctx context.Context, projectDir string) model.
 	}
 
 	start := time.Now()
-	cmdStr := "cd " + platformShellQuote(s.exec, projectDir) + " && " + cmd
-	for _, a := range args {
-		cmdStr += " " + a
-	}
-	stdout, stderr, exitCode, _ := s.runShellCmd(ctx, 30*time.Second, cmdStr)
+	// Run the package manager command directly in the project directory.
+	// Avoids shell cd + quoting issues on Windows where cmd.exe misinterprets
+	// Go's backslash-escaped quotes in paths.
+	stdout, stderr, exitCode, _ := s.runInDir(ctx, projectDir, 30*time.Second, cmd, args...)
 	duration := time.Since(start).Milliseconds()
 
 	errMsg := ""

@@ -65,21 +65,45 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Resolve draft release tag
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # GoReleaser creates draft releases under an "untagged-*" slug,
+          # so gh release upload by version tag returns 404. Look up the
+          # actual tag GitHub assigned to the draft.
+          release_tag=$(gh api "repos/${{ github.repository }}/releases" \
+            --jq '[.[] | select(.draft and .tag_name == "${{ steps.version.outputs.tag }}")] | first | .tag_name')
+          if [ -z "$release_tag" ] || [ "$release_tag" = "null" ]; then
+            echo "::error::Could not find draft release for ${{ steps.version.outputs.tag }}"
+            exit 1
+          fi
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "Resolved draft release tag: $release_tag"
+
       - name: Install cosign
         uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
 
-      - name: Locate binaries
+      - name: Locate binaries and packages
         id: binaries
         run: |
           DARWIN=$(find dist -type f -name '*darwin_unnotarized' | head -1)
-          WIN_AMD64=$(find dist -type f -name '*windows_amd64.exe' | head -1)
-          WIN_ARM64=$(find dist -type f -name '*windows_arm64.exe' | head -1)
+          WIN_AMD64=$(find dist -type f -name '*.exe' -path '*windows_amd64*' | head -1)
+          WIN_ARM64=$(find dist -type f -name '*.exe' -path '*windows_arm64*' | head -1)
+          LINUX_AMD64=$(find dist -type f -name 'stepsecurity-dev-machine-guard' -path '*linux_amd64*' | head -1)
+          LINUX_ARM64=$(find dist -type f -name 'stepsecurity-dev-machine-guard' -path '*linux_arm64*' | head -1)
 
-          for label in "darwin:${DARWIN}" "windows_amd64:${WIN_AMD64}" "windows_arm64:${WIN_ARM64}"; do
+          DEB_AMD64=$(find dist -type f -name '*-amd64.deb' | head -1)
+          DEB_ARM64=$(find dist -type f -name '*-arm64.deb' | head -1)
+          RPM_AMD64=$(find dist -type f -name '*-amd64.rpm' | head -1)
+          RPM_ARM64=$(find dist -type f -name '*-arm64.rpm' | head -1)
+
+          for label in "darwin:${DARWIN}" "windows_amd64:${WIN_AMD64}" "windows_arm64:${WIN_ARM64}" "linux_amd64:${LINUX_AMD64}" "linux_arm64:${LINUX_ARM64}" "deb_amd64:${DEB_AMD64}" "deb_arm64:${DEB_ARM64}" "rpm_amd64:${RPM_AMD64}" "rpm_arm64:${RPM_ARM64}"; do
             name="${label%%:*}"
             path="${label#*:}"
             if [ -z "$path" ] || [ ! -f "$path" ]; then
-              echo "::error::Binary not found for ${name}"
+              echo "::error::Artifact not found for ${name}"
               find dist -type f
               exit 1
             fi
@@ -88,26 +112,64 @@ jobs:
           echo "darwin=$DARWIN" >> "$GITHUB_OUTPUT"
           echo "win_amd64=$WIN_AMD64" >> "$GITHUB_OUTPUT"
           echo "win_arm64=$WIN_ARM64" >> "$GITHUB_OUTPUT"
+          echo "linux_amd64=$LINUX_AMD64" >> "$GITHUB_OUTPUT"
+          echo "linux_arm64=$LINUX_ARM64" >> "$GITHUB_OUTPUT"
+          echo "deb_amd64=$DEB_AMD64" >> "$GITHUB_OUTPUT"
+          echo "deb_arm64=$DEB_ARM64" >> "$GITHUB_OUTPUT"
+          echo "rpm_amd64=$RPM_AMD64" >> "$GITHUB_OUTPUT"
+          echo "rpm_arm64=$RPM_ARM64" >> "$GITHUB_OUTPUT"
 
       - name: Sign artifacts with Sigstore
+        shell: bash
         run: |
-          for artifact in \
-            "${{ steps.binaries.outputs.darwin }}" \
-            "${{ steps.binaries.outputs.win_amd64 }}" \
-            "${{ steps.binaries.outputs.win_arm64 }}" \
-            stepsecurity-dev-machine-guard.sh; do
-            cosign sign-blob "$artifact" --bundle "${artifact}.bundle" --yes
-          done
+          sign_with_retry() {
+            local blob="$1"
+            local bundle="$2"
 
+            for attempt in 1 2 3; do
+              if cosign sign-blob "$blob" --bundle "$bundle" --yes; then
+                return 0
+              fi
+              echo "::warning::Signing attempt $attempt failed for $(basename "$blob"), retrying in 10s..."
+              sleep 10
+            done
+
+            echo "::error::Signing failed for $(basename "$blob") after 3 attempts"
+            return 1
+          }
+
+          sign_with_retry "${{ steps.binaries.outputs.darwin }}" \
+            "dist/stepsecurity-dev-machine-guard-darwin_unnotarized.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.win_amd64 }}" \
+            "dist/stepsecurity-dev-machine-guard-windows_amd64.exe.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.win_arm64 }}" \
+            "dist/stepsecurity-dev-machine-guard-windows_arm64.exe.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.linux_amd64 }}" \
+            "dist/stepsecurity-dev-machine-guard-linux_amd64.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.linux_arm64 }}" \
+            "dist/stepsecurity-dev-machine-guard-linux_arm64.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.deb_amd64 }}" \
+            "${{ steps.binaries.outputs.deb_amd64 }}.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.deb_arm64 }}" \
+            "${{ steps.binaries.outputs.deb_arm64 }}.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.rpm_amd64 }}" \
+            "${{ steps.binaries.outputs.rpm_amd64 }}.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.rpm_arm64 }}" \
+            "${{ steps.binaries.outputs.rpm_arm64 }}.bundle"
       - name: Upload cosign bundles
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ steps.version.outputs.tag }}" \
-            "${{ steps.binaries.outputs.darwin }}.bundle" \
-            "${{ steps.binaries.outputs.win_amd64 }}.bundle" \
-            "${{ steps.binaries.outputs.win_arm64 }}.bundle" \
-            dist/stepsecurity-dev-machine-guard.sh.bundle \
+          gh release upload "${{ steps.release.outputs.tag }}" \
+            dist/stepsecurity-dev-machine-guard-darwin_unnotarized.bundle \
+            dist/stepsecurity-dev-machine-guard-windows_amd64.exe.bundle \
+            dist/stepsecurity-dev-machine-guard-windows_arm64.exe.bundle \
+            dist/stepsecurity-dev-machine-guard-linux_amd64.bundle \
+            dist/stepsecurity-dev-machine-guard-linux_arm64.bundle \
+            "${{ steps.binaries.outputs.deb_amd64 }}.bundle" \
+            "${{ steps.binaries.outputs.deb_arm64 }}.bundle" \
+            "${{ steps.binaries.outputs.rpm_amd64 }}.bundle" \
+            "${{ steps.binaries.outputs.rpm_arm64 }}.bundle" \
             --clobber
 
       - name: Attest build provenance
@@ -117,4 +179,9 @@ jobs:
             ${{ steps.binaries.outputs.darwin }}
             ${{ steps.binaries.outputs.win_amd64 }}
             ${{ steps.binaries.outputs.win_arm64 }}
-            stepsecurity-dev-machine-guard.sh
+            ${{ steps.binaries.outputs.linux_amd64 }}
+            ${{ steps.binaries.outputs.linux_arm64 }}
+            ${{ steps.binaries.outputs.deb_amd64 }}
+            ${{ steps.binaries.outputs.deb_arm64 }}
+            ${{ steps.binaries.outputs.rpm_amd64 }}
+            ${{ steps.binaries.outputs.rpm_arm64 }}

@@ -1,5 +1,5 @@
 {
-  "agent_version": "1.9.2",
+  "agent_version": "1.11.0",
   "scan_timestamp": 1741305600,
   "scan_timestamp_iso": "2026-03-07T00:00:00Z",
   "device": {
@@ -25,6 +25,14 @@
       "version": "0.1.2",
       "binary_path": "/usr/local/bin/codex",
       "config_dir": "/Users/developer/.codex"
+    },
+    {
+      "name": "cursor-agent",
+      "vendor": "Cursor",
+      "type": "cli_tool",
+      "version": "2026.02.27-e7d2ef6",
+      "binary_path": "/Users/developer/.local/bin/cursor-agent",
+      "config_dir": "/Users/developer/.cursor"
     },
     {
       "name": "openclaw",
@@ -69,6 +77,13 @@
       "version": "0.7.1",
       "install_path": "/Applications/Claude.app",
       "vendor": "Anthropic",
+      "is_installed": true
+    },
+    {
+      "ide_type": "goland",
+      "version": "2024.3.1",
+      "install_path": "/Applications/GoLand.app",
+      "vendor": "JetBrains",
       "is_installed": true
     }
   ],
@@ -126,11 +141,56 @@
     }
   ],
   "node_packages": [],
+  "node_projects": [
+    { "path": "/Users/developer/projects/my-app", "package_manager": "npm" },
+    { "path": "/Users/developer/projects/api-server", "package_manager": "yarn" },
+    { "path": "/Users/developer/projects/frontend", "package_manager": "pnpm" }
+  ],
+  "brew_package_manager": {
+    "name": "homebrew",
+    "version": "4.3.5",
+    "path": "/opt/homebrew/bin/brew"
+  },
+  "brew_formulae": [
+    { "name": "ca-certificates", "version": "2024.2.2" },
+    { "name": "curl", "version": "8.4.0" },
+    { "name": "git", "version": "2.43.0" },
+    { "name": "openssl@3", "version": "3.2.0" }
+  ],
+  "brew_casks": [
+    { "name": "visual-studio-code", "version": "1.85.0" },
+    { "name": "firefox", "version": "120.0" }
+  ],
+  "python_package_managers": [
+    {
+      "name": "python3",
+      "version": "3.12.0",
+      "path": "/usr/local/bin/python3"
+    },
+    {
+      "name": "pip",
+      "version": "24.0",
+      "path": "/usr/local/bin/pip3"
+    }
+  ],
+  "python_packages": [
+    { "name": "requests", "version": "2.31.0" },
+    { "name": "numpy", "version": "1.26.2" },
+    { "name": "pip", "version": "24.0" }
+  ],
+  "python_projects": [
+    { "path": "/Users/developer/projects/ml-pipeline/.venv", "package_manager": "poetry" },
+    { "path": "/Users/developer/projects/data-analysis/venv", "package_manager": "pip" },
+    { "path": "/Users/developer/projects/web-scraper/.venv", "package_manager": "uv" }
+  ],
   "summary": {
-    "ai_agents_and_tools_count": 5,
-    "ide_installations_count": 3,
+    "ai_agents_and_tools_count": 6,
+    "ide_installations_count": 4,
     "ide_extensions_count": 4,
     "mcp_configs_count": 2,
-    "node_projects_count": 0
+    "node_projects_count": 3,
+    "brew_formulae_count": 42,
+    "brew_casks_count": 15,
+    "python_projects_count": 3
   }
 }

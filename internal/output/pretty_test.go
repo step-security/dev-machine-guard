@@ -84,6 +84,38 @@ func TestPretty_ShowsDeviceInfo(t *testing.T) {
 	}
 }
 
+func TestPretty_PlatformLabels(t *testing.T) {
+	tests := []struct {
+		platform  string
+		wantLabel string
+	}{
+		{"darwin", "macOS"},
+		{"windows", "Windows"},
+		{"linux", "Linux"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.platform, func(t *testing.T) {
+			result := &model.ScanResult{
+				ScanTimestamp: 1700000000,
+				Device: model.Device{
+					Hostname:  "test",
+					OSVersion: "1.0",
+					Platform:  tt.platform,
+				},
+			}
+
+			var buf bytes.Buffer
+			_ = Pretty(&buf, result, "never")
+			output := buf.String()
+
+			if !strings.Contains(output, tt.wantLabel) {
+				t.Errorf("platform %q: output missing label %q", tt.platform, tt.wantLabel)
+			}
+		})
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	tests := []struct {
 		input string
@@ -108,6 +140,21 @@ func TestIdeDisplayName(t *testing.T) {
 		"cursor":                    "Cursor",
 		"claude_desktop":            "Claude",
 		"microsoft_copilot_desktop": "Microsoft Copilot",
+		"intellij_idea":             "IntelliJ IDEA",
+		"intellij_idea_ce":          "IntelliJ IDEA CE",
+		"pycharm":                   "PyCharm",
+		"pycharm_ce":                "PyCharm CE",
+		"webstorm":                  "WebStorm",
+		"goland":                    "GoLand",
+		"rider":                     "Rider",
+		"phpstorm":                  "PhpStorm",
+		"rubymine":                  "RubyMine",
+		"clion":                     "CLion",
+		"datagrip":                  "DataGrip",
+		"fleet":                     "Fleet",
+		"android_studio":            "Android Studio",
+		"eclipse":                   "Eclipse",
+		"xcode":                     "Xcode",
 		"unknown":                   "unknown",
 	}
 	for input, expected := range tests {

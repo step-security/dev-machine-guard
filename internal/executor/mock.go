@@ -167,6 +167,10 @@ func (m *Mock) RunWithTimeout(ctx context.Context, _ time.Duration, name string,
 	return m.Run(ctx, name, args...)
 }
 
+func (m *Mock) RunInDir(ctx context.Context, _ string, _ time.Duration, name string, args ...string) (string, string, int, error) {
+	return m.Run(ctx, name, args...)
+}
+
 func (m *Mock) RunAsUser(ctx context.Context, _ string, command string) (string, error) {
 	stdout, _, _, err := m.Run(ctx, "bash", "-c", command)
 	return stdout, err
@@ -296,3 +300,25 @@ func (fi *mockFileInfo) IsDir() bool        { return fi.dir }
 func (fi *mockFileInfo) ModTime() time.Time { return time.Time{} }
 func (fi *mockFileInfo) Mode() os.FileMode  { return 0o644 }
 func (fi *mockFileInfo) Sys() any           { return nil }
+
+// MockDirEntry creates an os.DirEntry for use with SetDirEntries.
+func MockDirEntry(name string, isDir bool) os.DirEntry {
+	return &mockDirEntry{name: name, dir: isDir}
+}
+
+type mockDirEntry struct {
+	name string
+	dir  bool
+}
+
+func (e *mockDirEntry) Name() string { return e.name }
+func (e *mockDirEntry) IsDir() bool  { return e.dir }
+func (e *mockDirEntry) Type() os.FileMode {
+	if e.dir {
+		return os.ModeDir
+	}
+	return 0
+}
+func (e *mockDirEntry) Info() (os.FileInfo, error) {
+	return &mockFileInfo{name: e.name, dir: e.dir}, nil
+}
