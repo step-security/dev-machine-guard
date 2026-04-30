@@ -14,7 +14,7 @@ The default output format is a styled, color-coded report printed to the termina
 
 ```
   ┌──────────────────────────────────────────────────────────┐
-  │  StepSecurity Dev Machine Guard v1.8.1                   │
+  │  StepSecurity Dev Machine Guard vX.Y.Z                   │
   │  https://github.com/step-security/dev-machine-guard      │
   └──────────────────────────────────────────────────────────┘
   Scanned at 2026-03-27 14:30:00
@@ -28,11 +28,12 @@ Shows the StepSecurity agent version and the timestamp of the scan.
   DEVICE
     Hostname         MacBook-Pro.local
     Serial           XXXXXXXXXXXX
-    macOS            15.3
+    OS               15.3
+    Platform         darwin
     User             user@example.com
 ```
 
-Basic device identification. The user is determined from the currently logged-in console user.
+Basic device identification. Platform is `darwin` (macOS) or `windows`. The user is determined from the currently logged-in console user.
 
 ### SUMMARY
 
@@ -70,7 +71,7 @@ Lists all detected AI tools, grouped by type:
     Claude                   v0.7.1         Anthropic
 ```
 
-Lists installed IDEs and AI desktop applications found in `/Applications/`.
+Lists installed IDEs and AI desktop applications. Detection uses `/Applications/` on macOS and `%LOCALAPPDATA%`/`%PROGRAMFILES%` on Windows.
 
 ### IDE EXTENSIONS
 
@@ -95,7 +96,8 @@ When you run with `--json`, the scanner outputs a single JSON object to stdout. 
 
 ```json
 {
-  "agent_version": "1.8.1",
+  "agent_version": "X.Y.Z",
+  "agent_url": "https://github.com/step-security/dev-machine-guard",
   "scan_timestamp": 1709136000,
   "scan_timestamp_iso": "2026-02-28T14:00:00Z",
   "device": {
@@ -151,16 +153,9 @@ When you run with `--json`, the scanner outputs a single JSON object to stdout. 
   ],
   "mcp_configs": [
     {
-      "source": "claude_desktop",
-      "vendor": "Anthropic",
+      "config_source": "claude_desktop",
       "config_path": "/Users/dev/Library/Application Support/Claude/claude_desktop_config.json",
-      "servers": [
-        {
-          "name": "filesystem",
-          "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/dev/projects"]
-        }
-      ]
+      "vendor": "Anthropic"
     }
   ],
   "node_package_managers": [
@@ -170,6 +165,7 @@ When you run with `--json`, the scanner outputs a single JSON object to stdout. 
       "path": "/usr/local/bin/npm"
     }
   ],
+  "node_packages": [],
   "summary": {
     "ai_agents_and_tools_count": 5,
     "ide_installations_count": 3,
@@ -185,6 +181,7 @@ When you run with `--json`, the scanner outputs a single JSON object to stdout. 
 | Field | Type | Description |
 |-------|------|-------------|
 | `agent_version` | string | Version of the scanner binary |
+| `agent_url` | string | URL to the Dev Machine Guard repository |
 | `scan_timestamp` | number | Unix timestamp (seconds) of the scan |
 | `scan_timestamp_iso` | string | ISO 8601 timestamp |
 | `device` | object | Device identification information |
@@ -193,6 +190,7 @@ When you run with `--json`, the scanner outputs a single JSON object to stdout. 
 | `ide_extensions` | array | All installed IDE extensions |
 | `mcp_configs` | array | MCP server configurations found across AI tools |
 | `node_package_managers` | array | Detected Node.js package managers (npm, yarn, pnpm, bun) |
+| `node_packages` | array | Node.js package data (populated in enterprise mode) |
 | `summary` | object | Count summaries |
 
 ### AI Tool Types
@@ -205,10 +203,13 @@ When you run with `--json`, the scanner outputs a single JSON object to stdout. 
 
 ### IDE Types
 
+These values appear in both `ide_installations[].ide_type` and `ide_extensions[].ide_type`.
+
 | `ide_type` value | Description |
 |------------------|-------------|
 | `vscode` | Visual Studio Code |
 | `cursor` | Cursor |
+| `openvsx` | Cursor extensions (uses OpenVSX marketplace) |
 | `windsurf` | Windsurf |
 | `antigravity` | Antigravity (Google) |
 | `zed` | Zed |
@@ -224,7 +225,7 @@ The HTML report (`--html report.html`) generates a self-contained HTML file with
 1. **Header** -- Purple gradient banner with "StepSecurity Dev Machine Guard Report" title
 2. **Scan metadata** -- Timestamp and agent version
 3. **Summary cards** -- Three cards showing counts for AI Agents and Tools, IDEs & Desktop Apps, and IDE Extensions
-4. **Device grid** -- Hostname, serial, macOS version, and user in a two-column grid
+4. **Device grid** -- Hostname, serial, OS version, platform, and user in a two-column grid
 5. **AI Agents and Tools table** -- Name, version, type (with a styled badge), and vendor
 6. **IDE & AI Desktop Apps table** -- Name, version, vendor, and install path
 7. **IDE Extensions table** -- Extension ID, version, publisher, and IDE

@@ -4,17 +4,21 @@ This document catalogs everything Dev Machine Guard detects. Contributions to ex
 
 ## IDEs & AI Desktop Apps
 
-| Application           | Vendor    | Detection Method            | Version Extraction              |
-|-----------------------|-----------|-----------------------------|---------------------------------|
-| Visual Studio Code    | Microsoft | `/Applications/Visual Studio Code.app` | Binary `--version`     |
-| Cursor                | Cursor    | `/Applications/Cursor.app`  | Binary `--version`              |
-| Windsurf              | Codeium   | `/Applications/Windsurf.app`| Binary `--version`              |
-| Antigravity           | Google    | `/Applications/Antigravity.app` | Binary `--version`          |
-| Zed                   | Zed       | `/Applications/Zed.app`     | `Info.plist`                    |
-| Claude Desktop        | Anthropic | `/Applications/Claude.app`  | `Info.plist`                    |
-| Microsoft Copilot     | Microsoft | `/Applications/Copilot.app` | `Info.plist`                    |
+Detection uses platform-specific paths: `/Applications/*.app` on macOS, `%LOCALAPPDATA%` / `%PROGRAMFILES%` on Windows. Version is extracted from the CLI binary (`--version`), `Info.plist` (macOS), or the Windows Registry.
+
+| Application        | Vendor    | macOS Path                              | Windows Path(s)                                                                 |
+|--------------------|-----------|-----------------------------------------|---------------------------------------------------------------------------------|
+| Visual Studio Code | Microsoft | `/Applications/Visual Studio Code.app`  | `%PROGRAMFILES%\Microsoft VS Code`, `%LOCALAPPDATA%\Programs\Microsoft VS Code` |
+| Cursor             | Cursor    | `/Applications/Cursor.app`              | `%LOCALAPPDATA%\Programs\cursor`                                                |
+| Windsurf           | Codeium   | `/Applications/Windsurf.app`            | `%LOCALAPPDATA%\Programs\Windsurf`                                              |
+| Antigravity        | Google    | `/Applications/Antigravity.app`         | `%LOCALAPPDATA%\Programs\Antigravity`                                           |
+| Zed                | Zed       | `/Applications/Zed.app`                 | `%LOCALAPPDATA%\Zed`                                                            |
+| Claude Desktop     | Anthropic | `/Applications/Claude.app`              | `%LOCALAPPDATA%\Programs\Claude`                                                |
+| Microsoft Copilot  | Microsoft | `/Applications/Copilot.app`             | `%LOCALAPPDATA%\Programs\Copilot`                                               |
 
 ## AI CLI Tools
+
+Detection is cross-platform — binaries are located via `$PATH` lookup and home-relative config directories.
 
 | Tool                  | Vendor    | Binary Names                | Config Directories              |
 |-----------------------|-----------|-----------------------------|---------------------------------|
@@ -29,6 +33,8 @@ This document catalogs everything Dev Machine Guard detects. Contributions to ex
 
 ## General-Purpose AI Agents
 
+Detection is cross-platform — home-relative paths and `$PATH` lookups work on macOS, Windows, and Linux.
+
 | Agent                 | Vendor    | Detection Paths             |
 |-----------------------|-----------|-----------------------------|
 | OpenClaw              | OpenSource| `~/.openclaw`               |
@@ -40,32 +46,41 @@ This document catalogs everything Dev Machine Guard detects. Contributions to ex
 
 ## AI Frameworks & Runtimes
 
-| Framework             | Binary    | Notes                       |
-|-----------------------|-----------|-----------------------------|
-| Ollama                | `ollama`  | Checks if process is running|
-| LocalAI               | `local-ai`| Checks if process is running|
-| LM Studio             | `lm-studio` or `/Applications/LM Studio.app` | GUI app detection |
-| Text Generation WebUI | `textgen` | Checks if process is running|
+Binaries are found via `$PATH` lookup (cross-platform). LM Studio is additionally detected as a GUI application.
+
+| Framework             | Binary     | Notes                                                                           |
+|-----------------------|------------|---------------------------------------------------------------------------------|
+| Ollama                | `ollama`   | Checks if process is running                                                    |
+| LocalAI               | `local-ai` | Checks if process is running                                                    |
+| LM Studio             | `lm-studio`| GUI: `/Applications/LM Studio.app` (macOS) or `%LOCALAPPDATA%\Programs\LM Studio` (Windows) |
+| Text Generation WebUI | `textgen`  | Checks if process is running                                                    |
 
 ## MCP Configuration Sources
 
-| Source                | Config Path                                         | Vendor    |
-|-----------------------|-----------------------------------------------------|-----------|
-| Claude Desktop        | `~/Library/Application Support/Claude/claude_desktop_config.json` | Anthropic |
-| Claude Code           | `~/.claude/settings.json`                           | Anthropic |
-| Cursor                | `~/.cursor/mcp.json`                                | Cursor    |
-| Windsurf              | `~/.codeium/windsurf/mcp_config.json`               | Codeium   |
-| Antigravity           | `~/.gemini/antigravity/mcp_config.json`             | Google    |
-| Zed                   | `~/.config/zed/settings.json`                       | Zed       |
-| Open Interpreter      | `~/.config/open-interpreter/config.yaml`            | OpenSource|
-| Codex                 | `~/.codex/config.toml`                              | OpenAI    |
+On Windows, `~` refers to the user's home directory (`%USERPROFILE%`). Claude Desktop uses a Windows-specific path via `%APPDATA%`.
+
+| Source           | macOS / Linux Path                                               | Windows Path (if different)                    | Vendor    |
+|------------------|------------------------------------------------------------------|------------------------------------------------|-----------|
+| Claude Desktop   | `~/Library/Application Support/Claude/claude_desktop_config.json`| `%APPDATA%/Claude/claude_desktop_config.json`  | Anthropic |
+| Claude Code      | `~/.claude/settings.json`                                        | _(same)_                                       | Anthropic |
+| Claude Code      | `~/.claude.json`                                                 | _(same)_                                       | Anthropic |
+| Cursor           | `~/.cursor/mcp.json`                                             | _(same)_                                       | Cursor    |
+| Windsurf         | `~/.codeium/windsurf/mcp_config.json`                            | _(same)_                                       | Codeium   |
+| Antigravity      | `~/.gemini/antigravity/mcp_config.json`                          | _(same)_                                       | Google    |
+| Zed              | `~/.config/zed/settings.json`                                    | _(same)_                                       | Zed       |
+| Open Interpreter | `~/.config/open-interpreter/config.yaml`                         | _(same)_                                       | OpenSource|
+| Codex            | `~/.codex/config.toml`                                           | _(same)_                                       | OpenAI    |
 
 ## IDE Extensions
+
+Extension directories are the same across macOS, Windows, and Linux (`~` is the user's home directory on all platforms).
 
 | IDE         | Extensions Directory           | Format                        |
 |-------------|--------------------------------|-------------------------------|
 | VS Code     | `~/.vscode/extensions`         | `publisher.name-version`      |
 | Cursor      | `~/.cursor/extensions`         | `publisher.name-version`      |
+
+Each extension entry includes: ID, name, version, publisher, install date, and IDE type. Obsolete extensions (listed in `.obsolete`) are excluded.
 
 ## Node.js Package Scanning (Optional)
 

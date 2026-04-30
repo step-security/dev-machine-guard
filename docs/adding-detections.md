@@ -12,62 +12,60 @@ Dev Machine Guard uses array-driven detection. Each detection category has a fun
 
 The detection code lives in the `internal/detector/` directory, with each detector category in its own `.go` file.
 
+**Cross-platform note:** Detections should work on both macOS and Windows. CLI tools and agents use `$PATH` lookups and home-relative paths, which are inherently cross-platform. IDE/desktop app detections need explicit macOS (`AppPath`) and Windows (`WinPaths`) entries. The `executor.Executor` interface abstracts OS operations and is used by all detectors.
+
 ---
 
 ## 1. Adding a New IDE or Desktop App
 
 ### File: `internal/detector/ide.go`
 
-### Format String
-
-```
-"App Name|type_id|Vendor|/Applications/App.app|Contents/MacOS/binary|--version"
-```
+The IDE detector uses an `ideSpec` struct with platform-specific fields:
 
 | Field | Description |
 |-------|-------------|
-| App Name | Human-readable display name (e.g., "Visual Studio Code") |
-| type_id | Unique identifier for the IDE type, used in JSON output (e.g., `vscode`, `cursor`, `zed`) |
-| Vendor | The company or organization that makes the app (e.g., "Microsoft", "Cursor") |
-| App path | Full path to the `.app` bundle in `/Applications/` |
-| Binary path | Relative path (from the app bundle root) to the binary used for version extraction. Leave empty if version comes from `Info.plist`. |
-| Version command | The CLI flag to get the version (e.g., `--version`). Leave empty if not applicable. |
+| `AppName` | Human-readable display name (e.g., "Visual Studio Code") |
+| `IDEType` | Unique identifier for JSON output (e.g., `vscode`, `cursor`, `zed`) |
+| `Vendor` | The company or organization (e.g., "Microsoft", "Cursor") |
+| `AppPath` | macOS: full path to the `.app` bundle in `/Applications/` |
+| `BinaryPath` | macOS: relative path from the app bundle to the CLI binary for version extraction |
+| `WinPaths` | Windows: candidate install directories (may contain `%ENVVAR%` patterns) |
+| `WinBinary` | Windows: binary name relative to the install directory |
+| `VersionFlag` | CLI flag to get the version (e.g., `--version`). Leave empty if not applicable. |
 
 ### Example: Adding a hypothetical "CodeForge" IDE
 
-Find the `apps` array inside the IDE detector and add:
+Find the `ideDefinitions` array in `ide.go` and add:
 
 ```go
 {
-    Name:           "CodeForge",
-    TypeID:         "codeforge",
-    Vendor:         "CodeForge Inc",
-    AppPath:        "/Applications/CodeForge.app",
-    BinaryPath:     "Contents/MacOS/CodeForge",
-    VersionCommand: "--version",
-}
+    AppName: "CodeForge", IDEType: "codeforge", Vendor: "CodeForge Inc",
+    AppPath: "/Applications/CodeForge.app", BinaryPath: "Contents/MacOS/CodeForge",
+    WinPaths: []string{`%LOCALAPPDATA%\Programs\CodeForge`}, WinBinary: "CodeForge.exe",
+    VersionFlag: "--version",
+},
 ```
 
-If the app stores its version in `Info.plist` instead of a CLI binary, leave the binary path and version command empty. The scanner will automatically fall back to reading `CFBundleShortVersionString` from `Info.plist`.
+**macOS detection** checks if `AppPath` exists, then tries `BinaryPath --version`, falling back to `Info.plist` (`CFBundleShortVersionString`).
+
+**Windows detection** iterates `WinPaths`, resolves `%ENVVAR%` patterns, checks if the directory exists, then tries `WinBinary --version`, falling back to Windows Registry (`DisplayVersion` under Uninstall keys).
 
 ---
 
 ## 2. Adding a New AI CLI Tool
 
-### File: `internal/detector/ai_cli.go`
+### File: `internal/detector/aicli.go`
 
-### Format String
-
-```
-"tool-name|Vendor|binary1,binary2|~/.config-dir1,~/.config-dir2"
-```
+The CLI tool detector uses a `cliToolSpec` struct:
 
 | Field | Description |
 |-------|-------------|
-| tool-name | Unique name for the tool, used in JSON output (e.g., `claude-code`, `codex`) |
-| Vendor | The company or organization (e.g., "Anthropic", "OpenAI", "OpenSource") |
-| binary_names | Comma-separated list of binary names to search for in PATH |
-| config_dirs | Comma-separated list of config directory paths (use `~` for home directory) |
+| `Name` | Unique name for the tool, used in JSON output (e.g., `claude-code`, `codex`) |
+| `Vendor` | The company or organization (e.g., "Anthropic", "OpenAI", "OpenSource") |
+| `Binaries` | Binary names to search for in `$PATH`, or home-relative paths (use `~` prefix) |
+| `ConfigDirs` | Config directory paths to check (use `~` for home directory) |
+| `VersionFlag` | Override the default `--version` flag (e.g., `-v`) |
+| `VerifyFunc` | Optional function to verify the binary is the correct tool (e.g., for generic names like `q`) |
 
 ### Example: Adding a hypothetical "DevPilot" CLI
 
@@ -77,13 +75,15 @@ If the app stores its version in `Info.plist` instead of a CLI binary, leave the
     Vendor:     "DevPilot Inc",
     Binaries:   []string{"devpilot", "dp"},
     ConfigDirs: []string{"~/.devpilot", "~/.config/devpilot"},
-}
+},
 ```
 
 The scanner will:
-1. Check if `devpilot` or `dp` exists in the user's PATH
+1. Check if `devpilot` or `dp` exists in the user's PATH (cross-platform)
 2. If found, run `devpilot --version` (or `dp --version`) to get the version
 3. Check if `~/.devpilot` or `~/.config/devpilot` exists as a config directory
+
+Home-relative binary paths (e.g., `~/.claude/local/claude`) are checked by file existence. On Windows, `.exe` suffixes are tried automatically.
 
 ---
 
@@ -91,31 +91,22 @@ The scanner will:
 
 ### File: `internal/detector/agent.go`
 
-### Format String
-
-```
-"agent-name|Vendor|/detection/path1,/detection/path2|binary1,binary2"
-```
+The agent detector uses an `agentSpec` struct:
 
 | Field | Description |
 |-------|-------------|
-| agent-name | Unique name for the agent (e.g., `openclaw`, `gpt-engineer`) |
-| Vendor | The company or organization (e.g., "OpenSource", "Anthropic") |
-| detection_paths | Comma-separated paths (directories or files) that indicate the agent is installed |
-| binary_names | Comma-separated binary names for version extraction |
+| `Name` | Unique name for the agent (e.g., `openclaw`, `gpt-engineer`) |
+| `Vendor` | The company or organization (e.g., "OpenSource", "Anthropic") |
+| `DetectionPaths` | Home-relative paths (directories or files) that indicate the agent is installed |
+| `Binaries` | Binary names for `$PATH` lookup and version extraction |
 
 ### Example: Adding a hypothetical "AutoDev" agent
 
 ```go
-{
-    Name:           "autodev",
-    Vendor:         "AutoDev Inc",
-    DetectionPaths: []string{"~/.autodev"},
-    Binaries:       []string{"autodev"},
-}
+{"autodev", "AutoDev Inc", []string{".autodev"}, []string{"autodev"}},
 ```
 
-The scanner will:
+The scanner will (cross-platform):
 1. Check if `~/.autodev` exists (directory or file)
 2. If not found, check if `autodev` binary exists in PATH
 3. If found either way, try to run `autodev --version` for version info
@@ -126,33 +117,32 @@ The scanner will:
 
 ### File: `internal/detector/mcp.go`
 
-### Format String
-
-```
-"source_name|/path/to/config.json|Vendor"
-```
+The MCP detector uses an `mcpConfigSpec` struct:
 
 | Field | Description |
 |-------|-------------|
-| source_name | Unique identifier for the source (e.g., `claude_desktop`, `cursor`) |
-| config_path | Full path to the config file. Use `~` for the home directory. |
-| Vendor | The company or organization (e.g., "Anthropic", "Cursor") |
+| `SourceName` | Unique identifier for the source (e.g., `claude_desktop`, `cursor`) |
+| `ConfigPath` | macOS/Linux config file path. Use `~` for the home directory. |
+| `WinConfigPath` | Windows-specific config path (if different). Use `%ENVVAR%` patterns. Leave empty to use `ConfigPath` on all platforms. |
+| `Vendor` | The company or organization (e.g., "Anthropic", "Cursor") |
 
 ### Example: Adding a hypothetical "CodeAssist" MCP config
 
 ```go
-{
-    Source:     "codeassist",
-    ConfigPath: "~/.codeassist/mcp_config.json",
-    Vendor:     "CodeAssist Inc",
-}
+{"codeassist", "~/.codeassist/mcp_config.json", "", "CodeAssist Inc"},
+```
+
+If the tool uses a different path on Windows:
+
+```go
+{"codeassist", "~/.codeassist/mcp_config.json", "%APPDATA%/CodeAssist/mcp_config.json", "CodeAssist Inc"},
 ```
 
 The scanner will:
-1. Check if the config file exists at the specified path
+1. Check if the config file exists at the platform-appropriate path
 2. Read the file contents
-3. In enterprise mode: filter to extract only server names and commands, then base64-encode
-4. In community mode: display the server information locally
+3. In enterprise mode: Go-native filter extracts only server names, commands, args, and URLs from JSON configs, then base64-encodes the result
+4. In community mode: display the server source, vendor, and config path
 
 ---
 

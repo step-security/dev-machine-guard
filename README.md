@@ -35,6 +35,7 @@ Developer machines are the new attack surface. They hold high-value assets — G
 | AI agent & tool inventory   |           |        Yes        |
 | MCP server config audit     |           |        Yes        |
 | Node.js package scanning    |           |        Yes        |
+| Cross-platform support      |    Yes    |        Yes        |
 | Device posture & compliance |    Yes    |                   |
 | Malware / virus detection   |    Yes    |                   |
 
@@ -50,6 +51,8 @@ Developer machines are the new attack surface. They hold high-value assets — G
 
 Download the latest binary for your platform from [GitHub Releases](https://github.com/step-security/dev-machine-guard/releases):
 
+**macOS:**
+
 ```bash
 # Apple Silicon (M1/M2/M3/M4)
 curl -sSL https://github.com/step-security/dev-machine-guard/releases/latest/download/stepsecurity-dev-machine-guard_darwin_arm64 -o stepsecurity-dev-machine-guard
@@ -61,6 +64,19 @@ chmod +x stepsecurity-dev-machine-guard
 
 # Run the scan
 ./stepsecurity-dev-machine-guard
+```
+
+**Windows:**
+
+```powershell
+# x64
+Invoke-WebRequest -Uri "https://github.com/step-security/dev-machine-guard/releases/latest/download/stepsecurity-dev-machine-guard_windows_amd64.exe" -OutFile "stepsecurity-dev-machine-guard.exe"
+
+# ARM64
+Invoke-WebRequest -Uri "https://github.com/step-security/dev-machine-guard/releases/latest/download/stepsecurity-dev-machine-guard_windows_arm64.exe" -OutFile "stepsecurity-dev-machine-guard.exe"
+
+# Run the scan
+.\stepsecurity-dev-machine-guard.exe
 ```
 
 ### Build from source
@@ -87,8 +103,8 @@ stepsecurity-dev-machine-guard [COMMAND] [OPTIONS]
 | _(none)_         | Run a scan (community mode, pretty output)                      |
 | `configure`      | Interactively set all settings (enterprise, scan, output)       |
 | `configure show` | Show current configuration (API key masked)                     |
-| `install`        | Install launchd for periodic scanning (enterprise)              |
-| `uninstall`      | Remove launchd configuration (enterprise)                       |
+| `install`        | Install scheduled scanning — launchd (macOS) or schtasks (Windows) |
+| `uninstall`      | Remove scheduled scanning configuration                        |
 | `send-telemetry` | Upload scan results to the StepSecurity dashboard (enterprise)  |
 
 ### Output Formats
@@ -151,7 +167,7 @@ count=$(./stepsecurity-dev-machine-guard --json | jq '.summary.mcp_configs_count
 # Enterprise: view saved configuration (API key masked)
 ./stepsecurity-dev-machine-guard configure show
 
-# Enterprise: install scheduled scanning via launchd
+# Enterprise: install scheduled scanning (launchd on macOS, schtasks on Windows)
 ./stepsecurity-dev-machine-guard install
 
 # Enterprise: one-time telemetry upload
@@ -281,7 +297,7 @@ See [examples/sample-output.json](examples/sample-output.json) for the full sche
 | Interactive configuration     |       Yes        |    Yes     |
 | Centralized dashboard         |                  |    Yes     |
 | Policy enforcement & alerting |                  |    Yes     |
-| Scheduled scans via launchd   |                  |    Yes     |
+| Scheduled scans (launchd / schtasks) |           |    Yes     |
 | Historical trends & reporting |                  |    Yes     |
 
 Enterprise mode requires a StepSecurity subscription. [Start a 14-day free trial](https://www.stepsecurity.io/start-free) by installing the StepSecurity GitHub App.
@@ -292,7 +308,7 @@ Enterprise mode requires a StepSecurity subscription. [Start a 14-day free trial
 # 1. Configure credentials (interactive)
 ./stepsecurity-dev-machine-guard configure
 
-# 2. Install scheduled scanning via launchd
+# 2. Install scheduled scanning (launchd on macOS, schtasks on Windows)
 ./stepsecurity-dev-machine-guard install
 
 # 3. Or run a one-time telemetry upload
@@ -315,9 +331,11 @@ Dev Machine Guard is a single compiled binary that scans your developer environm
 **What it collects:**
 
 - Installed IDEs, AI tools, and their versions
-- IDE extension names, publishers, and versions
+- IDE extension names, publishers, and versions (VS Code, Cursor)
 - MCP server configuration (server names and commands only)
 - Node.js package listings (opt-in)
+
+Platform-specific detection methods are used where appropriate (e.g., `/Applications/` on macOS, `%LOCALAPPDATA%` and Windows Registry on Windows, `$PATH` lookups on all platforms).
 
 **What it does NOT collect:**
 
@@ -357,7 +375,7 @@ internal/
 ├── buildinfo/     # Version and build metadata
 ├── cli/           # Argument parser
 ├── config/        # Configuration file management and configure command
-├── detector/      # All scanners (IDE, AI CLI, agents, frameworks, MCP, extensions, Node.js)
+├── detector/      # All scanners (IDE, AI CLI, agents, frameworks, MCP, extensions, Node.js) — cross-platform
 ├── device/        # Device info (hostname, serial, OS version)
 ├── executor/      # OS abstraction interface (enables mocked unit tests)
 ├── launchd/       # macOS launchd install/uninstall
@@ -366,6 +384,7 @@ internal/
 ├── output/        # Formatters (JSON, pretty, HTML)
 ├── progress/      # Progress spinner and logging
 ├── scan/          # Community mode orchestrator
+├── schtasks/      # Windows Task Scheduler install/uninstall
 └── telemetry/     # Enterprise mode orchestrator and S3 upload
 ```
 
@@ -383,9 +402,11 @@ Dev Machine Guard fills the gap by inventorying what is actually running in your
 
 ## Known Limitations
 
-- **macOS only** (for now). Windows support is on the roadmap.
+- **macOS and Windows** have full support with pre-built release binaries. Linux can be built from source but does not have pre-built release binaries or IDE application detection.
+- **IDE extension scanning** currently covers VS Code and Cursor. JetBrains, Eclipse, and other IDEs are on the roadmap.
 - **Node.js package scanning** is opt-in and results are basic (package manager detection and project count). Full dependency tree analysis is available in enterprise mode.
 - **MCP config auditing** shows which tools have MCP configs (source, vendor, and config path) but does not display config file contents in community mode. Enterprise mode sends filtered config data (server names and commands only, no secrets) to the dashboard.
+- **Scheduled scanning** uses launchd on macOS and Task Scheduler on Windows. Linux scheduled scanning (systemd) is on the roadmap.
 
 ## Roadmap
 
