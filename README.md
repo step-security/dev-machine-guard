@@ -34,8 +34,8 @@ Developer machines are the new attack surface. They hold high-value assets — G
 | IDE extension audit         |           |        Yes        |
 | AI agent & tool inventory   |           |        Yes        |
 | MCP server config audit     |           |        Yes        |
-| Node.js package scanning    |           |        Yes        |
-| Cross-platform support      |    Yes    |        Yes        |
+| Package scanning (Node.js, Homebrew, Python, system) |  |  Yes  |
+| Cross-platform (macOS, Windows, Linux) | Yes | Yes        |
 | Device posture & compliance |    Yes    |                   |
 | Malware / virus detection   |    Yes    |                   |
 
@@ -79,6 +79,23 @@ Invoke-WebRequest -Uri "https://github.com/step-security/dev-machine-guard/relea
 .\stepsecurity-dev-machine-guard.exe
 ```
 
+**Linux:**
+
+```bash
+# x64
+curl -sSL https://github.com/step-security/dev-machine-guard/releases/latest/download/stepsecurity-dev-machine-guard_linux_amd64 -o stepsecurity-dev-machine-guard
+chmod +x stepsecurity-dev-machine-guard
+
+# ARM64
+curl -sSL https://github.com/step-security/dev-machine-guard/releases/latest/download/stepsecurity-dev-machine-guard_linux_arm64 -o stepsecurity-dev-machine-guard
+chmod +x stepsecurity-dev-machine-guard
+
+# Run the scan
+./stepsecurity-dev-machine-guard
+```
+
+Pre-built `.deb` and `.rpm` packages are also available on the [releases page](https://github.com/step-security/dev-machine-guard/releases).
+
 ### Build from source
 
 ```bash
@@ -103,8 +120,8 @@ stepsecurity-dev-machine-guard [COMMAND] [OPTIONS]
 | _(none)_         | Run a scan (community mode, pretty output)                      |
 | `configure`      | Interactively set all settings (enterprise, scan, output)       |
 | `configure show` | Show current configuration (API key masked)                     |
-| `install`        | Install scheduled scanning — launchd (macOS) or schtasks (Windows) |
-| `uninstall`      | Remove scheduled scanning configuration                        |
+| `install`        | Install scheduled scanning — launchd (macOS), systemd (Linux), schtasks (Windows) |
+| `uninstall`      | Remove scheduled scanning configuration                                           |
 | `send-telemetry` | Upload scan results to the StepSecurity dashboard (enterprise)  |
 
 ### Output Formats
@@ -122,7 +139,13 @@ stepsecurity-dev-machine-guard [COMMAND] [OPTIONS]
 | `--search-dirs DIR [DIR...]` | Search DIRs instead of `$HOME` (replaces default; repeatable) |
 | `--enable-npm-scan`          | Enable Node.js package scanning                               |
 | `--disable-npm-scan`         | Disable Node.js package scanning                              |
-| `--verbose`                  | Show progress messages (suppressed by default)                |
+| `--enable-brew-scan`         | Enable Homebrew package scanning                              |
+| `--disable-brew-scan`        | Disable Homebrew package scanning                             |
+| `--enable-python-scan`       | Enable Python package scanning                                |
+| `--disable-python-scan`      | Disable Python package scanning                               |
+| `--include-bundled-plugins`  | Include bundled/platform IDE plugins in output                |
+| `--log-level=LEVEL`          | Log level: `error` \| `warn` \| `info` \| `debug`             |
+| `--verbose`                  | Shortcut for `--log-level=debug`                              |
 | `--color=WHEN`               | Color mode: `auto` \| `always` \| `never` (default: `auto`)   |
 | `-v`, `--version`            | Show version                                                  |
 | `-h`, `--help`               | Show help                                                     |
@@ -167,7 +190,7 @@ count=$(./stepsecurity-dev-machine-guard --json | jq '.summary.mcp_configs_count
 # Enterprise: view saved configuration (API key masked)
 ./stepsecurity-dev-machine-guard configure show
 
-# Enterprise: install scheduled scanning (launchd on macOS, schtasks on Windows)
+# Enterprise: install scheduled scanning (launchd / systemd / schtasks)
 ./stepsecurity-dev-machine-guard install
 
 # Enterprise: one-time telemetry upload
@@ -192,13 +215,15 @@ This interactively prompts for all configurable settings:
 | Customer ID        | Your StepSecurity customer identifier       | _(not set)_     |
 | API Endpoint       | StepSecurity backend URL                    | _(not set)_     |
 | API Key            | Authentication key for telemetry uploads    | _(not set)_     |
-| Scan Frequency     | How often launchd runs scans (hours)        | _(not set)_     |
+| Scan Frequency     | How often scheduled scans run (hours)       | _(not set)_     |
 | Search Directories | Comma-separated list of directories to scan | `$HOME`         |
 | Enable NPM Scan    | Node.js package scanning                    | `auto`          |
+| Enable Brew Scan   | Homebrew package scanning                   | `auto`          |
+| Enable Python Scan | Python package scanning                     | `auto`          |
 | Color Mode         | Terminal color output                       | `auto`          |
 | Output Format      | Default output format                       | `pretty`        |
 | HTML Output File   | Default path for HTML reports               | _(not set)_     |
-| Quiet Mode         | Suppress progress messages                  | `false`         |
+| Log Level          | Logging verbosity                           | `error`         |
 
 View current settings:
 
@@ -215,16 +240,18 @@ Configuration (~/.stepsecurity/config.json):
   Scan Frequency:          4 hours
   Search Directories:      $HOME, /Volumes/code
   Enable NPM Scan:         auto
+  Enable Brew Scan:        auto
+  Enable Python Scan:      auto
   Color Mode:              auto
   Output Format:           pretty
-  Quiet Mode:              false
+  Log Level:               error
 ```
 
 Configuration is saved to `~/.stepsecurity/config.json` with `0600` permissions (owner read/write only).
 
 **CLI flags always override config file values** — this matches the shell script behavior. For example, if your config has `output_format: json`, running `./stepsecurity-dev-machine-guard --pretty` uses pretty output. To clear a value during configuration, enter a single dash (`-`).
 
-### Verbose and Quiet Mode
+### Logging and Verbose Mode
 
 By default in community mode, progress messages (spinners, step details) are **suppressed** — you only see the final output. This keeps stdout clean for piping.
 
@@ -235,25 +262,31 @@ By default in community mode, progress messages (spinners, step details) are **s
 # Verbose: show progress spinners and step timing
 ./stepsecurity-dev-machine-guard --verbose
 
-# Save quiet=true in config so it persists across runs
+# Fine-grained control: set log level
+./stepsecurity-dev-machine-guard --log-level=info
+
+# Save log level in config so it persists across runs
 ./stepsecurity-dev-machine-guard configure
 ```
 
-In enterprise mode (`send-telemetry`, `install`), progress is **always shown** regardless of the quiet setting — the output is captured as execution logs and sent to the backend for debugging.
+In enterprise mode (`send-telemetry`, `install`), progress is **always shown** regardless of the log level — the output is captured as execution logs and sent to the backend for debugging.
 
 ## What It Detects
 
 See [SCAN_COVERAGE.md](SCAN_COVERAGE.md) for the full catalog of supported detections.
 
-| Category            | Examples                                                                                 |
-| ------------------- | ---------------------------------------------------------------------------------------- |
-| IDEs & Desktop Apps | VS Code, Cursor, Windsurf, Antigravity, Zed, Claude, Copilot                             |
-| AI CLI Tools        | Claude Code, Codex, Gemini CLI, Kiro, GitHub Copilot CLI, Aider, OpenCode                |
-| AI Agents           | Claude Cowork, OpenClaw, ClawdBot, GPT-Engineer                                          |
-| AI Frameworks       | Ollama, LM Studio, LocalAI, Text Generation WebUI                                        |
-| MCP Server Configs  | Claude Desktop, Claude Code, Cursor, Windsurf, Antigravity, Zed, Open Interpreter, Codex |
-| IDE Extensions      | VS Code, Cursor (name, publisher, version, install date)                                 |
-| Node.js Packages    | npm, yarn, pnpm, bun (opt-in)                                                            |
+| Category             | Examples                                                                                 |
+| -------------------- | ---------------------------------------------------------------------------------------- |
+| IDEs & Desktop Apps  | VS Code, Cursor, Windsurf, Antigravity, Zed, Claude, Copilot, JetBrains suite (13 IDEs), Eclipse, Android Studio |
+| AI CLI Tools         | Claude Code, Codex, Gemini CLI, Kiro, GitHub Copilot CLI, Aider, OpenCode, Cursor Agent  |
+| AI Agents            | Claude Cowork, OpenClaw, ClawdBot, GPT-Engineer                                          |
+| AI Frameworks        | Ollama, LM Studio, LocalAI, Text Generation WebUI                                        |
+| MCP Server Configs   | Claude Desktop, Claude Code, Cursor, Windsurf, Antigravity, Zed, Open Interpreter, Codex |
+| IDE Extensions       | VS Code, Cursor, Windsurf, Antigravity, JetBrains, Eclipse, Xcode, Android Studio        |
+| Node.js Packages     | npm, yarn, pnpm, bun (opt-in)                                                            |
+| Homebrew Packages    | Formulae and casks with rich metadata (opt-in)                                            |
+| Python Packages      | pip, poetry, pipenv, uv, conda, rye (opt-in)                                             |
+| System Packages      | rpm, dpkg, pacman, apk, snap, flatpak (Linux)                                            |
 
 ## Output Formats
 
@@ -293,11 +326,12 @@ See [examples/sample-output.json](examples/sample-output.json) for the full sche
 | IDE extension scanning        |       Yes        |    Yes     |
 | MCP server config audit       |       Yes        |    Yes     |
 | Pretty / JSON / HTML output   |       Yes        |    Yes     |
-| Node.js package scanning      |      Opt-in      | Default on |
+| Package scanning (Node.js, Homebrew, Python) | Opt-in | Default on |
+| System package scanning (Linux) |    Yes     |    Yes     |
 | Interactive configuration     |       Yes        |    Yes     |
 | Centralized dashboard         |                  |    Yes     |
 | Policy enforcement & alerting |                  |    Yes     |
-| Scheduled scans (launchd / schtasks) |           |    Yes     |
+| Scheduled scans (launchd / systemd / schtasks) | |   Yes     |
 | Historical trends & reporting |                  |    Yes     |
 
 Enterprise mode requires a StepSecurity subscription. [Start a 14-day free trial](https://www.stepsecurity.io/start-free) by installing the StepSecurity GitHub App.
@@ -308,7 +342,7 @@ Enterprise mode requires a StepSecurity subscription. [Start a 14-day free trial
 # 1. Configure credentials (interactive)
 ./stepsecurity-dev-machine-guard configure
 
-# 2. Install scheduled scanning (launchd on macOS, schtasks on Windows)
+# 2. Install scheduled scanning (launchd on macOS, systemd on Linux, schtasks on Windows)
 ./stepsecurity-dev-machine-guard install
 
 # 3. Or run a one-time telemetry upload
@@ -331,11 +365,11 @@ Dev Machine Guard is a single compiled binary that scans your developer environm
 **What it collects:**
 
 - Installed IDEs, AI tools, and their versions
-- IDE extension names, publishers, and versions (VS Code, Cursor)
+- IDE extension/plugin names, publishers, and versions (VS Code, Cursor, Windsurf, Antigravity, JetBrains, Eclipse, Xcode, Android Studio)
 - MCP server configuration (server names and commands only)
-- Node.js package listings (opt-in)
+- Node.js, Homebrew, Python, and system package listings (opt-in)
 
-Platform-specific detection methods are used where appropriate (e.g., `/Applications/` on macOS, `%LOCALAPPDATA%` and Windows Registry on Windows, `$PATH` lookups on all platforms).
+Detection uses platform-specific methods: `/Applications/` and `Info.plist` on macOS, `%LOCALAPPDATA%`/`%PROGRAMFILES%` and Windows Registry on Windows, `/opt`/`/usr/share`/`.desktop` files on Linux, and `$PATH` lookups on all platforms.
 
 **What it does NOT collect:**
 
@@ -385,6 +419,7 @@ internal/
 ├── progress/      # Progress spinner and logging
 ├── scan/          # Community mode orchestrator
 ├── schtasks/      # Windows Task Scheduler install/uninstall
+├── systemd/       # Linux systemd user timer install/uninstall
 └── telemetry/     # Enterprise mode orchestrator and S3 upload
 ```
 
@@ -402,11 +437,9 @@ Dev Machine Guard fills the gap by inventorying what is actually running in your
 
 ## Known Limitations
 
-- **macOS and Windows** have full support with pre-built release binaries. Linux can be built from source but does not have pre-built release binaries or IDE application detection.
-- **IDE extension scanning** currently covers VS Code and Cursor. JetBrains, Eclipse, and other IDEs are on the roadmap.
-- **Node.js package scanning** is opt-in and results are basic (package manager detection and project count). Full dependency tree analysis is available in enterprise mode.
+- **Package scanning** (Node.js, Homebrew, Python) is opt-in in community mode and results are basic (package manager detection and package/project lists). Full dependency tree analysis is available in enterprise mode.
 - **MCP config auditing** shows which tools have MCP configs (source, vendor, and config path) but does not display config file contents in community mode. Enterprise mode sends filtered config data (server names and commands only, no secrets) to the dashboard.
-- **Scheduled scanning** uses launchd on macOS and Task Scheduler on Windows. Linux scheduled scanning (systemd) is on the roadmap.
+- **System package scanning** (rpm, dpkg, pacman, apk, snap, flatpak) is Linux-only.
 
 ## Roadmap
 
