@@ -15,7 +15,7 @@ func (d *ExtensionDetector) DetectXcodeExtensions(ctx context.Context) []model.E
 		return nil
 	}
 	stdout, _, _, err := d.exec.RunWithTimeout(ctx, 10*time.Second,
-		"pluginkit", "-mAD", "-p", "com.apple.dt.Xcode.extension.source-editor")
+		"pluginkit", "-mAvD", "-p", "com.apple.dt.Xcode.extension.source-editor")
 	if err != nil {
 		return nil
 	}
@@ -41,27 +41,34 @@ func (d *ExtensionDetector) DetectXcodeExtensions(ctx context.Context) []model.E
 	return results
 }
 
-// parsePluginkitLine parses a line like:
-// "+    com.charcoaldesign.SwiftFormat-for-Xcode.SourceEditorExtension(0.60.1)"
+// parsePluginkitLine parses a verbose pluginkit line.
+// Non-verbose form (legacy): "+    com.charcoaldesign.SwiftFormat-for-Xcode.SourceEditorExtension(0.60.1)"
+// Verbose form (-v): "<status indent>bundleID(version)\tUUID\ttimestamp\t/path/to/Bundle.appex"
 func parsePluginkitLine(line string) *model.Extension {
-	// Strip leading +/- and whitespace
-	enabled := strings.HasPrefix(line, "+")
-	line = strings.TrimLeft(line, "+- \t")
-
-	if line == "" {
+	// Verbose output is tab-separated. The first field still carries the
+	// leading status indicator and indent ("+", "-", " "), which we strip.
+	fields := strings.Split(line, "\t")
+	header := strings.TrimLeft(fields[0], "+-. \t")
+	if header == "" {
 		return nil
 	}
 
 	// Split "bundleID(version)" — find first "(" since bundle IDs never contain parens
-	openIdx := strings.Index(line, "(")
-	if openIdx < 1 || !strings.HasSuffix(line, ")") {
+	openIdx := strings.Index(header, "(")
+	if openIdx < 1 || !strings.HasSuffix(header, ")") {
 		return nil
 	}
 
-	bundleID := line[:openIdx]
-	version := line[openIdx+1 : len(line)-1]
+	bundleID := header[:openIdx]
+	version := header[openIdx+1 : len(header)-1]
 	if version == "(null)" || version == "" {
 		version = "unknown"
+	}
+
+	// Verbose output: last tab-separated field is the bundle path.
+	var installPath string
+	if len(fields) >= 4 {
+		installPath = strings.TrimSpace(fields[len(fields)-1])
 	}
 
 	// Derive publisher from first two segments of bundle ID
@@ -80,15 +87,13 @@ func parsePluginkitLine(line string) *model.Extension {
 	name = strings.TrimSuffix(name, ".SourceEditorExtension")
 	name = strings.TrimSuffix(name, ".Extension")
 
-	source := "user_installed"
-	_ = enabled // all Xcode extensions are user-installed
-
 	return &model.Extension{
-		ID:        bundleID,
-		Name:      name,
-		Version:   version,
-		Publisher: publisher,
-		IDEType:   "xcode",
-		Source:    source,
+		ID:          bundleID,
+		Name:        name,
+		Version:     version,
+		Publisher:   publisher,
+		InstallPath: installPath,
+		IDEType:     "xcode",
+		Source:      "user_installed",
 	}
 }

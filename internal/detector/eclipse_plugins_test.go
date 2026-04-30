@@ -3,6 +3,7 @@ package detector
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -67,7 +68,7 @@ com.anthropic.claudecode.eclipse,2.3.11,file:/plugins/com.anthropic.claudecode.e
 `))
 
 	det := &ExtensionDetector{exec: mock}
-	results := det.parseEclipseBundlesInfo("/test/bundles.info")
+	results := det.parseEclipseBundlesInfo("/test/bundles.info", "/eclipse")
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 bundles, got %d", len(results))
@@ -79,6 +80,9 @@ com.anthropic.claudecode.eclipse,2.3.11,file:/plugins/com.anthropic.claudecode.e
 	if results[0].Source != "bundled" {
 		t.Errorf("expected bundled, got %s", results[0].Source)
 	}
+	if results[0].InstallPath != "/plugins/org.eclipse.platform_4.39.0.jar" {
+		t.Errorf("expected install path /plugins/org.eclipse.platform_4.39.0.jar, got %s", results[0].InstallPath)
+	}
 
 	if results[1].ID != "com.anthropic.claudecode.eclipse" {
 		t.Errorf("expected com.anthropic.claudecode.eclipse, got %s", results[1].ID)
@@ -86,14 +90,55 @@ com.anthropic.claudecode.eclipse,2.3.11,file:/plugins/com.anthropic.claudecode.e
 	if results[1].Source != "user_installed" {
 		t.Errorf("expected user_installed, got %s", results[1].Source)
 	}
+	if results[1].InstallPath != "/plugins/com.anthropic.claudecode.eclipse_2.3.11.jar" {
+		t.Errorf("expected install path /plugins/com.anthropic.claudecode.eclipse_2.3.11.jar, got %s", results[1].InstallPath)
+	}
 }
 
 func TestParseEclipseBundlesInfo_MissingFile(t *testing.T) {
 	mock := executor.NewMock()
 	det := &ExtensionDetector{exec: mock}
-	results := det.parseEclipseBundlesInfo("/nonexistent")
+	results := det.parseEclipseBundlesInfo("/nonexistent", "")
 	if len(results) != 0 {
 		t.Errorf("expected 0, got %d", len(results))
+	}
+}
+
+// TestResolveBundleLocation_WindowsFileURI guards against a real bug observed
+// on Windows where Eclipse writes locations as "file:/C:/path/..." — after the
+// "file:" prefix is stripped, the leading slash before "C:" is a URI artifact.
+// Before the fix, filepath.IsAbs returned false on Windows for this form and
+// the code joined the (already absolute) path onto installDir, producing
+// e.g. "C:\install\C:\path\foo.jar".
+func TestResolveBundleLocation_WindowsFileURI(t *testing.T) {
+	cases := []struct {
+		name string
+		loc  string
+		want string
+	}{
+		{
+			name: "windows file URI with single slash",
+			loc:  "reference:file:/C:/Users/Administrator/.p2/pool/plugins/bcpg_1.83.0.jar",
+			want: filepath.Clean("C:/Users/Administrator/.p2/pool/plugins/bcpg_1.83.0.jar"),
+		},
+		{
+			name: "windows file URI with backslash drive separator",
+			loc:  `reference:file:/C:\path\to\plugin.jar`,
+			want: filepath.Clean(`C:\path\to\plugin.jar`),
+		},
+		{
+			name: "unix absolute path stays absolute",
+			loc:  "reference:file:/usr/local/eclipse/plugins/foo.jar",
+			want: filepath.Clean("/usr/local/eclipse/plugins/foo.jar"),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveBundleLocation(tc.loc, `C:\eclipse`)
+			if got != tc.want {
+				t.Errorf("resolveBundleLocation(%q, C:\\eclipse) = %q, want %q", tc.loc, got, tc.want)
+			}
+		})
 	}
 }
 

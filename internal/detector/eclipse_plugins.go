@@ -297,7 +297,7 @@ func (d *ExtensionDetector) enumerateEclipsePlugins(ctx context.Context, install
 		// A bundle belongs to a marketplace feature if its ID starts with any marketplace root prefix.
 		bundlesInfo := filepath.Join(installDir, "configuration",
 			"org.eclipse.equinox.simpleconfigurator", "bundles.info")
-		for _, ext := range d.parseEclipseBundlesInfo(bundlesInfo) {
+		for _, ext := range d.parseEclipseBundlesInfo(bundlesInfo, installDir) {
 			key := ext.ID + "@" + ext.Version
 			if seen[key] {
 				continue
@@ -316,7 +316,7 @@ func (d *ExtensionDetector) enumerateEclipsePlugins(ctx context.Context, install
 		// Fallback: bundles.info parsing (p2 director unavailable)
 		bundlesInfo := filepath.Join(installDir, "configuration",
 			"org.eclipse.equinox.simpleconfigurator", "bundles.info")
-		for _, ext := range d.parseEclipseBundlesInfo(bundlesInfo) {
+		for _, ext := range d.parseEclipseBundlesInfo(bundlesInfo, installDir) {
 			key := ext.ID + "@" + ext.Version
 			if !seen[key] {
 				seen[key] = true
@@ -392,21 +392,63 @@ func (d *ExtensionDetector) queryP2InstalledRoots(ctx context.Context, installDi
 		}
 
 		results = append(results, model.Extension{
-			ID:        featureID,
-			Name:      featureID,
-			Version:   version,
-			Publisher: extractPublisher(featureID),
-			IDEType:   "eclipse",
-			Source:    source,
+			ID:          featureID,
+			Name:        featureID,
+			Version:     version,
+			Publisher:   extractPublisher(featureID),
+			InstallPath: d.resolveEclipseFeaturePath(installDir, featureID, version),
+			IDEType:     "eclipse",
+			Source:      source,
 		})
 	}
 
 	return results
 }
 
+// resolveEclipseFeaturePath returns the on-disk path of an Eclipse feature.
+//
+// The p2 director reports IDs with a ".feature.group" suffix and a coarse
+// version (e.g. "3.20.0"); on disk Eclipse stores features at either
+// <installDir>/features/<baseID>_<fullVersion> or, with shared bundle pools
+// (Oomph installer default), <userHome>/.p2/pool/features/<baseID>_<fullVersion>
+// where fullVersion includes the build qualifier (e.g. "3.20.500.v20260226-0420").
+//
+// We probe both locations and glob on the version prefix to tolerate the
+// qualifier mismatch. Falls back to installDir if no match is found.
+func (d *ExtensionDetector) resolveEclipseFeaturePath(installDir, featureID, version string) string {
+	if installDir == "" {
+		return ""
+	}
+	baseID := strings.TrimSuffix(featureID, ".feature.group")
+
+	candidateRoots := []string{
+		filepath.Join(installDir, "features"),
+	}
+	if home := getHomeDir(d.exec); home != "" {
+		candidateRoots = append(candidateRoots, filepath.Join(home, ".p2", "pool", "features"))
+	}
+
+	for _, root := range candidateRoots {
+		// Exact match first (cheaper than a glob).
+		exact := filepath.Join(root, baseID+"_"+version)
+		if d.exec.DirExists(exact) {
+			return exact
+		}
+		// Glob on version prefix to tolerate build-qualifier mismatch
+		// (p2 reports 3.20.0, on-disk dir is 3.20.500.v20260226-0420).
+		matches, err := d.exec.Glob(filepath.Join(root, baseID+"_"+version+"*"))
+		if err == nil && len(matches) > 0 {
+			return matches[0]
+		}
+	}
+	return installDir
+}
+
 // parseEclipseBundlesInfo reads an Eclipse bundles.info file.
 // Format: id,version,location,startLevel,autoStart (one per line, # comments)
-func (d *ExtensionDetector) parseEclipseBundlesInfo(filePath string) []model.Extension {
+// The location column may be a "reference:file:..." URI or a path relative to
+// installDir; both are normalized to an absolute path for InstallPath.
+func (d *ExtensionDetector) parseEclipseBundlesInfo(filePath, installDir string) []model.Extension {
 	data, err := d.exec.ReadFile(filePath)
 	if err != nil {
 		return nil
@@ -436,17 +478,79 @@ func (d *ExtensionDetector) parseEclipseBundlesInfo(filePath string) []model.Ext
 			source = "bundled"
 		}
 
+		var installPath string
+		if len(parts) >= 3 {
+			installPath = resolveBundleLocation(strings.TrimSpace(parts[2]), installDir)
+		}
+
 		results = append(results, model.Extension{
-			ID:        pluginID,
-			Name:      pluginID,
-			Version:   version,
-			Publisher: publisher,
-			IDEType:   "eclipse",
-			Source:    source,
+			ID:          pluginID,
+			Name:        pluginID,
+			Version:     version,
+			Publisher:   publisher,
+			InstallPath: installPath,
+			IDEType:     "eclipse",
+			Source:      source,
 		})
 	}
 
 	return results
+}
+
+// resolveBundleLocation normalizes a bundles.info location entry to an absolute
+// path. Handles "reference:file:..." and "file:..." URIs and resolves relative
+// paths against installDir.
+//
+// Windows file URIs take the form "file:/C:/path/..." — after the "file:"
+// prefix is stripped, the leading slash before the drive letter is a URI
+// artifact (not a path component) and must be removed.
+//
+// Absolute-path detection is done explicitly (Unix-style "/..." and Windows
+// drive-letter "C:\..." or "C:/...") rather than via filepath.IsAbs so that
+// the cross-platform binary behaves consistently regardless of build host.
+func resolveBundleLocation(loc, installDir string) string {
+	if loc == "" {
+		return ""
+	}
+	loc = strings.TrimPrefix(loc, "reference:")
+	loc = strings.TrimPrefix(loc, "file:")
+	if loc == "" {
+		return ""
+	}
+	// Strip leading slash before a Windows drive letter (file URI artifact).
+	if len(loc) >= 4 && (loc[0] == '/' || loc[0] == '\\') &&
+		isASCIILetter(loc[1]) && loc[2] == ':' &&
+		(loc[3] == '/' || loc[3] == '\\') {
+		loc = loc[1:]
+	}
+	if isAbsolutePath(loc) {
+		return filepath.Clean(loc)
+	}
+	if installDir == "" {
+		return filepath.Clean(loc)
+	}
+	return filepath.Clean(filepath.Join(installDir, loc))
+}
+
+// isAbsolutePath returns true for both Unix-style and Windows-style absolute
+// paths regardless of host OS. Used in place of filepath.IsAbs so cross-platform
+// inputs (e.g. Windows paths read on a macOS test runner) classify correctly.
+func isAbsolutePath(p string) bool {
+	if p == "" {
+		return false
+	}
+	if p[0] == '/' || p[0] == '\\' {
+		return true
+	}
+	// Windows drive letter: e.g. C:\ or C:/
+	if len(p) >= 3 && isASCIILetter(p[0]) && p[1] == ':' && (p[2] == '/' || p[2] == '\\') {
+		return true
+	}
+	return false
+}
+
+func isASCIILetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 // collectDropins scans the dropins/ directory for additional plugins.
@@ -469,6 +573,7 @@ func (d *ExtensionDetector) collectDropins(dropinsDir string) []model.Extension 
 		if !entry.IsDir() && strings.HasSuffix(name, ".jar") {
 			if ext := parseEclipsePluginName(strings.TrimSuffix(name, ".jar")); ext != nil {
 				ext.Source = "dropins"
+				ext.InstallPath = filepath.Join(dropinsDir, name)
 				results = append(results, *ext)
 			}
 			continue
@@ -481,6 +586,7 @@ func (d *ExtensionDetector) collectDropins(dropinsDir string) []model.Extension 
 		// Directory bundle: dropins/com.example.plugin_1.0.0/
 		if ext := parseEclipsePluginName(name); ext != nil {
 			ext.Source = "dropins"
+			ext.InstallPath = filepath.Join(dropinsDir, name)
 			results = append(results, *ext)
 			continue
 		}
@@ -502,6 +608,7 @@ func (d *ExtensionDetector) collectDropins(dropinsDir string) []model.Extension 
 				baseName := strings.TrimSuffix(ne.Name(), ".jar")
 				if ext := parseEclipsePluginName(baseName); ext != nil {
 					ext.Source = "dropins"
+					ext.InstallPath = filepath.Join(nested, ne.Name())
 					results = append(results, *ext)
 				}
 			}
@@ -554,6 +661,7 @@ func (d *ExtensionDetector) collectEclipseFeatures(featuresDir string) []model.E
 		}
 
 		path := filepath.Join(featuresDir, name)
+		ext.InstallPath = path
 		info, err := d.exec.Stat(path)
 		if err == nil {
 			ext.InstallDate = info.ModTime().Unix()

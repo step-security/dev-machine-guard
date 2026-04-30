@@ -93,8 +93,11 @@ func (d *ExtensionDetector) collectFromDir(extDir, ideType string) []model.Exten
 		// VS Code-style extensions are always user-installed
 		ext.Source = "user_installed"
 
+		extPath := filepath.Join(extDir, dirname)
+		ext.InstallPath = extPath
+
 		// Get install date from directory modification time
-		info, err := d.exec.Stat(filepath.Join(extDir, dirname))
+		info, err := d.exec.Stat(extPath)
 		if err == nil {
 			ext.InstallDate = info.ModTime().Unix()
 		}

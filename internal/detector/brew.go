@@ -104,6 +104,7 @@ func (d *BrewDetector) ListFormulaeRich(ctx context.Context) []model.BrewPackage
 	if err == nil && exitCode == 0 {
 		pkgs, parseErr := parseBrewInfoJSON(stdout, "formula")
 		if parseErr == nil && len(pkgs) > 0 {
+			d.populateBrewInstallPaths(pkgs, "formula")
 			return pkgs
 		}
 	}
@@ -114,6 +115,7 @@ func (d *BrewDetector) ListFormulaeRich(ctx context.Context) []model.BrewPackage
 		return nil
 	}
 	d.enrichFromReceipts(pkgs, "formula")
+	d.populateBrewInstallPaths(pkgs, "formula")
 	return pkgs
 }
 
@@ -125,6 +127,7 @@ func (d *BrewDetector) ListCasksRich(ctx context.Context) []model.BrewPackage {
 	if err == nil && exitCode == 0 {
 		pkgs, parseErr := parseBrewInfoJSON(stdout, "cask")
 		if parseErr == nil && len(pkgs) > 0 {
+			d.populateBrewInstallPaths(pkgs, "cask")
 			return pkgs
 		}
 	}
@@ -134,7 +137,28 @@ func (d *BrewDetector) ListCasksRich(ctx context.Context) []model.BrewPackage {
 		return nil
 	}
 	d.enrichFromReceipts(pkgs, "cask")
+	d.populateBrewInstallPaths(pkgs, "cask")
 	return pkgs
+}
+
+// populateBrewInstallPaths fills in InstallPath using brew's standard layout.
+// Formula: <prefix>/Cellar/<name>/<version>
+// Cask:    <prefix>/Caskroom/<token>
+func (d *BrewDetector) populateBrewInstallPaths(pkgs []model.BrewPackage, kind string) {
+	prefix := d.brewPrefix()
+	if prefix == "" {
+		return
+	}
+	for i := range pkgs {
+		if pkgs[i].InstallPath != "" {
+			continue
+		}
+		if kind == "formula" {
+			pkgs[i].InstallPath = prefix + "/Cellar/" + pkgs[i].Name + "/" + pkgs[i].Version
+		} else {
+			pkgs[i].InstallPath = prefix + "/Caskroom/" + pkgs[i].Name
+		}
+	}
 }
 
 // enrichFromReceipts reads INSTALL_RECEIPT.json from disk and populates
