@@ -240,8 +240,9 @@ func (d *SystemPkgDetector) ListSnapPackages(ctx context.Context) []model.System
 			continue
 		}
 		pkg := model.SystemPackage{
-			Name:    fields[0],
-			Version: fields[1],
+			Name:        fields[0],
+			Version:     fields[1],
+			InstallPath: "/snap/" + fields[0] + "/current",
 		}
 		// Rev is column 3 (index 2) — skip, low value
 		// Tracking (channel) is column 4 (index 3)
@@ -327,9 +328,37 @@ func (d *SystemPkgDetector) ListFlatpakPackages(ctx context.Context) []model.Sys
 		if len(parts) >= 9 && parts[8] != "" {
 			pkg.Runtime = parts[8] // e.g. "org.freedesktop.Platform/x86_64/24.08"
 		}
+		pkg.InstallPath = d.resolveFlatpakInstallPath(pkg.Name)
 		packages = append(packages, pkg)
 	}
 	return packages
+}
+
+// resolveFlatpakInstallPath returns the on-disk path for a flatpak app ID.
+// User installs (~/.local/share/flatpak/app/<id>) take precedence over system
+// installs (/var/lib/flatpak/app/<id>). Returns the user path as a default if
+// neither directory is observable, since user-scope is the more common case
+// and the path is still useful for telemetry consumers.
+func (d *SystemPkgDetector) resolveFlatpakInstallPath(appID string) string {
+	if appID == "" {
+		return ""
+	}
+	if home := getHomeDir(d.exec); home != "" {
+		userPath := home + "/.local/share/flatpak/app/" + appID
+		if d.exec.DirExists(userPath) {
+			return userPath
+		}
+	}
+	systemPath := "/var/lib/flatpak/app/" + appID
+	if d.exec.DirExists(systemPath) {
+		return systemPath
+	}
+	// Fall back to user-scope path even if not observable — keeps the field
+	// populated, and the most common flatpak install scope is per-user.
+	if home := getHomeDir(d.exec); home != "" {
+		return home + "/.local/share/flatpak/app/" + appID
+	}
+	return systemPath
 }
 
 // ---------- Per-PM line parsers ----------
