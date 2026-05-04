@@ -38,16 +38,17 @@ By auditing MCP configs, security teams gain visibility into which external tool
 
 Dev Machine Guard scans MCP configuration files for the following tools:
 
-| Tool | Config Path | Vendor |
-|------|-------------|--------|
-| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` | Anthropic |
-| Claude Code | `~/.claude/settings.json` | Anthropic |
-| Cursor | `~/.cursor/mcp.json` | Cursor |
-| Windsurf | `~/.codeium/windsurf/mcp_config.json` | Codeium |
-| Antigravity | `~/.gemini/antigravity/mcp_config.json` | Google |
-| Zed | `~/.config/zed/settings.json` | Zed |
-| Open Interpreter | `~/.config/open-interpreter/config.yaml` | Open Source |
-| Codex | `~/.codex/config.toml` | OpenAI |
+| Tool | macOS / Linux Path | Windows Path (if different) | Vendor |
+|------|--------------------|-----------------------------|--------|
+| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` | `%APPDATA%/Claude/claude_desktop_config.json` | Anthropic |
+| Claude Code | `~/.claude/settings.json` | _(same)_ | Anthropic |
+| Claude Code | `~/.claude.json` | _(same)_ | Anthropic |
+| Cursor | `~/.cursor/mcp.json` | _(same)_ | Cursor |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` | _(same)_ | Codeium |
+| Antigravity | `~/.gemini/antigravity/mcp_config.json` | _(same)_ | Google |
+| Zed | `~/.config/zed/settings.json` | _(same)_ | Zed |
+| Open Interpreter | `~/.config/open-interpreter/config.yaml` | _(same)_ | Open Source |
+| Codex | `~/.codex/config.toml` | _(same)_ | OpenAI |
 
 ---
 
@@ -69,7 +70,7 @@ The MCP audit is designed to provide **visibility without exposing secrets**.
 - **HTTP headers** (may contain authentication tokens)
 - **Any other sensitive fields** that are not directly related to server identification
 
-In the enterprise agent, a `jq` filter is applied to extract only the fields listed above before base64-encoding the config. If `jq` is not available, the raw config is encoded, but the StepSecurity backend applies the same filtering server-side.
+In the enterprise agent, a Go-native filter extracts only the fields listed above before base64-encoding the config. For JSON configs, only `mcpServers` / `context_servers` entries are kept, and within each server only `command`, `args`, `serverUrl`, and `url` fields are retained. Non-JSON configs (TOML, YAML) are included as-is.
 
 ---
 
