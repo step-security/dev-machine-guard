@@ -36,6 +36,9 @@ type Mock struct {
 
 	// Glob stubs
 	globs map[string][]string
+
+	// Symlink stubs: path -> resolved target
+	symlinks map[string]string
 }
 
 type cmdResult struct {
@@ -55,6 +58,7 @@ func NewMock() *Mock {
 		paths:     make(map[string]string),
 		env:       make(map[string]string),
 		globs:     make(map[string][]string),
+		symlinks:  make(map[string]string),
 		hostname:  "test-host",
 		username:  "testuser",
 		homeDir:   "/Users/testuser",
@@ -143,6 +147,15 @@ func (m *Mock) SetGlob(pattern string, matches []string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.globs[pattern] = matches
+}
+
+// SetSymlink stubs a symlink resolution: EvalSymlinks(path) -> target.
+// If a path is not registered, EvalSymlinks returns the path unchanged
+// (matching the behavior of filepath.EvalSymlinks on a non-symlink).
+func (m *Mock) SetSymlink(path, target string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.symlinks[path] = target
 }
 
 func (m *Mock) SetGOOS(goos string) {
@@ -273,6 +286,16 @@ func (m *Mock) Glob(pattern string) ([]string, error) {
 
 func (m *Mock) LoggedInUser() (*user.User, error) {
 	return m.CurrentUser()
+}
+
+func (m *Mock) EvalSymlinks(path string) (string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if target, ok := m.symlinks[path]; ok {
+		return target, nil
+	}
+	// Default: behave like a non-symlink — return the path unchanged.
+	return path, nil
 }
 
 func (m *Mock) GOOS() string {

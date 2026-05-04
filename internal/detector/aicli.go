@@ -127,18 +127,75 @@ func (d *AICLIDetector) Detect(ctx context.Context) []model.AITool {
 
 		version := d.getVersion(ctx, spec, binaryPath)
 		configDir := d.findConfigDir(spec, homeDir)
+		installPath := resolveInstallPath(d.exec, binaryPath)
 
 		results = append(results, model.AITool{
-			Name:       spec.Name,
-			Vendor:     spec.Vendor,
-			Type:       "cli_tool",
-			Version:    version,
-			BinaryPath: binaryPath,
-			ConfigDir:  configDir,
+			Name:        spec.Name,
+			Vendor:      spec.Vendor,
+			Type:        "cli_tool",
+			Version:     version,
+			BinaryPath:  binaryPath,
+			InstallPath: installPath,
+			ConfigDir:   configDir,
 		})
 	}
 
 	return results
+}
+
+// resolveInstallPath returns the on-disk install root for a CLI tool, given
+// the binary path that was found via PATH or a home-relative lookup.
+//
+// Many AI CLIs (claude-code, codex, opencode) ship as npm packages whose
+// binary is exposed as a tiny shim under /usr/local/bin/. The shim's symlink
+// target lives inside `node_modules/<scope>/<package>/...` — that directory
+// is what an investigator actually wants when they ask "where is claude
+// installed?". When we detect that pattern, return the package root.
+//
+// If symlink resolution fails or the resolved path doesn't sit inside a
+// node_modules tree, return the resolved real path (or the original path if
+// resolution failed) so we still surface a meaningful install location
+// instead of leaving the field empty.
+func resolveInstallPath(exec executor.Executor, binaryPath string) string {
+	if binaryPath == "" {
+		return ""
+	}
+	resolved, err := exec.EvalSymlinks(binaryPath)
+	if err != nil || resolved == "" {
+		resolved = binaryPath
+	}
+	if pkgRoot := nodeModulesPackageRoot(resolved); pkgRoot != "" {
+		return pkgRoot
+	}
+	return resolved
+}
+
+// nodeModulesPackageRoot walks up `path` looking for a `node_modules`
+// directory; if found, returns the package root (one or two levels deeper
+// depending on whether the package is scoped). Returns "" when the path
+// isn't inside a node_modules tree.
+//
+// Examples:
+//   /usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe
+//     -> /usr/local/lib/node_modules/@anthropic-ai/claude-code
+//   /home/user/.npm/lib/node_modules/opencode/bin/opencode
+//     -> /home/user/.npm/lib/node_modules/opencode
+func nodeModulesPackageRoot(path string) string {
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	for i := len(parts) - 1; i >= 0; i-- {
+		if parts[i] != "node_modules" {
+			continue
+		}
+		if i+1 >= len(parts) {
+			return ""
+		}
+		// Scoped package (`@scope/name`): take two segments past node_modules.
+		if strings.HasPrefix(parts[i+1], "@") && i+2 < len(parts) {
+			return filepath.FromSlash(strings.Join(parts[:i+3], "/"))
+		}
+		return filepath.FromSlash(strings.Join(parts[:i+2], "/"))
+	}
+	return ""
 }
 
 func (d *AICLIDetector) findBinary(ctx context.Context, spec cliToolSpec, homeDir string) (string, bool) {
@@ -174,11 +231,25 @@ func (d *AICLIDetector) getVersion(ctx context.Context, spec cliToolSpec, binary
 	if err != nil {
 		return "unknown"
 	}
-	lines := strings.SplitN(stdout, "\n", 2)
-	if len(lines) > 0 {
-		v := strings.TrimSpace(lines[0])
-		if v != "" {
-			return cleanVersionString(v)
+	return extractVersionFromOutput(stdout)
+}
+
+// extractVersionFromOutput finds the first line of `--version` output that
+// contains a version-shaped token, then returns that token.
+//
+// Tools that talk to a daemon (ollama, lm-studio CLI) prepend warnings to
+// their version output when the daemon isn't running, so we can't rely on the
+// first line. Walking line-by-line and skipping lines without a version token
+// keeps real version output ("codex-cli 0.118.0", "aider 0.86.2") working
+// while making the detector robust against decorated output.
+func extractVersionFromOutput(stdout string) string {
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if v := cleanVersionString(line); v != "unknown" {
+			return v
 		}
 	}
 	return "unknown"

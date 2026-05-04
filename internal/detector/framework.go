@@ -3,7 +3,6 @@ package detector
 import (
 	"context"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -77,14 +76,7 @@ func (d *FrameworkDetector) getVersion(ctx context.Context, binaryPath string) s
 	if err != nil {
 		return "unknown"
 	}
-	lines := strings.SplitN(stdout, "\n", 2)
-	if len(lines) > 0 {
-		v := strings.TrimSpace(lines[0])
-		if v != "" {
-			return v
-		}
-	}
-	return "unknown"
+	return extractVersionFromOutput(stdout)
 }
 
 func (d *FrameworkDetector) detectLMStudioApp(ctx context.Context) (model.AITool, bool) {

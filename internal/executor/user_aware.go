@@ -103,5 +103,8 @@ func (e *UserAwareExecutor) HomeDir(username string) (string, error) {
 	return e.inner.HomeDir(username)
 }
 func (e *UserAwareExecutor) Glob(pattern string) ([]string, error) { return e.inner.Glob(pattern) }
-func (e *UserAwareExecutor) LoggedInUser() (*user.User, error)     { return e.inner.LoggedInUser() }
-func (e *UserAwareExecutor) GOOS() string                          { return e.inner.GOOS() }
+func (e *UserAwareExecutor) EvalSymlinks(path string) (string, error) {
+	return e.inner.EvalSymlinks(path)
+}
+func (e *UserAwareExecutor) LoggedInUser() (*user.User, error) { return e.inner.LoggedInUser() }
+func (e *UserAwareExecutor) GOOS() string                      { return e.inner.GOOS() }
