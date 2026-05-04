@@ -231,6 +231,59 @@ func TestAICLIDetector_NonSymlinkInstallPath(t *testing.T) {
 	}
 }
 
+// TestAICLIDetector_ResolvesNpmShimOnWindows asserts that on Windows, where
+// npm installs `.cmd` shims rather than symlinks, the detector still surfaces
+// the node_modules package root as install_path by parsing the shim.
+func TestAICLIDetector_ResolvesNpmShimOnWindows(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	shim := `C:\Users\Administrator\AppData\Roaming\npm\claude.cmd`
+	mock.SetPath("claude", shim)
+	// cmd-shim layout: the shim references node_modules\<scope>\<pkg>\cli.js
+	// relative to its own directory (%dp0%).
+	shimBody := `@ECHO off
+GOTO start
+:find_dp0
+SET dp0=%~dp0
+EXIT /b
+:start
+SETLOCAL
+CALL :find_dp0
+
+IF EXIST "%dp0%\node.exe" (
+  SET "_prog=%dp0%\node.exe"
+) ELSE (
+  SET "_prog=node"
+  SET PATHEXT=%PATHEXT:;.JS;=;%
+)
+
+endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_modules\@anthropic-ai\claude-code\cli.js" %*
+`
+	mock.SetFile(shim, []byte(shimBody))
+	mock.SetCommand("2.1.98 (Claude Code)\n", "", 0, shim, "--version")
+
+	det := NewAICLIDetector(mock)
+	results := det.Detect(context.Background())
+
+	var got *model.AITool
+	for i, r := range results {
+		if r.Name == "claude-code" {
+			got = &results[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatal("claude-code not found")
+	}
+	wantInstall := `C:\Users\Administrator\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code`
+	if got.InstallPath != wantInstall {
+		t.Errorf("expected install_path %s (parsed from .cmd shim), got %s", wantInstall, got.InstallPath)
+	}
+	if got.BinaryPath != shim {
+		t.Errorf("expected binary_path %s, got %s", shim, got.BinaryPath)
+	}
+}
+
 // TestNodeModulesPackageRoot exercises the npm package-root extractor
 // directly. The resolveInstallPath wrapper depends on this for both the AI
 // CLI detector and the general-agent detector.
