@@ -14,7 +14,7 @@ The default output format is a styled, color-coded report printed to the termina
 
 ```
   ┌──────────────────────────────────────────────────────────┐
-  │  StepSecurity Dev Machine Guard v1.8.1                   │
+  │  StepSecurity Dev Machine Guard vX.Y.Z                   │
   │  https://github.com/step-security/dev-machine-guard      │
   └──────────────────────────────────────────────────────────┘
   Scanned at 2026-03-27 14:30:00
@@ -28,11 +28,12 @@ Shows the StepSecurity agent version and the timestamp of the scan.
   DEVICE
     Hostname         MacBook-Pro.local
     Serial           XXXXXXXXXXXX
-    macOS            15.3
+    OS               15.3
+    Platform         darwin
     User             user@example.com
 ```
 
-Basic device identification. The user is determined from the currently logged-in console user.
+Basic device identification. Platform is `darwin` (macOS), `windows`, or `linux`. The user is determined from the currently logged-in console user.
 
 ### SUMMARY
 
@@ -70,7 +71,7 @@ Lists all detected AI tools, grouped by type:
     Claude                   v0.7.1         Anthropic
 ```
 
-Lists installed IDEs and AI desktop applications found in `/Applications/`.
+Lists installed IDEs and AI desktop applications. Detection uses `/Applications/` on macOS and `%LOCALAPPDATA%`/`%PROGRAMFILES%` on Windows.
 
 ### IDE EXTENSIONS
 
@@ -95,7 +96,8 @@ When you run with `--json`, the scanner outputs a single JSON object to stdout. 
 
 ```json
 {
-  "agent_version": "1.8.1",
+  "agent_version": "X.Y.Z",
+  "agent_url": "https://github.com/step-security/dev-machine-guard",
   "scan_timestamp": 1709136000,
   "scan_timestamp_iso": "2026-02-28T14:00:00Z",
   "device": {
@@ -151,16 +153,9 @@ When you run with `--json`, the scanner outputs a single JSON object to stdout. 
   ],
   "mcp_configs": [
     {
-      "source": "claude_desktop",
-      "vendor": "Anthropic",
+      "config_source": "claude_desktop",
       "config_path": "/Users/dev/Library/Application Support/Claude/claude_desktop_config.json",
-      "servers": [
-        {
-          "name": "filesystem",
-          "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/dev/projects"]
-        }
-      ]
+      "vendor": "Anthropic"
     }
   ],
   "node_package_managers": [
@@ -170,12 +165,32 @@ When you run with `--json`, the scanner outputs a single JSON object to stdout. 
       "path": "/usr/local/bin/npm"
     }
   ],
+  "node_packages": [],
+  "node_projects": [],
+  "brew_package_manager": null,
+  "brew_formulae": [],
+  "brew_casks": [],
+  "python_package_managers": [],
+  "python_packages": [],
+  "python_projects": [],
+  "system_package_manager": null,
+  "system_packages": [],
+  "snap_package_manager": null,
+  "snap_packages": [],
+  "flatpak_package_manager": null,
+  "flatpak_packages": [],
   "summary": {
     "ai_agents_and_tools_count": 5,
     "ide_installations_count": 3,
     "ide_extensions_count": 47,
     "mcp_configs_count": 1,
-    "node_projects_count": 0
+    "node_projects_count": 0,
+    "brew_formulae_count": 0,
+    "brew_casks_count": 0,
+    "python_projects_count": 0,
+    "system_packages_count": 0,
+    "snap_packages_count": 0,
+    "flatpak_packages_count": 0
   }
 }
 ```
@@ -185,6 +200,7 @@ When you run with `--json`, the scanner outputs a single JSON object to stdout. 
 | Field | Type | Description |
 |-------|------|-------------|
 | `agent_version` | string | Version of the scanner binary |
+| `agent_url` | string | URL to the Dev Machine Guard repository |
 | `scan_timestamp` | number | Unix timestamp (seconds) of the scan |
 | `scan_timestamp_iso` | string | ISO 8601 timestamp |
 | `device` | object | Device identification information |
@@ -193,6 +209,20 @@ When you run with `--json`, the scanner outputs a single JSON object to stdout. 
 | `ide_extensions` | array | All installed IDE extensions |
 | `mcp_configs` | array | MCP server configurations found across AI tools |
 | `node_package_managers` | array | Detected Node.js package managers (npm, yarn, pnpm, bun) |
+| `node_packages` | array | Node.js package data (populated in enterprise mode) |
+| `node_projects` | array | Node.js projects with dependency listings (opt-in) |
+| `brew_package_manager` | object\|null | Homebrew package manager info (if detected) |
+| `brew_formulae` | array | Installed Homebrew formulae with rich metadata (opt-in) |
+| `brew_casks` | array | Installed Homebrew casks with rich metadata (opt-in) |
+| `python_package_managers` | array | Detected Python package managers (pip, poetry, uv, conda, etc.) |
+| `python_packages` | array | Globally installed Python packages (opt-in) |
+| `python_projects` | array | Python projects with virtual environments (opt-in) |
+| `system_package_manager` | object\|null | System package manager — rpm, dpkg, pacman, or apk (Linux) |
+| `system_packages` | array | Installed system packages with rich metadata (Linux) |
+| `snap_package_manager` | object\|null | Snap package manager info (Linux, if installed) |
+| `snap_packages` | array | Installed snap packages (Linux) |
+| `flatpak_package_manager` | object\|null | Flatpak package manager info (Linux, if installed) |
+| `flatpak_packages` | array | Installed flatpak packages (Linux) |
 | `summary` | object | Count summaries |
 
 ### AI Tool Types
@@ -205,6 +235,8 @@ When you run with `--json`, the scanner outputs a single JSON object to stdout. 
 
 ### IDE Types
 
+These values appear in both `ide_installations[].ide_type` and `ide_extensions[].ide_type`.
+
 | `ide_type` value | Description |
 |------------------|-------------|
 | `vscode` | Visual Studio Code |
@@ -214,6 +246,21 @@ When you run with `--json`, the scanner outputs a single JSON object to stdout. 
 | `zed` | Zed |
 | `claude_desktop` | Claude Desktop |
 | `microsoft_copilot_desktop` | Microsoft Copilot |
+| `intellij_idea` | IntelliJ IDEA Ultimate |
+| `intellij_idea_ce` | IntelliJ IDEA Community Edition |
+| `pycharm` | PyCharm Professional |
+| `pycharm_ce` | PyCharm Community Edition |
+| `webstorm` | WebStorm |
+| `goland` | GoLand |
+| `phpstorm` | PhpStorm |
+| `clion` | CLion |
+| `rider` | Rider |
+| `rubymine` | RubyMine |
+| `datagrip` | DataGrip |
+| `fleet` | Fleet |
+| `android_studio` | Android Studio |
+| `eclipse` | Eclipse IDE |
+| `xcode` | Xcode |
 
 ---
 
@@ -223,11 +270,17 @@ The HTML report (`--html report.html`) generates a self-contained HTML file with
 
 1. **Header** -- Purple gradient banner with "StepSecurity Dev Machine Guard Report" title
 2. **Scan metadata** -- Timestamp and agent version
-3. **Summary cards** -- Three cards showing counts for AI Agents and Tools, IDEs & Desktop Apps, and IDE Extensions
-4. **Device grid** -- Hostname, serial, macOS version, and user in a two-column grid
+3. **Summary cards** -- Grid of colored cards showing counts (AI Tools, IDEs, Extensions, MCP, Projects, Brew packages, Python venvs)
+4. **Device grid** -- Hostname, serial, OS version, platform, and user in a two-column grid
 5. **AI Agents and Tools table** -- Name, version, type (with a styled badge), and vendor
 6. **IDE & AI Desktop Apps table** -- Name, version, vendor, and install path
-7. **IDE Extensions table** -- Extension ID, version, publisher, and IDE
+7. **MCP Servers table** -- Source, vendor, and config path
+8. **IDE Extensions table** -- Extension ID, version, publisher, and IDE (collapsed by default)
+9. **Node.js Projects** -- Per-project package listings (if npm scan enabled, collapsed)
+10. **Homebrew** -- Formulae and casks (if brew scan enabled, collapsed)
+11. **Python** -- Package managers, global packages, project venvs (if python scan enabled)
+12. **System Packages** -- rpm/dpkg/pacman/apk packages (Linux only)
+13. **Snap / Flatpak** -- Snap and flatpak packages (Linux only, if installed)
 
 The HTML report is styled with StepSecurity branding (purple accent colors) and is fully responsive. It can be printed or shared as a standalone file.
 

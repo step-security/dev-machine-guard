@@ -1,6 +1,6 @@
 # StepSecurity Dev Machine Guard — Community Mode
 
-Community mode is the free, open-source way to run Dev Machine Guard locally on your macOS developer machine. All scanning happens on-device. **No data leaves your machine.**
+Community mode is the free, open-source way to run Dev Machine Guard locally on your developer machine (macOS, Windows, or Linux). All scanning happens on-device. **No data leaves your machine.**
 
 > Back to [README](../README.md) | See also: [Reading Scan Results](reading-scan-results.md)
 
@@ -17,11 +17,30 @@ make build
 
 Or download a pre-built binary without cloning:
 
+**macOS:**
+
 ```bash
 curl -sSL https://github.com/step-security/dev-machine-guard/releases/latest/download/stepsecurity-dev-machine-guard_darwin_arm64 -o stepsecurity-dev-machine-guard
 chmod +x stepsecurity-dev-machine-guard
 ./stepsecurity-dev-machine-guard
 ```
+
+**Windows:**
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/step-security/dev-machine-guard/releases/latest/download/stepsecurity-dev-machine-guard_windows_amd64.exe" -OutFile "stepsecurity-dev-machine-guard.exe"
+.\stepsecurity-dev-machine-guard.exe
+```
+
+**Linux:**
+
+```bash
+curl -sSL https://github.com/step-security/dev-machine-guard/releases/latest/download/stepsecurity-dev-machine-guard_linux_amd64 -o stepsecurity-dev-machine-guard
+chmod +x stepsecurity-dev-machine-guard
+./stepsecurity-dev-machine-guard
+```
+
+Pre-built `.deb` and `.rpm` packages are also available on the [releases page](https://github.com/step-security/dev-machine-guard/releases).
 
 ---
 
@@ -35,7 +54,7 @@ Dev Machine Guard supports three mutually exclusive output formats.
 ./stepsecurity-dev-machine-guard
 ```
 
-Pretty mode prints a styled, human-readable report directly to your terminal, including sections for Device information, Summary counts, AI Agents and Tools, IDEs and Desktop Apps, MCP Servers, and IDE Extensions.
+Pretty mode prints a styled, human-readable report directly to your terminal, including sections for Device information, Summary counts, AI Agents and Tools, IDEs and Desktop Apps, MCP Servers, IDE Extensions, and (when enabled) Node.js Projects, Homebrew Packages, Python Packages, and System Packages.
 
 ### JSON Output
 
@@ -69,9 +88,17 @@ HTML mode generates a self-contained HTML file with a styled report. The report 
 | `--pretty` | Pretty terminal output (this is the default if no format is specified) |
 | `--json` | JSON output to stdout |
 | `--html FILE` | HTML report saved to FILE |
-| `--verbose` | Show progress messages during the scan (suppressed by default) |
+| `--search-dirs DIR [DIR...]` | Search DIRs instead of `$HOME` (replaces default; repeatable) |
+| `--enable-npm-scan` | Enable Node.js package scanning (npm, yarn, pnpm, bun). Off by default — can be slow on machines with many projects. |
+| `--disable-npm-scan` | Disable Node.js package scanning |
+| `--enable-brew-scan` | Enable Homebrew package scanning (formulae and casks). Off by default. |
+| `--disable-brew-scan` | Disable Homebrew package scanning |
+| `--enable-python-scan` | Enable Python package scanning (pip, poetry, uv, conda, etc.). Off by default. |
+| `--disable-python-scan` | Disable Python package scanning |
+| `--include-bundled-plugins` | Include bundled/platform IDE plugins in output (JetBrains, Eclipse) |
+| `--log-level=LEVEL` | Log level: `error` (default), `warn`, `info`, `debug` |
+| `--verbose` | Shortcut for `--log-level=debug` — shows progress messages |
 | `--color=WHEN` | Color mode: `auto` (default), `always`, or `never`. In `auto` mode, colors are used only when stdout is a terminal. |
-| `--enable-npm-scan` | Enable Node.js package scanning (npm, yarn, pnpm, bun). Off by default in community mode because it can be slow on machines with many projects. |
 | `--version` | Print the scanner version and exit |
 | `--help` | Show the full usage help and exit |
 
@@ -110,6 +137,14 @@ Extracts the name of every detected AI tool.
 ```
 
 Produces a comprehensive JSON scan including globally installed npm/yarn/pnpm/bun packages and per-project dependency listings.
+
+### Full package scan (Node.js + Homebrew + Python)
+
+```bash
+./stepsecurity-dev-machine-guard --enable-npm-scan --enable-brew-scan --enable-python-scan
+```
+
+Runs the scan with all optional package scanning enabled.
 
 ### HTML report without colors in progress messages
 
