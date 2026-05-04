@@ -191,18 +191,20 @@ func (d *JetBrainsPluginDetector) collectPlugins(pluginsDir, ideType string) []m
 		}
 
 		pluginName := entry.Name()
-		libDir := filepath.Join(pluginsDir, pluginName, "lib")
+		pluginPath := filepath.Join(pluginsDir, pluginName)
+		libDir := filepath.Join(pluginPath, "lib")
 		version := d.parsePluginVersion(libDir, pluginName)
 
 		ext := model.Extension{
-			ID:      pluginName,
-			Name:    pluginName,
-			Version: version,
-			IDEType: ideType,
+			ID:          pluginName,
+			Name:        pluginName,
+			Version:     version,
+			InstallPath: pluginPath,
+			IDEType:     ideType,
 		}
 
 		// Get install date from plugin directory mtime
-		info, err := d.exec.Stat(filepath.Join(pluginsDir, pluginName))
+		info, err := d.exec.Stat(pluginPath)
 		if err == nil {
 			ext.InstallDate = info.ModTime().Unix()
 		}

@@ -63,6 +63,7 @@ type Extension struct {
 	Name        string `json:"name"`
 	Version     string `json:"version"`
 	Publisher   string `json:"publisher"`
+	InstallPath string `json:"install_path,omitempty"`
 	InstallDate int64  `json:"install_date"`
 	IDEType     string `json:"ide_type"`
 	Source      string `json:"source,omitempty"` // "bundled" or "user_installed"
@@ -137,6 +138,7 @@ type SystemPackage struct {
 	Version         string `json:"version"`
 	Arch            string `json:"arch,omitempty"`              // CPU architecture: x86_64, amd64, noarch, arm64, etc.
 	Source          string `json:"source,omitempty"`            // Origin: source RPM, dpkg source, snap publisher, flatpak remote
+	InstallPath     string `json:"install_path,omitempty"`      // On-disk install root. Populated for snap (/snap/<name>/current) and flatpak (~/.local/share/flatpak/app/<id> or /var/lib/flatpak/app/<id>). Not applicable for rpm/dpkg/pacman/apk (file collections).
 	InstallTimeUnix int64  `json:"install_time_unix,omitempty"` // Unix epoch seconds when installed (rpm, dpkg, pacman)
 
 	// Provenance & trust signals
@@ -170,6 +172,7 @@ type BrewPackage struct {
 	Description           string `json:"description,omitempty"`             // Package description
 	License               string `json:"license,omitempty"`                 // SPDX license (formulae only)
 	Homepage              string `json:"homepage,omitempty"`                // Upstream project URL
+	InstallPath           string `json:"install_path,omitempty"`            // On-disk install path: <prefix>/Cellar/<name>/<version> (formulae) or <prefix>/Caskroom/<token> (casks)
 	InstallTimeUnix       int64  `json:"install_time_unix,omitempty"`       // Unix epoch when installed
 	InstalledAsDependency bool   `json:"installed_as_dependency,omitempty"` // true if pulled in by another package
 	Deprecated            bool   `json:"deprecated,omitempty"`              // true if package is deprecated upstream

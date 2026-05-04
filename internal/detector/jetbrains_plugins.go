@@ -143,6 +143,7 @@ func (d *ExtensionDetector) collectJetBrainsPlugins(pluginsDir, ideType string) 
 		pluginDir := filepath.Join(pluginsDir, entry.Name())
 		ext := d.parseJetBrainsPlugin(pluginDir, ideType)
 		if ext != nil {
+			ext.InstallPath = pluginDir
 			info, err := d.exec.Stat(pluginDir)
 			if err == nil {
 				ext.InstallDate = info.ModTime().Unix()
