@@ -136,6 +136,18 @@ func main() {
 			os.Exit(1)
 		}
 
+		// On Linux, systemd.Install enabled the timer but did not start it.
+		// Start it now that the inline scan above has released the singleton
+		// lock, so the timer's first (Persistent=true catch-up) firing does
+		// not race with that scan (issue #62). Best-effort: a failure here
+		// means scheduled scans won't run until the next user-systemd
+		// reload, but the install is otherwise complete.
+		if runtime.GOOS == "linux" {
+			if err := systemd.StartTimer(exec, log); err != nil {
+				log.Progress("warning: timer start failed (%v) — scheduled scans will resume after the next user-systemd reload", err)
+			}
+		}
+
 	case "uninstall":
 		_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
 		switch runtime.GOOS {

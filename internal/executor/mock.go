@@ -39,6 +39,11 @@ type Mock struct {
 
 	// Symlink stubs: path -> resolved target
 	symlinks map[string]string
+
+	// LoggedInUser override — when set, LoggedInUser returns (nil, err)
+	// instead of falling through to CurrentUser. Used by tests covering
+	// the macOS+root "no console user" branch (issue #63).
+	loggedInUserErr error
 }
 
 type cmdResult struct {
@@ -164,6 +169,14 @@ func (m *Mock) SetGOOS(goos string) {
 	m.goos = goos
 }
 
+// SetLoggedInUserError makes LoggedInUser return (nil, err). Pass nil to
+// reset to default behavior (delegating to CurrentUser).
+func (m *Mock) SetLoggedInUserError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.loggedInUserErr = err
+}
+
 // --- Executor interface ---
 
 func (m *Mock) Run(_ context.Context, name string, args ...string) (string, string, int, error) {
@@ -285,6 +298,12 @@ func (m *Mock) Glob(pattern string) ([]string, error) {
 }
 
 func (m *Mock) LoggedInUser() (*user.User, error) {
+	m.mu.RLock()
+	err := m.loggedInUserErr
+	m.mu.RUnlock()
+	if err != nil {
+		return nil, err
+	}
 	return m.CurrentUser()
 }
 

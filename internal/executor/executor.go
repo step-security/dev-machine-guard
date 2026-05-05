@@ -175,23 +175,32 @@ func (r *Real) LoggedInUser() (*user.User, error) {
 		return r.CurrentUser()
 	}
 
-	// On macOS running as root, detect the console user.
-	// This mirrors the bash script's get_logged_in_user_info() which uses
-	// stat -f%Su /dev/console to find who is actually logged in.
+	// On macOS running as root, detect the console user via
+	// stat -f%Su /dev/console (mirrors the bash script's
+	// get_logged_in_user_info()).
+	//
+	// When the lookup can't yield a real GUI user — stat errored, console
+	// is owned by root or _windowserver, or the resolved name doesn't
+	// exist in Directory Services — we must NOT fall back to
+	// r.CurrentUser(). Under a LaunchDaemon that returns the root user
+	// with err == nil, callers treat that as "root is the developer", and
+	// the telemetry pipeline ships user_identity="root" with
+	// no_user_logged_in=false (issue #63). Surface the absence as an
+	// error so callers can flag the run as no-user instead.
 	ctx := context.Background()
 	stdout, _, _, err := r.Run(ctx, "stat", "-f%Su", "/dev/console")
 	if err != nil {
-		return r.CurrentUser()
+		return nil, fmt.Errorf("stat /dev/console failed: %w", err)
 	}
 
 	username := strings.TrimSpace(stdout)
 	if username == "" || username == "root" || username == "_windowserver" {
-		return r.CurrentUser()
+		return nil, fmt.Errorf("no GUI console user (owner=%q)", username)
 	}
 
 	u, err := user.Lookup(username)
 	if err != nil {
-		return r.CurrentUser()
+		return nil, fmt.Errorf("console user %q not in directory services: %w", username, err)
 	}
 
 	return u, nil
