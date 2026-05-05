@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -34,6 +35,14 @@ const (
 // BackupStampLayout is the time.Format layout used in backup filenames.
 // UTC is mandatory so backups sort chronologically across timezones.
 const BackupStampLayout = "20060102T150405"
+
+// MaxBackups caps per-target backup retention. After TakeBackup creates
+// a new backup, older DMG-owned backups for the same target are deleted
+// so at most MaxBackups remain (newest by mtime). Both the current
+// `<path>.dmg-<stamp>.bak` form and the legacy `<path>.dmg-backup.<stamp>`
+// form count toward the same cap so the rotation gradually cleans up
+// files left from before the rename.
+const MaxBackups = 3
 
 // WriteResult reports every path WriteAtomic touched. The install handler
 // uses CreatedDirs + Path + BackupPath to chown new files under root.
@@ -76,7 +85,42 @@ func TakeBackup(path string, now time.Time) (string, error) {
 	if err := os.WriteFile(backupPath, data, info.Mode().Perm()); err != nil {
 		return "", err
 	}
+	pruneBackups(path, MaxBackups)
 	return backupPath, nil
+}
+
+// pruneBackups deletes older DMG-owned backups for path so at most keep
+// remain (newest by mtime). Both the current `.dmg-*.bak` form and the
+// legacy `.dmg-backup.*` form go in the same pool — the cap holds across
+// the rename so legacy files don't linger forever.
+//
+// Best-effort: stat/remove errors are swallowed. Rotation must not fail
+// the surrounding write — at worst a few extra backups stick around.
+func pruneBackups(path string, keep int) {
+	pool := []string{}
+	for _, pattern := range []string{path + BackupPrefix + "*" + BackupExt, path + ".dmg-backup.*"} {
+		m, _ := filepath.Glob(pattern)
+		pool = append(pool, m...)
+	}
+	if len(pool) <= keep {
+		return
+	}
+	type entry struct {
+		name  string
+		mtime time.Time
+	}
+	entries := make([]entry, 0, len(pool))
+	for _, p := range pool {
+		info, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		entries = append(entries, entry{p, info.ModTime()})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].mtime.After(entries[j].mtime) })
+	for i := keep; i < len(entries); i++ {
+		_ = os.Remove(entries[i].name)
+	}
 }
 
 // WriteAtomic writes data to path atomically. Parent directories are

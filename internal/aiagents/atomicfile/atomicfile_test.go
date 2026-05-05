@@ -166,3 +166,197 @@ func TestWriteAtomic_DoesNotReportPreexistingParents(t *testing.T) {
 	}
 }
 
+// listBackups returns every backup sibling of src that the rotation
+// considers part of the pool (.dmg-*.bak + legacy .dmg-backup.*).
+// Anything else in the directory is ignored.
+func listBackups(t *testing.T, src string) []string {
+	t.Helper()
+	var out []string
+	for _, pattern := range []string{src + ".dmg-*.bak", src + ".dmg-backup.*"} {
+		m, err := filepath.Glob(pattern)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, m...)
+	}
+	return out
+}
+
+// writeBackupAt creates a backup file at path with mtime set to ts. The
+// content is irrelevant; rotation sorts by mtime, not contents.
+func writeBackupAt(t *testing.T, path string, ts time.Time) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, ts, ts); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTakeBackup_PrunesPastCap(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(src, []byte("CURRENT"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Five pre-existing backups with strictly increasing mtimes. Names
+	// embed the same stamps so debugging output is readable, but the
+	// prune sorts by mtime, not by name.
+	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	for i := range 5 {
+		ts := base.Add(time.Duration(i) * time.Hour)
+		writeBackupAt(t, src+BackupPrefix+ts.Format(BackupStampLayout)+BackupExt, ts)
+	}
+
+	// New backup is taken "now" (later than all pre-existing mtimes).
+	now := base.Add(24 * time.Hour)
+	got, err := TakeBackup(src, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	survivors := listBackups(t, src)
+	if len(survivors) != MaxBackups {
+		t.Fatalf("expected %d survivors after prune, got %d: %v", MaxBackups, len(survivors), survivors)
+	}
+
+	// Survivors must include the freshly-taken one + the two
+	// most-recent pre-existing backups (hours +3 and +4).
+	want := map[string]bool{
+		got: true,
+		src + BackupPrefix + base.Add(3*time.Hour).Format(BackupStampLayout) + BackupExt: true,
+		src + BackupPrefix + base.Add(4*time.Hour).Format(BackupStampLayout) + BackupExt: true,
+	}
+	for _, s := range survivors {
+		if !want[s] {
+			t.Errorf("unexpected survivor %q", s)
+		}
+		delete(want, s)
+	}
+	for missing := range want {
+		t.Errorf("expected survivor missing: %q", missing)
+	}
+}
+
+func TestTakeBackup_PruneAcrossLegacyAndNewFormats(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "hooks.json")
+	if err := os.WriteFile(src, []byte("CURRENT"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Two legacy + two new-form, all older than the upcoming TakeBackup.
+	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	legacyOldest := src + ".dmg-backup." + base.Format(BackupStampLayout)
+	writeBackupAt(t, legacyOldest, base)
+	legacyNewer := src + ".dmg-backup." + base.Add(time.Hour).Format(BackupStampLayout)
+	writeBackupAt(t, legacyNewer, base.Add(time.Hour))
+	newOlder := src + BackupPrefix + base.Add(2*time.Hour).Format(BackupStampLayout) + BackupExt
+	writeBackupAt(t, newOlder, base.Add(2*time.Hour))
+	newNewest := src + BackupPrefix + base.Add(3*time.Hour).Format(BackupStampLayout) + BackupExt
+	writeBackupAt(t, newNewest, base.Add(3*time.Hour))
+
+	now := base.Add(24 * time.Hour)
+	got, err := TakeBackup(src, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	survivors := listBackups(t, src)
+	if len(survivors) != MaxBackups {
+		t.Fatalf("expected %d survivors, got %d: %v", MaxBackups, len(survivors), survivors)
+	}
+	// Newest 3 = the just-taken one + newNewest + newOlder. Both
+	// legacy entries (older mtimes) must be pruned, demonstrating
+	// the cap holds across the format rename.
+	survSet := map[string]bool{}
+	for _, s := range survivors {
+		survSet[s] = true
+	}
+	for _, want := range []string{got, newNewest, newOlder} {
+		if !survSet[want] {
+			t.Errorf("expected survivor missing: %q", want)
+		}
+	}
+	for _, gone := range []string{legacyOldest, legacyNewer} {
+		if _, err := os.Stat(gone); !os.IsNotExist(err) {
+			t.Errorf("expected legacy backup pruned: %q (stat err=%v)", gone, err)
+		}
+	}
+}
+
+func TestTakeBackup_DoesNotTouchUnrelatedSiblings(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(src, []byte("CURRENT"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Four pre-existing DMG backups so the prune is forced to delete one.
+	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	for i := range 4 {
+		ts := base.Add(time.Duration(i) * time.Hour)
+		writeBackupAt(t, src+BackupPrefix+ts.Format(BackupStampLayout)+BackupExt, ts)
+	}
+
+	// Files the rotation must NOT touch: a different tool's backup, a
+	// user-named sibling, and a file with a different stem.
+	anchor := src + ".anchor-backup.20260501T120000"
+	userKeep := src + ".user-keep"
+	otherStem := filepath.Join(dir, "other.json.dmg-20260501T120000.bak")
+	for _, p := range []string{anchor, userKeep, otherStem} {
+		if err := os.WriteFile(p, []byte("keep"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := TakeBackup(src, base.Add(24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Survivors of the DMG pool: cap honored.
+	if got := len(listBackups(t, src)); got != MaxBackups {
+		t.Errorf("DMG backup count after prune: got %d, want %d", got, MaxBackups)
+	}
+	// Unrelated files must all still exist.
+	for _, p := range []string{anchor, userKeep, otherStem} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("unrelated sibling pruned: %q: %v", p, err)
+		}
+	}
+}
+
+func TestTakeBackup_NoOpUnderCap(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(src, []byte("CURRENT"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// One pre-existing backup; combined with the new one we'll be at 2,
+	// still under MaxBackups.
+	pre := src + BackupPrefix + "20260501T120000" + BackupExt
+	writeBackupAt(t, pre, time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+
+	got, err := TakeBackup(src, time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	survivors := listBackups(t, src)
+	if len(survivors) != 2 {
+		t.Fatalf("expected 2 survivors when under cap, got %d: %v", len(survivors), survivors)
+	}
+	survSet := map[string]bool{}
+	for _, s := range survivors {
+		survSet[s] = true
+	}
+	if !survSet[pre] {
+		t.Errorf("pre-existing backup pruned despite under-cap: %q", pre)
+	}
+	if !survSet[got] {
+		t.Errorf("freshly-taken backup missing: %q", got)
+	}
+}
