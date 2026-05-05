@@ -10,11 +10,11 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/aiagents/event"
 )
 
-func TestSchemaVersionIsAIAgentV1(t *testing.T) {
-	// Plan §1.11: schema_version is "ai_agent.event/v1". The backend
-	// strict-matches; bumping requires a coordinated change.
-	if event.SchemaVersion != "ai_agent.event/v1" {
-		t.Errorf("SchemaVersion = %q, want ai_agent.event/v1", event.SchemaVersion)
+func TestSchemaVersionIsDMGHookEventV1(t *testing.T) {
+	// schema_version is "dmg.hook.event/v1". The backend strict-matches;
+	// bumping requires a coordinated change.
+	if event.SchemaVersion != "dmg.hook.event/v1" {
+		t.Errorf("SchemaVersion = %q, want dmg.hook.event/v1", event.SchemaVersion)
 	}
 }
 
@@ -71,7 +71,7 @@ func TestEventJSONOmitsEmptyFields(t *testing.T) {
 	// schema_version, event_id, agent_name, hook_event, result_status
 	// are always present.
 	for _, want := range []string{
-		`"schema_version":"ai_agent.event/v1"`,
+		`"schema_version":"dmg.hook.event/v1"`,
 		`"event_id":"abcd"`,
 		`"agent_name":"claude-code"`,
 		`"hook_event":"PreToolUse"`,

@@ -92,7 +92,7 @@ func (c *Client) UploadEvents(ctx context.Context, customerID string, events []e
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "dev-machine-guard/"+buildinfo.Version)
+	req.Header.Set("User-Agent", "dmg/"+buildinfo.Version)
 
 	resp, err := c.http.Do(req)
 	if err != nil {

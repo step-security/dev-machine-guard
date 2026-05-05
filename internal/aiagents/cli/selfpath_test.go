@@ -96,3 +96,22 @@ func TestResolveFrom_NonExistentPathErrors(t *testing.T) {
 		t.Error("expected error on non-existent path")
 	}
 }
+
+// On Windows the resolved binary path keeps its `.exe` suffix; the hook
+// command we write into agent settings must invoke `dmg.exe`, not `dmg`.
+// On Unix the suffix is just an opaque part of the basename, so the same
+// expectation holds.
+func TestResolveFrom_PreservesExeSuffix(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "stepsecurity-dev-machine-guard.exe")
+	if err := os.WriteFile(real, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveFrom(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Ext(got) != ".exe" {
+		t.Errorf("resolveFrom dropped .exe suffix: got %q", got)
+	}
+}

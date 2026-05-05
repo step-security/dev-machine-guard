@@ -210,8 +210,8 @@ func TestRunHook_RealUploadWiring(t *testing.T) {
 	if got.auth != "Bearer sk_e2e_secret" {
 		t.Errorf("auth=%q", got.auth)
 	}
-	if !strings.HasPrefix(got.ua, "dev-machine-guard/") {
-		t.Errorf("user-agent=%q, want dev-machine-guard/<version>", got.ua)
+	if !strings.HasPrefix(got.ua, "dmg/") {
+		t.Errorf("user-agent=%q, want dmg/<version>", got.ua)
 	}
 	var arr []map[string]any
 	if err := json.Unmarshal(got.body, &arr); err != nil {

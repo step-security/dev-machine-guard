@@ -129,8 +129,8 @@ func TestUploadEventsRequestShape(t *testing.T) {
 	if h := got.Header.Get("Content-Type"); h != "application/json" {
 		t.Errorf("Content-Type header=%q", h)
 	}
-	if h := got.Header.Get("User-Agent"); !strings.HasPrefix(h, "dev-machine-guard/") {
-		t.Errorf("User-Agent header=%q — want dev-machine-guard/<version>", h)
+	if h := got.Header.Get("User-Agent"); !strings.HasPrefix(h, "dmg/") {
+		t.Errorf("User-Agent header=%q — want dmg/<version>", h)
 	}
 
 	// Body must be a raw JSON array — no envelope.

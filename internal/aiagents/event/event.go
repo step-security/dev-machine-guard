@@ -7,9 +7,9 @@
 // and codex adapters import this package — the original ticket
 // ordering (event in 2.1, adapters in 1.3) was incoherent.
 //
-// SchemaVersion is "ai_agent.event/v1" — plan §1.11. The constant
-// lives here rather than in a separate version package because it is
-// the schema's own identity, not a build-info concern.
+// SchemaVersion is "dmg.hook.event/v1". The constant lives here rather
+// than in a separate version package because it is the schema's own
+// identity, not a build-info concern.
 package event
 
 import (
@@ -21,7 +21,7 @@ import (
 // SchemaVersion identifies this event schema on the wire and in
 // telemetry. Every Event written or uploaded carries this value in its
 // SchemaVersion field. Bumping requires a coordinated backend change.
-const SchemaVersion = "ai_agent.event/v1"
+const SchemaVersion = "dmg.hook.event/v1"
 
 // ActionType enumerates the kinds of activity the runtime can observe.
 // It applies only to tool-bearing hook events (PreToolUse, PostToolUse,

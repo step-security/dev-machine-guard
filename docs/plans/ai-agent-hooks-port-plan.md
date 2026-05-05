@@ -89,9 +89,9 @@ Anchor's source code directory: /Users/subhamray/workspace/anchor
 
 ### 1.11 Schema and wire format
 
-- Event `schema_version` field is `ai_agent.event/v1` (renamed from `anchor.event/v1`).
+- Event `schema_version` field is `dmg.hook.event/v1` (renamed from `anchor.event/v1`).
 - Upload endpoint: `POST <api_endpoint>/v1/{customer_id}/ai-agents/events`.
-- HTTP `User-Agent`: `dev-machine-guard/<version>` sourced from `internal/buildinfo`.
+- HTTP `User-Agent`: `dmg/<version>` sourced from `internal/buildinfo`.
 - Same `api_endpoint` value as DMG's existing scan telemetry — no new config field.
 - Upload timeout: 5 seconds (preserve Anchor's `DefaultHookUploadTimeout`).
 - Hook total cap: **15 seconds** (was 10s in Anchor — bumped to absorb the 1s identity probe under load).
@@ -153,7 +153,7 @@ internal/aiagents/
     stdin.go                       # 5 MiB cap
     policy.go                      # phase gate for policy evaluation
   event/
-    event.go                       # schema_version = "ai_agent.event/v1"
+    event.go                       # schema_version = "dmg.hook.event/v1"
   enrich/
     npm/
     mcp/
@@ -315,7 +315,7 @@ Wires the hot path. No backend upload yet.
 
 | # | Title | Files | Acceptance |
 |---|---|---|---|
-| 2.1 | event package | `internal/aiagents/event/event.go` (+ test) | `SchemaVersion = "ai_agent.event/v1"`; all Anchor event tests pass after rename |
+| 2.1 | event package | `internal/aiagents/event/event.go` (+ test) | `SchemaVersion = "dmg.hook.event/v1"`; all Anchor event tests pass after rename |
 | 2.2 | redact port | `internal/aiagents/redact/redact.go` (+ test) | All Anchor redact tests pass |
 | 2.3 | enrich/npm | `internal/aiagents/enrich/npm/...` (+ test) | All Anchor npm enrichment tests pass |
 | 2.4 | enrich/mcp | `internal/aiagents/enrich/mcp/...` (+ test) | All Anchor mcp tests pass |
@@ -339,7 +339,7 @@ Connects the hot path to the AI-agents endpoint.
 
 | # | Title | Files | Acceptance |
 |---|---|---|---|
-| 3.1 | ingest client port | `internal/aiagents/ingest/client.go` (+ test) | POST to `<api_endpoint>/v1/{customer_id}/ai-agents/events`; UA `dev-machine-guard/<version>`; no `debugDumpCurl`; treats 200/201/202/409 as success |
+| 3.1 | ingest client port | `internal/aiagents/ingest/client.go` (+ test) | POST to `<api_endpoint>/v1/{customer_id}/ai-agents/events`; UA `dmg/<version>`; no `debugDumpCurl`; treats 200/201/202/409 as success |
 | 3.2 | enterprise config gate | `internal/aiagents/ingest/config.go` | Stricter check from 0.6 wired to `Client.New`; missing creds → no client constructed → no upload attempted |
 | 3.3 | Runtime wires upload | `internal/aiagents/hook/runtime.go` | `resolveUpload` returns nil when not enterprise-configured; upload errors logged to errors.jsonl with event_id; allow response still emitted |
 | 3.4 | install enterprise-required gate | `internal/aiagents/cli/install.go` | `hooks install` exits non-zero with a clear message if enterprise config is incomplete |
@@ -373,7 +373,7 @@ Connects the hot path to the AI-agents endpoint.
 | Embedded policy allowlist mismatches customer registry | Audit-mode in phase 1 — `would_block` signal is informational only. API-fetched policy planned. |
 | Identity probe under load exceeds 1s and reports `unknown` | 15s hook cap absorbs occasional `unknown` device_ids; not a correctness issue, only telemetry quality. |
 | Concurrent appends to errors.jsonl interleave | Phase 1 tolerates rare interleave; future revision moves to per-process tempfile + rename. |
-| Backend strict-checks `schema_version` and rejects `ai_agent.event/v1` | Confirmed: backend accepts arbitrary schema_version values. |
+| Backend strict-checks `schema_version` and rejects `dmg.hook.event/v1` | Confirmed: backend accepts arbitrary schema_version values. |
 | Cobra-style flag parsing implicitly assumed somewhere in port | Hand-rolled extension covers `hooks <verb>` + positional `_hook <agent> <event>` only — minimal new parser surface. Tests in 0.1 enforce. |
 | Codex `[features].codex_hooks=true` left enabled after uninstall confuses users | Documented in 4.6; matches Anchor behavior. |
 | `chown` failures under root install | Best-effort; logged but non-fatal; install reports a warning note. |
