@@ -23,20 +23,31 @@ type rule struct {
 // turning normal logs into a wall of [REDACTED] and hiding genuine signal.
 // Every rule here exists to satisfy the redaction regression tests.
 var rules = []rule{
-	// PEM-encoded private keys: redact the whole block.
+	// PEM-encoded private keys: redact the whole block. The optional
+	// ` BLOCK` suffix covers PGP armor (`BEGIN PGP PRIVATE KEY BLOCK`)
+	// alongside RSA / OPENSSH / PKCS#8 ("BEGIN PRIVATE KEY") variants.
 	{
 		name: "private_key_block",
-		re:   regexp.MustCompile(`(?s)-----BEGIN[ A-Z]*PRIVATE KEY-----.*?-----END[ A-Z]*PRIVATE KEY-----`),
+		re:   regexp.MustCompile(`(?s)-----BEGIN[ A-Z]*PRIVATE KEY( BLOCK)?-----.*?-----END[ A-Z]*PRIVATE KEY( BLOCK)?-----`),
 	},
 	// AWS access key IDs: stable prefix + 16 base32-ish chars.
 	{
 		name: "aws_access_key_id",
 		re:   regexp.MustCompile(`\b(?:AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ABIA|ACCA)[0-9A-Z]{16}\b`),
 	},
-	// GitHub tokens (PAT, OAuth, server-to-server, refresh, fine-grained).
+	// GitHub classic tokens (PAT, OAuth, server-to-server, refresh).
+	// The header-style rule below covers `github_pat_*` fine-grained
+	// tokens, which use a different prefix shape.
 	{
 		name: "github_token",
 		re:   regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{16,}\b`),
+	},
+	// GitHub fine-grained PAT: `github_pat_<22>_<59>` per GitHub docs.
+	// The inner `_` between the two segments is matched by the
+	// underscore in the character class.
+	{
+		name: "github_fine_grained_pat",
+		re:   regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{20,}\b`),
 	},
 	// Slack tokens.
 	{
@@ -75,7 +86,7 @@ var rules = []rule{
 	// Generic KEY=value assignments for common secret-bearing names.
 	{
 		name:  "secret_assignment",
-		re:    regexp.MustCompile(`(?i)\b([A-Z][A-Z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY))\s*[:=]\s*("?)([^\s"'#]+)`),
+		re:    regexp.MustCompile(`(?i)\b([A-Z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY))\s*[:=]\s*("?)([^\s"'#]+)`),
 		group: 3,
 	},
 	// JSON-shaped key/value pairs, e.g. "api_key": "abc".

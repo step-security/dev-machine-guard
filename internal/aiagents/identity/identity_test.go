@@ -118,3 +118,63 @@ func TestResolve_HungExecutorTimesOutWithin1s(t *testing.T) {
 // device.Gather (which takes the interface) can call it. If the interface
 // grows a method we don't override, the embedded Mock fills it in.
 var _ executor.Executor = (*hangingExec)(nil)
+
+func TestResolve_HappyPath_Linux(t *testing.T) {
+	// Cross-platform parity pin. Darwin happy path is already covered;
+	// this mirrors it on Linux so a regression in Linux device probes
+	// (e.g., serial-number lookup) fails here, not in production.
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetUsername("svc-deploy")
+	mock.SetFile("/sys/class/dmi/id/product_serial", []byte("LINUX-SERIAL-456\n"))
+	mock.SetFile("/etc/os-release", []byte("NAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\n"))
+	mock.SetFile("/proc/sys/kernel/osrelease", []byte("6.8.0-45-generic\n"))
+
+	got := Resolve(context.Background(), mock, "cust-42")
+
+	if got.CustomerID != "cust-42" {
+		t.Errorf("CustomerID = %q, want cust-42", got.CustomerID)
+	}
+	if got.DeviceID != "LINUX-SERIAL-456" {
+		t.Errorf("DeviceID = %q, want LINUX-SERIAL-456 (from /sys/class/dmi)", got.DeviceID)
+	}
+	if got.UserIdentity != "svc-deploy" {
+		t.Errorf("UserIdentity = %q, want svc-deploy (from username)", got.UserIdentity)
+	}
+}
+
+func TestResolve_EmptyCustomerIDPassedThrough(t *testing.T) {
+	// identity.Resolve does NOT validate customerID — that's ingest.Snapshot's
+	// job. Pin the boundary: an empty customerID must reach Info untouched.
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+
+	got := Resolve(context.Background(), mock, "")
+	if got.CustomerID != "" {
+		t.Errorf("CustomerID = %q, want empty pass-through", got.CustomerID)
+	}
+}
+
+func TestResolve_DoesNotCancelParentContext(t *testing.T) {
+	// The 1s probe ctx is created with WithTimeout off the parent ctx.
+	// Cancelling the probe ctx must not propagate up — the caller's
+	// parent ctx is the hook runtime's overall budget and other stages
+	// (enrich, policy, upload) need it to remain valid after Resolve.
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+	hung := &hangingExec{Mock: mock}
+
+	parent, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_ = Resolve(parent, hung, "cust-42")
+
+	if err := parent.Err(); err != nil {
+		t.Errorf("parent ctx unexpectedly errored after Resolve: %v", err)
+	}
+	select {
+	case <-parent.Done():
+		t.Error("parent ctx Done channel fired — probe ctx cancel leaked upward")
+	default:
+	}
+}

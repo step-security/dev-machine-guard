@@ -159,6 +159,27 @@ func TestAppendError_TimestampIsUTCNanoFormat(t *testing.T) {
 	}
 }
 
+func TestAppendError_RedactsMessage(t *testing.T) {
+	// AppendError must run the message through redact.String before it
+	// hits disk. A bearer token in the message must NOT survive in the
+	// on-disk JSONL line.
+	path := withErrorLog(t)
+	AppendError("upload", "http_500",
+		"failed POST with Authorization: Bearer eyJ.payload.sig.AAAAAAAAAAA",
+		"evt-1")
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if strings.Contains(string(data), "eyJ.payload.sig.AAAAAAAAAAA") {
+		t.Errorf("bearer leaked into error log: %s", string(data))
+	}
+	if !strings.Contains(string(data), "[REDACTED]") {
+		t.Errorf("expected [REDACTED] placeholder in log line, got: %s", string(data))
+	}
+}
+
 func TestErrorLogPath_DefaultUnderHome(t *testing.T) {
 	// Don't override; test the default branch.
 	prev := errorLogPathOverride

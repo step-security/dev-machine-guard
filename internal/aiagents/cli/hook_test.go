@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -40,6 +42,61 @@ func TestRunHook_FailOpenContract(t *testing.T) {
 			}
 			if stderr.Len() != 0 {
 				t.Errorf("expected empty stderr on error path, got %q", stderr.String())
+			}
+		})
+	}
+}
+
+// TestRunHook_ValidPayloadEmitsAllow exercises the wire-format contract
+// for well-formed inputs: a recognized agent + event with a parseable
+// payload returns exit 0 and emits a valid JSON allow response on stdout.
+// This pins the success path that the fail-open test deliberately
+// excludes.
+func TestRunHook_ValidPayloadEmitsAllow(t *testing.T) {
+	cases := []struct {
+		name      string
+		agent     string
+		hookEvent string
+		payload   string
+		// expectAllowKey is "continue" for Claude (non-empty allow body)
+		// and "" for Codex (allow body is the empty object {}).
+		expectAllowKey string
+	}{
+		{
+			name:           "claude-code PreToolUse Bash",
+			agent:          "claude-code",
+			hookEvent:      "PreToolUse",
+			payload:        `{"tool_name":"Bash","tool_input":{"command":"ls"}}`,
+			expectAllowKey: "continue",
+		},
+		{
+			name:           "codex PreToolUse Bash",
+			agent:          "codex",
+			hookEvent:      "PreToolUse",
+			payload:        `{"tool_name":"Bash","tool_input":{"command":"ls"}}`,
+			expectAllowKey: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			rc := RunHook(strings.NewReader(tc.payload), &stdout, &stderr, []string{tc.agent, tc.hookEvent})
+			if rc != 0 {
+				t.Errorf("expected exit 0, got %d", rc)
+			}
+			if stderr.Len() != 0 {
+				t.Errorf("expected empty stderr, got %q", stderr.String())
+			}
+			body := bytes.TrimSpace(stdout.Bytes())
+			var resp map[string]any
+			if err := json.Unmarshal(body, &resp); err != nil {
+				t.Fatalf("stdout not valid JSON: %v: %q", err, body)
+			}
+			if tc.expectAllowKey != "" && resp[tc.expectAllowKey] != true {
+				t.Errorf("expected %q=true in allow response, got %v", tc.expectAllowKey, resp)
+			}
+			if tc.expectAllowKey == "" && len(resp) != 0 {
+				t.Errorf("expected empty-object allow response, got %v", resp)
 			}
 		})
 	}

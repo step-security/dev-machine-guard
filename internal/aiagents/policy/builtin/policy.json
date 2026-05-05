@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "mode": "audit",
+  "ecosystems": {
+    "npm": {
+      "enabled": true,
+      "registry": {
+        "allowlist": ["https://registry.stepsecurity.io/"]
+      }
+    }
+  }
+}

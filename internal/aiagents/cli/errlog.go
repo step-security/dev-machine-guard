@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/step-security/dev-machine-guard/internal/aiagents/redact"
 )
 
 // ErrorLogFilename is the basename of the per-user errors log. It lives
@@ -45,9 +47,9 @@ var errorLogPathOverride string
 // open denied, partial write) is silently dropped — the hot path's
 // allow response must never be blocked by logging.
 //
-// The message is run through the redact pipeline before being written
-// to disk. Phase 0 ships an identity-passthrough redactor; ticket 2.2
-// wires the real `internal/aiagents/redact.String`.
+// The message is run through redact.String before being written to
+// disk so a stray secret in an error message never lands in the
+// on-disk log.
 func AppendError(stage, code, message, eventID string) {
 	path := errorLogPath()
 	if path == "" {
@@ -58,7 +60,7 @@ func AppendError(stage, code, message, eventID string) {
 		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 		Stage:     stage,
 		Code:      code,
-		Message:   redactString(message),
+		Message:   redact.String(message),
 		EventID:   eventID,
 	}
 	data, err := json.Marshal(entry)
@@ -105,8 +107,3 @@ func errorLogPath() string {
 	return filepath.Join(home, ".stepsecurity", ErrorLogFilename)
 }
 
-// redactString is a Phase-0 passthrough. Ticket 2.2 ports the redact
-// package; this function is then deleted in favor of `redact.String`.
-func redactString(s string) string {
-	return s
-}

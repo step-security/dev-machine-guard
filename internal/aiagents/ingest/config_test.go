@@ -91,6 +91,20 @@ func TestSnapshot_TrimsSurroundingWhitespace(t *testing.T) {
 	}
 }
 
+func TestSnapshot_AcceptsSingleBrace(t *testing.T) {
+	// The placeholder marker is `{{` (double brace) per the build-time
+	// substitution scheme. A single `{` is a legitimate URL/token char
+	// (e.g., a query template var) and must NOT trip the gate.
+	withConfig(t, "cust-{abc}", "https://api.example.com/v1?ctx={ts}", "sk_live_abc")
+	cfg, ok := Snapshot()
+	if !ok {
+		t.Fatal("expected ok=true; single-brace inputs should pass the placeholder gate")
+	}
+	if cfg.CustomerID != "cust-{abc}" {
+		t.Errorf("single-brace value mutated: %q", cfg.CustomerID)
+	}
+}
+
 func TestSnapshot_PopulatesEvenWhenInvalid(t *testing.T) {
 	// Diagnostics need access to whatever the user did configure, even when
 	// the gate refuses. Confirm Config is not zero-valued on the false path.
