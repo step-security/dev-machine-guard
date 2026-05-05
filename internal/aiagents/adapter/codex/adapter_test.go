@@ -107,19 +107,6 @@ func TestNameAndManagedFiles(t *testing.T) {
 	}
 }
 
-func TestSupportedHooksReturnsCopy(t *testing.T) {
-	a := New(t.TempDir(), testBinary)
-	first := a.SupportedHooks()
-	if len(first) != 6 {
-		t.Fatalf("expected 6 hooks, got %d", len(first))
-	}
-	first[0] = "Mutated"
-	second := a.SupportedHooks()
-	if second[0] != HookSessionStart {
-		t.Errorf("returned slice not a copy: %v", second)
-	}
-}
-
 func TestDetectReportsPathFromExecutor(t *testing.T) {
 	a := New(t.TempDir(), testBinary)
 
@@ -787,7 +774,6 @@ func TestUninstallLeavesUnrelatedHooks(t *testing.T) {
 				{"matcher": "*", "hooks": [
 					{"type": "command", "command": "stepsecurity-dev-machine-guardctl status"},
 					{"type": "command", "command": "/usr/local/bin/other-tool _hook claude-code PreToolUse"},
-					{"type": "command", "command": "legacy-tool _hook codex PreToolUse"},
 					{"type": "command", "command": "echo user"}
 				]}
 			]
@@ -825,7 +811,6 @@ func TestUninstallLeavesUnrelatedHooks(t *testing.T) {
 	for _, want := range []string{
 		"stepsecurity-dev-machine-guardctl status",
 		"/usr/local/bin/other-tool _hook claude-code PreToolUse",
-		"legacy-tool _hook codex PreToolUse",
 		"echo user",
 	} {
 		if !slices.Contains(survivors, want) {

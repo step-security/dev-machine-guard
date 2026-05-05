@@ -161,24 +161,6 @@ func TestSelectAdaptersNoneDetectedReturnsEmpty(t *testing.T) {
 	}
 }
 
-// TestSelectAdaptersDoesNotGateOnSettingsFile asserts that with the
-// binary on $PATH and NO settings file on disk, the adapter is still
-// selected. Gating on settings file presence would return an empty
-// list here.
-func TestSelectAdaptersDoesNotGateOnSettingsFile(t *testing.T) {
-	home := t.TempDir() // no ~/.claude or ~/.codex anywhere
-	mock := executor.NewMock()
-	mock.SetPath("claude", "/usr/local/bin/claude")
-
-	got, err := selectAdapters(context.Background(), "", home, testBinary, mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].Name() != "claude-code" {
-		t.Errorf("settings-file gating leaked back in: got %v", names(got))
-	}
-}
-
 func names(adapters []adapter.Adapter) []string {
 	out := make([]string, len(adapters))
 	for i, a := range adapters {

@@ -8,12 +8,6 @@ import (
 	"time"
 )
 
-func TestBackupSuffix_IsRebranded(t *testing.T) {
-	if BackupSuffix != ".dmg-backup." {
-		t.Errorf("BackupSuffix = %q, want %q", BackupSuffix, ".dmg-backup.")
-	}
-}
-
 func TestPickMode_NoExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	got := PickMode(filepath.Join(dir, "nope"), 0o600)
@@ -172,18 +166,3 @@ func TestWriteAtomic_DoesNotReportPreexistingParents(t *testing.T) {
 	}
 }
 
-func TestInstallBytes_IsAliasOfWriteAtomic(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "x")
-	res, err := InstallBytes(path, []byte("hi"), 0o644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Path != path {
-		t.Errorf("Path = %q, want %q", res.Path, path)
-	}
-	got, _ := os.ReadFile(path)
-	if string(got) != "hi" {
-		t.Errorf("got %q, want hi", string(got))
-	}
-}

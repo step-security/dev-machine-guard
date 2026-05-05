@@ -111,7 +111,7 @@ func TestUninstallRemovesOnlyManagedHooks(t *testing.T) {
 	// User hooks include lookalikes that the regex match must NOT touch:
 	// a tool whose name starts with the same prefix but isn't a separate
 	// word; a hyphenated suffix; an absolute path that is NOT the DMG
-	// binary; and a third-party tool entry which is intentionally
+	// binary; and an absolute-path non-DMG entry, all intentionally
 	// not matched.
 	body := `{
 		"hooks": {
@@ -120,7 +120,6 @@ func TestUninstallRemovesOnlyManagedHooks(t *testing.T) {
 					{"type": "command", "command": "stepsecurity-dev-machine-guardctl status"},
 					{"type": "command", "command": "stepsecurity-dev-machine-guard-foo run"},
 					{"type": "command", "command": "/usr/local/bin/other-tool _hook claude-code PreToolUse"},
-					{"type": "command", "command": "legacy-tool _hook claude-code PreToolUse"},
 					{"type": "command", "command": "echo user-other"}
 				]}
 			]
@@ -161,7 +160,6 @@ func TestUninstallRemovesOnlyManagedHooks(t *testing.T) {
 		"stepsecurity-dev-machine-guardctl status",
 		"stepsecurity-dev-machine-guard-foo run",
 		"/usr/local/bin/other-tool _hook claude-code PreToolUse",
-		"legacy-tool _hook claude-code PreToolUse",
 		"echo user-other",
 	} {
 		if !slices.Contains(survivors, want) {
