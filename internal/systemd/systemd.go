@@ -78,7 +78,13 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 		return fmt.Errorf("daemon-reload failed (exit code %d): %s", daemonExitCode, daemonStderr)
 	}
 
-	_, stderr, exitCode, err := exec.Run(ctx, "systemctl", "--user", "enable", "--now", unitName+".timer")
+	// Enable (without --now) so the unit is loaded across reboots. Activating
+	// the timer in this session is deferred to StartTimer, which the install
+	// command calls only after its inline post-install telemetry has released
+	// the singleton lock. If we used --now here, the timer's Persistent=true +
+	// already-elapsed OnBootSec would fire the service immediately and race
+	// with that inline run on the lockfile (issue #62).
+	_, stderr, exitCode, err := exec.Run(ctx, "systemctl", "--user", "enable", unitName+".timer")
 	if err != nil {
 		return fmt.Errorf("failed to enable timer: %w", err)
 	}
@@ -93,6 +99,27 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	log.Progress("Installation complete!")
 	log.Progress("The agent will now run automatically every %d hours", hours)
 
+	return nil
+}
+
+// StartTimer activates the timer that Install enabled. Split out from Install
+// so the install command can run its inline post-install telemetry first
+// (and release the singleton lock) before the timer is allowed to fire its
+// own first invocation. With Persistent=true on the timer unit, this start
+// will trigger one immediate catch-up scan via the service unit — that's
+// fine because the inline scan has already completed.
+func StartTimer(exec executor.Executor, log *progress.Logger) error {
+	ctx := context.Background()
+
+	_, stderr, exitCode, err := exec.Run(ctx, "systemctl", "--user", "start", unitName+".timer")
+	if err != nil {
+		return fmt.Errorf("failed to start timer: %w", err)
+	}
+	if exitCode != 0 {
+		return fmt.Errorf("failed to start timer (exit code %d): %s", exitCode, stderr)
+	}
+
+	log.Progress("Timer started")
 	return nil
 }
 
