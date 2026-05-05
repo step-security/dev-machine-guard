@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [1.11.1] - 2026-05-05
+
+### Added
+
+- **Install path in scan output**: Installed packages and IDE extensions now report their on-disk install location alongside name and version. Covers Homebrew formulae and casks, JetBrains/Eclipse/Xcode/VS Code-family extensions, and Linux snap and flatpak system packages.
+
+### Fixed
+
+- **IDE and AI CLI detection through symlinks**: Tools installed or invoked via symlinks (for example, Homebrew shims or user-managed aliases) are now resolved to their real install path so they are detected and reported correctly instead of being missed or duplicated.
+- **Windows AI CLI detection on relative PATH entries**: AI CLI detection on Windows no longer fails when `PATH` contains relative directory entries — these are resolved before the binary probe runs.
+
 ## [1.11.0] - 2026-04-29
 
 ### Added
@@ -148,6 +159,7 @@ First open-source release. The scanning engine was previously an internal enterp
 - Execution log capture and base64 encoding
 - Instance locking to prevent concurrent runs
 
+[1.11.1]: https://github.com/step-security/dev-machine-guard/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/step-security/dev-machine-guard/compare/v1.10.2...v1.11.0
 [1.10.2]: https://github.com/step-security/dev-machine-guard/compare/v1.10.1...v1.10.2
 [1.10.1]: https://github.com/step-security/dev-machine-guard/compare/v1.10.0...v1.10.1
