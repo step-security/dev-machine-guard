@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"runtime"
 
+	aiagentscli "github.com/step-security/dev-machine-guard/internal/aiagents/cli"
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
 	"github.com/step-security/dev-machine-guard/internal/cli"
 	"github.com/step-security/dev-machine-guard/internal/config"
@@ -18,6 +20,16 @@ import (
 )
 
 func main() {
+	// Hook hot path. Agents invoke `_hook` on every event and any non-zero
+	// exit is treated as a hook failure / block — so we MUST exit 0 even on
+	// malformed args. Skip every line below this branch (config.Load, CLI
+	// parsing, executor construction, logger setup) to keep the runtime
+	// budget realistic; the 15s hook cap has to absorb identity probes and
+	// a 5s upload, every millisecond here is dead weight.
+	if len(os.Args) >= 2 && os.Args[1] == "_hook" {
+		os.Exit(aiagentscli.RunHook(os.Stdin, os.Stdout, os.Stderr, os.Args[2:]))
+	}
+
 	// Load persisted config (~/.stepsecurity/config.json) before parsing CLI
 	config.Load()
 
@@ -158,6 +170,12 @@ func main() {
 			log.Error("Scheduled installation is not supported on %s", runtime.GOOS)
 			os.Exit(1)
 		}
+
+	case "hooks install":
+		os.Exit(aiagentscli.RunInstall(context.Background(), exec, cfg.HooksAgent, os.Stdout, os.Stderr))
+
+	case "hooks uninstall":
+		os.Exit(aiagentscli.RunUninstall(context.Background(), exec, cfg.HooksAgent, os.Stdout, os.Stderr))
 
 	default:
 		// Community mode or auto-detect enterprise
