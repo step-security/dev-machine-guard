@@ -13,18 +13,18 @@ import (
 )
 
 type agentSpec struct {
-	Name           string
-	Vendor         string
-	DetectionPaths []string // relative to home dir
-	Binaries       []string
+	Name     string
+	Vendor   string
+	ConfigDirs []string // candidate config directories (relative to home or absolute, ~ expanded). Used as ConfigDir when populated alongside a discovered binary; never used as the sole proof of installation.
+	Binaries []string // binary names to search via LookPath, or home-relative paths (~/...). At least one must resolve before the agent is considered installed.
 }
 
 var agentDefinitions = []agentSpec{
-	{"openclaw", "OpenSource", []string{".openclaw"}, []string{"openclaw"}},
-	{"clawdbot", "OpenSource", []string{".clawdbot"}, []string{"clawdbot"}},
-	{"moltbot", "OpenSource", []string{".moltbot"}, []string{"moltbot"}},
-	{"moldbot", "OpenSource", []string{".moldbot"}, []string{"moldbot"}},
-	{"gpt-engineer", "OpenSource", []string{".gpt-engineer"}, []string{"gpt-engineer"}},
+	{"openclaw", "OpenSource", []string{"~/.openclaw"}, []string{"openclaw", "~/.local/bin/openclaw"}},
+	{"clawdbot", "OpenSource", []string{"~/.clawdbot"}, []string{"clawdbot", "~/.local/bin/clawdbot"}},
+	{"moltbot", "OpenSource", []string{"~/.moltbot"}, []string{"moltbot", "~/.local/bin/moltbot"}},
+	{"moldbot", "OpenSource", []string{"~/.moldbot"}, []string{"moldbot", "~/.local/bin/moldbot"}},
+	{"gpt-engineer", "OpenSource", []string{"~/.gpt-engineer"}, []string{"gpt-engineer", "~/.local/bin/gpt-engineer"}},
 }
 
 // AgentDetector detects general-purpose AI agents.
@@ -41,19 +41,27 @@ func (d *AgentDetector) Detect(ctx context.Context, searchDirs []string) []model
 	var results []model.AITool
 
 	for _, spec := range agentDefinitions {
-		installPath, found := d.findAgent(spec, homeDir)
+		binaryPath, found := d.findAgentBinary(spec, homeDir)
 		if !found {
 			continue
 		}
 
-		version := d.getVersion(ctx, spec)
+		// Prefer the resolved real path (and, for npm-packaged agents, the
+		// package root) as install_path so investigators can find the actual
+		// package contents rather than the shim on PATH.
+		installPath := resolveInstallPath(d.exec, binaryPath)
+
+		configDir := d.findConfigDir(spec, homeDir)
+		version := d.getVersion(ctx, binaryPath)
 
 		results = append(results, model.AITool{
 			Name:        spec.Name,
 			Vendor:      spec.Vendor,
 			Type:        "general_agent",
 			Version:     version,
+			BinaryPath:  binaryPath,
 			InstallPath: installPath,
+			ConfigDir:   configDir,
 		})
 	}
 
@@ -65,41 +73,63 @@ func (d *AgentDetector) Detect(ctx context.Context, searchDirs []string) []model
 	return results
 }
 
-func (d *AgentDetector) findAgent(spec agentSpec, homeDir string) (string, bool) {
-	// Check detection paths
-	for _, relPath := range spec.DetectionPaths {
-		fullPath := filepath.Join(homeDir, relPath)
-		if d.exec.DirExists(fullPath) || d.exec.FileExists(fullPath) {
-			return fullPath, true
-		}
-	}
-
-	// Check binaries in PATH
+// findAgentBinary searches for the agent's binary, treating any "~/..."
+// entry as a home-relative file path and any other entry as a PATH-resolvable
+// binary name. Returns the discovered path and a found flag.
+//
+// Existence of a config dir alone is intentionally NOT treated as proof of
+// installation: an empty ~/.openclaw/ directory doesn't mean the openclaw
+// agent is installed, and treating it as such produces phantom entries on
+// machines that have stale dotfiles.
+func (d *AgentDetector) findAgentBinary(spec agentSpec, homeDir string) (string, bool) {
 	for _, bin := range spec.Binaries {
-		if path, err := d.exec.LookPath(bin); err == nil {
+		expanded := expandTilde(bin, homeDir)
+		if expanded != bin {
+			// Home-relative: must exist on disk as a file.
+			if d.exec.FileExists(expanded) {
+				return expanded, true
+			}
+			if d.exec.GOOS() == model.PlatformWindows && !strings.HasSuffix(expanded, ".exe") {
+				if d.exec.FileExists(expanded + ".exe") {
+					return expanded + ".exe", true
+				}
+			}
+			continue
+		}
+		if path, err := d.exec.LookPath(expanded); err == nil {
 			return path, true
 		}
 	}
-
 	return "", false
 }
 
-func (d *AgentDetector) getVersion(ctx context.Context, spec agentSpec) string {
-	for _, bin := range spec.Binaries {
-		if _, err := d.exec.LookPath(bin); err == nil {
-			stdout, _, _, err := d.exec.RunWithTimeout(ctx, 10*time.Second, bin, "--version")
-			if err == nil {
-				lines := strings.SplitN(stdout, "\n", 2)
-				if len(lines) > 0 {
-					v := strings.TrimSpace(lines[0])
-					if v != "" {
-						return v
-					}
-				}
-			}
+// findConfigDir returns the first config directory candidate that exists and
+// is non-empty. An entirely empty directory is treated as "no config dir":
+// stale dotfiles shouldn't get surfaced as a real config location. We don't
+// inspect file sizes here — the binary-on-PATH requirement in
+// findAgentBinary is what defends against false positives like an empty
+// config.json. This check is purely cosmetic (whether to populate the field).
+func (d *AgentDetector) findConfigDir(spec agentSpec, homeDir string) string {
+	for _, dir := range spec.ConfigDirs {
+		expanded := expandTilde(dir, homeDir)
+		if !d.exec.DirExists(expanded) {
+			continue
 		}
+		entries, err := d.exec.ReadDir(expanded)
+		if err != nil || len(entries) == 0 {
+			continue
+		}
+		return expanded
 	}
-	return "unknown"
+	return ""
+}
+
+func (d *AgentDetector) getVersion(ctx context.Context, binaryPath string) string {
+	stdout, _, _, err := d.exec.RunWithTimeout(ctx, 10*time.Second, binaryPath, "--version")
+	if err != nil {
+		return "unknown"
+	}
+	return extractVersionFromOutput(stdout)
 }
 
 // detectClaudeCowork checks for Claude Cowork (a mode within Claude Desktop 0.7+).

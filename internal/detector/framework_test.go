@@ -33,6 +33,36 @@ func TestFrameworkDetector_FindsOllama(t *testing.T) {
 	}
 }
 
+// TestFrameworkDetector_OllamaVersionWithWarnings asserts that the framework
+// detector strips warning lines that ollama prints when its daemon isn't
+// running and still surfaces the real version. See bug 0001 F3.
+func TestFrameworkDetector_OllamaVersionWithWarnings(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetPath("ollama", "/usr/bin/ollama")
+	mock.SetCommand(
+		"Warning: could not connect to a running Ollama instance\nWarning: client version is 0.0.0\n",
+		"", 0,
+		"/usr/bin/ollama", "--version",
+	)
+	mock.SetCommand("", "", 1, "pgrep", "-x", "ollama") // not running
+
+	det := NewFrameworkDetector(mock)
+	results := det.Detect(context.Background())
+
+	found := false
+	for _, r := range results {
+		if r.Name == "ollama" {
+			found = true
+			if r.Version != "0.0.0" {
+				t.Errorf("expected version 0.0.0 (extracted from second 'Warning:' line), got %q", r.Version)
+			}
+		}
+	}
+	if !found {
+		t.Error("ollama not found")
+	}
+}
+
 func TestFrameworkDetector_NotRunning(t *testing.T) {
 	mock := executor.NewMock()
 	mock.SetPath("ollama", "/usr/local/bin/ollama")
