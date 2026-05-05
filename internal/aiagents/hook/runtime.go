@@ -47,8 +47,8 @@ const (
 )
 
 // UploadTimeout is the per-invocation cap on the synchronous upload
-// stage. Kept here (rather than read from the ingest package) because
-// Phase 2 ships without an ingest.Client; Phase 3 wires it.
+// stage. Mirrors ingest.DefaultHookUploadTimeout; kept here so the
+// runtime stays decoupled from the ingest package's HTTP client.
 const UploadTimeout = 5 * time.Second
 
 // Runtime wires every dependency the hot path needs.
@@ -70,11 +70,12 @@ type Runtime struct {
 
 	// UploadEvent is the synchronous backend ingestion seam. nil means
 	// upload is disabled — the local-only behavior the runtime falls
-	// back to whenever enterprise config is missing or, in Phase 2,
-	// before the ingest.Client lands. The event passed in already
-	// carries customer_id, device_id, and user_identity stamped from
-	// the same identity.Resolve call, so the seam intentionally does
-	// not take a separate identity argument.
+	// back to whenever enterprise config is missing. Production wires
+	// this to an ingest.Client closure via cli.newUploader; tests
+	// inject a capture function. The event passed in already carries
+	// customer_id, device_id, and user_identity stamped from the same
+	// identity.Resolve call, so the seam intentionally does not take a
+	// separate identity argument.
 	UploadEvent func(ctx context.Context, ev event.Event) error
 
 	// LogError is the errors.jsonl appender seam. nil means errors are
@@ -203,11 +204,10 @@ func (rt *Runtime) Run(parent context.Context, hookType event.HookEvent) error {
 }
 
 // resolveUpload picks the upload function for this hook invocation.
-// Tests override Runtime.UploadEvent directly; production code in
-// Phase 3 (ticket 3.1) will construct an ingest.Client from the
-// snapshot. Phase 2 ships without a client — a nil UploadEvent simply
-// disables upload, matching the local-only fallback we want when
-// enterprise config is missing.
+// Tests override Runtime.UploadEvent directly; production code wires
+// it through cli.newUploader, which returns nil whenever enterprise
+// config is missing. A nil UploadEvent disables upload — the
+// local-only fallback we want without enterprise credentials.
 func (rt *Runtime) resolveUpload() func(context.Context, event.Event) error {
 	return rt.UploadEvent
 }

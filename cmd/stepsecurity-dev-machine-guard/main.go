@@ -22,10 +22,12 @@ import (
 func main() {
 	// Hook hot path. Agents invoke `_hook` on every event and any non-zero
 	// exit is treated as a hook failure / block — so we MUST exit 0 even on
-	// malformed args. Skip every line below this branch (config.Load, CLI
-	// parsing, executor construction, logger setup) to keep the runtime
-	// budget realistic; the 15s hook cap has to absorb identity probes and
-	// a 5s upload, every millisecond here is dead weight.
+	// malformed args. Skip every line below this branch (CLI parsing,
+	// executor construction, logger setup) to keep the runtime budget
+	// realistic; the 15s hook cap has to absorb identity probes and a 5s
+	// upload, every millisecond here is dead weight. RunHook owns its own
+	// minimal config.Load (just enough for the upload gate) so this branch
+	// stays free of the rest of main's setup work.
 	if len(os.Args) >= 2 && os.Args[1] == "_hook" {
 		os.Exit(aiagentscli.RunHook(os.Stdin, os.Stdout, os.Stderr, os.Args[2:]))
 	}
