@@ -514,16 +514,23 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 	// Build payload
 	payload := &Payload{
-		CustomerID:     config.CustomerID,
-		DeviceID:       dev.SerialNumber,
-		SerialNumber:   dev.SerialNumber,
-		UserIdentity:   dev.UserIdentity,
-		Hostname:       dev.Hostname,
-		Platform:       dev.Platform,
-		OSVersion:      dev.OSVersion,
-		AgentVersion:   buildinfo.Version,
-		CollectedAt:    endTime.Unix(),
-		NoUserLoggedIn: dev.UserIdentity == "" || dev.UserIdentity == "unknown",
+		CustomerID:   config.CustomerID,
+		DeviceID:     dev.SerialNumber,
+		SerialNumber: dev.SerialNumber,
+		UserIdentity: dev.UserIdentity,
+		Hostname:     dev.Hostname,
+		Platform:     dev.Platform,
+		OSVersion:    dev.OSVersion,
+		AgentVersion: buildinfo.Version,
+		CollectedAt:  endTime.Unix(),
+		// Treat a daemon-context UserIdentity == "root" as "no real user"
+		// too. Even with the executor.LoggedInUser() fix (issue #63), this
+		// catches any other code path that ends up shipping "root" from
+		// under a LaunchDaemon (e.g., env-var path returning literal "root",
+		// future regressions in detection).
+		NoUserLoggedIn: dev.UserIdentity == "" ||
+			dev.UserIdentity == "unknown" ||
+			(dev.UserIdentity == "root" && exec.IsRoot()),
 
 		IDEExtensions:        extensions,
 		IDEInstallations:     ides,
