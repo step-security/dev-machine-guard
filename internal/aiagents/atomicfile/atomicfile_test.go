@@ -10,8 +10,7 @@ import (
 
 func TestBackupSuffix_IsRebranded(t *testing.T) {
 	if BackupSuffix != ".dmg-backup." {
-		t.Errorf("BackupSuffix = %q, want %q (Anchor's `.anchor-backup.` must not survive the port)",
-			BackupSuffix, ".dmg-backup.")
+		t.Errorf("BackupSuffix = %q, want %q", BackupSuffix, ".dmg-backup.")
 	}
 }
 

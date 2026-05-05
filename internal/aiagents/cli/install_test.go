@@ -119,7 +119,7 @@ func TestRunInstall_RootNoConsoleUser_Exit0(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	rc := RunInstall(context.Background(), m, "", &stdout, &stderr)
 	if rc != 0 {
-		t.Fatalf("root + no console user: exit = %d, want 0 (plan §1.5)", rc)
+		t.Fatalf("root + no console user: exit = %d, want 0", rc)
 	}
 	if !strings.Contains(stderr.String(), "no console user") {
 		t.Errorf("stderr missing the bail note, got: %q", stderr.String())

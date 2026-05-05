@@ -5,9 +5,9 @@
 // non-zero exit or a stalled response.
 //
 // Persistence-by-design omission: this package does NOT write
-// events.jsonl (port plan §1.10). The only on-disk artifact is the
-// errors log appended through the LogError seam; the event itself is
-// either delivered to UploadEvent or dropped.
+// events.jsonl. The only on-disk artifact is the errors log appended
+// through the LogError seam; the event itself is either delivered to
+// UploadEvent or dropped.
 package hook
 
 import (
@@ -31,10 +31,10 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/executor"
 )
 
-// Caps from port plan §1.11. Every hook invocation MUST honor these.
+// Every hook invocation MUST honor these caps.
 //
 // CapHook bounds the worst-case agent stall on a hung invocation. It is
-// 15s (bumped from Anchor's 10s) to absorb the 1s identity probe and a
+// 15s to absorb the 1s identity probe and a
 // 5s upload under load. The agent's own hook timeout (Claude Code
 // defaults to 60s) is the absolute ceiling above us.
 const (
@@ -190,8 +190,7 @@ func (rt *Runtime) Run(parent context.Context, hookType event.HookEvent) error {
 	// capped at UploadTimeout to bound that delay even when the backend
 	// hangs.
 	//
-	// Failure is recorded only in errors.jsonl; the event is dropped
-	// (no events.jsonl per port plan §1.10).
+	// Failure is recorded only in errors.jsonl; the event is dropped.
 	if upload != nil {
 		uploadCtx, cancel := context.WithTimeout(ctx, UploadTimeout)
 		uploadErr := upload(uploadCtx, *ev)

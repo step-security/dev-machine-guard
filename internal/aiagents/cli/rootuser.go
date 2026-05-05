@@ -25,7 +25,7 @@ type TargetUser struct {
 // user — in particular, callers must NOT walk /etc/passwd or read
 // $SUDO_USER directly.
 //
-// Behavior matches port plan §1.5:
+// Behavior:
 //   - non-root caller: returns the calling user; ok=true.
 //   - root caller, console user resolved: returns the console user; ok=true.
 //   - root caller, no console user resolved: writes a one-line note to

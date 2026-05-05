@@ -17,8 +17,8 @@ import (
 )
 
 // captured holds the events the runtime hands to UploadEvent during a
-// test. Without events.jsonl (port plan §1.10), UploadEvent is the
-// single test seam for inspecting the constructed event.
+// test. UploadEvent is the single test seam for inspecting the
+// constructed event.
 type captured struct {
 	mu     sync.Mutex
 	events []event.Event
@@ -394,9 +394,8 @@ func TestRunUploadFailureFailsOpen(t *testing.T) {
 	}
 }
 
-// When no UploadEvent is wired (production runtime in Phase 2 before
-// ingest.Client lands, or any runtime without enterprise config), the
-// runtime must still complete — just with no upload attempt.
+// When no UploadEvent is wired (any runtime without enterprise config),
+// the runtime must still complete — just with no upload attempt.
 func TestRunSkipsUploadWithoutSeam(t *testing.T) {
 	stdin := strings.NewReader(`{
 		"session_id":"s","cwd":"/tmp","tool_name":"Bash","tool_input":{"command":"ls"}

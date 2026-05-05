@@ -25,21 +25,18 @@ const (
 	matcherAll         = "*"
 	matcherSession     = "startup|resume|clear"
 	settingsMode       = os.FileMode(0o600)
-	// statusMessagePrefix shows up in the Codex UI alongside the
-	// running hook. The plan §1.14 branding sweep mandates the
-	// `dev-machine-guard` literal in user-visible strings.
 	statusMessagePrefix = "dev-machine-guard"
 )
 
-// managedCmdRE is the uninstall match criterion (plan §1.4). It
-// matches an entry's `command` field when the executable token is the
-// DMG binary, regardless of which absolute path it sits behind. The
-// `(^|/)` left-side accepts both bare invocations and absolute-path
+// managedCmdRE is the uninstall match criterion. It matches an entry's
+// `command` field when the executable token is the DMG binary,
+// regardless of which absolute path it sits behind. The `(^|/)`
+// left-side accepts both bare invocations and absolute-path
 // invocations, while rejecting prefix collisions like
 // `mystepsecurity-dev-machine-guard`.
 //
-// The regex is kept identical to the claudecode adapter's so the
-// branding-sweep CI grep (plan §7) covers them in one pass.
+// The regex is kept identical to the claudecode adapter's so a single
+// grep covers both.
 var managedCmdRE = regexp.MustCompile(`(^|/)stepsecurity-dev-machine-guard\s+_hook\s+`)
 
 // hooksDoc holds raw bytes for ~/.codex/hooks.json. orig is the bytes
@@ -122,9 +119,8 @@ func desiredHookEntry(hookType event.HookEvent, command string) codexHookEntry {
 	}
 }
 
-// isManagedCommand reports whether cmd is a DMG-installed hook entry,
-// per the plan §1.4 matcher. Legacy `anchor _hook codex …` entries are
-// intentionally not matched (plan §7).
+// isManagedCommand reports whether cmd is a DMG-installed hook entry.
+// Hook entries from other tools are intentionally not matched.
 func isManagedCommand(cmd string) bool {
 	return managedCmdRE.MatchString(cmd)
 }
@@ -142,9 +138,8 @@ func isManagedCommand(cmd string) bool {
 // Always-refresh: when a managed entry already sits under the desired
 // matcher, its type/command/timeout/statusMessage fields are rewritten
 // in place via sjson (preserving any extra keys the user added). This
-// is what self-heals the binary-move case (plan §1.3 documents it as
-// a known follow-up; we do the in-place refresh anyway because the
-// claudecode adapter does and the cost is zero).
+// self-heals the binary-move case — matching the claudecode adapter's
+// behavior at zero extra cost.
 func (d *hooksDoc) upsertHook(hookType event.HookEvent, command string) (added bool) {
 	want := desiredHookEntry(hookType, command)
 	wantMatcher := matcherFor(hookType)
@@ -288,11 +283,11 @@ func refreshManagedEntry(rawEntry string, want codexHookEntry) (string, error) {
 	return string(out), nil
 }
 
-// removeManagedHooks strips every DMG-owned entry (regex match per
-// plan §1.4). Returns the hook events from which at least one entry
+// removeManagedHooks strips every DMG-owned entry (regex match on
+// managedCmdRE). Returns the hook events from which at least one entry
 // was removed. binaryPath is reserved for future scoping (e.g.,
-// "remove only entries pointing at this specific binary"); Phase 1
-// removes any entry whose command matches managedCmdRE, regardless of
+// "remove only entries pointing at this specific binary"); today we
+// remove any entry whose command matches managedCmdRE, regardless of
 // the path token.
 func (d *hooksDoc) removeManagedHooks(binaryPath string) []event.HookEvent {
 	_ = binaryPath
@@ -424,8 +419,8 @@ func writeHooksAtomic(path string, doc *hooksDoc) (*atomicfile.WriteResult, erro
 // bytes via configedit.EnsureCodexHooksFlag.
 //
 // Missing files return (nil, nil). Malformed TOML is rejected here so
-// install can abort BEFORE hooks.json is touched (plan §1.4 multi-file
-// safety; Anchor's TestInstallMalformedTOMLDoesNotMutateHooks).
+// install can abort BEFORE hooks.json is touched (multi-file safety;
+// see TestInstallMalformedTOMLDoesNotMutateHooks).
 func loadConfigTOMLBytes(path string) ([]byte, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {

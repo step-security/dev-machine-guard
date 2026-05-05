@@ -111,8 +111,8 @@ func TestUninstallRemovesOnlyManagedHooks(t *testing.T) {
 	// User hooks include lookalikes that the regex match must NOT touch:
 	// a tool whose name starts with the same prefix but isn't a separate
 	// word; a hyphenated suffix; an absolute path that is NOT the DMG
-	// binary; and a legacy `anchor _hook` entry which is intentionally
-	// not migrated (plan §7).
+	// binary; and a third-party tool entry which is intentionally
+	// not matched.
 	body := `{
 		"hooks": {
 			"PreToolUse": [
@@ -120,7 +120,7 @@ func TestUninstallRemovesOnlyManagedHooks(t *testing.T) {
 					{"type": "command", "command": "stepsecurity-dev-machine-guardctl status"},
 					{"type": "command", "command": "stepsecurity-dev-machine-guard-foo run"},
 					{"type": "command", "command": "/usr/local/bin/other-tool _hook claude-code PreToolUse"},
-					{"type": "command", "command": "anchor _hook claude-code PreToolUse"},
+					{"type": "command", "command": "legacy-tool _hook claude-code PreToolUse"},
 					{"type": "command", "command": "echo user-other"}
 				]}
 			]
@@ -161,7 +161,7 @@ func TestUninstallRemovesOnlyManagedHooks(t *testing.T) {
 		"stepsecurity-dev-machine-guardctl status",
 		"stepsecurity-dev-machine-guard-foo run",
 		"/usr/local/bin/other-tool _hook claude-code PreToolUse",
-		"anchor _hook claude-code PreToolUse",
+		"legacy-tool _hook claude-code PreToolUse",
 		"echo user-other",
 	} {
 		if !slices.Contains(survivors, want) {
@@ -346,11 +346,10 @@ func TestInstallNoOpDoesNotRewriteSettings(t *testing.T) {
 	}
 }
 
-// TestUninstallPreservesUserHookAfterManagedEntry covers the
-// array-shift bug fixed by the gjson/sjson refactor in Anchor — the
-// previous span-based renderer matched array elements by index, so
-// removing the managed entry at index 0 could overwrite the user
-// entry that shifted into index 0.
+// TestUninstallPreservesUserHookAfterManagedEntry covers an array-shift
+// bug in the previous span-based renderer — it matched array elements
+// by index, so removing the managed entry at index 0 could overwrite
+// the user entry that shifted into index 0.
 func TestUninstallPreservesUserHookAfterManagedEntry(t *testing.T) {
 	body := `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"/usr/local/bin/stepsecurity-dev-machine-guard _hook claude-code PreToolUse","timeout":30},{"timeout":5,"type":"command","command":"echo user"}]}]}}`
 	home := newHomeWithSettings(t, body)
@@ -402,7 +401,7 @@ func TestInstallRejectsMalformedJSON(t *testing.T) {
 	}
 }
 
-// TestInstallRefreshesStaleBinaryPath asserts the Phase 1 self-heal
+// TestInstallRefreshesStaleBinaryPath asserts the self-heal behavior
 // for the binary-move case: when settings already contain a managed
 // entry pointing at an old absolute path, a fresh `hooks install`
 // rewrites the command to the current binaryPath. Without this,
@@ -696,12 +695,10 @@ func TestDecideResponsePreToolUseBlockShape(t *testing.T) {
 	}
 }
 
-func TestDecideResponseDefaultBlockMessageMatchesPlan(t *testing.T) {
-	// Plan §1.14: user-visible deny string is
-	// "Blocked by your organization's administrator." When the runtime
-	// passes a Decision with empty UserMessage, the adapter substitutes
-	// this literal — the wire response must carry it verbatim so the
-	// branding sweep in 1.8 has nothing to fix later.
+func TestDecideResponseDefaultBlockMessage(t *testing.T) {
+	// The user-visible deny string is "Blocked by your organization's
+	// administrator." When the runtime passes a Decision with empty
+	// UserMessage, the adapter must substitute this literal verbatim.
 	a := New(t.TempDir(), testBinary)
 	ev := &event.Event{HookEvent: event.HookPreToolUse}
 	resp := a.DecideResponse(ev, adapter.Decision{Allow: false})
@@ -787,7 +784,7 @@ func TestInstallWiresPostToolUseFailure(t *testing.T) {
 // TestInstallCreatesParentDirWhenAbsent asserts that Install can run
 // against a fresh home without ~/.claude/ existing — the atomicfile
 // layer creates parent dirs and reports them in CreatedDirs so the
-// install handler can chown them under root (plan §1.6).
+// install handler can chown them under root.
 func TestInstallCreatesParentDirWhenAbsent(t *testing.T) {
 	home := t.TempDir()
 	a := New(home, testBinary)

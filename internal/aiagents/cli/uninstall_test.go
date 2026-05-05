@@ -50,7 +50,7 @@ func TestRunUninstall_RootNoConsoleUser_Exit0(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	if rc := RunUninstall(context.Background(), m, "", &stdout, &stderr); rc != 0 {
-		t.Fatalf("exit = %d, want 0 (plan §1.5)", rc)
+		t.Fatalf("exit = %d, want 0", rc)
 	}
 	if !strings.Contains(stderr.String(), "no console user") {
 		t.Errorf("stderr missing bail note, got: %q", stderr.String())
@@ -136,11 +136,11 @@ func TestRunUninstall_NoEnterpriseConfigStillWorks(t *testing.T) {
 	}
 
 	// Verify the actual uninstall happened — the file should still
-	// exist (plan §1.7) but have no DMG-owned hook entries.
+	// exist but have no DMG-owned hook entries.
 	settings := filepath.Join(home, ".claude", "settings.json")
 	data, err := os.ReadFile(settings)
 	if err != nil {
-		t.Fatalf("settings file vanished after uninstall (plan §1.7 violated): %v", err)
+		t.Fatalf("settings file vanished after uninstall: %v", err)
 	}
 	if strings.Contains(string(data), fakeBinary+" _hook claude-code") {
 		t.Errorf("DMG hook command still present after uninstall: %s", string(data))
@@ -169,7 +169,7 @@ func TestRunUninstall_RemovesPreviouslyInstalledHooks(t *testing.T) {
 
 	after, err := os.ReadFile(settings)
 	if err != nil {
-		t.Fatalf("settings file deleted (plan §1.7 violated): %v", err)
+		t.Fatalf("settings file deleted after uninstall: %v", err)
 	}
 	if strings.Contains(string(after), fakeBinary+" _hook claude-code") {
 		t.Errorf("DMG hook command not removed: %s", string(after))
@@ -201,7 +201,7 @@ func TestRunUninstall_NoDMGOwnedEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	// User-authored settings with a third-party hook that DMG
-	// must NOT match against its uninstall regex (plan §1.4).
+	// must NOT match against its uninstall regex.
 	settings := filepath.Join(claudeDir, "settings.json")
 	original := []byte(`{
   "hooks": {
@@ -261,8 +261,8 @@ func TestRunUninstall_ExplicitAgentSkipsDetection(t *testing.T) {
 	}
 }
 
-// TestRunUninstall_CodexLeavesFeatureFlag pins plan §1.15: uninstall
-// removes hook entries from hooks.json but does NOT revert
+// TestRunUninstall_CodexLeavesFeatureFlag pins the invariant that
+// uninstall removes hook entries from hooks.json but does NOT revert
 // [features].codex_hooks=true in config.toml. Other tools' hooks may
 // depend on that flag staying enabled.
 func TestRunUninstall_CodexLeavesFeatureFlag(t *testing.T) {
@@ -290,7 +290,7 @@ func TestRunUninstall_CodexLeavesFeatureFlag(t *testing.T) {
 		t.Fatalf("config.toml vanished after uninstall: %v", err)
 	}
 	if !bytes.Equal(beforeCfg, afterCfg) {
-		t.Errorf("config.toml mutated by uninstall (plan §1.15 violated):\nbefore=%s\nafter=%s",
+		t.Errorf("config.toml mutated by uninstall:\nbefore=%s\nafter=%s",
 			string(beforeCfg), string(afterCfg))
 	}
 
@@ -301,12 +301,11 @@ func TestRunUninstall_CodexLeavesFeatureFlag(t *testing.T) {
 	}
 }
 
-// TestRunUninstall_NeverDeletesSettingsFile is the explicit
-// invariant-pin for plan §1.7 acceptance: even when uninstall removes
-// every DMG-owned hook from a settings file that contains nothing
-// else, the file itself must remain on disk. (The adapter is
-// responsible for this; the test here ensures it stays that way at
-// the handler boundary.)
+// TestRunUninstall_NeverDeletesSettingsFile pins the invariant that
+// even when uninstall removes every DMG-owned hook from a settings
+// file that contains nothing else, the file itself must remain on
+// disk. (The adapter is responsible for this; the test ensures it
+// holds at the handler boundary.)
 func TestRunUninstall_NeverDeletesSettingsFile(t *testing.T) {
 	home, m := runInstallForTest(t, "claude-code")
 

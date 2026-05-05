@@ -403,9 +403,9 @@ func TestTimestampIsRFC3339Nano(t *testing.T) {
 
 func TestPolicyDecisionInfoTruthTable(t *testing.T) {
 	// Verify the truth-table documented on PolicyDecisionInfo round-trips
-	// through JSON cleanly. Phase 1 only emits the audit rows; the block
-	// row is exercised by tests so block-mode flip is a flag flip, not a
-	// shape change.
+	// through JSON cleanly. Only audit rows are emitted in production;
+	// the block row is exercised by tests so block-mode flip is a flag
+	// flip, not a shape change.
 	cases := []struct {
 		name string
 		info event.PolicyDecisionInfo

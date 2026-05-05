@@ -36,7 +36,7 @@ type Config struct {
 }
 
 // supportedHookAgents lists the agent names accepted by `hooks --agent <name>` and `_hook <agent> ...`.
-// Phase 1 ships claude-code and codex; the list grows as adapters are added.
+// Supported agents: claude-code and codex; the list grows as adapters are added.
 var supportedHookAgents = []string{"claude-code", "codex"}
 
 func isSupportedHookAgent(name string) bool {

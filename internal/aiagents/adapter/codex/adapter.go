@@ -1,17 +1,16 @@
 // Package codex implements the Adapter interface for OpenAI Codex.
 //
-// Detection is by `executor.LookPath("codex")` (plan §1.2). Codex
-// stores hook configuration across two files:
+// Detection is by `executor.LookPath("codex")`. Codex stores hook
+// configuration across two files:
 //
 //   - ~/.codex/hooks.json   — hook definitions (JSON)
 //   - ~/.codex/config.toml  — global config; install also sets
 //     `[features].codex_hooks = true` here so Codex actually invokes
-//     hooks at runtime (plan §1.15)
+//     hooks at runtime
 //
 // Uninstall removes DMG-owned hook entries from hooks.json but does
 // NOT revert the codex_hooks feature flag — the user may have wired
-// up other tools' hooks that depend on it (plan §1.15, documented as
-// known residue in plan §4.6).
+// up other tools' hooks that depend on it.
 //
 // Restore + Status are intentionally absent (see adapter.Adapter for
 // the trimmed-interface rationale). There is no Force install option:
@@ -75,9 +74,9 @@ func (a *Adapter) ManagedFiles() []adapter.ManagedFile {
 	}
 }
 
-// Detect reports whether the Codex CLI is on $PATH (plan §1.2).
-// Settings file presence is NOT a gate — install creates the files
-// from scratch when absent.
+// Detect reports whether the Codex CLI is on $PATH. Settings file
+// presence is NOT a gate — install creates the files from scratch
+// when absent.
 func (a *Adapter) Detect(ctx context.Context, exec executor.Executor) (adapter.DetectionResult, error) {
 	res := adapter.DetectionResult{}
 	bin, err := exec.LookPath(AgentBinary)
@@ -96,8 +95,8 @@ func (a *Adapter) Detect(ctx context.Context, exec executor.Executor) (adapter.D
 // Multi-file safety: every output buffer (hooks.json + config.toml)
 // is loaded, validated, and encoded BEFORE the first write happens —
 // a malformed config.toml aborts the operation with hooks.json still
-// intact. The plan explicitly forbids partial-write states (plan §1.4
-// implicit; surfaced by Anchor's TestInstallMalformedTOMLDoesNotMutateHooks).
+// intact. Partial-write states are forbidden (covered by
+// TestInstallMalformedTOMLDoesNotMutateHooks).
 //
 // Idempotent: when both files are already in desired state, returns
 // empty WrittenFiles and BackupFiles and performs no writes.
@@ -158,7 +157,7 @@ func (a *Adapter) Install(ctx context.Context) (adapter.InstallResult, error) {
 // Uninstall removes DMG-owned hook entries from hooks.json. The
 // `[features].codex_hooks` flag in config.toml is intentionally NOT
 // reverted — the user may have other tools' hooks that depend on it
-// being enabled (plan §1.15).
+// being enabled.
 //
 // The settings file is preserved even when uninstall removes the last
 // hook — leaving an empty {} (or whatever non-hook keys remain) keeps
@@ -191,7 +190,7 @@ func (a *Adapter) Uninstall(ctx context.Context) (adapter.UninstallResult, error
 }
 
 // commandFor renders the literal command string DMG writes into the
-// settings entry for hookEvent. Format (plan §1.3):
+// settings entry for hookEvent. Format:
 //
 //	<binaryPath> _hook codex <hookEvent>
 //
@@ -215,9 +214,9 @@ type preToolUseDeny struct {
 // Default is the empty object {}; only PreToolUse + Allow=false
 // produces the hook-specific deny shape.
 //
-// Phase 1 NEVER returns Allow=false to the agent: the policy
-// evaluator is forced to audit mode (plan §1.9). The Allow=false path
-// is exercised only by adapter unit tests until block mode ships.
+// The runtime NEVER returns Allow=false to the agent today: the
+// policy evaluator is forced to audit mode. The Allow=false path is
+// exercised only by adapter unit tests until block mode ships.
 func (a *Adapter) DecideResponse(ev *event.Event, d adapter.Decision) adapter.HookResponse {
 	if d.Allow || ev == nil {
 		return noopResponse{}

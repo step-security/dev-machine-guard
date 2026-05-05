@@ -14,9 +14,7 @@ import (
 // for example, installs binaries under `/opt/homebrew/Cellar/...` and
 // links `/opt/homebrew/bin/<name>` to them. Recording the Cellar path
 // means a `brew upgrade` that swaps the symlink target still leaves a
-// valid hook command (until the Cellar path itself is removed). The
-// known-follow-up "binary moves" failure mode is documented in
-// docs/plans/ai-agent-hooks-port-plan.md §1.3.
+// valid hook command (until the Cellar path itself is removed).
 //
 // On Windows, EvalSymlinks resolves directory junctions and reparse
 // points the same way it resolves Unix symlinks.

@@ -1,6 +1,6 @@
 // Package ingest owns the AI-agent telemetry upload path: the stricter
-// enterprise-config gate (this file) and, once ticket 3.1 lands, the HTTP
-// client that POSTs events to /v1/{customer_id}/ai-agents/events.
+// enterprise-config gate (this file) and the HTTP client that POSTs
+// events to /v1/{customer_id}/ai-agents/events.
 //
 // The stricter gate exists because DMG's `config.IsEnterpriseMode()`
 // checks only APIKey — that's the right call for the scan/telemetry

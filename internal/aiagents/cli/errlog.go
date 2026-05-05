@@ -10,13 +10,12 @@ import (
 )
 
 // ErrorLogFilename is the basename of the per-user errors log. It lives
-// directly under ~/.stepsecurity/ — no `anchor/` subdir per the rebrand
-// in port plan §1.14.
+// directly under ~/.stepsecurity/.
 const ErrorLogFilename = "ai-agent-hook-errors.jsonl"
 
 // MaxErrorLogBytes triggers a truncate-and-restart before each append.
-// 5 MiB matches port plan §1.10. Phase 1 deliberately skips advisory
-// locks; entries < 4 KiB are atomic on POSIX `O_APPEND` writes.
+// At 5 MiB, individual entries < 4 KiB remain atomic on POSIX
+// `O_APPEND` writes without advisory locks.
 const MaxErrorLogBytes = 5 * 1024 * 1024
 
 const (

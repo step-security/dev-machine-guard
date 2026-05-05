@@ -46,10 +46,9 @@ func withStubUploader(t *testing.T) *[]aieventc.Event {
 }
 
 // TestRunHook_FailOpenContract asserts the fail-open contract on every
-// ERROR path: exit 0, empty stdout, empty stderr. These cases MUST keep
-// passing as the stub grows into the real runtime in ticket 2.8 — adding
-// parsing, stdin handling, policy evaluation, and upload paths must not
-// introduce any non-zero exit or any stderr noise on these inputs.
+// ERROR path: exit 0, empty stdout, empty stderr. Adding parsing, stdin
+// handling, policy evaluation, and upload paths must not introduce any
+// non-zero exit or any stderr noise on these inputs.
 //
 // Valid calls (well-formed agent + event) are deliberately excluded:
 // they're a different contract — exit 0 + a valid agent-allow JSON body
@@ -142,11 +141,11 @@ func TestRunHook_ValidPayloadEmitsAllow(t *testing.T) {
 	}
 }
 
-// TestRunHook_RealUploadWiring exercises the entire Phase 3 path
-// without the uploaderFactory stub: RunHook → config.Load → newUploader
-// → ingest.Client → httptest.Server. This is the only test that
-// proves config-staged credentials actually drive a real POST through
-// the wire-format we ship; the seam-stubbed tests above intentionally
+// TestRunHook_RealUploadWiring exercises the full upload path without
+// the uploaderFactory stub: RunHook → config.Load → newUploader →
+// ingest.Client → httptest.Server. This is the only test that proves
+// config-staged credentials actually drive a real POST through the
+// wire-format we ship; the seam-stubbed tests intentionally
 // short-circuit before that wiring.
 func TestRunHook_RealUploadWiring(t *testing.T) {
 	type captured struct {
@@ -228,7 +227,7 @@ func TestRunHook_RealUploadWiring(t *testing.T) {
 	}
 }
 
-// TestRunHook_InvokesUploaderSeam pins the Phase 3 wiring: a valid
+// TestRunHook_InvokesUploaderSeam pins the upload wiring: a valid
 // `_hook claude-code PreToolUse` invocation must dispatch through
 // uploaderFactory(). The factory itself decides whether a real upload
 // happens (it returns nil when enterprise config is missing); this

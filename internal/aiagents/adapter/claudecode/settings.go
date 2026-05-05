@@ -51,7 +51,7 @@ const (
 // atomicfile helpers preserve a tighter existing mode if present.
 const settingsMode = os.FileMode(0o600)
 
-// managedCmdRE is the uninstall match criterion (plan §1.4). It matches
+// managedCmdRE is the uninstall match criterion. It matches
 // an entry's `command` field when the executable token is the DMG
 // binary, regardless of which absolute path it sits behind. The
 // `(^|/)` left-side accepts both bare invocations and absolute-path
@@ -95,9 +95,8 @@ func installEntry(command string) hookEntry {
 	}
 }
 
-// isManagedCommand reports whether cmd is a DMG-installed hook entry,
-// per the plan §1.4 matcher. It explicitly does NOT match legacy
-// pre-port hook entries left by other tools (plan §7).
+// isManagedCommand reports whether cmd is a DMG-installed hook entry.
+// It explicitly does NOT match legacy hook entries left by other tools.
 func isManagedCommand(cmd string) bool {
 	return managedCmdRE.MatchString(cmd)
 }
@@ -224,11 +223,11 @@ func refreshManagedEntry(rawEntry string, want hookEntry) (string, error) {
 	return string(out), nil
 }
 
-// removeManagedHooks strips every DMG-owned entry (regex match per
-// plan §1.4). Returns the hook events from which at least one entry
+// removeManagedHooks strips every DMG-owned entry (regex match on
+// managedCmdRE). Returns the hook events from which at least one entry
 // was removed. binaryPath is reserved for future scoping (e.g.,
-// "remove only entries pointing at this specific binary"); Phase 1
-// removes any entry whose command matches managedCmdRE, regardless of
+// "remove only entries pointing at this specific binary"); today we
+// remove any entry whose command matches managedCmdRE, regardless of
 // the path token.
 func (s *settingsDoc) removeManagedHooks(binaryPath string) []event.HookEvent {
 	_ = binaryPath

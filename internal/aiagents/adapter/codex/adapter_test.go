@@ -188,12 +188,10 @@ func TestDecideResponsePreToolUseDenyShape(t *testing.T) {
 	}
 }
 
-func TestDecideResponseDefaultBlockMessageMatchesPlan(t *testing.T) {
-	// Plan §1.14: user-visible deny string is
-	// "Blocked by your organization's administrator." When the runtime
-	// passes a Decision with empty UserMessage, the adapter substitutes
-	// this literal — the wire response must carry it verbatim so the
-	// branding sweep in 1.8 has nothing to fix later.
+func TestDecideResponseDefaultBlockMessage(t *testing.T) {
+	// The user-visible deny string is "Blocked by your organization's
+	// administrator." When the runtime passes a Decision with empty
+	// UserMessage, the adapter must substitute this literal verbatim.
 	a := New(t.TempDir(), testBinary)
 	ev := &event.Event{HookEvent: HookPreToolUse, HookPhase: event.HookPhasePreTool}
 	resp := a.DecideResponse(ev, adapter.Decision{Allow: false})
@@ -537,10 +535,10 @@ broken`)
 }
 
 // TestInstallMalformedTOMLDoesNotMutateHooks asserts the multi-file
-// safety invariant from plan §1.4: a malformed config.toml must abort
-// install BEFORE hooks.json is touched. Otherwise an install can leave
-// hooks.json mutated while config.toml stays broken — a partial-write
-// the plan explicitly forbids.
+// safety invariant: a malformed config.toml must abort install BEFORE
+// hooks.json is touched. Otherwise an install can leave hooks.json
+// mutated while config.toml stays broken — a forbidden partial-write
+// state.
 func TestInstallMalformedTOMLDoesNotMutateHooks(t *testing.T) {
 	a, _, hooks, _ := withCodexFiles(t,
 		`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo user"}]}]}}`,
@@ -764,7 +762,7 @@ sandbox = "workspace-write"
 // TestInstallCreatesParentDirWhenAbsent asserts that Install can run
 // against a fresh home without ~/.codex/ existing — the atomicfile
 // layer creates parent dirs and reports them in CreatedDirs so the
-// install handler can chown them under root (plan §1.6).
+// install handler can chown them under root.
 func TestInstallCreatesParentDirWhenAbsent(t *testing.T) {
 	a, home, _, _ := newCodexHome(t)
 	res, err := a.Install(context.Background())
@@ -789,7 +787,7 @@ func TestUninstallLeavesUnrelatedHooks(t *testing.T) {
 				{"matcher": "*", "hooks": [
 					{"type": "command", "command": "stepsecurity-dev-machine-guardctl status"},
 					{"type": "command", "command": "/usr/local/bin/other-tool _hook claude-code PreToolUse"},
-					{"type": "command", "command": "anchor _hook codex PreToolUse"},
+					{"type": "command", "command": "legacy-tool _hook codex PreToolUse"},
 					{"type": "command", "command": "echo user"}
 				]}
 			]
@@ -827,7 +825,7 @@ func TestUninstallLeavesUnrelatedHooks(t *testing.T) {
 	for _, want := range []string{
 		"stepsecurity-dev-machine-guardctl status",
 		"/usr/local/bin/other-tool _hook claude-code PreToolUse",
-		"anchor _hook codex PreToolUse",
+		"legacy-tool _hook codex PreToolUse",
 		"echo user",
 	} {
 		if !slices.Contains(survivors, want) {
@@ -897,9 +895,8 @@ func TestUninstallPreservesHooksJSONUserKeyOrder(t *testing.T) {
 }
 
 func TestUninstallLeavesFeatureFlagEnabled(t *testing.T) {
-	// Plan §1.15: uninstall must NOT revert
-	// `[features].codex_hooks = true`. Other tools may have wired up
-	// their own hooks that depend on it being on.
+	// Uninstall must NOT revert `[features].codex_hooks = true`. Other
+	// tools may have wired up their own hooks that depend on it being on.
 	a, _, _, cfg := newCodexHome(t)
 	if _, err := a.Install(context.Background()); err != nil {
 		t.Fatal(err)

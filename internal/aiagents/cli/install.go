@@ -24,18 +24,18 @@ var resolveBinary = Resolve
 //
 // Returns the desired process exit code:
 //   - 0 on success, idempotent no-op, no agents detected, or the
-//     root-with-no-console-user no-op (plan §1.5).
+//     root-with-no-console-user no-op.
 //   - 1 on enterprise-config gate failure, self-path resolution
 //     failure, unsupported --agent, or any adapter Install error.
 //
-// Flow (plan §1.6):
-//  1. enterprise-config gate (stricter than IsEnterpriseMode — all
-//     three credentials present and non-placeholder; plan §1.8)
+// Flow:
+//  1. enterprise-config gate (all three credentials present and
+//     non-placeholder)
 //  2. resolve target user (root + no console user → log + exit 0)
 //  3. resolve absolute, symlink-resolved DMG binary path
 //  4. select adapters per --agent or detection on $PATH
 //  5. per-adapter Install, then chown all outputs to target user
-//     under root (plan §1.6)
+//     under root
 //  6. emit per-adapter summary to stdout
 //
 // Adapter Install errors don't abort the loop — the remaining
@@ -86,8 +86,8 @@ func RunInstall(ctx context.Context, exec executor.Executor, agent string, stdou
 			// inconsistent, and a chown sweep can't unbreak it.
 			continue
 		}
-		// Plan §1.6: under root, chown every file written or
-		// created (settings, .dmg-backup.* siblings, parent dirs).
+		// Under root, chown every file written or created
+		// (settings, .dmg-backup.* siblings, parent dirs).
 		// ChownToTarget short-circuits to a no-op when not root.
 		ChownToTarget(exec, installChownPaths(res), target)
 		printInstallResult(stdout, a.Name(), res)

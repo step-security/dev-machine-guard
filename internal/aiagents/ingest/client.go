@@ -20,7 +20,7 @@ import (
 // DefaultHookUploadTimeout caps how long the hot path will wait on the
 // backend per hook invocation. Each hook is a fresh process, so every
 // upload pays a cold TCP+TLS handshake; tighter caps proved fragile
-// under load. Past this, the right answer is the async sidecar plan,
+// under load. Past this, the right answer is an async sidecar approach,
 // not a bigger sync timeout.
 const DefaultHookUploadTimeout = 5 * time.Second
 

@@ -12,12 +12,12 @@ import (
 	aieventc "github.com/step-security/dev-machine-guard/internal/aiagents/event"
 )
 
-// TestStress_ConcurrentHookInvocations is the Phase 4.3 best-effort
-// stress for plan §1.16: many independent RunHook callers sharing a
-// single HOME (settings file, errors.jsonl, uploader seam) must each
-// return exit 0 with a valid allow body. We do NOT check throughput —
-// the purpose is to flush out data races, panics that survive the
-// recover, or stdout corruption from interleaved writes.
+// TestStress_ConcurrentHookInvocations is a best-effort stress test:
+// many independent RunHook callers sharing a single HOME (settings
+// file, errors.jsonl, uploader seam) must each return exit 0 with a
+// valid allow body. We do NOT check throughput — the purpose is to
+// flush out data races, panics that survive the recover, or stdout
+// corruption from interleaved writes.
 //
 // Marked perf-sensitive (skipped under -short): in-process N=64 routinely
 // finishes in well under a second, but some CI runners stutter on the

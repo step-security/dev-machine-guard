@@ -1,7 +1,6 @@
 // Package identity computes AI-event identity for a hook invocation.
 //
-// This is a thin wrapper over DMG's `internal/device.Gather` — the rule
-// in the port plan is "no modifications to internal/device", so the only
+// This is a thin wrapper over DMG's `internal/device.Gather`. The only
 // adapter logic that lives here is:
 //
 //   1. Bound the device probe with a 1-second context timeout. Hook
@@ -35,8 +34,7 @@ const ProbeTimeout = time.Second
 // Info is the identity payload attached to every AI-agent event.
 //
 // The wire field for DeviceID is `device_id`; the wire field for
-// UserIdentity is `user_identity`. See internal/aiagents/event when 2.1
-// lands.
+// UserIdentity is `user_identity`. See internal/aiagents/event.
 type Info struct {
 	CustomerID   string
 	DeviceID     string

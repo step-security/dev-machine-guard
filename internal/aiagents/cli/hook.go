@@ -4,9 +4,9 @@
 // The runtime entry point intentionally lives outside internal/cli so the
 // hot path can bypass cli.Parse and logger construction — agents invoke
 // `_hook` on every event and a non-zero exit is treated as a hook
-// failure / block. RunHook does call config.Load itself (Phase 3
-// requires it for the upload gate); the bypass is everything else in
-// main's startup path. Fail-open is a hard contract enforced here.
+// failure / block. RunHook calls config.Load itself for the upload gate;
+// the bypass is everything else in main's startup path. Fail-open is a
+// hard contract enforced here.
 package cli
 
 import (

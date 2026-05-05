@@ -21,7 +21,7 @@ import (
 //   - 1 on self-path resolution failure, unsupported --agent, or any
 //     adapter Uninstall error.
 //
-// Flow (plan §1.7):
+// Flow:
 //  1. resolve target user (root + no console user → log + exit 0)
 //  2. resolve absolute, symlink-resolved DMG binary path (the
 //     uninstall matcher needs it to identify DMG-owned entries)

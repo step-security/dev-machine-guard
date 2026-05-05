@@ -3,10 +3,6 @@
 // enriches and emits to telemetry. Every record carries an explicit
 // schema_version so downstream consumers can detect format drift.
 //
-// Pulled forward from plan ticket 2.1 because Phase 1's claudecode
-// and codex adapters import this package — the original ticket
-// ordering (event in 2.1, adapters in 1.3) was incoherent.
-//
 // SchemaVersion is "dmg.hook.event/v1". The constant lives here rather
 // than in a separate version package because it is the schema's own
 // identity, not a build-info concern.
@@ -152,8 +148,8 @@ type Event struct {
 //	mode=block, no violation → Allowed=true,  WouldBlock=false, Enforced=false
 //	mode=block, violation    → Allowed=false, WouldBlock=true,  Enforced=true
 //
-// Phase 1 of dev-machine-guard runs audit-only (plan §1.9), so Enforced
-// is always false on shipped builds.
+// dev-machine-guard currently runs audit-only, so Enforced is always
+// false on shipped builds.
 type PolicyDecisionInfo struct {
 	Mode           string `json:"mode,omitempty"` // audit | block
 	Allowed        bool   `json:"allowed"`

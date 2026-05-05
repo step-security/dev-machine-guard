@@ -7,18 +7,18 @@
 //   - hooks uninstall handler ⇢  ManagedFiles, Uninstall
 //   - _hook runtime           ⇢  ParseEvent, ShellCommand, DecideResponse
 //
-// The Phase 1 interface is trimmed from Anchor's: Restore, Status,
-// RestoreOptions, BackupInfo, and HookStatus are intentionally absent —
-// `hooks restore` and `hooks status` are not in scope (plan §5 Phase 1
-// row 1.1 and §8). Reintroducing them is a public-API change, so
-// adapters should not invent stubs that hint they are coming back.
+// The interface is intentionally trimmed: Restore, Status,
+// RestoreOptions, BackupInfo, and HookStatus are absent — `hooks restore`
+// and `hooks status` are not in scope. Reintroducing them is a public-API
+// change, so adapters should not invent stubs that hint they are coming
+// back.
 //
 // Constructors take the user's home directory and the resolved DMG
 // binary path. Adapters compute their own settings file paths (e.g.
 // ~/.claude/settings.json, ~/.codex/{hooks.json,config.toml}) from
-// home, and embed binaryPath into the hook command they write into
-// settings (plan §1.3, absolute path with symlinks resolved). Both
-// pieces of state are immutable for the lifetime of the adapter.
+// home, and embed binaryPath (absolute, symlinks resolved) into the
+// hook command they write into settings. Both pieces of state are
+// immutable for the lifetime of the adapter.
 package adapter
 
 import (
@@ -32,8 +32,8 @@ import (
 // DetectionResult reports whether the agent is installed locally.
 //
 // Detection is by executor.LookPath of the agent's CLI binary
-// (claude / codex), per plan §1.2. Settings file presence is NOT a
-// gate — install creates the settings file from scratch when absent.
+// (claude / codex). Settings file presence is NOT a gate — install
+// creates the settings file from scratch when absent.
 type DetectionResult struct {
 	// Detected is true iff the agent's CLI binary is on $PATH.
 	Detected bool
@@ -62,9 +62,9 @@ type ManagedFile struct {
 
 // InstallResult describes what install actually did.
 //
-// Phase 1's install handler walks WrittenFiles ∪ BackupFiles ∪
-// CreatedDirs to chown the full set to the console user under root
-// (plan §1.6). Adapters must populate all three slices.
+// The install handler walks WrittenFiles ∪ BackupFiles ∪ CreatedDirs
+// to chown the full set to the console user under root. Adapters must
+// populate all three slices.
 type InstallResult struct {
 	// HooksAdded names the hook events for which a new entry was
 	// added. Order matches the adapter's SupportedHooks() order.
@@ -97,8 +97,7 @@ type InstallResult struct {
 //
 // The settings file is never deleted, even when uninstall removes the
 // last entry — leaving an empty settings object behind preserves any
-// non-hook configuration the user had in there (plan §5 Phase 1
-// row 1.7 acceptance).
+// non-hook configuration the user had in there.
 type UninstallResult struct {
 	// HooksRemoved names hook events from which at least one
 	// DMG-owned entry was removed. Sorted for stable output.
@@ -123,16 +122,16 @@ type UninstallResult struct {
 // A zero-value Decision means "deny with no reason" — callers should
 // always construct via AllowDecision() or with explicit Allow=true.
 //
-// Phase 1 NEVER returns Allow=false to the agent: the policy evaluator
-// is forced to audit mode (plan §1.9). DecideResponse implementations
+// Today the runtime NEVER returns Allow=false to the agent: the policy
+// evaluator is forced to audit mode. DecideResponse implementations
 // must still handle Allow=false correctly because the same code path
 // will serve block mode in a future revision.
 type Decision struct {
 	Allow bool
-	// UserMessage is shown on block; ignored on allow. The plan-fixed
+	// UserMessage is shown on block; ignored on allow. The fixed
 	// user-visible deny string is "Blocked by your organization's
-	// administrator." (plan §1.14) — UserMessage is the upstream
-	// rationale used in telemetry, not what the end user sees.
+	// administrator." — UserMessage is the upstream rationale used
+	// in telemetry, not what the end user sees.
 	UserMessage string
 }
 
@@ -148,11 +147,10 @@ func AllowDecision() Decision { return Decision{Allow: true} }
 type HookResponse any
 
 // BackupInfo is the value side of (path, timestamp) backup entries.
-// Reserved here for future hooks-restore work; not used by Phase 1
+// Reserved here for future hooks-restore work; not used by current
 // install/uninstall but kept on the public API so adding it later
-// does not require a fresh type. (Removed from the Adapter interface
-// per plan; held in this package because atomicfile and the install
-// handler share the (path, time) pair.)
+// does not require a fresh type. (Held in this package because
+// atomicfile and the install handler share the (path, time) pair.)
 type BackupInfo struct {
 	Path      string
 	Timestamp time.Time
@@ -168,7 +166,7 @@ type BackupInfo struct {
 type Adapter interface {
 	// Name is the canonical agent slug used on the CLI (`--agent
 	// <name>`), in the `_hook <name>` runtime invocation, and in the
-	// event payload. Phase 1 returns "claude-code" or "codex".
+	// event payload. Returns "claude-code" or "codex".
 	Name() string
 
 	// SupportedHooks returns the agent-defined hook events DMG
@@ -202,8 +200,8 @@ type Adapter interface {
 	// Uninstall removes DMG-owned hook entries from the agent's
 	// settings. Match criterion: the entry's command field matches
 	// the per-adapter pattern derived from the resolved DMG binary
-	// path (plan §1.4). Third-party hooks and legacy `anchor _hook`
-	// entries are intentionally not matched.
+	// path. Third-party hooks from other tools are intentionally not
+	// matched.
 	//
 	// The settings file is never deleted, even if uninstall empties
 	// it of hooks.
@@ -211,10 +209,10 @@ type Adapter interface {
 
 	// ParseEvent decodes a payload that the agent piped to
 	// `_hook <agent> <event>` on stdin. The runtime reads stdin
-	// (capped at 5 MiB in plan §3 hook/stdin.go), and passes the
-	// hookType from the CLI args plus the raw bytes here. The CLI
-	// arg is the canonical hookType — payload mismatches are
-	// recorded as event.ErrorInfo, not promoted to the wire field.
+	// (capped at 5 MiB by hook/stdin.go), and passes the hookType
+	// from the CLI args plus the raw bytes here. The CLI arg is the
+	// canonical hookType — payload mismatches are recorded as
+	// event.ErrorInfo, not promoted to the wire field.
 	//
 	// Errors are returned verbatim. The runtime's fail-open contract
 	// (cli/hook.go) means a ParseEvent error becomes an allow
@@ -231,7 +229,8 @@ type Adapter interface {
 	// stdout response shape. The runtime json-marshals the result
 	// and writes it to stdout verbatim.
 	//
-	// Phase 1 always passes AllowDecision(). The Allow=false path is
-	// exercised only by adapter unit tests until block mode ships.
+	// The runtime always passes AllowDecision() today. The Allow=false
+	// path is exercised only by adapter unit tests until block mode
+	// ships.
 	DecideResponse(ev *event.Event, d Decision) HookResponse
 }

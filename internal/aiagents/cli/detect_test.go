@@ -81,10 +81,10 @@ func TestAllAdaptersReturnsBothInDeclaredOrder(t *testing.T) {
 }
 
 // TestSelectAdaptersExplicitAgentSkipsDetection: an explicit `--agent
-// claude-code` is an unconditional opt-in (plan §1.2). The user's
-// claude binary may not be on $PATH (e.g. they're about to install
-// it, or invoke it from an unusual location); we MUST still construct
-// and return that adapter.
+// claude-code` is an unconditional opt-in. The user's claude binary
+// may not be on $PATH (e.g. they're about to install it, or invoke it
+// from an unusual location); we MUST still construct and return that
+// adapter.
 func TestSelectAdaptersExplicitAgentSkipsDetection(t *testing.T) {
 	mock := executor.NewMock() // empty PATH
 	got, err := selectAdapters(context.Background(), "claude-code", t.TempDir(), testBinary, mock)
@@ -112,10 +112,10 @@ func TestSelectAdaptersExplicitUnsupportedReturnsError(t *testing.T) {
 	}
 }
 
-// TestSelectAdaptersDetectsByLookPath asserts plan §1.5: detection is
-// by `executor.LookPath`, NOT by settings file existence. Settings
-// files must NOT be present in this test (TempDir is empty), and yet
-// both adapters must show up because their CLI binaries are on $PATH.
+// TestSelectAdaptersDetectsByLookPath asserts that detection is by
+// `executor.LookPath`, NOT by settings file existence. Settings files
+// must NOT be present in this test (TempDir is empty), and yet both
+// adapters must show up because their CLI binaries are on $PATH.
 func TestSelectAdaptersDetectsByLookPath(t *testing.T) {
 	mock := executor.NewMock()
 	mock.SetPath("claude", "/usr/local/bin/claude")
@@ -149,8 +149,8 @@ func TestSelectAdaptersFiltersUndetectedAgents(t *testing.T) {
 
 func TestSelectAdaptersNoneDetectedReturnsEmpty(t *testing.T) {
 	// Neither on $PATH — no error, just empty list. The install
-	// handler (1.6) is responsible for emitting a user-friendly
-	// "no agents detected" diagnostic.
+	// handler is responsible for emitting a "no agents detected"
+	// diagnostic.
 	mock := executor.NewMock()
 	got, err := selectAdapters(context.Background(), "", t.TempDir(), testBinary, mock)
 	if err != nil {
@@ -161,11 +161,10 @@ func TestSelectAdaptersNoneDetectedReturnsEmpty(t *testing.T) {
 	}
 }
 
-// TestSelectAdaptersDoesNotGateOnSettingsFile asserts the negative
-// version of the plan §1.5 invariant: with the binary on $PATH and
-// NO settings file on disk, the adapter is still selected. The old
-// Anchor behavior (gate on settings file presence) would have
-// returned an empty list here.
+// TestSelectAdaptersDoesNotGateOnSettingsFile asserts that with the
+// binary on $PATH and NO settings file on disk, the adapter is still
+// selected. Gating on settings file presence would return an empty
+// list here.
 func TestSelectAdaptersDoesNotGateOnSettingsFile(t *testing.T) {
 	home := t.TempDir() // no ~/.claude or ~/.codex anywhere
 	mock := executor.NewMock()

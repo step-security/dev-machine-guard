@@ -10,9 +10,8 @@
 // console user — WriteResult exposes every path we wrote or created so
 // the caller has the full set without having to walk the filesystem.
 //
-// Phase 1 ships only the install side. The Anchor source's `Restore`,
-// `RestoreOptions`, `RestoreResult`, and `ListBackups` are omitted —
-// `hooks restore` is not in the Phase 1 plan.
+// The `Restore`, `RestoreOptions`, `RestoreResult`, and `ListBackups`
+// operations are omitted — `hooks restore` is not in scope.
 package atomicfile
 
 import (

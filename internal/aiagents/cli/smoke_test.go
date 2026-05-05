@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// TestSmoke_InstallInvokeUninstall is the Phase 4.2 end-to-end smoke:
-// drive RunInstall → RunHook → RunUninstall against a single temp HOME
-// and confirm the on-disk lifecycle matches what we tell users to expect.
+// TestSmoke_InstallInvokeUninstall is the end-to-end smoke test:
+// drives RunInstall → RunHook → RunUninstall against a single temp HOME
+// and confirms the on-disk lifecycle matches what we tell users to expect.
 //
 // Why this is a separate test from the per-handler unit tests:
 //   - install/uninstall unit tests use the executor mock's HomeDir, but

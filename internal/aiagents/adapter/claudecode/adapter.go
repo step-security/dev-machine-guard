@@ -1,12 +1,12 @@
 // Package claudecode implements the Adapter interface for Claude Code.
 //
-// Detection is by `executor.LookPath("claude")` (plan §1.2). Settings
-// live at <home>/.claude/settings.json. The hook command DMG writes is
+// Detection is by `executor.LookPath("claude")`. Settings live at
+// <home>/.claude/settings.json. The hook command DMG writes is
 // `<binaryPath> _hook claude-code <hookEvent>` where binaryPath is the
 // absolute, symlink-resolved DMG binary path resolved at install time.
 //
 // Restore + Status are intentionally absent — see the package-level
-// doc on adapter.Adapter for why the Phase 1 interface is trimmed.
+// doc on adapter.Adapter for why the interface is trimmed.
 package claudecode
 
 import (
@@ -57,9 +57,9 @@ func (a *Adapter) ManagedFiles() []adapter.ManagedFile {
 	return []adapter.ManagedFile{{Label: "~/.claude/settings.json", Path: a.settingsPath}}
 }
 
-// Detect reports whether the Claude Code CLI is on $PATH (plan §1.2).
-// Settings file presence is NOT a gate — install creates the file from
-// scratch when absent.
+// Detect reports whether the Claude Code CLI is on $PATH. Settings
+// file presence is NOT a gate — install creates the file from scratch
+// when absent.
 func (a *Adapter) Detect(ctx context.Context, exec executor.Executor) (adapter.DetectionResult, error) {
 	res := adapter.DetectionResult{}
 	bin, err := exec.LookPath(AgentBinary)
@@ -109,7 +109,7 @@ func (a *Adapter) Install(ctx context.Context) (adapter.InstallResult, error) {
 	return res, nil
 }
 
-// Uninstall removes only DMG-owned hook entries (plan §1.4 matcher).
+// Uninstall removes only DMG-owned hook entries.
 // The settings file is preserved even when uninstall removes the last
 // hook — leaving an empty {} (or whatever non-hook keys remain) keeps
 // any user customization intact.
@@ -138,7 +138,7 @@ func (a *Adapter) Uninstall(ctx context.Context) (adapter.UninstallResult, error
 }
 
 // commandFor renders the literal command string DMG writes into the
-// settings entry for hookEvent. Format (plan §1.3):
+// settings entry for hookEvent. Format:
 //
 //	<binaryPath> _hook claude-code <hookEvent>
 //

@@ -58,7 +58,7 @@ func allAdapters(home, binaryPath string) []adapter.Adapter {
 }
 
 // selectAdapters resolves the install/uninstall target list from the
-// `--agent` flag (plan §1.2):
+// `--agent` flag:
 //
 //   - explicit agent: yields exactly that adapter, skipping detection.
 //     The user's explicit `--agent claude-code` is an unconditional
@@ -68,8 +68,8 @@ func allAdapters(home, binaryPath string) []adapter.Adapter {
 //
 //   - empty agent: runs Detect across every known adapter; only those
 //     whose CLI binary `executor.LookPath` resolves are returned.
-//     Settings file presence is NOT a gate (plan §1.2) — the adapter
-//     creates its settings file from scratch on first install.
+//     Settings file presence is NOT a gate — the adapter creates its
+//     settings file from scratch on first install.
 //
 // Detect errors abort the whole selection: an unexpected error here
 // (e.g. the executor itself broke) should not be silently swallowed

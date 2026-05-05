@@ -30,11 +30,11 @@ func shouldEvaluatePolicy(ev *event.Event, cmd string) bool {
 // is not policy-relevant, or when any internal step fails — fail-open is
 // preserved on every error path.
 //
-// The returned adapter.Decision is the *effective* response. Phase 1 of
-// dev-machine-guard runs audit-only (plan §1.9): the evaluator forces
-// ModeAudit before consulting the verdict, so block decisions never
-// escape this function. The block code path remains exercised by tests
-// that inject a Policy with Mode=block; production builds never set it.
+// The returned adapter.Decision is the *effective* response. The
+// evaluator forces ModeAudit before consulting the verdict, so block
+// decisions never escape this function. The block code path remains
+// exercised by tests that inject a Policy with Mode=block; production
+// builds never set it.
 func (rt *Runtime) evaluatePolicy(_ context.Context, ev *event.Event, cmd string) (*event.PolicyDecisionInfo, adapter.Decision) {
 	allow := adapter.AllowDecision()
 
