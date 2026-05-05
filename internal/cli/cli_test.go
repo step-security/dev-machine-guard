@@ -181,3 +181,107 @@ func TestParse_FlagCombinations(t *testing.T) {
 		t.Errorf("unexpected config: %+v", cfg)
 	}
 }
+
+// --- AI agent hooks group ---
+
+func TestParse_HooksInstall_NoAgent(t *testing.T) {
+	cfg, err := Parse([]string{"hooks", "install"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Command != "hooks install" {
+		t.Errorf("expected command=`hooks install`, got %q", cfg.Command)
+	}
+	if cfg.HooksAgent != "" {
+		t.Errorf("expected empty HooksAgent (= all detected), got %q", cfg.HooksAgent)
+	}
+}
+
+func TestParse_HooksInstall_AgentSpaceForm(t *testing.T) {
+	cfg, err := Parse([]string{"hooks", "install", "--agent", "claude-code"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Command != "hooks install" || cfg.HooksAgent != "claude-code" {
+		t.Errorf("unexpected: cmd=%q agent=%q", cfg.Command, cfg.HooksAgent)
+	}
+}
+
+func TestParse_HooksInstall_AgentEqualsForm(t *testing.T) {
+	cfg, err := Parse([]string{"hooks", "install", "--agent=codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.HooksAgent != "codex" {
+		t.Errorf("expected codex, got %q", cfg.HooksAgent)
+	}
+}
+
+func TestParse_HooksUninstall(t *testing.T) {
+	cfg, err := Parse([]string{"hooks", "uninstall", "--agent", "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Command != "hooks uninstall" || cfg.HooksAgent != "codex" {
+		t.Errorf("unexpected: cmd=%q agent=%q", cfg.Command, cfg.HooksAgent)
+	}
+}
+
+func TestParse_HooksMissingSubcommand(t *testing.T) {
+	_, err := Parse([]string{"hooks"})
+	if err == nil {
+		t.Error("expected error for bare `hooks` with no subcommand")
+	}
+}
+
+func TestParse_HooksUnknownSubcommand(t *testing.T) {
+	_, err := Parse([]string{"hooks", "frobnicate"})
+	if err == nil {
+		t.Error("expected error for unknown hooks subcommand")
+	}
+}
+
+func TestParse_HooksUnsupportedAgent(t *testing.T) {
+	_, err := Parse([]string{"hooks", "install", "--agent", "cursor"})
+	if err == nil {
+		t.Error("expected error for unsupported agent")
+	}
+}
+
+func TestParse_HooksAgentMissingValue(t *testing.T) {
+	cases := [][]string{
+		{"hooks", "install", "--agent"},
+		{"hooks", "install", "--agent="},
+		{"hooks", "uninstall", "--agent="},
+	}
+	for _, args := range cases {
+		_, err := Parse(args)
+		if err == nil {
+			t.Errorf("expected error for missing --agent value: %v", args)
+		}
+	}
+}
+
+// DMG global flags must not leak into the hooks group.
+func TestParse_HooksRejectsGlobalFlags(t *testing.T) {
+	cases := [][]string{
+		{"hooks", "install", "--json"},
+		{"hooks", "install", "--verbose"},
+		{"hooks", "install", "--search-dirs", "/tmp"},
+		{"hooks", "install", "--enable-npm-scan"},
+		{"hooks", "install", "--color=always"},
+		{"hooks", "uninstall", "--pretty"},
+	}
+	for _, args := range cases {
+		_, err := Parse(args)
+		if err == nil {
+			t.Errorf("expected error rejecting global flag in %v", args)
+		}
+	}
+}
+
+// The `_hook` runtime is intentionally not handled by Parse — main.go
+// intercepts it before any init runs to honor the fail-open contract.
+// See internal/aiagents/cli/hook_test.go for handler-level tests and
+// cmd/stepsecurity-dev-machine-guard/main_test.go for the integration
+// test that asserts the binary always exits 0 on `_hook` invocations.
