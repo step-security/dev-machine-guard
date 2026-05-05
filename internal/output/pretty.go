@@ -262,7 +262,99 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 		fmt.Fprintln(w)
 	}
 
+	// NPM CONFIG AUDIT
+	if result.NPMRCAudit != nil {
+		printNPMRCAudit(w, c, result.NPMRCAudit)
+	}
+
 	return nil
+}
+
+//nolint:errcheck // terminal output
+func printNPMRCAudit(w io.Writer, c *colors, a *model.NPMRCAudit) {
+	fmt.Fprintf(w, "  %s%sNPM CONFIG AUDIT%s\n", c.purple, c.bold, c.reset)
+	fmt.Fprintln(w)
+	if a.Available {
+		fmt.Fprintf(w, "    %snpm:%s %s @ %s\n", c.dim, c.reset, a.NPMVersion, a.NPMPath)
+	} else {
+		fmt.Fprintf(w, "    %snpm:%s not found in PATH (file-only audit)\n", c.dim, c.reset)
+	}
+	if a.DiscoveryError != "" {
+		fmt.Fprintf(w, "    %sdiscovery error:%s %s\n", c.dim, c.reset, a.DiscoveryError)
+	}
+	fmt.Fprintln(w)
+
+	// Files
+	printSectionHeader(w, c, ".npmrc files", len(a.Files))
+	if len(a.Files) == 0 {
+		fmt.Fprintf(w, "      %sno .npmrc files found%s\n", c.dim, c.reset)
+	}
+	for _, f := range a.Files {
+		printNPMRCFile(w, c, f)
+	}
+	fmt.Fprintln(w)
+
+	// Env vars (only show set ones; absent vars are part of the JSON for diffing).
+	setEnv := make([]model.NPMRCEnvVar, 0, len(a.Env))
+	for _, e := range a.Env {
+		if e.Set {
+			setEnv = append(setEnv, e)
+		}
+	}
+	if len(setEnv) > 0 {
+		printSectionHeader(w, c, "npm-relevant env vars", len(setEnv))
+		for _, e := range setEnv {
+			fmt.Fprintf(w, "      %-30s %s%s%s\n", e.Name, c.dim, e.DisplayValue, c.reset)
+		}
+		fmt.Fprintln(w)
+	}
+}
+
+//nolint:errcheck // terminal output
+func printNPMRCFile(w io.Writer, c *colors, f model.NPMRCFile) {
+	tag := strings.ToUpper(f.Scope)
+	if !f.Exists {
+		fmt.Fprintf(w, "    %s[%s]%s %s%s%s %s(missing)%s\n",
+			c.dim, tag, c.reset, c.bold, f.Path, c.reset, c.dim, c.reset)
+		return
+	}
+	flags := ""
+	if f.GitTracked {
+		flags += " git-tracked"
+	} else if f.InGitRepo {
+		flags += " in-git-repo"
+	}
+	if f.SymlinkTo != "" {
+		flags += " symlink→" + f.SymlinkTo
+	}
+	owner := ""
+	if f.OwnerName != "" {
+		owner = fmt.Sprintf("%s:%s ", f.OwnerName, f.GroupName)
+	}
+	fmt.Fprintf(w, "    %s[%s]%s %s%s%s  %s%smode=%s %s%db%s%s\n",
+		c.dim, tag, c.reset, c.bold, f.Path, c.reset,
+		c.dim, owner, f.Mode, "", f.SizeBytes, flags, c.reset)
+	if f.ParseError != "" {
+		fmt.Fprintf(w, "        %sparse error: %s%s\n", c.dim, f.ParseError, c.reset)
+		return
+	}
+	if len(f.Entries) == 0 {
+		fmt.Fprintf(w, "        %s(empty)%s\n", c.dim, c.reset)
+		return
+	}
+	for _, e := range f.Entries {
+		marker := "  "
+		if e.IsAuth {
+			marker = "AU"
+		} else if e.IsEnvRef {
+			marker = "EV"
+		}
+		key := e.Key
+		if e.IsArray {
+			key += "[]"
+		}
+		fmt.Fprintf(w, "        %s %-40s %s%s%s\n", marker, key, c.dim, e.DisplayValue, c.reset)
+	}
 }
 
 //nolint:errcheck // terminal output

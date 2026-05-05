@@ -26,6 +26,7 @@ type htmlData struct {
 	PythonPkgManagers []model.PkgManager
 	PythonPackages    []model.PythonPackage
 	PythonProjects    []model.ProjectInfo
+	NPMRCAudit        *model.NPMRCAudit
 	Summary           model.Summary
 }
 
@@ -68,6 +69,7 @@ func HTML(outputFile string, result *model.ScanResult) error {
 		PythonPkgManagers: result.PythonPkgManagers,
 		PythonPackages:    result.PythonPackages,
 		PythonProjects:    result.PythonProjects,
+		NPMRCAudit:        result.NPMRCAudit,
 		Summary:           result.Summary,
 	}
 
@@ -309,6 +311,58 @@ const htmlTemplate = `<!DOCTYPE html>
     {{end}}
   </table>
   {{end}}
+  </div>
+</div>
+{{end}}
+
+{{if .NPMRCAudit}}
+<div class="section">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>npm Configuration Audit <span class="count">{{len .NPMRCAudit.Files}} files</span></h2>
+    <span class="toggle">&#9660;</span>
+  </div>
+  <div class="section-body">
+    <p style="margin-bottom:12px;color:#8a94a6;">
+      {{if .NPMRCAudit.Available}}npm v{{.NPMRCAudit.NPMVersion}} &middot; {{.NPMRCAudit.NPMPath}}{{else}}npm not found in PATH (file-only audit){{end}}
+    </p>
+    {{range .NPMRCAudit.Files}}
+    <h3 style="font-size:0.9em;color:#7037f5;margin:14px 0 6px;">
+      [{{.Scope}}] <code>{{.Path}}</code>
+      {{if not .Exists}}<span style="color:#8a94a6;">(missing)</span>{{end}}
+      {{if .GitTracked}}<span style="background:#fee;color:#a00;padding:1px 6px;border-radius:3px;font-size:0.85em;">git-tracked</span>{{else if .InGitRepo}}<span style="color:#8a94a6;font-size:0.85em;">in git repo</span>{{end}}
+    </h3>
+    {{if .Exists}}
+    <p style="font-size:0.8em;color:#8a94a6;margin:0 0 8px;">
+      mode={{.Mode}} &middot; size={{.SizeBytes}}b
+      {{if .OwnerName}} &middot; owner={{.OwnerName}}:{{.GroupName}}{{end}}
+      {{if .SymlinkTo}} &middot; symlink&rarr;<code>{{.SymlinkTo}}</code>{{end}}
+    </p>
+    {{if .ParseError}}<p style="color:#a00;">parse error: {{.ParseError}}</p>{{end}}
+    {{if .Entries}}
+    <table>
+      <tr><th>Key</th><th>Value</th><th>Flags</th></tr>
+      {{range .Entries}}
+      <tr>
+        <td><code>{{.Key}}{{if .IsArray}}[]{{end}}</code></td>
+        <td><code>{{.DisplayValue}}</code></td>
+        <td style="font-size:0.85em;color:#8a94a6;">
+          {{if .IsAuth}}<span style="background:#fee;color:#a00;padding:1px 6px;border-radius:3px;">auth</span>{{end}}
+          {{if .IsEnvRef}}<span style="background:#eef;color:#039;padding:1px 6px;border-radius:3px;">env-ref</span>{{end}}
+        </td>
+      </tr>
+      {{end}}
+    </table>
+    {{end}}
+    {{end}}
+    {{end}}
+    {{if .NPMRCAudit.Env}}
+    <h3 style="font-size:0.9em;color:#7037f5;margin:14px 0 6px;">npm-relevant environment variables</h3>
+    <table>
+      <tr><th>Variable</th><th>Set</th><th>Value</th></tr>
+      {{range .NPMRCAudit.Env}}<tr><td><code>{{.Name}}</code></td><td>{{if .Set}}yes{{else}}no{{end}}</td><td><code>{{.DisplayValue}}</code></td></tr>
+      {{end}}
+    </table>
+    {{end}}
   </div>
 </div>
 {{end}}
