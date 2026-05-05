@@ -3,7 +3,7 @@
 //
 // Atomic-write order: create temp in target dir → write → fsync → close →
 // chmod → rename. Any existing file at the target is copied to a sibling
-// backup (`<path>.dmg-backup.<UTC stamp>`) before the rename.
+// backup (`<path>.dmg-<UTC stamp>.bak`) before the rename.
 //
 // Ownership is intentionally NOT this package's concern. Under root
 // install, the caller (the install handler) chowns the result to the
@@ -21,9 +21,15 @@ import (
 	"time"
 )
 
-// BackupSuffix is the literal that separates the original path from the
-// timestamp on backup files: `<path>.dmg-backup.<UTC stamp>`.
-const BackupSuffix = ".dmg-backup."
+// BackupPrefix is the literal between the original path and the timestamp
+// on backup files. BackupExt is the trailing extension. Together they
+// produce: `<path>.dmg-<UTC stamp>.bak`. The `.bak` ending is the
+// conventional backup marker most editors and gitignore templates already
+// recognize; the `dmg-` token identifies the file as ours.
+const (
+	BackupPrefix = ".dmg-"
+	BackupExt    = ".bak"
+)
 
 // BackupStampLayout is the time.Format layout used in backup filenames.
 // UTC is mandatory so backups sort chronologically across timezones.
@@ -49,7 +55,7 @@ func PickMode(path string, fallback os.FileMode) os.FileMode {
 }
 
 // TakeBackup copies the existing file at path to a sibling
-// `<path>.dmg-backup.<stamp>`. Returns "" with nil error if the source
+// `<path>.dmg-<stamp>.bak`. Returns "" with nil error if the source
 // does not exist (the common first-install case).
 func TakeBackup(path string, now time.Time) (string, error) {
 	info, err := os.Stat(path)
@@ -66,7 +72,7 @@ func TakeBackup(path string, now time.Time) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	backupPath := path + BackupSuffix + now.UTC().Format(BackupStampLayout)
+	backupPath := path + BackupPrefix + now.UTC().Format(BackupStampLayout) + BackupExt
 	if err := os.WriteFile(backupPath, data, info.Mode().Perm()); err != nil {
 		return "", err
 	}

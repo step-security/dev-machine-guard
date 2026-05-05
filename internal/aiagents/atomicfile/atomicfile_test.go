@@ -51,7 +51,7 @@ func TestTakeBackup_ProducesCorrectShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := src + ".dmg-backup.20260505T123456"
+	want := src + ".dmg-20260505T123456.bak"
 	if got != want {
 		t.Errorf("backup path = %q, want %q", got, want)
 	}
@@ -111,7 +111,7 @@ func TestWriteAtomic_OverwriteWithBackup(t *testing.T) {
 	if res.BackupPath == "" {
 		t.Fatal("expected a backup path when target file pre-existed")
 	}
-	if !strings.Contains(res.BackupPath, ".dmg-backup.") {
+	if !strings.Contains(res.BackupPath, ".dmg-") || !strings.HasSuffix(res.BackupPath, ".bak") {
 		t.Errorf("backup path missing rebrand: %q", res.BackupPath)
 	}
 

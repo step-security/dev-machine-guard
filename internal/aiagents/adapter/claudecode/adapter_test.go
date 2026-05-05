@@ -324,7 +324,7 @@ func TestInstallNoOpDoesNotRewriteSettings(t *testing.T) {
 		t.Fatalf("first install: %v", err)
 	}
 	before, _ := os.ReadFile(settingsPath(home))
-	matches, _ := filepath.Glob(settingsPath(home) + ".dmg-backup.*")
+	matches, _ := filepath.Glob(settingsPath(home) + ".dmg-*.bak")
 	beforeBackups := len(matches)
 	// Second install should be a no-op.
 	res, err := a.Install(context.Background())
@@ -335,7 +335,7 @@ func TestInstallNoOpDoesNotRewriteSettings(t *testing.T) {
 	if !bytes.Equal(before, after) {
 		t.Errorf("idempotent install rewrote settings:\n  before %s\n  after  %s", before, after)
 	}
-	matches, _ = filepath.Glob(settingsPath(home) + ".dmg-backup.*")
+	matches, _ = filepath.Glob(settingsPath(home) + ".dmg-*.bak")
 	if len(matches) != beforeBackups {
 		t.Errorf("idempotent install created a new backup: %v", matches)
 	}

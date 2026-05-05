@@ -87,7 +87,7 @@ func RunInstall(ctx context.Context, exec executor.Executor, agent string, stdou
 			continue
 		}
 		// Under root, chown every file written or created
-		// (settings, .dmg-backup.* siblings, parent dirs).
+		// (settings, .dmg-*.bak siblings, parent dirs).
 		// ChownToTarget short-circuits to a no-op when not root.
 		ChownToTarget(exec, installChownPaths(res), target)
 		printInstallResult(stdout, a.Name(), res)

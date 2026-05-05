@@ -80,7 +80,7 @@ type InstallResult struct {
 	WrittenFiles []string
 
 	// BackupFiles are pre-existing files Install copied aside before
-	// rewriting, named with the .dmg-backup.<UTC stamp> suffix from
+	// rewriting, named with the .dmg-<UTC stamp>.bak suffix from
 	// internal/aiagents/atomicfile.
 	BackupFiles []string
 
@@ -107,7 +107,7 @@ type UninstallResult struct {
 	WrittenFiles []string
 
 	// BackupFiles are pre-existing settings files copied aside before
-	// rewrite, with the .dmg-backup.<UTC stamp> suffix.
+	// rewrite, with the .dmg-<UTC stamp>.bak suffix.
 	BackupFiles []string
 
 	// Notes are user-facing diagnostic strings.

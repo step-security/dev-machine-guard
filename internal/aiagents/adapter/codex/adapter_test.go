@@ -542,7 +542,7 @@ broken`)
 	if string(got) != string(original) {
 		t.Errorf("hooks.json must not be mutated when config.toml fails:\n  pre  %s\n  post %s", original, got)
 	}
-	matches, _ := filepath.Glob(hooks + ".dmg-backup.*")
+	matches, _ := filepath.Glob(hooks + ".dmg-*.bak")
 	if len(matches) > 0 {
 		t.Errorf("hooks.json backup should not exist on aborted install: %v", matches)
 	}
@@ -708,7 +708,7 @@ func TestInstallSecondInstallIsByteStableNoOp(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(hooks)
-	matches, _ := filepath.Glob(hooks + ".dmg-backup.*")
+	matches, _ := filepath.Glob(hooks + ".dmg-*.bak")
 	beforeBackups := len(matches)
 	res, err := a.Install(context.Background())
 	if err != nil {
@@ -718,7 +718,7 @@ func TestInstallSecondInstallIsByteStableNoOp(t *testing.T) {
 	if !bytes.Equal(before, after) {
 		t.Errorf("idempotent install rewrote hooks.json")
 	}
-	matches, _ = filepath.Glob(hooks + ".dmg-backup.*")
+	matches, _ = filepath.Glob(hooks + ".dmg-*.bak")
 	if len(matches) != beforeBackups {
 		t.Errorf("idempotent install created a new backup: %v", matches)
 	}
@@ -740,7 +740,7 @@ sandbox = "workspace-write"
 	if string(got) != string(original) {
 		t.Errorf("config.toml byte-mutated despite already-enabled flag:\n  pre  %s\n  post %s", original, got)
 	}
-	matches, _ := filepath.Glob(cfg + ".dmg-backup.*")
+	matches, _ := filepath.Glob(cfg + ".dmg-*.bak")
 	if len(matches) > 0 {
 		t.Errorf("unexpected backup created: %v", matches)
 	}
