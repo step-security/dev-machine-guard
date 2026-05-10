@@ -54,6 +54,89 @@ var rules = []rule{
 		name: "slack_token",
 		re:   regexp.MustCompile(`\bxox[abprs]-[A-Za-z0-9-]{10,}\b`),
 	},
+	// Anthropic API keys. Listed before the OpenAI rule so the longer
+	// `sk-ant-` prefix is matched first.
+	{
+		name: "provider_anthropic",
+		re:   regexp.MustCompile(`\bsk-ant-[A-Za-z0-9_\-]{20,}\b`),
+	},
+	// OpenAI API keys, classic and project-scoped (sk-proj-).
+	{
+		name: "provider_openai",
+		re:   regexp.MustCompile(`\bsk-(?:proj-)?[A-Za-z0-9_\-]{20,}\b`),
+	},
+	// Google API keys (Maps, Gemini, etc.).
+	{
+		name: "provider_google_api_key",
+		re:   regexp.MustCompile(`\bAIza[A-Za-z0-9_\-]{30,}\b`),
+	},
+	// Stripe live/test/restricted keys. Listed before provider_elevenlabs
+	// so `sk_live_…` and `sk_test_…` are absorbed here first.
+	{
+		name: "provider_stripe",
+		re:   regexp.MustCompile(`\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{10,}\b`),
+	},
+	// SendGrid keys: SG.<id>.<secret> shape.
+	{
+		name: "provider_sendgrid",
+		re:   regexp.MustCompile(`\bSG\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}\b`),
+	},
+	// HuggingFace tokens.
+	{
+		name: "provider_huggingface",
+		re:   regexp.MustCompile(`\bhf_[A-Za-z0-9]{16,}\b`),
+	},
+	// Replicate API tokens.
+	{
+		name: "provider_replicate",
+		re:   regexp.MustCompile(`\br8_[A-Za-z0-9]{20,}\b`),
+	},
+	// npm access tokens (npm_<36 alnum>).
+	{
+		name: "provider_npm_token",
+		re:   regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36}\b`),
+	},
+	// PyPI API tokens.
+	{
+		name: "provider_pypi_token",
+		re:   regexp.MustCompile(`\bpypi-[A-Za-z0-9_\-]{16,}\b`),
+	},
+	// DigitalOcean PATs and OAuth tokens (dop_v1_, doo_v1_).
+	{
+		name: "provider_digitalocean",
+		re:   regexp.MustCompile(`\bdo[op]_v1_[A-Za-z0-9]{32,}\b`),
+	},
+	// Perplexity, Groq, Tavily, Exa.
+	{
+		name: "provider_perplexity",
+		re:   regexp.MustCompile(`\bpplx-[A-Za-z0-9]{20,}\b`),
+	},
+	{
+		name: "provider_groq",
+		re:   regexp.MustCompile(`\bgsk_[A-Za-z0-9]{20,}\b`),
+	},
+	{
+		name: "provider_tavily",
+		re:   regexp.MustCompile(`\btvly-[A-Za-z0-9]{20,}\b`),
+	},
+	{
+		name: "provider_exa",
+		re:   regexp.MustCompile(`\bexa_[A-Za-z0-9]{20,}\b`),
+	},
+	// Lower-volume vendors with distinctive long prefixes. The 16+ char
+	// alphanumeric/underscore/dash/equals tail keeps false-positive risk
+	// low. Two-letter prefixes (am_, fc-) intentionally omitted — they
+	// collide with too many natural identifiers.
+	{
+		name: "provider_misc",
+		re:   regexp.MustCompile(`\b(?:fal_|bb_live_|syt_|mem0_|brv_|hsk-|retaindb_|gAAAA)[A-Za-z0-9_=\-]{16,}\b`),
+	},
+	// ElevenLabs TTS keys: sk_<token>. Runs after Stripe so live/test
+	// variants are caught first; remaining sk_ matches ElevenLabs.
+	{
+		name: "provider_elevenlabs",
+		re:   regexp.MustCompile(`\bsk_[A-Za-z0-9_]{20,}\b`),
+	},
 	// Authorization: Bearer <token>.
 	{
 		name:  "bearer_token",
@@ -82,6 +165,19 @@ var rules = []rule{
 		name:  "aws_secret_access_key",
 		re:    regexp.MustCompile(`(?i)(aws_secret_access_key\s*[:=]\s*"?)([A-Za-z0-9/+=]{30,})`),
 		group: 2,
+	},
+	// JWT tokens: header.payload[.signature], always start with "eyJ"
+	// (base64 for `{`). The signature segment is optional so unsigned
+	// JWTs are still caught.
+	{
+		name: "jwt",
+		re:   regexp.MustCompile(`\beyJ[A-Za-z0-9_\-]{8,}\.eyJ[A-Za-z0-9_\-]{8,}(?:\.[A-Za-z0-9_\-]{8,})?\b`),
+	},
+	// Telegram bot tokens: <8-10 digit bot ID>:<35 base64-ish chars>.
+	// Whole-match redaction so the bot ID does not leak.
+	{
+		name: "telegram_bot_token",
+		re:   regexp.MustCompile(`\b\d{8,10}:[A-Za-z0-9_\-]{35}\b`),
 	},
 	// Generic KEY=value assignments for common secret-bearing names.
 	{
@@ -112,6 +208,33 @@ var rules = []rule{
 		re:    regexp.MustCompile(`(?i)([?&](?:[a-z0-9_-]*_)?(?:token|secret|signature|password|passwd|api[_-]?key|apikey|auth|sig|code|state)=)([^&\s#]+)`),
 		group: 2,
 	},
+	// Long-form CLI flags carrying a secret value, e.g.
+	//   `mysql --password mysecret`
+	//   `kubectl --token=xyz`
+	// Ported from agent-api's redactSensitiveValues. Short flags (-p,
+	// -u, -k, ...) are intentionally NOT included: agent-api parses
+	// argv where exact-match works, but our input is free-form text
+	// where short flags collide with too many natural identifiers.
+	{
+		name:  "cli_secret_flag",
+		re:    regexp.MustCompile(`(?i)(--(?:password|passwd|pass|pwd|secret|key|token|api[-_]?key|auth|access[-_]?key|private[-_]?key|client[-_]?secret|credential)\b[ =\t]+)(\S+)`),
+		group: 2,
+	},
+	// Discord user/role mentions: `<@id>` or `<@!id>`. Snowflake IDs
+	// resolve to specific Discord accounts and are PII-grade.
+	{
+		name: "discord_mention",
+		re:   regexp.MustCompile(`<@!?\d{17,20}>`),
+	},
+	// E.164 phone numbers: `+<country><number>`, 7-15 digits. Go's RE2
+	// has no lookbehind, so the leading boundary is captured as group 1
+	// (preserved by applyRule) while group 2 (the phone) is redacted.
+	// The trailing `\b` anchors the end since the final char is a digit.
+	{
+		name:  "phone_e164",
+		re:    regexp.MustCompile(`(^|[^A-Za-z0-9])(\+[1-9]\d{6,14})\b`),
+		group: 2,
+	},
 }
 
 // Sensitive path patterns. Callers consult these to decide whether a
@@ -123,6 +246,11 @@ var sensitivePathREs = []*regexp.Regexp{
 	regexp.MustCompile(`\.pem$`),
 	regexp.MustCompile(`\.key$`),
 	regexp.MustCompile(`\.p12$`),
+	regexp.MustCompile(`\.pfx$`),
+	regexp.MustCompile(`\.cer$`),
+	regexp.MustCompile(`\.crt$`),
+	regexp.MustCompile(`\.jks$`),
+	regexp.MustCompile(`\.kdbx$`),
 	regexp.MustCompile(`(^|/)\.ssh/`),
 	regexp.MustCompile(`(^|/)\.aws/`),
 	regexp.MustCompile(`(^|/)\.npmrc$`),
@@ -138,6 +266,8 @@ func String(s string) string {
 	for _, r := range rules {
 		out = applyRule(out, r)
 	}
+	out = urlQueryEntropyPass(out)
+	out = entropyPass(out)
 	return out
 }
 
@@ -209,7 +339,9 @@ func isSecretKey(k string) bool {
 	switch lk {
 	case "password", "passwd", "secret", "token", "api_key", "apikey",
 		"access_key", "accesskey", "private_key", "privatekey",
-		"authorization", "_authtoken", "_auth", "api-key":
+		"authorization", "_authtoken", "_auth", "api-key",
+		"client_secret", "access_token", "refresh_token", "id_token",
+		"bearer", "credential", "credentials", "jwt":
 		return true
 	}
 	return strings.Contains(lk, "password") ||
@@ -218,7 +350,8 @@ func isSecretKey(k string) bool {
 		strings.Contains(lk, "api_key") ||
 		strings.Contains(lk, "apikey") ||
 		strings.Contains(lk, "private_key") ||
-		strings.Contains(lk, "authorization")
+		strings.Contains(lk, "authorization") ||
+		strings.Contains(lk, "credential")
 }
 
 // IsSensitivePath reports whether p matches any of the credential-bearing

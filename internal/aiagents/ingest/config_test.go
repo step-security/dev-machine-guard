@@ -117,3 +117,74 @@ func TestSnapshot_PopulatesEvenWhenInvalid(t *testing.T) {
 		t.Errorf("expected populated diagnostic snapshot, got %+v", cfg)
 	}
 }
+
+func TestSnapshot_EnvOverridesConfigFile(t *testing.T) {
+	// The on-disk config has stale/MDM-restored values; env vars must
+	// win at hook-invocation time so a developer can redirect uploads
+	// without rewriting the file.
+	withConfig(t, "file-cust", "https://file.example.com", "sk_file")
+	t.Setenv(envCustomerID, "env-cust")
+	t.Setenv(envAPIEndpoint, "https://env.example.com")
+	t.Setenv(envAPIKey, "sk_env")
+
+	cfg, ok := Snapshot()
+	if !ok {
+		t.Fatal("expected ok=true with env overrides set")
+	}
+	if cfg.CustomerID != "env-cust" || cfg.APIEndpoint != "https://env.example.com" || cfg.APIKey != "sk_env" {
+		t.Errorf("env overrides not applied: %+v", cfg)
+	}
+}
+
+func TestSnapshot_EnvOverridesAreIndependent(t *testing.T) {
+	// Each env var is independently optional. With only DMG_API_ENDPOINT
+	// set, customer_id and api_key must still come from the config file.
+	withConfig(t, "file-cust", "https://file.example.com", "sk_file")
+	t.Setenv(envAPIEndpoint, "https://env.example.com")
+
+	cfg, ok := Snapshot()
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if cfg.CustomerID != "file-cust" {
+		t.Errorf("CustomerID should fall back to config: got %q", cfg.CustomerID)
+	}
+	if cfg.APIEndpoint != "https://env.example.com" {
+		t.Errorf("APIEndpoint should come from env: got %q", cfg.APIEndpoint)
+	}
+	if cfg.APIKey != "sk_file" {
+		t.Errorf("APIKey should fall back to config: got %q", cfg.APIKey)
+	}
+}
+
+func TestSnapshot_EmptyEnvFallsBackToConfig(t *testing.T) {
+	// `export DMG_API_ENDPOINT=` (empty) is a common mistake; treat it
+	// as "not set" so we don't stealth-disable uploads.
+	withConfig(t, "file-cust", "https://file.example.com", "sk_file")
+	t.Setenv(envAPIEndpoint, "")
+
+	cfg, ok := Snapshot()
+	if !ok {
+		t.Fatal("expected ok=true; empty env should fall back, not break gate")
+	}
+	if cfg.APIEndpoint != "https://file.example.com" {
+		t.Errorf("expected fallback to config value, got %q", cfg.APIEndpoint)
+	}
+}
+
+func TestSnapshot_EnvOverridesPlaceholderConfig(t *testing.T) {
+	// Build-time placeholders normally fail the gate; env vars rescue
+	// the install, which is exactly the local-dev scenario.
+	withConfig(t, "{{CUSTOMER_ID}}", "{{API_ENDPOINT}}", "{{API_KEY}}")
+	t.Setenv(envCustomerID, "env-cust")
+	t.Setenv(envAPIEndpoint, "https://env.example.com")
+	t.Setenv(envAPIKey, "sk_env")
+
+	cfg, ok := Snapshot()
+	if !ok {
+		t.Fatal("expected ok=true; env vars should rescue placeholder config")
+	}
+	if cfg.CustomerID != "env-cust" || cfg.APIEndpoint != "https://env.example.com" || cfg.APIKey != "sk_env" {
+		t.Errorf("env override over placeholders failed: %+v", cfg)
+	}
+}

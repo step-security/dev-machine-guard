@@ -151,6 +151,11 @@ func TestStringPreservesNonSecrets(t *testing.T) {
 		// "state", client_id is public).
 		"https://api.example.com/v1?statefulservice=true",
 		"https://idp.example.com/authorize?client_id=public_app_id",
+		// `+digits` glued to surrounding alphanumerics must NOT be treated
+		// as a phone number — these are usually opaque IDs.
+		"trace abc+1234567890def",
+		// Plain prose, no secrets and no key=value shape.
+		"Hello, world. This is a normal sentence with several words.",
 	}
 	for _, in := range cases {
 		if got := String(in); got != in {
@@ -399,6 +404,11 @@ func TestIsSensitivePath(t *testing.T) {
 		"keys/server.pem",
 		"id_rsa.key",
 		"cert.p12",
+		"server.pfx",
+		"chain.cer",
+		"server.crt",
+		"keystore.jks",
+		"vault.kdbx",
 		"/home/x/.ssh/id_rsa",
 		"/Users/x/.aws/credentials",
 		"./.npmrc",
@@ -413,6 +423,285 @@ func TestIsSensitivePath(t *testing.T) {
 	for _, p := range no {
 		if IsSensitivePath(p) {
 			t.Errorf("expected %q to NOT be sensitive", p)
+		}
+	}
+}
+
+// New vendor / token-shape patterns lifted from agent-vault and hermes-agent.
+// One sub-test per pattern keeps a regression failure pinpointable.
+func TestStringRedactsVendorAndTokenPatterns(t *testing.T) {
+	cases := []struct {
+		name           string
+		in             string
+		mustNotContain []string
+	}{
+		{
+			name:           "anthropic key",
+			in:             "ANTHROPIC_API_KEY=sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+			mustNotContain: []string{"sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAA"},
+		},
+		{
+			name:           "openai project key",
+			in:             "key=sk-proj-aabbccddeeff00112233445566778899",
+			mustNotContain: []string{"sk-proj-aabbccddeeff00112233445566778899"},
+		},
+		{
+			name:           "google api key",
+			in:             "x-goog-key: AIzaSyA_FakeFakeFakeFakeFakeFakeFakeFake",
+			mustNotContain: []string{"AIzaSyA_FakeFakeFakeFakeFakeFakeFakeFake"},
+		},
+		{
+			name:           "stripe live secret",
+			in:             "stripe sk_live_4eC39HqLyjWDarjtT1zdp7dc here",
+			mustNotContain: []string{"sk_live_4eC39HqLyjWDarjtT1zdp7dc"},
+		},
+		{
+			name:           "stripe test publishable",
+			in:             "pk_test_TYooMQauvdEDq54NiTphI7jx",
+			mustNotContain: []string{"pk_test_TYooMQauvdEDq54NiTphI7jx"},
+		},
+		{
+			name:           "sendgrid",
+			in:             "SG.abc12345abc12345.def67890def67890def67890",
+			mustNotContain: []string{"SG.abc12345abc12345.def67890def67890def67890"},
+		},
+		{
+			name:           "huggingface",
+			in:             "hf_AbcDef1234567890AbcDef1234",
+			mustNotContain: []string{"hf_AbcDef1234567890AbcDef1234"},
+		},
+		{
+			name:           "replicate",
+			in:             "r8_AbcDefGhi123456789012345",
+			mustNotContain: []string{"r8_AbcDefGhi123456789012345"},
+		},
+		{
+			name:           "npm token (npm_ prefix)",
+			in:             "npm_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			mustNotContain: []string{"npm_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+		},
+		{
+			name:           "pypi token",
+			in:             "pypi-AgEIcHlwaS5vcmcCJDhmM2Rh",
+			mustNotContain: []string{"pypi-AgEIcHlwaS5vcmcCJDhmM2Rh"},
+		},
+		{
+			name:           "digitalocean PAT",
+			in:             "dop_v1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			mustNotContain: []string{"dop_v1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		},
+		{
+			name:           "perplexity",
+			in:             "pplx-aaaaaaaaaaaaaaaaaaaaaaaa",
+			mustNotContain: []string{"pplx-aaaaaaaaaaaaaaaaaaaaaaaa"},
+		},
+		{
+			name:           "groq",
+			in:             "gsk_aaaaaaaaaaaaaaaaaaaaaaaa",
+			mustNotContain: []string{"gsk_aaaaaaaaaaaaaaaaaaaaaaaa"},
+		},
+		{
+			name:           "tavily",
+			in:             "tvly-aaaaaaaaaaaaaaaaaaaaaaaa",
+			mustNotContain: []string{"tvly-aaaaaaaaaaaaaaaaaaaaaaaa"},
+		},
+		{
+			name:           "exa",
+			in:             "exa_aaaaaaaaaaaaaaaaaaaaaaaa",
+			mustNotContain: []string{"exa_aaaaaaaaaaaaaaaaaaaaaaaa"},
+		},
+		{
+			name:           "fal misc prefix",
+			in:             "fal_aabbccddeeff11223344",
+			mustNotContain: []string{"fal_aabbccddeeff11223344"},
+		},
+		{
+			name:           "browserbase misc prefix",
+			in:             "bb_live_aabbccddeeff11223344",
+			mustNotContain: []string{"bb_live_aabbccddeeff11223344"},
+		},
+		{
+			name:           "elevenlabs sk_ key",
+			in:             "elevenlabs sk_aabbccddeeff11223344556677",
+			mustNotContain: []string{"sk_aabbccddeeff11223344556677"},
+		},
+		{
+			name:           "jwt three-part",
+			in:             "Authorization: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NSJ9.signaturepart",
+			mustNotContain: []string{"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NSJ9.signaturepart"},
+		},
+		{
+			name:           "telegram bot token",
+			in:             "TELEGRAM_TOKEN=123456789:ABCDEFghijklmnopqrstuvwxyz0123456789",
+			mustNotContain: []string{"123456789:ABCDEFghijklmnopqrstuvwxyz0123456789"},
+		},
+		{
+			name:           "discord mention",
+			in:             "ping <@123456789012345678> for help",
+			mustNotContain: []string{"123456789012345678"},
+		},
+		{
+			name:           "discord mention with bang",
+			in:             "ping <@!123456789012345678> for help",
+			mustNotContain: []string{"123456789012345678"},
+		},
+		{
+			name:           "phone e164 leading space",
+			in:             "call +14155550123 now",
+			mustNotContain: []string{"+14155550123"},
+		},
+		{
+			name:           "phone e164 line start",
+			in:             "+14155550123",
+			mustNotContain: []string{"+14155550123"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := String(tc.in)
+			if !strings.Contains(out, Placeholder) {
+				t.Fatalf("expected redaction placeholder in output; got %q", out)
+			}
+			for _, banned := range tc.mustNotContain {
+				if strings.Contains(out, banned) {
+					t.Fatalf("redacted output still contains %q: %q", banned, out)
+				}
+			}
+		})
+	}
+}
+
+// Long-form CLI flags carrying secret values. Ported from agent-api's
+// redactSensitiveValues. Short flags (-p/-u/-k) are intentionally NOT
+// supported because free-form text is too noisy for them.
+func TestStringRedactsCLISecretFlags(t *testing.T) {
+	cases := []struct {
+		name           string
+		in             string
+		mustNotContain []string
+	}{
+		{
+			name:           "mysql password",
+			in:             "mysql -h db.local --password mySecretPw",
+			mustNotContain: []string{"mySecretPw"},
+		},
+		{
+			name:           "kubectl token equals",
+			in:             "kubectl --token=abcdef0123456789 get pods",
+			mustNotContain: []string{"abcdef0123456789"},
+		},
+		{
+			name:           "curl secret with spaces",
+			in:             "curl --secret topSecretValue https://x",
+			mustNotContain: []string{"topSecretValue"},
+		},
+		{
+			name:           "client-secret hyphenated",
+			in:             "auth0 --client-secret c1Secr3t1234",
+			mustNotContain: []string{"c1Secr3t1234"},
+		},
+		{
+			name:           "private-key flag",
+			in:             "ssh-add --private-key ~/.ssh/id_rsa.pem",
+			mustNotContain: []string{"~/.ssh/id_rsa.pem"},
+		},
+		{
+			name:           "api-key flag",
+			in:             "tool --api-key=abcd1234efgh5678",
+			mustNotContain: []string{"abcd1234efgh5678"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := String(tc.in)
+			for _, banned := range tc.mustNotContain {
+				if strings.Contains(out, banned) {
+					t.Fatalf("CLI flag value leaked: %q -> %q", tc.in, out)
+				}
+			}
+			if !strings.Contains(out, Placeholder) {
+				t.Fatalf("expected placeholder in %q", out)
+			}
+		})
+	}
+}
+
+// `--key-file` / `--keystore` etc. share a prefix with `--key` but are
+// not credential flags. The `\b` boundary in the rule must keep them
+// untouched.
+func TestStringPreservesCLIKeyAdjacentFlags(t *testing.T) {
+	cases := []string{
+		"openssl --key-file server.pem out.txt",
+		"app --keystore my-keystore.jks --port 8080",
+		"app --tokens-per-page 50",
+	}
+	for _, in := range cases {
+		if got := String(in); got != in {
+			t.Errorf("expected unchanged, got %q", got)
+		}
+	}
+}
+
+// URL query params with high-entropy values whose key name is NOT on the
+// explicit list still get redacted via the entropy fallback (ported from
+// agent-api's redactHighEntropyQueryValues, threshold 3.6). UUIDs and
+// shorter IDs must pass through.
+func TestStringURLQueryEntropyFallback(t *testing.T) {
+	t.Run("redacts opaque high-entropy value", func(t *testing.T) {
+		in := "https://example.com/cb?ref=Z9k2M7q4N1p8W3r6T0y5J8h2L4d7G1a3"
+		out := String(in)
+		if strings.Contains(out, "Z9k2M7q4N1p8W3r6T0y5J8h2L4d7G1a3") {
+			t.Errorf("opaque high-entropy query value leaked: %q", out)
+		}
+		if !strings.Contains(out, Placeholder) {
+			t.Errorf("expected placeholder: %q", out)
+		}
+	})
+	t.Run("preserves UUID-shaped id", func(t *testing.T) {
+		// Length 36 with hyphens; entropy ~3.5 — under 3.6 threshold.
+		in := "https://example.com/users?id=550e8400-e29b-41d4-a716-446655440000"
+		if got := String(in); got != in {
+			t.Errorf("UUID over-redacted: %q", got)
+		}
+	})
+	t.Run("preserves short id", func(t *testing.T) {
+		in := "https://example.com/users?id=user12345"
+		if got := String(in); got != in {
+			t.Errorf("short id over-redacted: %q", got)
+		}
+	})
+	t.Run("preserves non-credential url with no query", func(t *testing.T) {
+		in := "GET https://example.com/users/me"
+		if got := String(in); got != in {
+			t.Errorf("URL without query mutated: %q", got)
+		}
+	})
+}
+
+// Re-running String over its own output must produce the same string. The
+// new rules expand the surface area, so the existing TestStringIsIdempotent
+// is duplicated for the new pattern set to keep the failure isolated.
+func TestStringIsIdempotentNewRules(t *testing.T) {
+	inputs := []string{
+		"sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+		"AIzaSyA_FakeFakeFakeFakeFakeFakeFakeFake",
+		"sk_live_4eC39HqLyjWDarjtT1zdp7dc",
+		"SG.abc12345abc12345.def67890def67890def67890",
+		"npm_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NSJ9.signaturepart",
+		"123456789:ABCDEFghijklmnopqrstuvwxyz0123456789",
+		"<@123456789012345678>",
+		"call +14155550123 now",
+		"mysql --password mySecretPw",
+		"kubectl --token=abcdef0123456789 get pods",
+		"https://example.com/cb?ref=Z9k2M7q4N1p8W3r6T0y5J8h2L4d7G1a3",
+	}
+	for _, in := range inputs {
+		once := String(in)
+		twice := String(once)
+		if once != twice {
+			t.Errorf("not idempotent for %q:\n  once  = %q\n  twice = %q", in, once, twice)
 		}
 	}
 }
