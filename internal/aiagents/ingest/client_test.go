@@ -108,7 +108,6 @@ func TestUploadEventsRequestShape(t *testing.T) {
 		Timestamp:     time.Now().UTC(),
 		AgentName:     "claude-code",
 		HookEvent:     event.HookPreToolUse,
-		ResultStatus:  event.ResultObserved,
 		CustomerID:    "cus_123",
 		DeviceID:      "C02ABCD1234",
 		UserIdentity:  "alice@example.com",

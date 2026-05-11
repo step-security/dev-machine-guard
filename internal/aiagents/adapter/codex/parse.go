@@ -30,7 +30,6 @@ func (a *Adapter) ParseEvent(ctx context.Context, hookType event.HookEvent, raw 
 		AgentName:     AgentName,
 		HookEvent:     hookType,
 		HookPhase:     phaseFor(hookType),
-		ResultStatus:  event.ResultObserved,
 	}
 
 	ev.SessionID = stringField(generic, "session_id")
@@ -53,13 +52,6 @@ func (a *Adapter) ParseEvent(ctx context.Context, hookType event.HookEvent, raw 
 	}
 
 	ev.ActionType = inferActionType(ev.HookEvent, ev.ToolName)
-
-	// Codex has no separate documented failure hook; PostToolUse
-	// means the tool completed. Treat it as success unless future
-	// Codex versions expose a richer status field.
-	if ev.HookPhase == event.HookPhasePostTool {
-		ev.ResultStatus = event.ResultSuccess
-	}
 
 	cleaned := scrubPayload(generic)
 	if v, ok := redact.Value(cleaned).(map[string]any); ok {

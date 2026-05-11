@@ -50,7 +50,6 @@ func TestEventJSONOmitsEmptyFields(t *testing.T) {
 		Timestamp:     time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC),
 		AgentName:     "claude-code",
 		HookEvent:     event.HookPreToolUse,
-		ResultStatus:  event.ResultObserved,
 	}
 	out, err := json.Marshal(ev)
 	if err != nil {
@@ -62,20 +61,18 @@ func TestEventJSONOmitsEmptyFields(t *testing.T) {
 		"agent_version", "session_id", "permission_mode", "customer_id",
 		"user_identity", "device_id", "action_type", "tool_name",
 		"tool_use_id", "is_sensitive", "payload", "classifications",
-		"enrichments", "timeouts", "errors", "policy_decision",
+		"enrichments", "timeouts", "errors", "policy_decision", "result_status",
 	} {
 		if strings.Contains(got, `"`+banned+`"`) {
 			t.Errorf("expected %q to be omitted from empty event, got %s", banned, got)
 		}
 	}
-	// schema_version, event_id, agent_name, hook_event, result_status
-	// are always present.
+	// schema_version, event_id, agent_name, and hook_event are always present.
 	for _, want := range []string{
 		`"schema_version":"dmg.hook.event/v1"`,
 		`"event_id":"abcd"`,
 		`"agent_name":"claude-code"`,
 		`"hook_event":"PreToolUse"`,
-		`"result_status":"observed"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected output to contain %s, got %s", want, got)
@@ -101,19 +98,13 @@ func TestEnumWireValues(t *testing.T) {
 	// fails CI loudly rather than silently breaking telemetry.
 	cases := map[string]string{
 		// ActionType
-		"ActionFileRead":       string(event.ActionFileRead),
-		"ActionFileWrite":      string(event.ActionFileWrite),
-		"ActionFileDelete":     string(event.ActionFileDelete),
-		"ActionCommandExec":    string(event.ActionCommandExec),
-		"ActionNetworkRequest": string(event.ActionNetworkRequest),
-		"ActionToolUse":        string(event.ActionToolUse),
-		"ActionMCPInvocation":  string(event.ActionMCPInvocation),
-		// ResultStatus
-		"ResultObserved": string(event.ResultObserved),
-		"ResultSuccess":  string(event.ResultSuccess),
-		"ResultError":    string(event.ResultError),
-		"ResultTimeout":  string(event.ResultTimeout),
-		"ResultPartial":  string(event.ResultPartial),
+		"ActionFileRead":      string(event.ActionFileRead),
+		"ActionFileWrite":     string(event.ActionFileWrite),
+		"ActionFileDelete":    string(event.ActionFileDelete),
+		"ActionCommandExec":   string(event.ActionCommandExec),
+		"ActionWebAccess":     string(event.ActionWebAccess),
+		"ActionToolUse":       string(event.ActionToolUse),
+		"ActionMCPInvocation": string(event.ActionMCPInvocation),
 		// HookEvent (Claude Code natives)
 		"HookPreToolUse":         string(event.HookPreToolUse),
 		"HookPostToolUse":        string(event.HookPostToolUse),
@@ -149,14 +140,9 @@ func TestEnumWireValues(t *testing.T) {
 		"ActionFileWrite":            "file_write",
 		"ActionFileDelete":           "file_delete",
 		"ActionCommandExec":          "command_exec",
-		"ActionNetworkRequest":       "network_request",
+		"ActionWebAccess":            "web_access",
 		"ActionToolUse":              "tool_use",
 		"ActionMCPInvocation":        "mcp_invocation",
-		"ResultObserved":             "observed",
-		"ResultSuccess":              "success",
-		"ResultError":                "error",
-		"ResultTimeout":              "timeout",
-		"ResultPartial":              "partial",
 		"HookPreToolUse":             "PreToolUse",
 		"HookPostToolUse":            "PostToolUse",
 		"HookPostToolUseFailure":     "PostToolUseFailure",
@@ -213,15 +199,14 @@ func TestEventFullRoundTrip(t *testing.T) {
 		ActionType:       event.ActionCommandExec,
 		ToolName:         "Bash",
 		ToolUseID:        "use-1",
-		ResultStatus:     event.ResultObserved,
 		IsSensitive:      true,
 		Payload:          map[string]any{"k": "v"},
 		Classifications: &event.Classifications{
-			IsShellCommand:    true,
-			IsPackageManager:  true,
-			IsMCPRelated:      true,
-			IsFileOperation:   true,
-			IsNetworkActivity: true,
+			IsShellCommand:   true,
+			IsPackageManager: true,
+			IsMCPRelated:     true,
+			IsFileOperation:  true,
+			IsWebAccess:      true,
 		},
 		Enrichments: &event.Enrichments{
 			Shell: &event.ShellEnrichment{
@@ -389,7 +374,6 @@ func TestTimestampIsRFC3339Nano(t *testing.T) {
 		Timestamp:     time.Date(2026, 5, 5, 12, 0, 0, 123456789, time.UTC),
 		AgentName:     "claude-code",
 		HookEvent:     event.HookPreToolUse,
-		ResultStatus:  event.ResultObserved,
 	}
 	out, err := json.Marshal(ev)
 	if err != nil {

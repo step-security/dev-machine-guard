@@ -92,11 +92,13 @@ func classifyKind(mgr Manager, args []string) string {
 		}
 		return "other"
 	}
-	switch sub {
-	case "i", "install", "ci", "add":
+	if isInstallCommand(mgr, sub) {
 		return "install"
-	case "uninstall", "remove", "rm", "un":
+	}
+	if isUninstallCommand(mgr, sub) {
 		return "uninstall"
+	}
+	switch sub {
 	case "exec", "run", "x", "dlx":
 		return "exec"
 	case "publish":
@@ -108,6 +110,34 @@ func classifyKind(mgr Manager, args []string) string {
 		return "exec"
 	}
 	return "other"
+}
+
+func isInstallCommand(mgr Manager, sub string) bool {
+	switch mgr {
+	case NPM:
+		return sub == "i" || sub == "install" || sub == "ci" || sub == "add"
+	case PNPM:
+		return sub == "i" || sub == "install" || sub == "ci" || sub == "add"
+	case Yarn:
+		return sub == "install" || sub == "add"
+	case Bun:
+		return sub == "i" || sub == "install" || sub == "add"
+	}
+	return false
+}
+
+func isUninstallCommand(mgr Manager, sub string) bool {
+	switch mgr {
+	case NPM:
+		return sub == "uninstall" || sub == "remove" || sub == "rm" || sub == "un"
+	case PNPM:
+		return sub == "remove" || sub == "rm" || sub == "uninstall" || sub == "un"
+	case Yarn:
+		return sub == "remove"
+	case Bun:
+		return sub == "remove" || sub == "rm" || sub == "uninstall" || sub == "un"
+	}
+	return false
 }
 
 func confidence(m Manager) string {

@@ -304,11 +304,8 @@ func TestParsePermissionRequestNoActionType(t *testing.T) {
 	}
 }
 
-func TestParsePostToolUseSuccess(t *testing.T) {
+func TestParsePostToolUsePreservesResponse(t *testing.T) {
 	ev := parse(t, HookPostToolUse, `{"tool_name":"Bash","tool_input":{"command":"echo hi"},"tool_response":"hi"}`)
-	if ev.ResultStatus != event.ResultSuccess {
-		t.Errorf("result_status: %s", ev.ResultStatus)
-	}
 	if ev.Payload["tool_response"] != "hi" {
 		t.Errorf("tool_response not preserved: %v", ev.Payload)
 	}

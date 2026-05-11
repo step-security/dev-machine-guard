@@ -26,7 +26,6 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/aiagents/event"
 	"github.com/step-security/dev-machine-guard/internal/aiagents/identity"
 	"github.com/step-security/dev-machine-guard/internal/aiagents/ingest"
-	"github.com/step-security/dev-machine-guard/internal/aiagents/policy"
 	"github.com/step-security/dev-machine-guard/internal/aiagents/redact"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 )
@@ -63,10 +62,6 @@ type Runtime struct {
 	Stdout  io.Writer
 	Stderr  io.Writer
 	Now     func() time.Time
-
-	// Policy, when non-nil, overrides the embedded builtin. Production
-	// code leaves this nil; tests inject mode/allowlist variants.
-	Policy *policy.Policy
 
 	// UploadEvent is the synchronous backend ingestion seam. nil means
 	// upload is disabled — the local-only behavior the runtime falls
@@ -164,19 +159,6 @@ func (rt *Runtime) Run(parent context.Context, hookType event.HookEvent) error {
 	// Run enrichments under their own caps.
 	rt.runEnrichments(ctx, ev, shellCmd, shellCwd, hasShell)
 
-	// Policy evaluation. Fail-open: only an explicit block decision
-	// overwrites `decision`; every error path inside leaves the default
-	// allow in place. Phase-based gate keeps cross-agent correctness:
-	// pre_tool + command_exec + a shell command in hand.
-	if shouldEvaluatePolicy(ev, shellCmd) {
-		if info, d := rt.evaluatePolicy(ctx, ev, shellCmd); info != nil {
-			ev.PolicyDecision = info
-			if !d.Allow {
-				decision = d
-			}
-		}
-	}
-
 	// Re-redact final event (defense in depth) before upload.
 	if ev.Payload != nil {
 		if m, ok := redact.Value(ev.Payload).(map[string]any); ok {
@@ -246,8 +228,8 @@ func classify(ev *event.Event) {
 		cls.IsShellCommand = true
 	case event.ActionFileRead, event.ActionFileWrite, event.ActionFileDelete:
 		cls.IsFileOperation = true
-	case event.ActionNetworkRequest:
-		cls.IsNetworkActivity = true
+	case event.ActionWebAccess:
+		cls.IsWebAccess = true
 	case event.ActionMCPInvocation:
 		cls.IsMCPRelated = true
 	}

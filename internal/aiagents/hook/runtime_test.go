@@ -102,6 +102,30 @@ func TestRunHappyPathBashHook(t *testing.T) {
 	}
 }
 
+func TestRunWebAccessClassification(t *testing.T) {
+	stdin := strings.NewReader(`{
+		"session_id":"s",
+		"cwd":"/tmp",
+		"tool_name":"WebFetch",
+		"tool_input":{"url":"https://example.com"}
+	}`)
+	var stdout, stderr bytes.Buffer
+	rt, cap := newRuntime(t, stdin, &stdout, &stderr)
+	if err := rt.Run(context.Background(), event.HookPreToolUse); err != nil {
+		t.Fatal(err)
+	}
+	if len(cap.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(cap.events))
+	}
+	ev := cap.events[0]
+	if ev.ActionType != event.ActionWebAccess {
+		t.Errorf("action_type: %v", ev.ActionType)
+	}
+	if ev.Classifications == nil || !ev.Classifications.IsWebAccess {
+		t.Errorf("expected is_web_access classification: %+v", ev.Classifications)
+	}
+}
+
 func TestRunMalformedPayloadReturnsAllow(t *testing.T) {
 	stdin := strings.NewReader(`{not valid json`)
 	var stdout, stderr bytes.Buffer

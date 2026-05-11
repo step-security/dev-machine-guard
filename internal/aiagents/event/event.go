@@ -30,24 +30,13 @@ const SchemaVersion = "dmg.hook.event/v1"
 type ActionType string
 
 const (
-	ActionFileRead       ActionType = "file_read"
-	ActionFileWrite      ActionType = "file_write"
-	ActionFileDelete     ActionType = "file_delete"
-	ActionCommandExec    ActionType = "command_exec"
-	ActionNetworkRequest ActionType = "network_request"
-	ActionToolUse        ActionType = "tool_use"
-	ActionMCPInvocation  ActionType = "mcp_invocation"
-)
-
-// ResultStatus describes the recorded outcome.
-type ResultStatus string
-
-const (
-	ResultObserved ResultStatus = "observed"
-	ResultSuccess  ResultStatus = "success"
-	ResultError    ResultStatus = "error"
-	ResultTimeout  ResultStatus = "timeout"
-	ResultPartial  ResultStatus = "partial"
+	ActionFileRead      ActionType = "file_read"
+	ActionFileWrite     ActionType = "file_write"
+	ActionFileDelete    ActionType = "file_delete"
+	ActionCommandExec   ActionType = "command_exec"
+	ActionWebAccess     ActionType = "web_access"
+	ActionToolUse       ActionType = "tool_use"
+	ActionMCPInvocation ActionType = "mcp_invocation"
 )
 
 // HookEvent is the native, agent-owned label for a hook lifecycle event.
@@ -122,7 +111,6 @@ type Event struct {
 	ActionType       ActionType          `json:"action_type,omitempty"`
 	ToolName         string              `json:"tool_name,omitempty"`
 	ToolUseID        string              `json:"tool_use_id,omitempty"`
-	ResultStatus     ResultStatus        `json:"result_status"`
 	IsSensitive      bool                `json:"is_sensitive,omitempty"`
 	Payload          map[string]any      `json:"payload,omitempty"`
 	Classifications  *Classifications    `json:"classifications,omitempty"`
@@ -164,11 +152,11 @@ type PolicyDecisionInfo struct {
 
 // Classifications carries top-level activity tags used by the audit pipeline.
 type Classifications struct {
-	IsShellCommand    bool `json:"is_shell_command,omitempty"`
-	IsPackageManager  bool `json:"is_package_manager,omitempty"`
-	IsMCPRelated      bool `json:"is_mcp_related,omitempty"`
-	IsFileOperation   bool `json:"is_file_operation,omitempty"`
-	IsNetworkActivity bool `json:"is_network_activity,omitempty"`
+	IsShellCommand   bool `json:"is_shell_command,omitempty"`
+	IsPackageManager bool `json:"is_package_manager,omitempty"`
+	IsMCPRelated     bool `json:"is_mcp_related,omitempty"`
+	IsFileOperation  bool `json:"is_file_operation,omitempty"`
+	IsWebAccess      bool `json:"is_web_access,omitempty"`
 }
 
 // IsZero reports whether no classification is set.

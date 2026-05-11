@@ -466,6 +466,22 @@ func TestParseEventInfersBashAsCommandExec(t *testing.T) {
 	}
 }
 
+func TestParseEventInfersWebAccess(t *testing.T) {
+	a := New(t.TempDir(), testBinary)
+	for _, tool := range []string{"WebFetch", "WebSearch", "http"} {
+		t.Run(tool, func(t *testing.T) {
+			raw := []byte(`{"tool_name":"` + tool + `","tool_input":{"url":"https://example.com"}}`)
+			ev, err := a.ParseEvent(context.Background(), event.HookPreToolUse, raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ev.ActionType != event.ActionWebAccess {
+				t.Errorf("action: %s", ev.ActionType)
+			}
+		})
+	}
+}
+
 func TestParseEventRedactsSecretsInPayload(t *testing.T) {
 	a := New(t.TempDir(), testBinary)
 	raw := []byte(`{"tool_name":"Bash","tool_input":{"command":"GITHUB_TOKEN=ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa make deploy"}}`)
@@ -636,15 +652,15 @@ func TestParseEventPopulatesHookPhase(t *testing.T) {
 	}
 }
 
-func TestParseEventPostToolUseFailureSetsErrorStatus(t *testing.T) {
+func TestParseEventPostToolUseFailurePreservesErrorPayload(t *testing.T) {
 	a := New(t.TempDir(), testBinary)
 	raw := []byte(`{"tool_name":"Bash","tool_input":{"command":"exit 1"},"error":"boom"}`)
 	ev, err := a.ParseEvent(context.Background(), event.HookPostToolUseFailure, raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ev.ResultStatus != event.ResultError {
-		t.Errorf("PostToolUseFailure must set result_status=error, got %q", ev.ResultStatus)
+	if ev.Payload["error"] != "boom" {
+		t.Errorf("error payload not preserved: %v", ev.Payload)
 	}
 }
 

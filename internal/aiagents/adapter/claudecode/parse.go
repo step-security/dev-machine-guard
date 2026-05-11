@@ -30,7 +30,6 @@ func (a *Adapter) ParseEvent(ctx context.Context, hookType event.HookEvent, raw 
 		AgentName:     AgentName,
 		HookEvent:     hookType,
 		HookPhase:     phaseFor(hookType),
-		ResultStatus:  event.ResultObserved,
 	}
 
 	// Spec-documented fields only. Names match
@@ -55,13 +54,6 @@ func (a *Adapter) ParseEvent(ctx context.Context, hookType event.HookEvent, raw 
 	}
 
 	ev.ActionType = inferActionType(ev.HookEvent, ev.ToolName, generic)
-
-	// PostToolUseFailure means the tool already failed; record the
-	// canonical error status so downstream readers don't have to peek
-	// inside the payload to learn the outcome.
-	if ev.HookEvent == event.HookPostToolUseFailure {
-		ev.ResultStatus = event.ResultError
-	}
 
 	// Attach a redacted view of the payload. Drop high-volume transcript
 	// fields by default — they may be re-attached later by an enrichment.
@@ -125,7 +117,7 @@ func inferActionType(hookEvent event.HookEvent, toolName string, p map[string]an
 	case "write", "edit", "multiedit":
 		return event.ActionFileWrite
 	case "webfetch", "websearch", "http":
-		return event.ActionNetworkRequest
+		return event.ActionWebAccess
 	case "":
 		// Some hook payloads carry the command nested under tool_input.
 		if hasShellCommand(p) {
