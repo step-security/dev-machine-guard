@@ -233,13 +233,17 @@ var appleCLTStubBinaries = map[string]struct{}{
 //  2. binPath is a known Apple CLT shim (see appleCLTStubBinaries), AND
 //  3. Xcode Command Line Tools are not installed (`xcode-select -p` fails).
 //
-// The CLT-presence result is cached per Real instance via sync.Once: the
-// first qualifying check runs `xcode-select -p` and subsequent calls reuse
-// the cached flag (a full Python scan otherwise probes several binaries).
+// The CLT-presence result is cached per Real instance via sync.Once. The
+// probe deliberately uses context.Background() (with its own 5 s timeout)
+// rather than the caller-provided ctx: sync.Once consumes the slot on the
+// first call, so a caller arriving with a canceled or near-deadline ctx
+// could otherwise poison the cache with cltPresent=false and make every
+// subsequent check treat real binaries as stubs. The caller's ctx is
+// retained in the signature for symmetry with the Executor interface.
 //
 // `xcode-select -p` itself does NOT trigger the install prompt — it just
 // prints the developer-dir path or exits non-zero when CLT is absent.
-func (r *Real) IsAppleCLTStub(ctx context.Context, binPath string) bool {
+func (r *Real) IsAppleCLTStub(_ context.Context, binPath string) bool {
 	if runtime.GOOS != "darwin" {
 		return false
 	}
@@ -247,7 +251,7 @@ func (r *Real) IsAppleCLTStub(ctx context.Context, binPath string) bool {
 		return false
 	}
 	r.cltOnce.Do(func() {
-		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		probeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(probeCtx, "xcode-select", "-p")
 		var stdout bytes.Buffer

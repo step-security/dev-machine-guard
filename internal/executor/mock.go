@@ -169,7 +169,8 @@ func (m *Mock) SetGOOS(goos string) {
 }
 
 // SetAppleCLTInstalled controls the value returned by IsAppleCLTStub.
-// Default is false (CLT not installed → /usr/bin/ binaries reported as stubs).
+// Default is false (CLT not installed → binaries in the appleCLTStubBinaries
+// allowlist are reported as stubs; other /usr/bin/ paths are unaffected).
 func (m *Mock) SetAppleCLTInstalled(installed bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
