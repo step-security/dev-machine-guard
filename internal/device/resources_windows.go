@@ -14,9 +14,10 @@ import (
 )
 
 // getCPUInfoWindows reads CPU model from the registry (no subprocess) and
-// counts cores via GetLogicalProcessorInformation. Falls back to wmic if
-// either step fails — VMs and stripped Server Core images occasionally lack
-// one or the other.
+// counts cores via GetLogicalProcessorInformation. Falls back to a
+// PowerShell Get-CimInstance call when either step fails — VMs and
+// stripped Server Core images occasionally lack one or the other. wmic
+// was removed in Windows 11 / Server 2025 and is intentionally not used.
 func getCPUInfoWindows(ctx context.Context, exec executor.Executor) (cpuModel string, physical, logical int) {
 	cpuModel = readCPUNameRegistry()
 	physical, logical = countCoresFromAPI()
@@ -63,8 +64,8 @@ func readCPUNameRegistry() string {
 // countCoresFromAPI uses GetLogicalProcessorInformation to derive both the
 // physical core count (entries with Relationship == RelationProcessorCore)
 // and the logical-processor count (popcount of each ProcessorMask). The
-// kernel32 export is wrapped via syscall.NewLazyDLL so we don't need a build-
-// time binding for it.
+// kernel32 export is resolved via windows.NewLazySystemDLL + NewProc so we
+// don't need a build-time binding for it.
 func countCoresFromAPI() (physical, logical int) {
 	const relationProcessorCore = 0
 

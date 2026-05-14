@@ -20,7 +20,11 @@ func (r *Real) DiskCapacityBytes(path string) uint64 {
 	if err := syscall.Statfs(path, &stat); err != nil {
 		return 0
 	}
-	return uint64(stat.Blocks) * uint64(stat.Bsize)
+	// f_blocks is in units of f_frsize (fundamental block size) per POSIX.
+	// f_bsize is the preferred I/O size, which can differ from f_frsize on
+	// some Linux filesystems and would misreport capacity. Darwin's Statfs_t
+	// has no Frsize field — statfsFragmentSize falls back to Bsize there.
+	return uint64(stat.Blocks) * statfsFragmentSize(&stat)
 }
 
 // resolveUserShell returns the given user's configured login shell on macOS by

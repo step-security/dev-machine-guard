@@ -352,7 +352,7 @@ func formatCPU(res model.MachineResources) string {
 		return parts[0]
 	}
 	if len(parts) == 0 {
-		return "(" + strings.Join(detail, " / ") + ")"
+		return "(" + joinCPUDetail(detail) + ")"
 	}
 	return parts[0] + " (" + joinCPUDetail(detail) + ")"
 }
