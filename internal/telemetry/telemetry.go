@@ -18,6 +18,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/cli"
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/detector"
+	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/lock"
@@ -54,6 +55,8 @@ type Payload struct {
 	SystemPackageScans   []model.SystemPackageScanResult `json:"system_package_scans"`
 	AIAgents             []model.AITool                  `json:"ai_agents"`
 	MCPConfigs           []model.MCPConfigEnterprise     `json:"mcp_configs"`
+	NPMRCAudit           *model.NPMRCAudit               `json:"npmrc_audit,omitempty"`
+	PipAudit             *model.PipAudit                 `json:"pip_audit,omitempty"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -519,6 +522,22 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		systemPackageScans = []model.SystemPackageScanResult{}
 	}
 
+	// npm + pip configuration audits — surface-only inventory of every
+	// .npmrc and pip.conf on the host, plus the merged effective views
+	// each tool would resolve. We use the user-aware executor so npm and
+	// pip resolve through the logged-in user's PATH (catches nvm / fnm /
+	// pyenv / asdf / brew installs that root's PATH wouldn't see).
+	log.Progress("Auditing npm configuration...")
+	npmrcLoggedIn, _ := exec.LoggedInUser()
+	npmrcAudit := configaudit.NewNPMRCDetector(userExec).Detect(ctx, searchDirs, npmrcLoggedIn)
+	log.Progress("  npm available: %v, files discovered: %d", npmrcAudit.Available, len(npmrcAudit.Files))
+	fmt.Fprintln(os.Stderr)
+
+	log.Progress("Auditing pip configuration...")
+	pipAudit := configaudit.NewPipConfigDetector(userExec).Detect(ctx, npmrcLoggedIn)
+	log.Progress("  pip available: %v, files discovered: %d, findings: %d", pipAudit.Available, len(pipAudit.Files), len(pipAudit.Findings))
+	fmt.Fprintln(os.Stderr)
+
 	// Finalize execution logs before building payload
 	execLogsBase64 := capture.Finalize()
 	endTime := time.Now()
@@ -552,6 +571,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		SystemPackageScans:   systemPackageScans,
 		AIAgents:             allAI,
 		MCPConfigs:           mcpConfigs,
+		NPMRCAudit:           &npmrcAudit,
+		PipAudit:             &pipAudit,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,

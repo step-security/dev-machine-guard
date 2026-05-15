@@ -182,6 +182,13 @@ func TestParse_FlagCombinations(t *testing.T) {
 	}
 }
 
+func TestParse_NPMRCAndPipConfigMutuallyExclusive(t *testing.T) {
+	_, err := Parse([]string{"--npmrc", "--pipconfig"})
+	if err == nil {
+		t.Fatal("expected error when --npmrc and --pipconfig are both set")
+	}
+}
+
 // --- AI agent hooks group ---
 
 func TestParse_HooksInstall_NoAgent(t *testing.T) {
