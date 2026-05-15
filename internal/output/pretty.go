@@ -271,7 +271,58 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 		fmt.Fprintln(w)
 	}
 
+	// NPM CONFIG AUDIT (compact summary; deep view via --npmrc)
+	if result.NPMRCAudit != nil {
+		printNPMRCAuditSummary(w, c, result.NPMRCAudit)
+	}
+
+	// PIP CONFIG AUDIT (compact summary; deep view via --pipconfig)
+	if result.PipAudit != nil {
+		printPipAuditSummary(w, c, result.PipAudit)
+	}
+
 	return nil
+}
+
+//nolint:errcheck // terminal output
+func printNPMRCAuditSummary(w io.Writer, c *colors, a *model.NPMRCAudit) {
+	fmt.Fprintf(w, "  %s%sNPM CONFIG AUDIT%s\n", c.purple, c.bold, c.reset)
+	if a.Available {
+		fmt.Fprintf(w, "    %snpm:%s %s @ %s\n", c.dim, c.reset, a.NPMVersion, a.NPMPath)
+	} else {
+		fmt.Fprintf(w, "    %snpm:%s not found in PATH (file-only audit)\n", c.dim, c.reset)
+	}
+	existing := 0
+	for _, f := range a.Files {
+		if f.Exists {
+			existing++
+		}
+	}
+	fmt.Fprintf(w, "    %sfiles:%s %d discovered, %d present\n", c.dim, c.reset, len(a.Files), existing)
+	fmt.Fprintf(w, "    %srun --npmrc for the deep view%s\n", c.dim, c.reset)
+	fmt.Fprintln(w)
+}
+
+//nolint:errcheck // terminal output
+func printPipAuditSummary(w io.Writer, c *colors, a *model.PipAudit) {
+	fmt.Fprintf(w, "  %s%sPIP CONFIG AUDIT%s\n", c.purple, c.bold, c.reset)
+	if a.Available {
+		fmt.Fprintf(w, "    %spip:%s %s @ %s\n", c.dim, c.reset, a.Version, a.Path)
+	} else {
+		fmt.Fprintf(w, "    %spip:%s not found in PATH\n", c.dim, c.reset)
+	}
+	counts := map[string]int{}
+	for _, f := range a.Findings {
+		counts[f.Severity]++
+	}
+	fmt.Fprintf(w, "    %sfiles:%s %d   %sfindings:%s %sCRITICAL %d  HIGH %d  MEDIUM %d  LOW %d  INFO %d%s\n",
+		c.dim, c.reset, len(a.Files),
+		c.dim, c.reset,
+		c.bold, counts["CRITICAL"], counts["HIGH"], counts["MEDIUM"], counts["LOW"], counts["INFO"], c.reset)
+	if len(a.Findings) > 0 {
+		fmt.Fprintf(w, "    %srun --pipconfig for the deep view%s\n", c.dim, c.reset)
+	}
+	fmt.Fprintln(w)
 }
 
 //nolint:errcheck // terminal output
