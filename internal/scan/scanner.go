@@ -307,8 +307,12 @@ func resolveSearchDirs(exec executor.Executor, dirs []string) []string {
 	resolved := make([]string, 0, len(dirs))
 	for _, d := range dirs {
 		if d == "$HOME" {
-			u, err := exec.LoggedInUser()
-			if err == nil {
+			if u, err := exec.LoggedInUser(); err == nil {
+				d = u.HomeDir
+			} else if u, err := exec.CurrentUser(); err == nil {
+				// No console user (issue #63): we still need *some* home
+				// to expand $HOME against, otherwise the literal "$HOME"
+				// goes downstream and search misses everything.
 				d = u.HomeDir
 			}
 		}

@@ -68,13 +68,17 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 		}
 	}
 
-	// Resolve the real user's home directory for the plist.
-	// When running as root (LaunchDaemon), launchd provides a minimal environment
-	// without HOME, so os.UserHomeDir() would fail at runtime. We detect the
-	// logged-in console user now and bake their HOME into the plist.
+	// Resolve a usable home directory for the plist.
+	// When running as root (LaunchDaemon), launchd provides a minimal
+	// environment without HOME, so os.UserHomeDir() would fail at runtime.
+	// Prefer the GUI console user's HOME; if that lookup fails (no console
+	// user — LoggedInUser returns an error per issue #63) fall back to
+	// CurrentUser so the plist still has a value to bake in.
 	userHome := ""
 	if exec.IsRoot() {
 		if u, err := exec.LoggedInUser(); err == nil {
+			userHome = u.HomeDir
+		} else if u, err := exec.CurrentUser(); err == nil {
 			userHome = u.HomeDir
 		}
 	}

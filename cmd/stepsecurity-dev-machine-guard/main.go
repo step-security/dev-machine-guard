@@ -145,8 +145,22 @@ func main() {
 		}
 		log.Progress("Sending initial telemetry...")
 		fmt.Println()
-		if err := telemetry.Run(exec, log, cfg); err != nil {
-			log.Error("%v", err)
+		telemetryErr := telemetry.Run(exec, log, cfg)
+
+		// On Linux, systemd.Install enabled the timer but did not start it.
+		// Start it now that the inline scan above has released the singleton
+		// lock, so the timer's first (Persistent=true catch-up) firing does
+		// not race with that scan (issue #62). Run regardless of the
+		// telemetry result — the install itself succeeded and the schedule
+		// should activate; a failed initial telemetry run does not undo it.
+		if runtime.GOOS == "linux" {
+			if err := systemd.StartTimer(exec, log); err != nil {
+				log.Warn("timer start failed (%v) — scheduled scans will resume after the next user-systemd reload", err)
+			}
+		}
+
+		if telemetryErr != nil {
+			log.Error("%v", telemetryErr)
 			os.Exit(1)
 		}
 

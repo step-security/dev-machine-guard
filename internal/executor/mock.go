@@ -43,6 +43,11 @@ type Mock struct {
 	// macOS Command Line Tools presence (false simulates a Mac without CLT
 	// installed, where /usr/bin/python3 etc. are install-prompt shims).
 	appleCLTInstalled bool
+
+	// LoggedInUser override — when set, LoggedInUser returns (nil, err)
+	// instead of falling through to CurrentUser. Used by tests covering
+	// the macOS+root "no console user" branch (issue #63).
+	loggedInUserErr error
 }
 
 type cmdResult struct {
@@ -177,6 +182,14 @@ func (m *Mock) SetAppleCLTInstalled(installed bool) {
 	m.appleCLTInstalled = installed
 }
 
+// SetLoggedInUserError makes LoggedInUser return (nil, err). Pass nil to
+// reset to default behavior (delegating to CurrentUser).
+func (m *Mock) SetLoggedInUserError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.loggedInUserErr = err
+}
+
 // --- Executor interface ---
 
 func (m *Mock) Run(_ context.Context, name string, args ...string) (string, string, int, error) {
@@ -298,6 +311,12 @@ func (m *Mock) Glob(pattern string) ([]string, error) {
 }
 
 func (m *Mock) LoggedInUser() (*user.User, error) {
+	m.mu.RLock()
+	err := m.loggedInUserErr
+	m.mu.RUnlock()
+	if err != nil {
+		return nil, err
+	}
 	return m.CurrentUser()
 }
 

@@ -355,11 +355,16 @@ func expandTilde(path, homeDir string) string {
 }
 
 func getHomeDir(exec executor.Executor) string {
-	u, err := exec.LoggedInUser()
-	if err != nil {
-		return os.TempDir()
+	if u, err := exec.LoggedInUser(); err == nil {
+		return u.HomeDir
 	}
-	return u.HomeDir
+	// No console user (issue #63) — fall back to the current user's home
+	// before giving up to TempDir, otherwise file-path expansion in this
+	// detector would lose any chance of hitting the right files.
+	if u, err := exec.CurrentUser(); err == nil {
+		return u.HomeDir
+	}
+	return os.TempDir()
 }
 
 // resolveEnvPath replaces %ENVVAR% patterns in Windows-style paths using the executor.

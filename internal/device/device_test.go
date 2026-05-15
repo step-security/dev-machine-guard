@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -158,6 +159,50 @@ func TestGather_LinuxDistroOnly(t *testing.T) {
 
 	if dev.OSVersion != "3.19" {
 		t.Errorf("os_version: expected '3.19', got %q", dev.OSVersion)
+	}
+}
+
+// TestGather_NoConsoleUser_DoesNotLeakRoot covers issue #63: when running as
+// a daemon on macOS and LoggedInUser() reports an error (no GUI console
+// user), getDeveloperIdentity must not silently fall back to the process's
+// own user (which under a LaunchDaemon is "root"). Identity should resolve
+// to "unknown" so the telemetry payload's no_user_logged_in flag fires.
+func TestGather_NoConsoleUser_DoesNotLeakRoot(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+	mock.SetIsRoot(true)
+	mock.SetUsername("root") // process-owner identity, the trap
+	mock.SetHostname("mac")
+	mock.SetCommand("SERIAL\n    \"IOPlatformSerialNumber\" = \"SERIAL\"\n", "", 0, "ioreg", "-l")
+	mock.SetCommand("15.1\n", "", 0, "sw_vers", "-productVersion")
+	mock.SetLoggedInUserError(errors.New("no GUI console user (owner=\"_windowserver\")"))
+
+	dev := Gather(context.Background(), mock)
+
+	if dev.UserIdentity != "unknown" {
+		t.Errorf("user_identity: expected 'unknown' (no console user), got %q — root leak from CurrentUser fallback", dev.UserIdentity)
+	}
+}
+
+// TestGather_NoConsoleUser_EnvVarRescues asserts that the env-var path in
+// getDeveloperIdentity still works when LoggedInUser would error. Operators
+// who populate USER_EMAIL/DEVELOPER_EMAIL in the daemon plist should still
+// get correct identity attribution even on no-console-user hosts.
+func TestGather_NoConsoleUser_EnvVarRescues(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+	mock.SetIsRoot(true)
+	mock.SetUsername("root")
+	mock.SetHostname("mac")
+	mock.SetCommand("SERIAL\n    \"IOPlatformSerialNumber\" = \"SERIAL\"\n", "", 0, "ioreg", "-l")
+	mock.SetCommand("15.1\n", "", 0, "sw_vers", "-productVersion")
+	mock.SetLoggedInUserError(errors.New("no console user"))
+	mock.SetEnv("USER_EMAIL", "operator@example.com")
+
+	dev := Gather(context.Background(), mock)
+
+	if dev.UserIdentity != "operator@example.com" {
+		t.Errorf("user_identity: expected USER_EMAIL value, got %q", dev.UserIdentity)
 	}
 }
 
