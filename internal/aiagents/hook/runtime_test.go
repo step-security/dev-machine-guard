@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	cc "github.com/step-security/dev-machine-guard/internal/aiagents/adapter/claudecode"
 	"github.com/step-security/dev-machine-guard/internal/aiagents/event"
+	"github.com/step-security/dev-machine-guard/internal/aiagents/state"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 )
 
@@ -420,6 +422,48 @@ func TestRunUploadFailureFailsOpen(t *testing.T) {
 
 // When no UploadEvent is wired (any runtime without enterprise config),
 // the runtime must still complete — just with no upload attempt.
+// withDisabledStateCache writes a disabled state file and restores
+// the override on cleanup. Returns the path for assertions.
+func withDisabledStateCache(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	path := dir + string(filepath.Separator) + state.CacheFilename
+	restore := state.SetCachePathForTest(path)
+	t.Cleanup(restore)
+	s := state.Default()
+	s.Hooks.Enabled = false
+	s.Source = state.SourcePoll
+	if err := state.Write(s); err != nil {
+		t.Fatalf("seed disabled cache: %v", err)
+	}
+}
+
+func TestRunHonorsDisabledStateCache(t *testing.T) {
+	withDisabledStateCache(t)
+
+	stdin := strings.NewReader(`{
+		"session_id":"abc","cwd":"/tmp","tool_name":"Bash",
+		"tool_input":{"command":"npm install lodash","cwd":"/tmp"}
+	}`)
+	var stdout, stderr bytes.Buffer
+	rt, cap := newRuntime(t, stdin, &stdout, &stderr)
+
+	if err := rt.Run(context.Background(), event.HookPreToolUse); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// Allow response still emitted (fail-open contract).
+	if !strings.HasPrefix(strings.TrimSpace(stdout.String()), "{") {
+		t.Errorf("stdout should still be the allow JSON: %q", stdout.String())
+	}
+	// No upload, no enrichment, no error log lines.
+	if len(cap.events) != 0 {
+		t.Fatalf("disabled cache must short-circuit upload; got %d events", len(cap.events))
+	}
+	if len(cap.errs) != 0 {
+		t.Fatalf("disabled cache must not log errors; got %v", cap.errs)
+	}
+}
+
 func TestRunSkipsUploadWithoutSeam(t *testing.T) {
 	stdin := strings.NewReader(`{
 		"session_id":"s","cwd":"/tmp","tool_name":"Bash","tool_input":{"command":"ls"}

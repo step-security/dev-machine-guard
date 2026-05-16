@@ -7,8 +7,11 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"time"
 
 	aiagentscli "github.com/step-security/dev-machine-guard/internal/aiagents/cli"
+	"github.com/step-security/dev-machine-guard/internal/aiagents/ingest"
+	"github.com/step-security/dev-machine-guard/internal/aiagents/state"
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
 	"github.com/step-security/dev-machine-guard/internal/cli"
 	"github.com/step-security/dev-machine-guard/internal/config"
@@ -23,6 +26,12 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/systemd"
 	"github.com/step-security/dev-machine-guard/internal/telemetry"
 )
+
+// hookReconcileTimeout caps the entire reconcile step (fetch + cache
+// write + install/uninstall). Generous because install can chown a
+// handful of files under root; the actual GET cost is bounded by
+// state.DefaultFetchTimeout.
+const hookReconcileTimeout = 30 * time.Second
 
 func main() {
 	// Hook hot path. Agents invoke `_hook` on every event and any non-zero
@@ -121,6 +130,7 @@ func main() {
 			log.Error("%v", err)
 			os.Exit(1)
 		}
+		runHookStateReconcile(exec, log)
 
 	case "install":
 		_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
@@ -168,6 +178,7 @@ func main() {
 			log.Error("%v", telemetryErr)
 			os.Exit(1)
 		}
+		runHookStateReconcile(exec, log)
 
 	case "uninstall":
 		_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
@@ -298,4 +309,45 @@ func scanJSONEncoder(w io.Writer) *json.Encoder {
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
 	return enc
+}
+
+// runHookStateReconcile polls agent-api for the desired AI-agent hook
+// state and reconciles local hook installation to match. Silent no-op
+// in community mode (enterprise config missing) — the existing scan
+// path stays unaffected. Failures are logged but never crash main.
+func runHookStateReconcile(exec executor.Executor, log *progress.Logger) {
+	cfg, ok := ingest.Snapshot()
+	if !ok {
+		log.Debug("hook-state reconcile: skipped (no enterprise config)")
+		return
+	}
+	fetcher, ok := state.NewHTTPFetcher(cfg, nil)
+	if !ok {
+		log.Debug("hook-state reconcile: skipped (fetcher init refused config)")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), hookReconcileTimeout)
+	defer cancel()
+
+	dev := device.Gather(ctx, exec)
+	if dev.SerialNumber == "" || dev.SerialNumber == "unknown" {
+		log.Warn("hook-state reconcile: device serial unresolved; skipping")
+		return
+	}
+
+	r := &state.Reconciler{
+		Exec:        exec,
+		Fetcher:     fetcher,
+		CustomerID:  cfg.CustomerID,
+		DeviceID:    dev.SerialNumber,
+		Stdout:      os.Stdout,
+		Stderr:      os.Stderr,
+		InstallFn:   aiagentscli.RunInstall,
+		UninstallFn: aiagentscli.RunUninstall,
+	}
+	if err := r.Reconcile(ctx); err != nil {
+		log.Warn("hook-state reconcile: %v", err)
+		aiagentscli.AppendError("reconcile", "reconcile_failed", err.Error(), "")
+	}
 }

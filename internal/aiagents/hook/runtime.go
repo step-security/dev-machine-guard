@@ -27,6 +27,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/aiagents/identity"
 	"github.com/step-security/dev-machine-guard/internal/aiagents/ingest"
 	"github.com/step-security/dev-machine-guard/internal/aiagents/redact"
+	"github.com/step-security/dev-machine-guard/internal/aiagents/state"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 )
 
@@ -114,6 +115,16 @@ func (rt *Runtime) Run(parent context.Context, hookType event.HookEvent) error {
 	decision := adapter.AllowDecision()
 	var ev *event.Event
 	defer func() { rt.emitDecidedResponse(ev, decision) }()
+
+	// Server-driven kill switch. The reconciler writes ~/.stepsecurity/
+	// hooks-state.json on every telemetry tick; a UI flip propagates
+	// to disabled here in O(1) microseconds and short-circuits the
+	// hot path before any enrichment, identity probe, or upload runs.
+	// Missing/corrupt cache returns Default()=enabled so first-run
+	// after install continues to work.
+	if cur, _ := state.Read(); !cur.Hooks.Enabled {
+		return nil
+	}
 
 	cfg, _ := ingest.Snapshot()
 	id := identity.Resolve(ctx, rt.Exec, cfg.CustomerID)
