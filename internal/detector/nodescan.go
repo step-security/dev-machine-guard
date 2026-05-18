@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -228,7 +229,11 @@ type projectEntry struct {
 	modTime int64
 }
 
-// ScanProjects finds package.json files, sorts by most recently modified, then scans.
+// ScanProjects finds package.json files, sorts by most recently modified, then
+// scans projects concurrently. Per-project results are cached locally; on the
+// next run we skip `npm ls` for any project whose package.json and lockfile
+// haven't been modified since the cached scan timestamp.
+//
 // Respects the size limit (default 500MB, override via STEPSEC_MAX_NODE_SCAN_BYTES).
 func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []model.NodeScanResult {
 	// Phase 1: Discover all package.json files
@@ -254,7 +259,6 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 			if isInsideNodeModules(projectDir) {
 				return nil
 			}
-			// Get modification time for sorting
 			modTime := int64(0)
 			if info, err := entry.Info(); err == nil {
 				modTime = info.ModTime().Unix()
@@ -269,40 +273,117 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 		return projects[i].modTime > projects[j].modTime
 	})
 
-	// Phase 3: Scan in order, respecting limits
-	maxBytes := getMaxProjectScanBytes()
-	var results []model.NodeScanResult
-	totalSize := int64(0)
+	// Phase 3: Build the work plan. For each project decide whether the
+	// previous cached result is still valid (skip) or we need to re-scan.
+	cachePath := scanCachePath(s.exec)
+	cache := loadScanCache(cachePath)
+	nowUnix := time.Now().Unix()
 
+	type plan struct {
+		dir    string
+		pm     string
+		skip   bool
+		cached model.NodeScanResult
+	}
+	plans := make([]plan, 0, len(projects))
 	for i, p := range projects {
 		if i >= maxNodeProjects {
 			s.log.Progress("  Reached maximum of %d projects, stopping search", maxNodeProjects)
 			break
 		}
-		if totalSize > maxBytes {
-			s.log.Progress("  Reached data size limit (%d bytes collected, limit: %d bytes)", totalSize, maxBytes)
-			s.log.Progress("  Skipping remaining projects (prioritized by most recently modified)")
-			break
-		}
-
-		s.log.Progress("  Found project: %s", p.dir)
 		pm := DetectProjectPM(s.exec, p.dir)
-		s.log.Progress("    Package manager: %s", pm)
-
-		r := s.scanProject(ctx, p.dir)
-		resultSize := int64(len(r.RawStdoutBase64)) + int64(len(r.RawStderrBase64))
-
-		if totalSize+resultSize > maxBytes {
-			s.log.Progress("  Reached data size limit (%d bytes collected, limit: %d bytes)", totalSize, maxBytes)
-			s.log.Progress("  Skipping remaining projects (prioritized by most recently modified)")
-			break
+		pl := plan{dir: p.dir, pm: pm}
+		if entry, ok := cache.Projects[p.dir]; ok && entry.PackageManager == pm {
+			lockPath := lockfileFor(s.exec, p.dir, pm)
+			// No lockfile means we can't trust mtime — always re-scan.
+			if lockPath != "" {
+				pkgMt := mtimeOr0(s.exec, filepath.Join(p.dir, "package.json"))
+				lockMt := mtimeOr0(s.exec, lockPath)
+				if pkgMt <= entry.LastScanUnix && lockMt <= entry.LastScanUnix {
+					pl.skip = true
+					pl.cached = entry.CachedResult
+				}
+			}
 		}
-
-		totalSize += resultSize
-		results = append(results, r)
+		plans = append(plans, pl)
 	}
 
-	return results
+	// Phase 4: Dispatch fresh scans concurrently. Skipped projects already
+	// have a result; only cache-miss/invalid entries hit the worker pool.
+	results := make([]model.NodeScanResult, len(plans))
+	for i, pl := range plans {
+		if pl.skip {
+			results[i] = pl.cached
+			s.log.Progress("  Skipping (unchanged): %s (%s)", pl.dir, pl.pm)
+		}
+	}
+
+	workers := scanWorkerCount(s.exec)
+	jobs := make(chan int, len(plans))
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				pl := plans[idx]
+				s.log.Progress("  Scanning project: %s (%s)", pl.dir, pl.pm)
+				results[idx] = s.scanProject(ctx, pl.dir)
+			}
+		}()
+	}
+	scanned := 0
+	for i, pl := range plans {
+		if !pl.skip {
+			jobs <- i
+			scanned++
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	s.log.Progress("  Scanned %d projects (%d skipped via cache)", scanned, len(plans)-scanned)
+
+	// Phase 5: Apply the size cap in mtime-desc order (matches prior behavior)
+	// and update cache with freshly-scanned successful results.
+	maxBytes := getMaxProjectScanBytes()
+	final := make([]model.NodeScanResult, 0, len(plans))
+	totalSize := int64(0)
+	for i := range plans {
+		r := results[i]
+		size := int64(len(r.RawStdoutBase64)) + int64(len(r.RawStderrBase64))
+		if totalSize+size > maxBytes {
+			s.log.Progress("  Reached data size limit (%d bytes collected, limit: %d bytes)", totalSize, maxBytes)
+			s.log.Progress("  Skipping remaining projects (prioritized by most recently modified)")
+			break
+		}
+		totalSize += size
+		final = append(final, r)
+		// Only cache successful fresh scans. Failed scans should be retried.
+		if !plans[i].skip && r.ExitCode == 0 {
+			cache.Projects[plans[i].dir] = cacheEntry{
+				PackageManager: plans[i].pm,
+				LastScanUnix:   nowUnix,
+				CachedResult:   r,
+			}
+		}
+	}
+
+	// Drop cache entries for projects no longer on disk so the cache file
+	// doesn't grow unboundedly across runs.
+	seen := make(map[string]struct{}, len(plans))
+	for _, pl := range plans {
+		seen[pl.dir] = struct{}{}
+	}
+	for dir := range cache.Projects {
+		if _, ok := seen[dir]; !ok {
+			delete(cache.Projects, dir)
+		}
+	}
+	if err := cache.save(cachePath); err != nil {
+		s.log.Progress("  Warning: failed to write scan cache: %v", err)
+	}
+
+	return final
 }
 
 func (s *NodeScanner) scanProject(ctx context.Context, projectDir string) model.NodeScanResult {
