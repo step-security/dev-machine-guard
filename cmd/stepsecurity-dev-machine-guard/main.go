@@ -98,7 +98,7 @@ func main() {
 		logFilePath = cfg.LogFile // may be "" = disabled
 	}
 	capture, captureErr := filelog.StartIfEligible(logFilePath, filelog.DefaultMaxBytes)
-	defer capture.Stop()
+	defer func() { _ = capture.Stop() }()
 
 	// Log level resolution: default info → config file → CLI flag → --verbose → JSON override.
 	level := progress.LevelInfo
