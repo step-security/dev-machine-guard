@@ -269,7 +269,9 @@ func TestParse_HooksAgentMissingValue(t *testing.T) {
 	}
 }
 
-// DMG global flags must not leak into the hooks group.
+// DMG global flags must not leak into the hooks group. --log-file is
+// the deliberate exception — when hooks fail, the customer needs the
+// same on-disk diagnostic file every other command produces.
 func TestParse_HooksRejectsGlobalFlags(t *testing.T) {
 	cases := [][]string{
 		{"hooks", "install", "--json"},
@@ -284,6 +286,80 @@ func TestParse_HooksRejectsGlobalFlags(t *testing.T) {
 		if err == nil {
 			t.Errorf("expected error rejecting global flag in %v", args)
 		}
+	}
+}
+
+func TestParse_LogFile_EqualsForm(t *testing.T) {
+	cfg, err := Parse([]string{"--log-file=/tmp/dmg.log"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LogFile != "/tmp/dmg.log" {
+		t.Errorf("LogFile = %q, want /tmp/dmg.log", cfg.LogFile)
+	}
+	if !cfg.LogFileSet {
+		t.Error("LogFileSet should be true after --log-file=")
+	}
+}
+
+func TestParse_LogFile_SpaceForm(t *testing.T) {
+	cfg, err := Parse([]string{"--log-file", "/tmp/dmg.log"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LogFile != "/tmp/dmg.log" {
+		t.Errorf("LogFile = %q, want /tmp/dmg.log", cfg.LogFile)
+	}
+	if !cfg.LogFileSet {
+		t.Error("LogFileSet should be true after --log-file <path>")
+	}
+}
+
+func TestParse_LogFile_EmptyValueDisables(t *testing.T) {
+	cfg, err := Parse([]string{"--log-file="})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LogFile != "" {
+		t.Errorf("LogFile = %q, want empty (disabled)", cfg.LogFile)
+	}
+	if !cfg.LogFileSet {
+		t.Error("LogFileSet should be true (explicit empty is opt-out)")
+	}
+}
+
+func TestParse_LogFile_SpaceFormMissingValue(t *testing.T) {
+	_, err := Parse([]string{"--log-file"})
+	if err == nil {
+		t.Error("expected error for --log-file without value (use --log-file= to disable)")
+	}
+}
+
+func TestParse_LogFile_AbsentLeavesUnset(t *testing.T) {
+	cfg, err := Parse([]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LogFile != "" || cfg.LogFileSet {
+		t.Errorf("absent --log-file should yield LogFile=%q LogFileSet=%v", cfg.LogFile, cfg.LogFileSet)
+	}
+}
+
+func TestParseHooks_AcceptsLogFile(t *testing.T) {
+	cfg, err := Parse([]string{"hooks", "install", "--log-file=/tmp/dmg-hooks.log"})
+	if err != nil {
+		t.Fatalf("hooks install --log-file rejected: %v", err)
+	}
+	if cfg.LogFile != "/tmp/dmg-hooks.log" {
+		t.Errorf("LogFile = %q, want /tmp/dmg-hooks.log", cfg.LogFile)
+	}
+
+	cfg, err = Parse([]string{"hooks", "uninstall", "--log-file", "/tmp/u.log"})
+	if err != nil {
+		t.Fatalf("hooks uninstall --log-file rejected: %v", err)
+	}
+	if cfg.LogFile != "/tmp/u.log" {
+		t.Errorf("LogFile = %q, want /tmp/u.log", cfg.LogFile)
 	}
 }
 

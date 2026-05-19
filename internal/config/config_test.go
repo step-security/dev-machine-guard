@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -115,5 +116,34 @@ func TestConfigFile_JSON(t *testing.T) {
 	// Empty fields should be omitted
 	if _, ok := parsed["api_endpoint"]; ok {
 		t.Error("empty api_endpoint should be omitted")
+	}
+}
+
+func TestConfigFile_LogFile_JSONRoundTrip(t *testing.T) {
+	in := ConfigFile{LogFile: "/var/log/dmg.log"}
+	data, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`"log_file":"/var/log/dmg.log"`)) {
+		t.Errorf("log_file not serialized: %s", data)
+	}
+
+	var out ConfigFile
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.LogFile != "/var/log/dmg.log" {
+		t.Errorf("LogFile round-trip = %q, want /var/log/dmg.log", out.LogFile)
+	}
+
+	// Empty LogFile is omitted from JSON (omitempty).
+	empty := ConfigFile{}
+	data, err = json.Marshal(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte("log_file")) {
+		t.Errorf("empty log_file should be omitted: %s", data)
 	}
 }
