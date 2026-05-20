@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -263,7 +264,7 @@ func TestRunUninstall_ExplicitAgentSkipsDetection(t *testing.T) {
 
 // TestRunUninstall_CodexLeavesFeatureFlag pins the invariant that
 // uninstall removes hook entries from hooks.json but does NOT revert
-// [features].codex_hooks=true in config.toml. Other tools' hooks may
+// [features].hooks=true in config.toml. Other tools' hooks may
 // depend on that flag staying enabled.
 func TestRunUninstall_CodexLeavesFeatureFlag(t *testing.T) {
 	home, m := runInstallForTest(t, "codex")
@@ -276,8 +277,8 @@ func TestRunUninstall_CodexLeavesFeatureFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(beforeCfg), "codex_hooks") {
-		t.Fatalf("seed broken: install didn't set codex_hooks flag: %s", string(beforeCfg))
+	if !regexp.MustCompile(`(?m)^hooks[ \t]*=[ \t]*true`).Match(beforeCfg) {
+		t.Fatalf("seed broken: install didn't set hooks flag: %s", string(beforeCfg))
 	}
 
 	var stdout, stderr bytes.Buffer
