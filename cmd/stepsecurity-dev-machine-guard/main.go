@@ -21,6 +21,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/launchd"
 	"github.com/step-security/dev-machine-guard/internal/output"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/progress/filelog"
 	"github.com/step-security/dev-machine-guard/internal/scan"
 	"github.com/step-security/dev-machine-guard/internal/schtasks"
 	"github.com/step-security/dev-machine-guard/internal/systemd"
@@ -84,6 +85,21 @@ func main() {
 
 	exec := executor.NewReal()
 
+	// File-logging path resolution: default → config file → CLI flag.
+	// `--log-file=` (explicit empty) disables for this run. The capture
+	// is installed before the logger so every subsequent stderr write
+	// — including those from internal/telemetry/logcapture.go's own
+	// pipe-tee, which nests inside this one — flows through to disk.
+	logFilePath := filelog.DefaultPath()
+	if config.LogFile != "" {
+		logFilePath = config.LogFile
+	}
+	if cfg.LogFileSet {
+		logFilePath = cfg.LogFile // may be "" = disabled
+	}
+	capture, captureErr := filelog.StartIfEligible(logFilePath, filelog.DefaultMaxBytes)
+	defer func() { _ = capture.Stop() }()
+
 	// Log level resolution: default info → config file → CLI flag → --verbose → JSON override.
 	level := progress.LevelInfo
 	if config.LogLevel != "" {
@@ -104,6 +120,10 @@ func main() {
 		level = progress.LevelError
 	}
 	log := progress.NewLogger(level)
+	if captureErr != nil {
+		// Non-fatal: a read-only $HOME shouldn't block the run.
+		log.Warn("file logging disabled: %v", captureErr)
+	}
 	log.Debug("resolved log level: %s (config=%q cli=%q verbose=%v output=%s)",
 		level, config.LogLevel, cfg.LogLevel, cfg.Verbose, cfg.OutputFormat)
 	log.Debug("config loaded: enterprise=%v api_endpoint=%q scan_freq=%q search_dirs=%v log_level=%q",

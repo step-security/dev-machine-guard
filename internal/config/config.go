@@ -23,6 +23,7 @@ var (
 	OutputFormat       string // "" means default (pretty)
 	HTMLOutputFile     string // "" means not set
 	LogLevel           string // "" means default (info); one of error/warn/info/debug
+	LogFile            string // "" means default (~/.stepsecurity/agent.error.log); non-empty overrides path. Per-run opt-out is the CLI flag --log-file=.
 )
 
 // ConfigFile is the JSON structure persisted to ~/.stepsecurity/config.json.
@@ -39,6 +40,7 @@ type ConfigFile struct {
 	OutputFormat       string   `json:"output_format,omitempty"`
 	HTMLOutputFile     string   `json:"html_output_file,omitempty"`
 	LogLevel           string   `json:"log_level,omitempty"`
+	LogFile            string   `json:"log_file,omitempty"`
 }
 
 // configDir returns ~/.stepsecurity.
@@ -100,6 +102,9 @@ func Load() {
 	}
 	if cfg.LogLevel != "" && LogLevel == "" {
 		LogLevel = cfg.LogLevel
+	}
+	if cfg.LogFile != "" && LogFile == "" {
+		LogFile = cfg.LogFile
 	}
 }
 
@@ -255,6 +260,10 @@ func RunConfigure() error {
 		existing.LogLevel = "info"
 	}
 
+	// Log file path override (empty = ~/.stepsecurity/agent.error.log).
+	// To disable file logging for a single run, pass --log-file= on the CLI.
+	existing.LogFile = promptValue(reader, "Log File Path (blank = default)", existing.LogFile)
+
 	// Save
 	if err := save(existing); err != nil {
 		return fmt.Errorf("saving configuration: %w", err)
@@ -350,6 +359,7 @@ func ShowConfigure() {
 		fmt.Printf("  %-24s %s\n", "HTML Output File:", displayValue(cfg.HTMLOutputFile))
 	}
 	fmt.Printf("  %-24s %s\n", "Log Level:", displayLogLevel(cfg.LogLevel))
+	fmt.Printf("  %-24s %s\n", "Log File:", displayLogFile(cfg.LogFile))
 }
 
 func displayValue(v string) string {
@@ -420,6 +430,13 @@ func displayLogLevel(level string) string {
 	default:
 		return fmt.Sprintf("%s (invalid — using info)", level)
 	}
+}
+
+func displayLogFile(v string) string {
+	if v == "" {
+		return "~/.stepsecurity/agent.error.log (default)"
+	}
+	return v
 }
 
 func isPlaceholder(v string) bool {

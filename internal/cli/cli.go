@@ -24,6 +24,8 @@ type Config struct {
 	ColorMode             string   // "auto", "always", "never"
 	Verbose               bool     // --verbose (shortcut for --log-level=debug)
 	LogLevel              string   // "" = unset; one of "error", "warn", "info", "debug"
+	LogFile               string   // --log-file=PATH; "" w/ LogFileSet=true means "explicitly disabled"
+	LogFileSet            bool     // true if --log-file was passed (empty value = disable)
 	EnableNPMScan         *bool    // nil=auto, true/false=explicit
 	EnableBrewScan        *bool    // nil=auto, true/false=explicit
 	EnablePythonScan      *bool    // nil=auto, true/false=explicit
@@ -156,6 +158,16 @@ func Parse(args []string) (*Config, error) {
 			default:
 				return nil, fmt.Errorf("invalid log level: %s (must be error, warn, info, or debug)", level)
 			}
+		case strings.HasPrefix(arg, "--log-file="):
+			cfg.LogFile = strings.TrimPrefix(arg, "--log-file=")
+			cfg.LogFileSet = true
+		case arg == "--log-file":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--log-file requires a path argument (use --log-file= to disable file logging)")
+			}
+			cfg.LogFile = args[i]
+			cfg.LogFileSet = true
 		case arg == "-v" || arg == "--version" || arg == "version":
 			_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n", buildinfo.VersionString())
 			os.Exit(0)
@@ -226,11 +238,21 @@ func parseHooks(args []string) (*Config, error) {
 				return nil, fmt.Errorf("unsupported agent: %s (supported: %s)", name, strings.Join(supportedHookAgents, ", "))
 			}
 			cfg.HooksAgent = name
+		case strings.HasPrefix(arg, "--log-file="):
+			cfg.LogFile = strings.TrimPrefix(arg, "--log-file=")
+			cfg.LogFileSet = true
+		case arg == "--log-file":
+			i++
+			if i >= len(rest) {
+				return nil, fmt.Errorf("--log-file requires a path argument (use --log-file= to disable file logging)")
+			}
+			cfg.LogFile = rest[i]
+			cfg.LogFileSet = true
 		case arg == "-h" || arg == "--help":
 			printHooksHelp()
 			os.Exit(0)
 		default:
-			return nil, fmt.Errorf("unknown option for `hooks %s`: %s (only --agent is accepted)", verb, arg)
+			return nil, fmt.Errorf("unknown option for `hooks %s`: %s (only --agent and --log-file are accepted)", verb, arg)
 		}
 	}
 
@@ -252,6 +274,8 @@ Subcommands:
 Options:
   --agent <name>       Target a specific agent (default: every detected agent).
                        Supported: %s
+  --log-file=PATH      Tee stderr to PATH (default: ~/.stepsecurity/agent.error.log).
+                       Pass --log-file= (empty) to disable file logging.
 
 Examples:
   %s hooks install                       # install for every detected agent
@@ -297,6 +321,8 @@ Options:
   --npmrc                       Run ONLY the npm config audit (verbose pretty view; --json supported)
   --pipconfig                   Run ONLY the pip config audit (verbose pretty view; --json supported)
   --log-level=LEVEL      Log level: error | warn | info | debug (default: info)
+  --log-file=PATH        Tee stderr to PATH (default: ~/.stepsecurity/agent.error.log).
+                         Pass --log-file= (empty) to disable file logging for this run.
   --verbose                     Shortcut for --log-level=debug
   --color=WHEN           Color mode: auto | always | never (default: auto)
   -v, --version          Show version
