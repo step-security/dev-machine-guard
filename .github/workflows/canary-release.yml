@@ -1,0 +1,272 @@
+name: Canary Release
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  setup:
+    name: Compute canary version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Compute canary version
+        id: version
+        run: |
+          base=$(grep -m1 'Version.*=' internal/buildinfo/version.go | sed 's/.*"\(.*\)".*/\1/')
+          if [ -z "$base" ]; then
+            echo "::error::Could not extract Version from internal/buildinfo/version.go"
+            exit 1
+          fi
+          sha=$(git rev-parse --short=7 HEAD)
+          version="${base}-canary.${{ github.run_number }}.${sha}"
+          tag="canary-${{ github.run_number }}-${sha}"
+          {
+            echo "version=${version}"
+            echo "tag=${tag}"
+            echo "sha=${sha}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Canary version: ${version}"
+          echo "Canary tag:     ${tag}"
+
+  build-linux:
+    name: Build (Linux)
+    needs: setup
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+
+      - name: Run GoReleaser (linux)
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --config .goreleaser.canary.linux.yml --clean --skip=publish,announce,sign,validate
+        env:
+          GORELEASER_CURRENT_TAG: v${{ needs.setup.outputs.version }}
+
+      - name: Smoke test linux_amd64 binary
+        run: |
+          bin=$(find dist -type f -name 'stepsecurity-dev-machine-guard-*-linux_amd64' | head -1)
+          if [ -z "$bin" ]; then
+            echo "::error::linux_amd64 binary not found"
+            find dist -type f
+            exit 1
+          fi
+          chmod +x "$bin"
+          "$bin" --version
+
+      - name: Upload linux artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canary-linux
+          path: |
+            dist/stepsecurity-dev-machine-guard-*-linux_amd64
+            dist/stepsecurity-dev-machine-guard-*-linux_arm64
+            dist/stepsecurity-dev-machine-guard-*-amd64.deb
+            dist/stepsecurity-dev-machine-guard-*-arm64.deb
+            dist/stepsecurity-dev-machine-guard-*-amd64.rpm
+            dist/stepsecurity-dev-machine-guard-*-arm64.rpm
+          if-no-files-found: error
+          retention-days: 7
+
+  build-darwin:
+    name: Build (macOS)
+    needs: setup
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+
+      - name: Run GoReleaser (darwin)
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --config .goreleaser.canary.darwin.yml --clean --skip=publish,announce,sign,validate
+        env:
+          GORELEASER_CURRENT_TAG: v${{ needs.setup.outputs.version }}
+
+      - name: Ad-hoc sign darwin universal binary
+        run: |
+          bin=$(find dist -type f -name 'stepsecurity-dev-machine-guard-*-darwin' ! -name '*.bundle' | head -1)
+          if [ -z "$bin" ]; then
+            echo "::error::darwin universal binary not found"
+            find dist -type f
+            exit 1
+          fi
+          codesign --sign - --options runtime --force "$bin"
+          codesign --verify --verbose "$bin"
+
+      - name: Smoke test darwin binary
+        run: |
+          bin=$(find dist -type f -name 'stepsecurity-dev-machine-guard-*-darwin' ! -name '*.bundle' | head -1)
+          chmod +x "$bin"
+          "$bin" --version
+
+      - name: Upload darwin artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canary-darwin
+          path: dist/stepsecurity-dev-machine-guard-*-darwin
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish canary prerelease
+    needs: [setup, build-linux, build-darwin]
+    runs-on: ubuntu-latest
+    environment: canary-release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Download linux artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: canary-linux
+          path: artifacts
+
+      - name: Download darwin artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: canary-darwin
+          path: artifacts
+
+      - name: Push canary tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git rev-parse "refs/tags/${{ needs.setup.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::Tag ${{ needs.setup.outputs.tag }} already exists"
+            exit 1
+          fi
+          git tag "${{ needs.setup.outputs.tag }}"
+          git push origin "${{ needs.setup.outputs.tag }}"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+
+      - name: Sign artifacts with Sigstore
+        shell: bash
+        run: |
+          sign_with_retry() {
+            local blob="$1"
+            local bundle="${blob}.bundle"
+            for attempt in 1 2 3; do
+              if cosign sign-blob "$blob" --bundle "$bundle" --yes; then
+                return 0
+              fi
+              echo "::warning::Signing attempt $attempt failed for $(basename "$blob"), retrying in 10s..."
+              sleep 10
+            done
+            echo "::error::Signing failed for $(basename "$blob") after 3 attempts"
+            return 1
+          }
+
+          shopt -s nullglob
+          for f in artifacts/*; do
+            case "$f" in
+              *.bundle) continue ;;
+            esac
+            sign_with_retry "$f"
+          done
+
+      - name: Create prerelease and upload artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          notes_file="$(mktemp)"
+          cat > "$notes_file" <<EOF
+          Internal canary build — **not for production use**.
+
+          - Built from commit \`${{ github.sha }}\` (\`${{ needs.setup.outputs.sha }}\`)
+          - Workflow run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          ### macOS
+
+          The macOS binary is **ad-hoc signed only** (not Apple-notarized). Gatekeeper will block it on first launch. To run:
+
+          \`\`\`bash
+          xattr -d com.apple.quarantine stepsecurity-dev-machine-guard-${{ needs.setup.outputs.version }}-darwin
+          \`\`\`
+
+          ### Verification
+
+          All artifacts are signed with Sigstore cosign and have SLSA build provenance attestation, identical to production releases.
+          EOF
+
+          gh release create "${{ needs.setup.outputs.tag }}" \
+            --prerelease \
+            --title "Canary ${{ needs.setup.outputs.version }}" \
+            --notes-file "$notes_file"
+
+          gh release upload "${{ needs.setup.outputs.tag }}" artifacts/* --clobber
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            artifacts/stepsecurity-dev-machine-guard-*-darwin
+            artifacts/stepsecurity-dev-machine-guard-*-linux_amd64
+            artifacts/stepsecurity-dev-machine-guard-*-linux_arm64
+            artifacts/stepsecurity-dev-machine-guard-*-amd64.deb
+            artifacts/stepsecurity-dev-machine-guard-*-arm64.deb
+            artifacts/stepsecurity-dev-machine-guard-*-amd64.rpm
+            artifacts/stepsecurity-dev-machine-guard-*-arm64.rpm

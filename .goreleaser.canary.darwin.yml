@@ -1,0 +1,40 @@
+version: 2
+project_name: stepsecurity-dev-machine-guard
+
+builds:
+  - id: stepsecurity-dev-machine-guard
+    main: ./cmd/stepsecurity-dev-machine-guard
+    binary: stepsecurity-dev-machine-guard
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/step-security/dev-machine-guard/internal/buildinfo.GitCommit={{.FullCommit}}
+      - -X github.com/step-security/dev-machine-guard/internal/buildinfo.ReleaseTag={{.Tag}}
+      - -X github.com/step-security/dev-machine-guard/internal/buildinfo.ReleaseBranch={{.Branch}}
+    env:
+      - CGO_ENABLED=0
+
+universal_binaries:
+  - id: universal
+    ids:
+      - stepsecurity-dev-machine-guard
+    replace: true
+    name_template: "stepsecurity-dev-machine-guard-{{ .Version }}-darwin"
+
+archives:
+  - id: darwin
+    ids:
+      - universal
+    formats:
+      - binary
+    name_template: "stepsecurity-dev-machine-guard-{{ .Version }}-darwin"
+
+release:
+  disable: true
