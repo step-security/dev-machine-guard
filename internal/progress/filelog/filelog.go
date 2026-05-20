@@ -117,6 +117,10 @@ func Start(path string, maxBytes int64) (*Capture, error) {
 		}
 	}
 
+	// #nosec G304 -- path is operator-controlled: it comes from the
+	// cascade default (~/.stepsecurity/agent.error.log) → config file →
+	// --log-file CLI flag, all owned by the user invoking the binary.
+	// Same threat model as internal/aiagents/cli/errlog.go's append.
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND|os.O_SYNC, fileMode)
 	if err != nil {
 		return nil, fmt.Errorf("filelog: open %s: %w", path, err)
