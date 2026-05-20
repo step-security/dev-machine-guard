@@ -16,6 +16,18 @@ import (
 
 const unitName = "stepsecurity-dev-machine-guard"
 
+// TimerUnitPath returns the per-user systemd timer unit path installed for
+// periodic scanning. Exported so the telemetry package's invocation detector
+// can stat for an installed footprint without re-deriving the path. Returns
+// empty when the home directory cannot be resolved.
+func TimerUnitPath() string {
+	homeDir, _ := os.UserHomeDir()
+	if homeDir == "" {
+		return ""
+	}
+	return filepath.Join(homeDir, ".config", "systemd", "user", unitName+".timer")
+}
+
 // Install configures a systemd user timer for periodic scanning.
 // If already installed, upgrades by removing and re-creating the units.
 func Install(exec executor.Executor, log *progress.Logger) error {
