@@ -1,8 +1,8 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 )
@@ -47,48 +47,63 @@ func TestIsPlaceholder(t *testing.T) {
 }
 
 func TestSaveAndLoad(t *testing.T) {
-	// This test exercises the ConfigFile JSON marshal/unmarshal contract
-	// against a plain temp file — it does NOT cover save()/ConfigFilePath(),
-	// which depend on $HOME resolution and (on Windows) elevation checks.
-	// See config_nonint_test.go for tests that go through those helpers.
-	tmpDir := t.TempDir()
-	tmpConfigPath := filepath.Join(tmpDir, "config.json")
+	// Drives the actual save()/Load() round-trip by pointing $HOME at a
+	// temp dir, so LegacyDir() / ConfigFilePath() resolve into the test
+	// sandbox. Verifies the on-disk JSON layout matches the in-memory
+	// package vars after a Load, plus omitempty behaviour for absent
+	// fields. Avoids machine-wide / elevation paths — those are covered
+	// in config_nonint_test.go's Windows-specific tests.
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	// On Windows, os.UserHomeDir() also checks USERPROFILE; keep them in
+	// sync so the test runs cross-platform.
+	t.Setenv("USERPROFILE", tmpHome)
 
-	cfg := &ConfigFile{
+	want := &ConfigFile{
 		CustomerID:         "test-customer",
 		APIEndpoint:        "https://api.example.com",
 		APIKey:             "sk-test-key",
 		ScanFrequencyHours: "4",
 		SearchDirs:         []string{"/tmp", "/opt/code"},
+		InstallDir:         "/opt/stepsecurity",
+	}
+	if err := save(want); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if got := ConfigFilePath(); got != filepath.Join(tmpHome, ".stepsecurity", "config.json") {
+		t.Errorf("ConfigFilePath = %q, want under %s", got, tmpHome)
 	}
 
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(tmpConfigPath, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	// Reset package-level vars to placeholders so Load actually populates
+	// them (Load is intentionally idempotent — only sets unset values).
+	prev := struct {
+		CustomerID, APIKey, InstallDir string
+		SearchDirs                     []string
+	}{CustomerID, APIKey, InstallDir, SearchDirs}
+	CustomerID = "{{CUSTOMER_ID}}"
+	APIKey = "{{API_KEY}}"
+	InstallDir = ""
+	SearchDirs = nil
+	t.Cleanup(func() {
+		CustomerID = prev.CustomerID
+		APIKey = prev.APIKey
+		InstallDir = prev.InstallDir
+		SearchDirs = prev.SearchDirs
+	})
 
-	// Read it back
-	readData, err := os.ReadFile(tmpConfigPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	Load()
 
-	var loaded ConfigFile
-	if err := json.Unmarshal(readData, &loaded); err != nil {
-		t.Fatal(err)
+	if CustomerID != "test-customer" {
+		t.Errorf("CustomerID after Load = %q, want test-customer", CustomerID)
 	}
-
-	if loaded.CustomerID != "test-customer" {
-		t.Errorf("customer_id: expected test-customer, got %s", loaded.CustomerID)
+	if APIKey != "sk-test-key" {
+		t.Errorf("APIKey after Load = %q, want sk-test-key", APIKey)
 	}
-	if loaded.APIKey != "sk-test-key" {
-		t.Errorf("api_key: expected sk-test-key, got %s", loaded.APIKey)
+	if InstallDir != "/opt/stepsecurity" {
+		t.Errorf("InstallDir after Load = %q, want /opt/stepsecurity", InstallDir)
 	}
-	if len(loaded.SearchDirs) != 2 {
-		t.Errorf("search_dirs: expected 2 dirs, got %d", len(loaded.SearchDirs))
+	if len(SearchDirs) != 2 || SearchDirs[0] != "/tmp" || SearchDirs[1] != "/opt/code" {
+		t.Errorf("SearchDirs after Load = %v, want [/tmp /opt/code]", SearchDirs)
 	}
 }
 
@@ -114,5 +129,34 @@ func TestConfigFile_JSON(t *testing.T) {
 	// Empty fields should be omitted
 	if _, ok := parsed["api_endpoint"]; ok {
 		t.Error("empty api_endpoint should be omitted")
+	}
+}
+
+func TestConfigFile_InstallDir_JSONRoundTrip(t *testing.T) {
+	in := ConfigFile{InstallDir: "/opt/stepsecurity"}
+	data, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`"install_dir":"/opt/stepsecurity"`)) {
+		t.Errorf("install_dir not serialized: %s", data)
+	}
+
+	var out ConfigFile
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.InstallDir != "/opt/stepsecurity" {
+		t.Errorf("InstallDir round-trip = %q, want /opt/stepsecurity", out.InstallDir)
+	}
+
+	// Empty InstallDir is omitted from JSON (omitempty).
+	empty := ConfigFile{}
+	data, err = json.Marshal(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte("install_dir")) {
+		t.Errorf("empty install_dir should be omitted: %s", data)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/aiagents/redact"
+	"github.com/step-security/dev-machine-guard/internal/paths"
 )
 
 // ErrorLogFilename is the basename of the per-user errors log. It lives
@@ -99,9 +100,9 @@ func errorLogPath() string {
 	if errorLogPathOverride != "" {
 		return errorLogPathOverride
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	dir := paths.Home()
+	if dir == "" {
 		return ""
 	}
-	return filepath.Join(home, ".stepsecurity", ErrorLogFilename)
+	return filepath.Join(dir, ErrorLogFilename)
 }

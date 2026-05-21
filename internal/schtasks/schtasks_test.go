@@ -73,6 +73,11 @@ func TestInstall_CreateFails(t *testing.T) {
 }
 
 func TestResolveLogDir_NonAdmin(t *testing.T) {
+	// paths.Home() is the primary source post-refactor. Drive it via
+	// STEPSECURITY_HOME so the test exercises the same code path that
+	// the launchd/systemd installers feed.
+	t.Setenv("STEPSECURITY_HOME", `C:\Users\testuser\.stepsecurity`)
+
 	mock := executor.NewMock()
 	mock.SetGOOS("windows")
 	mock.SetIsRoot(false)
@@ -98,7 +103,7 @@ func TestResolveLogDir_Admin(t *testing.T) {
 }
 
 func TestBuildCreateArgs_CustomFrequency(t *testing.T) {
-	args := buildCreateArgs(`C:\agent.exe`, `C:\logs`, 6, false)
+	args := buildCreateArgs(`C:\agent.exe`, `C:\logs`, `C:\logs`, 6, false)
 
 	// Find the /mo argument and check its value
 	foundMo := false
@@ -116,7 +121,7 @@ func TestBuildCreateArgs_CustomFrequency(t *testing.T) {
 }
 
 func TestBuildCreateArgs_Admin(t *testing.T) {
-	args := buildCreateArgs(`C:\agent.exe`, `C:\logs`, 4, true)
+	args := buildCreateArgs(`C:\agent.exe`, `C:\logs`, `C:\ProgramData\StepSecurity`, 4, true)
 
 	foundRU := false
 	for i, a := range args {
@@ -133,7 +138,7 @@ func TestBuildCreateArgs_Admin(t *testing.T) {
 }
 
 func TestBuildCreateArgs_NonAdmin(t *testing.T) {
-	args := buildCreateArgs(`C:\agent.exe`, `C:\logs`, 4, false)
+	args := buildCreateArgs(`C:\agent.exe`, `C:\logs`, `C:\logs`, 4, false)
 
 	for _, a := range args {
 		if a == "/ru" {

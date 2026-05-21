@@ -24,6 +24,8 @@ type Config struct {
 	ColorMode             string   // "auto", "always", "never"
 	Verbose               bool     // --verbose (shortcut for --log-level=debug)
 	LogLevel              string   // "" = unset; one of "error", "warn", "info", "debug"
+	InstallDir            string   // --install-dir=DIR base install directory; all non-bootstrap files (logs, hook errors, binary placement) live under this dir. "" w/ InstallDirSet=true means "explicitly disabled" (no file logging).
+	InstallDirSet         bool     // true if --install-dir was passed (empty value = disable file logging for this run)
 	EnableNPMScan         *bool    // nil=auto, true/false=explicit
 	EnableBrewScan        *bool    // nil=auto, true/false=explicit
 	EnablePythonScan      *bool    // nil=auto, true/false=explicit
@@ -220,6 +222,16 @@ func Parse(args []string) (*Config, error) {
 			default:
 				return nil, fmt.Errorf("invalid log level: %s (must be error, warn, info, or debug)", level)
 			}
+		case strings.HasPrefix(arg, "--install-dir="):
+			cfg.InstallDir = strings.TrimPrefix(arg, "--install-dir=")
+			cfg.InstallDirSet = true
+		case arg == "--install-dir":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--install-dir requires a directory argument (use --install-dir= to disable file logging)")
+			}
+			cfg.InstallDir = args[i]
+			cfg.InstallDirSet = true
 		case arg == "-v" || arg == "--version" || arg == "version":
 			_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n", buildinfo.VersionString())
 			os.Exit(0)
@@ -290,11 +302,21 @@ func parseHooks(args []string) (*Config, error) {
 				return nil, fmt.Errorf("unsupported agent: %s (supported: %s)", name, strings.Join(supportedHookAgents, ", "))
 			}
 			cfg.HooksAgent = name
+		case strings.HasPrefix(arg, "--install-dir="):
+			cfg.InstallDir = strings.TrimPrefix(arg, "--install-dir=")
+			cfg.InstallDirSet = true
+		case arg == "--install-dir":
+			i++
+			if i >= len(rest) {
+				return nil, fmt.Errorf("--install-dir requires a directory argument (use --install-dir= to disable file logging)")
+			}
+			cfg.InstallDir = rest[i]
+			cfg.InstallDirSet = true
 		case arg == "-h" || arg == "--help":
 			printHooksHelp()
 			os.Exit(0)
 		default:
-			return nil, fmt.Errorf("unknown option for `hooks %s`: %s (only --agent is accepted)", verb, arg)
+			return nil, fmt.Errorf("unknown option for `hooks %s`: %s (only --agent and --install-dir are accepted)", verb, arg)
 		}
 	}
 
@@ -316,6 +338,9 @@ Subcommands:
 Options:
   --agent <name>       Target a specific agent (default: every detected agent).
                        Supported: %s
+  --install-dir=DIR    Base directory the agent puts its files under
+                       (default: ~/.stepsecurity). Pass --install-dir= (empty)
+                       to disable file logging. Equivalent to $STEPSECURITY_HOME.
 
 Examples:
   %s hooks install                       # install for every detected agent
@@ -361,6 +386,14 @@ Options:
   --npmrc                       Run ONLY the npm config audit (verbose pretty view; --json supported)
   --pipconfig                   Run ONLY the pip config audit (verbose pretty view; --json supported)
   --log-level=LEVEL      Log level: error | warn | info | debug (default: info)
+  --install-dir=DIR      Base directory the agent puts ALL its files under
+                         (logs, hook errors, binary placement via loader).
+                         Default: ~/.stepsecurity. The diagnostic log file is
+                         <DIR>/agent.error.log, rotated at 5 MiB to .prev.
+                         Equivalent to STEPSECURITY_HOME env var. Pass
+                         --install-dir= (empty) to disable file logging for
+                         this run. Note: config.json itself always lives at
+                         ~/.stepsecurity/config.json for bootstrap.
   --verbose                     Shortcut for --log-level=debug
   --color=WHEN           Color mode: auto | always | never (default: auto)
   -v, --version          Show version

@@ -11,6 +11,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
@@ -41,7 +42,7 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	}
 
 	homeDir, _ := os.UserHomeDir()
-	logDir := filepath.Join(homeDir, ".stepsecurity")
+	logDir := paths.Home()
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return fmt.Errorf("creating log directory: %w", err)
 	}
@@ -52,9 +53,10 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	}
 
 	data := unitTemplateData{
-		BinaryPath: systemdEscape(binaryPath),
-		LogDir:     systemdEscape(logDir),
-		Hours:      hours,
+		BinaryPath:       systemdEscape(binaryPath),
+		LogDir:           systemdEscape(logDir),
+		Hours:            hours,
+		StepSecurityHome: logDir, // unescaped; systemd Environment= handles its own quoting
 	}
 
 	// Write service unit
@@ -180,9 +182,10 @@ func writeTemplate(path, tmplStr string, data unitTemplateData) error {
 }
 
 type unitTemplateData struct {
-	BinaryPath string // systemd-escaped (spaces replaced with \x20)
-	LogDir     string
-	Hours      int
+	BinaryPath       string // systemd-escaped (spaces replaced with \x20)
+	LogDir           string
+	Hours            int
+	StepSecurityHome string // baked into Environment= so paths.Home() resolves under timer-invoked runs
 }
 
 // systemdEscape escapes a file path for use in systemd unit files.
@@ -191,12 +194,20 @@ func systemdEscape(path string) string {
 	return strings.ReplaceAll(path, " ", `\x20`)
 }
 
+// Environment="VAR=value" with the value-bearing form quoted so paths
+// containing spaces (e.g. /opt/Step Security/) survive systemd's
+// whitespace splitting. Per systemd.exec(5), the entire "VAR=value" can
+// be wrapped in either single or double quotes; we use double quotes
+// for consistency with the rest of the unit and only need to worry
+// about embedded `"` characters in the value, which would themselves be
+// unusual in a filesystem path.
 const serviceTmpl = `[Unit]
 Description=StepSecurity Dev Machine Guard scan
 
 [Service]
 Type=oneshot
 ExecStart={{.BinaryPath}} send-telemetry
+Environment="STEPSECURITY_HOME={{.StepSecurityHome}}"
 StandardOutput=append:{{.LogDir}}/agent.log
 StandardError=append:{{.LogDir}}/agent.error.log
 `

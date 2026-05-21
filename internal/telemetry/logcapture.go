@@ -11,6 +11,14 @@ import (
 
 // LogCapture captures all stderr output during telemetry execution.
 // The captured output is base64-encoded and included in the execution_logs payload.
+//
+// Nesting with internal/progress/filelog: when filelog is active,
+// os.Stderr is already the filelog pipe's write end. StartCapture saves
+// that value as origErr, swaps os.Stderr to its own pipe, and on
+// Finalize restores os.Stderr = origErr — re-enabling the filelog tee.
+// Do not change Finalize to assign os.Stderr to the "real" stderr
+// directly; that would orphan filelog mid-run and lose the suffix of
+// the log file.
 type LogCapture struct {
 	buf       bytes.Buffer
 	mu        sync.Mutex

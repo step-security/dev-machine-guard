@@ -10,6 +10,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
@@ -51,10 +52,15 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	plistPath := daemonPlistPath
 	logDir := systemLogDir
 
+	// Non-root LaunchAgent: log dir follows the configured install dir
+	// (defaults to ~/.stepsecurity). The plist will also bake
+	// STEPSECURITY_HOME so scheduler-invoked runs of the binary land in
+	// the same place. Root LaunchDaemon stays on the system path
+	// (/var/log/stepsecurity) — service-mode root daemons are a
+	// well-known macOS convention and we don't reroute them yet.
 	if !exec.IsRoot() {
 		plistPath = agentPlistPath()
-		homeDir, _ := os.UserHomeDir()
-		logDir = homeDir + "/.stepsecurity"
+		logDir = paths.Home()
 	}
 
 	// Ensure directories exist
@@ -83,13 +89,25 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 		}
 	}
 
+	// StepSecurityHome is baked into the plist so when launchd invokes
+	// the binary on its own schedule, paths.Home() resolves to the same
+	// directory the operator configured at install time — without
+	// depending on config.json or the operator's shell environment.
+	// Empty when paths.Home() can't resolve (no $HOME for root daemons,
+	// say); the binary then falls back through its own resolution chain.
+	stepHome := ""
+	if !exec.IsRoot() {
+		stepHome = paths.Home()
+	}
+
 	// Generate plist
 	plistData := plistTemplateData{
-		Label:           label,
-		BinaryPath:      binaryPath,
-		IntervalSeconds: intervalSeconds,
-		LogDir:          logDir,
-		UserHome:        userHome,
+		Label:            label,
+		BinaryPath:       binaryPath,
+		IntervalSeconds:  intervalSeconds,
+		LogDir:           logDir,
+		UserHome:         userHome,
+		StepSecurityHome: stepHome,
 	}
 
 	f, err := os.Create(plistPath)
@@ -179,11 +197,12 @@ func isConfigured(ctx context.Context, exec executor.Executor) bool {
 }
 
 type plistTemplateData struct {
-	Label           string
-	BinaryPath      string
-	IntervalSeconds int
-	LogDir          string
-	UserHome        string // non-empty when running as root; baked into plist as HOME env var
+	Label            string
+	BinaryPath       string
+	IntervalSeconds  int
+	LogDir           string
+	UserHome         string // non-empty when running as root; baked into plist as HOME env var
+	StepSecurityHome string // non-empty for LaunchAgent; sets STEPSECURITY_HOME so paths.Home() matches install-time choice
 }
 
 const plistTmpl = `<?xml version="1.0" encoding="UTF-8"?>
@@ -200,11 +219,13 @@ const plistTmpl = `<?xml version="1.0" encoding="UTF-8"?>
     <key>StartInterval</key>
     <integer>{{.IntervalSeconds}}</integer>
     <key>RunAtLoad</key>
-    <false/>{{if .UserHome}}
+    <false/>{{if or .UserHome .StepSecurityHome}}
     <key>EnvironmentVariables</key>
-    <dict>
+    <dict>{{if .UserHome}}
         <key>HOME</key>
-        <string>{{.UserHome}}</string>
+        <string>{{.UserHome}}</string>{{end}}{{if .StepSecurityHome}}
+        <key>STEPSECURITY_HOME</key>
+        <string>{{.StepSecurityHome}}</string>{{end}}
     </dict>{{end}}
     <key>StandardOutPath</key>
     <string>{{.LogDir}}/agent.log</string>

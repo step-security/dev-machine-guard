@@ -23,6 +23,7 @@ var (
 	OutputFormat       string // "" means default (pretty)
 	HTMLOutputFile     string // "" means not set
 	LogLevel           string // "" means default (info); one of error/warn/info/debug
+	InstallDir         string // "" means default (~/.stepsecurity); non-empty makes the agent put all its files (logs, hook errors, future state) under this directory. Bootstrap config.json itself stays at the legacy location. Per-run opt-out is the CLI flag --install-dir=. Resolution: --install-dir flag > STEPSECURITY_HOME env > this field > default — see internal/paths.
 )
 
 // ConfigFile is the JSON structure persisted to ~/.stepsecurity/config.json.
@@ -39,6 +40,7 @@ type ConfigFile struct {
 	OutputFormat       string   `json:"output_format,omitempty"`
 	HTMLOutputFile     string   `json:"html_output_file,omitempty"`
 	LogLevel           string   `json:"log_level,omitempty"`
+	InstallDir         string   `json:"install_dir,omitempty"`
 }
 
 // userConfigDir returns ~/.stepsecurity — the per-user config location.
@@ -93,6 +95,26 @@ func WriteConfigFilePath() string {
 	return filepath.Join(writeConfigDir(), "config.json")
 }
 
+// LegacyDirName is the basename of the per-user agent directory under
+// $HOME. config.json always lives here so the agent can bootstrap;
+// other files (logs, hook errors, the binary) may be relocated via the
+// resolved install dir — see internal/paths.
+const LegacyDirName = ".stepsecurity"
+
+// LegacyDir returns the per-user agent directory (~/.stepsecurity), used
+// as the reference point for the install-dir migration warning in main:
+// if the operator has moved the install dir but this directory still
+// holds diagnostic files, the agent surfaces a heads-up. Returns "" when
+// $HOME can't be resolved.
+//
+// Distinct from ConfigFilePath / WriteConfigFilePath above: those follow
+// the machine-vs-user resolution that lets MSI-deployed installs share
+// config with a scheduled task running as a logged-in user. LegacyDir is
+// always per-user, regardless of elevation.
+func LegacyDir() string {
+	return userConfigDir()
+}
+
 // Load reads the config file and applies values to the package-level variables.
 // Values already set (not placeholders) are not overridden — build-time values take precedence.
 func Load() {
@@ -141,6 +163,9 @@ func Load() {
 	}
 	if cfg.LogLevel != "" && LogLevel == "" {
 		LogLevel = cfg.LogLevel
+	}
+	if cfg.InstallDir != "" && InstallDir == "" {
+		InstallDir = cfg.InstallDir
 	}
 }
 
@@ -296,6 +321,15 @@ func RunConfigure() error {
 		existing.LogLevel = "info"
 	}
 
+	// Install directory override (empty = ~/.stepsecurity). All
+	// non-bootstrap files live under this directory: agent.log,
+	// agent.error.log (+ .prev rotation), ai-agent-hook-errors.jsonl,
+	// and the binary itself when placed via the loader script.
+	// Bootstrap config.json keeps living at the legacy ~/.stepsecurity
+	// path so the agent can always find it. To temporarily override
+	// for one run, pass --install-dir=PATH or set $STEPSECURITY_HOME.
+	existing.InstallDir = promptValue(reader, "Install Directory (blank = default)", existing.InstallDir)
+
 	// Save
 	if err := save(existing); err != nil {
 		return fmt.Errorf("saving configuration: %w", err)
@@ -422,6 +456,7 @@ func ShowConfigure() {
 		fmt.Printf("  %-24s %s\n", "HTML Output File:", displayValue(cfg.HTMLOutputFile))
 	}
 	fmt.Printf("  %-24s %s\n", "Log Level:", displayLogLevel(cfg.LogLevel))
+	fmt.Printf("  %-24s %s\n", "Install Directory:", displayInstallDir(cfg.InstallDir))
 }
 
 func displayValue(v string) string {
@@ -492,6 +527,13 @@ func displayLogLevel(level string) string {
 	default:
 		return fmt.Sprintf("%s (invalid — using info)", level)
 	}
+}
+
+func displayInstallDir(v string) string {
+	if v == "" {
+		return "~/.stepsecurity (default)"
+	}
+	return v
 }
 
 func isPlaceholder(v string) bool {
