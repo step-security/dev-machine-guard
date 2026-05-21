@@ -99,66 +99,64 @@
       ================================================================
     -->
 
-    <!-- Deferred command-runners. ExeCommand="[CustomActionData]" pulls
-         the actual command line from the CustomActionData property,
-         which the SetProperty elements below populate at sequence
-         time (when [INSTALLFOLDER], [CUSTOMERID], etc. ARE expandable). -->
+    <!-- ExeCommand uses [INSTALLFOLDER] (deferred-safe, MSI auto-passes
+         it to deferred CAs) for the exe path, and [CustomActionData] for
+         the args. WiX 4 strips a bare ExeCommand="[CustomActionData]"
+         (treats it as an empty Target), so we MUST bake [INSTALLFOLDER]
+         in literally — that keeps the column non-empty and lets MSI
+         substitute both placeholders at deferred-execution time. -->
 
     <CustomAction Id="RunConfigureInline"
                   Directory="INSTALLFOLDER"
-                  ExeCommand="[CustomActionData]"
+                  ExeCommand='"[INSTALLFOLDER]stepsecurity-dev-machine-guard.exe" [CustomActionData]'
                   Execute="deferred"
                   Impersonate="no"
                   Return="check"/>
 
     <CustomAction Id="RunConfigureFromFile"
                   Directory="INSTALLFOLDER"
-                  ExeCommand="[CustomActionData]"
+                  ExeCommand='"[INSTALLFOLDER]stepsecurity-dev-machine-guard.exe" [CustomActionData]'
                   Execute="deferred"
                   Impersonate="no"
                   Return="check"/>
 
     <CustomAction Id="RunInstallScheduledTask"
                   Directory="INSTALLFOLDER"
-                  ExeCommand="[CustomActionData]"
+                  ExeCommand='"[INSTALLFOLDER]stepsecurity-dev-machine-guard.exe" [CustomActionData]'
                   Execute="deferred"
                   Impersonate="no"
                   Return="check"/>
 
     <CustomAction Id="RunUninstallScheduledTask"
                   Directory="INSTALLFOLDER"
-                  ExeCommand="[CustomActionData]"
+                  ExeCommand='"[INSTALLFOLDER]stepsecurity-dev-machine-guard.exe" [CustomActionData]'
                   Execute="deferred"
                   Impersonate="no"
                   Return="ignore"/>
 
-    <!-- SetProperty elements: WiX shorthand for an immediate Type 51 CA.
-         Each one sets a property whose name matches a deferred CA Id;
-         MSI auto-populates that CA's CustomActionData from this value
-         at execution time. Property tokens like [INSTALLFOLDER] and
-         [APIKEY] expand here (in the immediate phase) — so by the time
-         the deferred CA runs, the command line is fully resolved. -->
+    <!-- SetProperty values now contain ONLY the args (not the exe path),
+         which become [CustomActionData] for the matching deferred CA. -->
 
     <SetProperty Id="RunConfigureInline"
-                 Value='"[INSTALLFOLDER]stepsecurity-dev-machine-guard.exe" configure --non-interactive --customer-id "[CUSTOMERID]" --api-endpoint "[APIENDPOINT]" --api-key "[APIKEY]" --scan-frequency "[SCANFREQUENCY]"'
+                 Value='configure --non-interactive --customer-id "[CUSTOMERID]" --api-endpoint "[APIENDPOINT]" --api-key "[APIKEY]" --scan-frequency "[SCANFREQUENCY]"'
                  Sequence="execute"
                  Before="RunConfigureInline"
                  Condition="APIKEY AND NOT BOOTSTRAPFILE AND NOT Installed"/>
 
     <SetProperty Id="RunConfigureFromFile"
-                 Value='"[INSTALLFOLDER]stepsecurity-dev-machine-guard.exe" configure --non-interactive --from-file "[BOOTSTRAPFILE]"'
+                 Value='configure --non-interactive --from-file "[BOOTSTRAPFILE]"'
                  Sequence="execute"
                  Before="RunConfigureFromFile"
                  Condition="BOOTSTRAPFILE AND NOT Installed"/>
 
     <SetProperty Id="RunInstallScheduledTask"
-                 Value='"[INSTALLFOLDER]stepsecurity-dev-machine-guard.exe" install'
+                 Value='install'
                  Sequence="execute"
                  Before="RunInstallScheduledTask"
                  Condition="NOT Installed"/>
 
     <SetProperty Id="RunUninstallScheduledTask"
-                 Value='"[INSTALLFOLDER]stepsecurity-dev-machine-guard.exe" uninstall'
+                 Value='uninstall'
                  Sequence="execute"
                  Before="RunUninstallScheduledTask"
                  Condition="REMOVE=&quot;ALL&quot;"/>
