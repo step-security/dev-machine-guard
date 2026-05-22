@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-  osexec "os/exec"
-  "path/filepath"
+	osexec "os/exec"
+	"path/filepath"
 	"strconv"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
