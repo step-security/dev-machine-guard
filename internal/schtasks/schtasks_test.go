@@ -2,6 +2,7 @@ package schtasks
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -103,7 +104,7 @@ func TestResolveLogDir_Admin(t *testing.T) {
 }
 
 func TestBuildCreateArgs_CustomFrequency(t *testing.T) {
-	args := buildCreateArgs(`C:\agent.exe`, `C:\logs`, `C:\logs`, 6, false)
+	args := buildCreateArgs(`C:\agent.exe`, `C:\logs`, 6, false)
 
 	// Find the /mo argument and check its value
 	foundMo := false
@@ -121,7 +122,7 @@ func TestBuildCreateArgs_CustomFrequency(t *testing.T) {
 }
 
 func TestBuildCreateArgs_Admin(t *testing.T) {
-	args := buildCreateArgs(`C:\agent.exe`, `C:\logs`, `C:\ProgramData\StepSecurity`, 4, true)
+	args := buildCreateArgs(`C:\agent.exe`, `C:\ProgramData\StepSecurity`, 4, true)
 
 	foundRU := false
 	for i, a := range args {
@@ -138,11 +139,45 @@ func TestBuildCreateArgs_Admin(t *testing.T) {
 }
 
 func TestBuildCreateArgs_NonAdmin(t *testing.T) {
-	args := buildCreateArgs(`C:\agent.exe`, `C:\logs`, `C:\logs`, 4, false)
+	args := buildCreateArgs(`C:\agent.exe`, `C:\logs`, 4, false)
 
 	for _, a := range args {
 		if a == "/ru" {
 			t.Error("expected no /ru argument for non-admin install")
 		}
+	}
+}
+
+// The task action must invoke the binary directly. A `cmd /c` wrapper
+// (the pre-fix form) spawns a console window every time Task Scheduler
+// fires the task under an interactive user session.
+func TestBuildCreateArgs_TaskCommandFormat(t *testing.T) {
+	args := buildCreateArgs(`C:\agent.exe`, `C:\ProgramData\StepSecurity`, 4, true)
+
+	taskCmd := ""
+	for i, a := range args {
+		if a == "/tr" && i+1 < len(args) {
+			taskCmd = args[i+1]
+			break
+		}
+	}
+	if taskCmd == "" {
+		t.Fatal("no /tr argument found")
+	}
+
+	if strings.Contains(strings.ToLower(taskCmd), "cmd /c") || strings.Contains(strings.ToLower(taskCmd), "cmd.exe") {
+		t.Errorf("task command must not wrap binary in cmd: %q", taskCmd)
+	}
+	if !strings.Contains(taskCmd, "send-telemetry") {
+		t.Errorf("task command missing send-telemetry: %q", taskCmd)
+	}
+	if !strings.Contains(taskCmd, `--install-dir="C:\ProgramData\StepSecurity"`) {
+		t.Errorf("task command missing --install-dir flag: %q", taskCmd)
+	}
+	if !strings.HasPrefix(taskCmd, `"C:\agent.exe"`) {
+		t.Errorf("task command must start with quoted binary path: %q", taskCmd)
+	}
+	if strings.Contains(taskCmd, ">>") || strings.Contains(taskCmd, "STEPSECURITY_HOME=") {
+		t.Errorf("task command must not redirect output or set env vars: %q", taskCmd)
 	}
 }

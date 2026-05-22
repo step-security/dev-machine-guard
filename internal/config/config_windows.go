@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/step-security/dev-machine-guard/internal/winproc"
 	"golang.org/x/sys/windows"
 )
 
@@ -48,7 +49,9 @@ func hardenMachineConfigACL(path string) error {
 		"/grant:r", "*S-1-5-32-545:R", // BUILTIN\Users = Read
 		"/Q",
 	}
-	output, err := exec.Command("icacls", args...).CombinedOutput()
+	cmd := exec.Command("icacls", args...)
+	winproc.HideWindow(cmd)
+	output, err := cmd.CombinedOutput()
 	if err != nil {
 		fmt.Fprintf(os.Stderr,
 			"warning: icacls hardening of %q failed: %v\nicacls output:\n%s\n",

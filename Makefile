@@ -17,6 +17,12 @@ build:
 build-windows:
 	GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY).exe ./cmd/stepsecurity-dev-machine-guard
 
+# GUI-subsystem launcher (see cmd/stepsecurity-dev-machine-guard-task).
+# `-H windowsgui` flips the PE subsystem so Windows doesn't allocate
+# a console when Task Scheduler launches it.
+build-windows-task:
+	GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS) -H windowsgui" -o $(BINARY)-task.exe ./cmd/stepsecurity-dev-machine-guard-task
+
 build-windows-arm64:
 	GOOS=windows GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY)-arm64.exe ./cmd/stepsecurity-dev-machine-guard
 

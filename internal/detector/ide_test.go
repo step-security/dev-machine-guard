@@ -382,6 +382,35 @@ func TestIDEDetector_Windows_FindsEclipse_UserProfile_Glob(t *testing.T) {
 	}
 }
 
+// When resources\app\package.json is readable, version must come from
+// it WITHOUT shelling out to the bin\code.cmd subprocess — that shim
+// flashes a console under Task Scheduler. The mock has no command
+// registered for the binary; if the detector falls through, the test
+// fails.
+func TestIDEDetector_Windows_VSCode_PackageJSONFastPath(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	mock.SetEnv("LOCALAPPDATA", `C:\Users\testuser\AppData\Local`)
+	mock.SetEnv("PROGRAMFILES", `C:\Program Files`)
+
+	vscodePath := `C:\Program Files\Microsoft VS Code`
+	mock.SetDir(vscodePath)
+	mock.SetFile(vscodePath+`/bin\code.cmd`, []byte{})
+	mock.SetFile(vscodePath+`/resources/app/package.json`,
+		[]byte(`{"name":"Code","version":"1.115.0"}`))
+
+	det := NewIDEDetector(mock)
+	results := det.Detect(context.Background())
+
+	found := findIDE(results, "vscode")
+	if found == nil {
+		t.Fatal("expected VS Code to be detected")
+	}
+	if found.Version != "1.115.0" {
+		t.Errorf("version should come from package.json (1.115.0), got %s", found.Version)
+	}
+}
+
 func TestIDEDetector_Windows_VSCode_StillWorks(t *testing.T) {
 	mock := executor.NewMock()
 	mock.SetGOOS("windows")

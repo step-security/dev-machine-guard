@@ -378,9 +378,19 @@ func (d *IDEDetector) resolveWindowsVersion(ctx context.Context, spec ideSpec, i
 	return version
 }
 
-// resolveWindowsVersionFromDir tries binary, product-info.json, and .eclipseproduct.
-// Does NOT query the registry (caller handles that to avoid redundant queries).
+// resolveWindowsVersionFromDir tries package.json, the binary,
+// product-info.json, and .eclipseproduct in that order. The
+// package.json fast-path covers VS Code-derived Electron IDEs (VS
+// Code, Cursor, Windsurf, Antigravity) so we don't shell out to the
+// bin\*.cmd shim — that shim spawns cmd.exe, which flashes a console
+// under Task Scheduler. JetBrains and Zed have no package.json at
+// that path and fall through unchanged. Registry lookup is the
+// caller's final fallback.
 func (d *IDEDetector) resolveWindowsVersionFromDir(ctx context.Context, spec ideSpec, installDir string) string {
+	if v := readProductInfoVersion(d.exec, filepath.Join(installDir, "resources", "app", "package.json")); v != "unknown" {
+		return v
+	}
+
 	version := "unknown"
 
 	if spec.WinBinary != "" && spec.VersionFlag != "" {

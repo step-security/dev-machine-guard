@@ -71,7 +71,7 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 		stepHome = paths.Home()
 	}
 
-	args := buildCreateArgs(binaryPath, logDir, stepHome, hours, exec.IsRoot())
+	args := buildCreateArgs(binaryPath, stepHome, hours, exec.IsRoot())
 	log.Debug("schtasks create: binary=%q log_dir=%q step_home=%q hours=%d is_admin=%v", binaryPath, logDir, stepHome, hours, exec.IsRoot())
 
 	_, stderr, exitCode, err := exec.Run(ctx, "schtasks", args...)
@@ -124,16 +124,13 @@ func isConfigured(ctx context.Context, exec executor.Executor) bool {
 	return exitCode == 0
 }
 
-func buildCreateArgs(binaryPath, logDir, stepHome string, hours int, isAdmin bool) []string {
-	// `set "VAR=value"` is the safe cmd.exe form when the value may
-	// contain spaces or `&` / `|` / `<` / `>` metacharacters — without
-	// the quotes, cmd.exe would split on the first space and the
-	// remainder would be treated as a separate command. Inside the outer
-	// `cmd /c "..."` quotes the inner double-quotes are escaped as `""`.
-	// stepHome ultimately comes from $HOME (e.g. `C:\Users\John Doe`),
-	// so quoting is load-bearing here.
-	taskCmd := fmt.Sprintf(`cmd /c "set ""STEPSECURITY_HOME=%s"" && \"%s\" send-telemetry >> \"%s\agent.log\" 2>> \"%s\agent.error.log\""`,
-		stepHome, binaryPath, logDir, logDir)
+// buildCreateArgs returns the schtasks /create arguments for the
+// periodic scan task. The task action invokes the binary directly
+// (no `cmd /c` wrapper) — env config and log routing both live in
+// the binary now (--install-dir + filelog), and the wrapper was the
+// source of a visible cmd.exe flash on every fire.
+func buildCreateArgs(binaryPath, stepHome string, hours int, isAdmin bool) []string {
+	taskCmd := fmt.Sprintf(`"%s" send-telemetry --install-dir="%s"`, binaryPath, stepHome)
 	args := []string{"/create", "/tn", taskName, "/tr", taskCmd,
 		"/sc", "HOURLY", "/mo", strconv.Itoa(hours), "/f"}
 	if isAdmin {
