@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -44,6 +45,17 @@ type Payload struct {
 	AgentVersion   string                 `json:"agent_version"`
 	CollectedAt    int64                  `json:"collected_at"`
 	NoUserLoggedIn bool                   `json:"no_user_logged_in"`
+
+	// InvocationMethod is "install" when the agent ran from an installed
+	// launchd/systemd/schtasks unit, "one_time" for a manual CLI run.
+	// Duplicated on this struct (also lives on the run-status row) so the
+	// stored telemetry record is self-describing for backfills.
+	InvocationMethod string `json:"invocation_method,omitempty"`
+
+	// StatusInfo carries the final phase completion list and total elapsed
+	// time the agent saw at upload time. Snapshot of the same RunStatusInfo
+	// streamed via the run-status endpoint during the run.
+	StatusInfo *RunStatusInfo `json:"status_info,omitempty"`
 
 	IDEExtensions        []model.Extension               `json:"ide_extensions"`
 	IDEInstallations     []model.IDE                     `json:"ide_installations"`
@@ -97,8 +109,25 @@ type PerformanceMetrics struct {
 //	[scanning] Device ID (Serial): ...
 //	...
 func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err error) {
-	ctx := context.Background()
+	// cancelRun signals the heartbeat goroutine to exit. The post-goroutine
+	// defer below does cancel-then-wait so heartbeat shutdown is clean on
+	// the happy path. This top-level defer is a safety net for early
+	// returns (lock-acquire failure, etc.) that bail before the goroutine
+	// is even spawned — in that case cancelRun must still run so the ctx
+	// is released. Double-cancel on the normal path is a no-op.
+	ctx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
 	startTime := time.Now()
+
+	// Detect invocation method once at run start: "install" if the platform's
+	// scheduler footprint is on disk, else "one_time". Threaded into every
+	// run-status post and stamped on the final payload.
+	invocationMethod := DetectInvocationMethod()
+
+	// Phase tracker accumulates per-analysis-section completions so the
+	// backend can surface in-flight progress on the console. Reads from the
+	// heartbeat goroutine are mutex-guarded inside Snapshot.
+	tracker := NewPhaseTracker()
 
 	// Generate a per-run execution ID up front so failures before device.Gather
 	// can still be attributed. Fall back to a timestamp-derived ID if crypto/rand
@@ -121,8 +150,80 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	var reportedFailed atomic.Bool
 	reportFailedOnce := func(errMsg string) {
 		if reportedFailed.CompareAndSwap(false, true) {
-			reportRunStatus(context.Background(), log, executionID, deviceID, runStatusFailed, errMsg)
+			reportRunStatus(context.Background(), log, executionID, deviceID, runStatusFailed, errMsg, invocationMethod)
 		}
+	}
+
+	// Phase-boundary progress posts run on a dedicated worker so the scan
+	// never blocks on HTTP at a call site. Buffer=1 + drop-oldest send
+	// gives us two properties together:
+	//   - Strict ordering: a single consumer means the backend can never
+	//     see an older snapshot land after a newer one (which would cause
+	//     the console UI to briefly regress on degraded networks).
+	//   - Bounded resources: at most one pending snapshot is queued; a
+	//     slow-network backlog can't grow across the 11+ inline call
+	//     sites. The latest snapshot always wins, which matches what an
+	//     operator watching progress actually cares about.
+	//
+	// Without this, blocking phase posts could add the per-call retry
+	// budget (~6s: 2 attempts × 3s HTTP timeout + 500ms backoff) to each
+	// call site, compounding to over a minute of added scan latency on a
+	// degraded link for purely best-effort progress data.
+	phaseCh := make(chan RunStatusInfo, 1)
+	phaseDone := make(chan struct{})
+	var phaseSendMu sync.Mutex // serialises drain+send so concurrent producers (main scan + heartbeat) don't race
+	go func() {
+		defer close(phaseDone)
+		// process posts one snapshot using a Background-derived ctx with
+		// a bounded per-post timeout. We deliberately do NOT chain off the
+		// scan ctx here: the final phase-boundary post (which is the only
+		// snapshot that includes "telemetry_upload" in phases_completed)
+		// arrives at the worker *after* the function body returns and the
+		// deferred cancelRun() fires. If we shared the scan ctx, that post
+		// would always be cancelled mid-flight and the backend would never
+		// learn the upload completed. The 10s budget covers postProgress's
+		// own internal retry window (2×3s + 500ms backoff) with slack.
+		process := func(snap RunStatusInfo) {
+			postCtx, postCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer postCancel()
+			postProgress(postCtx, log, executionID, deviceID, invocationMethod, snap)
+		}
+		for {
+			select {
+			case snap := <-phaseCh:
+				process(snap)
+			case <-ctx.Done():
+				// Drain any queued snapshot before exiting. Without this,
+				// a naïve select on the next iteration would 50/50 between
+				// the ready ctx.Done() and the ready phaseCh — dropping
+				// the final post is exactly what the user reports as
+				// "telemetry_upload missing from phases_completed".
+				for {
+					select {
+					case snap := <-phaseCh:
+						process(snap)
+					default:
+						return
+					}
+				}
+			}
+		}
+	}()
+
+	// postPhase is the convergence point for phase-boundary and heartbeat
+	// progress updates. Captured here so the heartbeat goroutine and the
+	// inline phase wrappers share a single call site.
+	postPhase := func() {
+		snap := tracker.Snapshot()
+		phaseSendMu.Lock()
+		defer phaseSendMu.Unlock()
+		// Drop any queued (older) snapshot so the freshest one always lands.
+		select {
+		case <-phaseCh:
+		default:
+		}
+		// Always succeeds: buffer=1, just drained, single sender under the mutex.
+		phaseCh <- snap
 	}
 
 	// Catch SIGINT / SIGTERM so cancellation (Ctrl+C, launchd stop, kill)
@@ -190,7 +291,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	}()
 	log.Progress("Lock acquired (PID: %d)", os.Getpid())
 
-	// Device info
+	// Device info — first tracked phase. Completes before the "started"
+	// post so the first heartbeat already includes it in phases_completed.
+	tracker.Start("device_info")
 	log.Progress("Gathering device information...")
 	dev := device.Gather(ctx, exec)
 	deviceID = dev.SerialNumber
@@ -214,9 +317,43 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	if noUserLoggedIn {
 		log.Warn("no real developer identity (UserIdentity=%q, root=%v) — telemetry will be marked no_user_logged_in", dev.UserIdentity, exec.IsRoot())
 	}
+	tracker.Finish()
 
 	// Report "started" now that we have a device_id. Fire-and-forget.
-	reportRunStatus(ctx, log, executionID, deviceID, runStatusStarted, "")
+	reportRunStatus(ctx, log, executionID, deviceID, runStatusStarted, "", invocationMethod)
+
+	// First progress upsert: surfaces device_info completion immediately
+	// without waiting for the 5-minute heartbeat. Safe to call after the
+	// "started" post because the backend now has a row to upsert into.
+	postPhase()
+
+	// Heartbeat goroutine: pushes status_info on a ticker so a long-running
+	// phase (brew on a 200k-package macbook, syspkg on a fat dpkg machine)
+	// still surfaces progress to the console between phase boundaries.
+	heartbeatDone := make(chan struct{})
+	go func() {
+		defer close(heartbeatDone)
+		ticker := time.NewTicker(runStatusHeartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				postPhase()
+			}
+		}
+	}()
+	// Shut down both the heartbeat goroutine and the phase-post worker
+	// cleanly on return. Order matters: cancel first so both goroutines
+	// see ctx.Done() and exit, THEN wait for each to close its done
+	// channel. Splitting these into separate `defer` statements would
+	// deadlock — LIFO would block on the waits before cancel fires.
+	defer func() {
+		cancelRun()
+		<-heartbeatDone
+		<-phaseDone
+	}()
 
 	// Detect logged-in user for running commands as the real user when root.
 	// Skip "root" — if LoggedInUser() fell back to CurrentUser(), delegating
@@ -244,6 +381,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	fmt.Fprintln(os.Stderr)
 
 	// Detect IDEs
+	tracker.Start("ide_scan")
 	log.Progress("Detecting IDE and AI desktop app installations...")
 	ideDetector := detector.NewIDEDetector(exec)
 	ides := ideDetector.Detect(ctx)
@@ -254,8 +392,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		log.Progress("  No IDEs or AI desktop apps found")
 	}
 	fmt.Fprintln(os.Stderr)
+	tracker.Finish()
+	postPhase()
 
 	// Collect extensions
+	tracker.Start("extension_scan")
 	log.Progress("Scanning extensions...")
 	extDetector := detector.NewExtensionDetector(exec)
 	extensions := extDetector.Detect(ctx, searchDirs, ides)
@@ -272,8 +413,13 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	}
 	log.Progress("Found total of %d IDE extensions", len(extensions))
 	fmt.Fprintln(os.Stderr)
+	tracker.Finish()
+	postPhase()
 
-	// Detect AI tools
+	// Detect AI tools — CLI + general agents + frameworks roll up into one
+	// phase since they're all quick discovery passes against the same user
+	// home and exec PATH.
+	tracker.Start("ai_tools_scan")
 	log.Progress("Detecting AI agents and tools...")
 	fmt.Fprintln(os.Stderr)
 
@@ -312,8 +458,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	fmt.Fprintln(os.Stderr)
 
 	allAI := append(append(cliTools, agents...), frameworks...)
+	tracker.Finish()
+	postPhase()
 
 	// MCP configs
+	tracker.Start("mcp_config_scan")
 	log.Progress("Collecting MCP configuration files...")
 	mcpDetector := detector.NewMCPDetector(exec)
 	mcpConfigs := mcpDetector.DetectEnterprise(ctx)
@@ -326,6 +475,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	log.Debug("scan totals: ides=%d extensions=%d ai_cli=%d agents=%d frameworks=%d mcp_configs=%d",
 		len(ides), len(extensions), len(cliTools), len(agents), len(frameworks), len(mcpConfigs))
 	fmt.Fprintln(os.Stderr)
+	tracker.Finish()
+	postPhase()
 
 	// Homebrew scanning
 	brewEnabled := true
@@ -338,6 +489,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	var brewFormulae, brewCasks []model.BrewPackage
 
 	if brewEnabled {
+		tracker.Start("brew_scan")
 		log.Progress("Detecting Homebrew...")
 		brewDetector := detector.NewBrewDetector(userExec)
 		brewPkgMgr = brewDetector.DetectBrew(ctx)
@@ -363,6 +515,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 			log.Progress("  Homebrew not found")
 		}
 		fmt.Fprintln(os.Stderr)
+		tracker.Finish()
+		postPhase()
 	} else {
 		log.Progress("Homebrew scanning is DISABLED")
 		fmt.Fprintln(os.Stderr)
@@ -379,6 +533,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	var pythonProjects []model.ProjectInfo
 
 	if pythonEnabled {
+		tracker.Start("python_scan")
 		log.Progress("Detecting Python package managers...")
 		pyDetector := detector.NewPythonPMDetector(userExec)
 		pythonPkgManagers = pyDetector.DetectManagers(ctx)
@@ -391,6 +546,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 		log.Progress("Scanning Python global packages...")
 		pyScanner := detector.NewPythonScanner(userExec, log)
+		// Stream per-PM sub-progress ("scanning pip3" / "scanning conda" /
+		// "scanning uv") into the phase tracker so heartbeats surface where
+		// inside the python phase a slow pip3 list is stuck.
+		pyScanner.ProgressHook = func(detail string) { tracker.UpdateDetail(detail) }
 		pythonGlobalPkgs = pyScanner.ScanGlobalPackages(ctx)
 		log.Progress("  Found %d Python global package source(s)", len(pythonGlobalPkgs))
 
@@ -399,6 +558,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		pythonProjects = pyProjectDetector.ListProjects(searchDirs)
 		log.Progress("  Found %d Python projects", len(pythonProjects))
 		fmt.Fprintln(os.Stderr)
+		tracker.Finish()
+		postPhase()
 	} else {
 		log.Progress("Python scanning is DISABLED")
 		fmt.Fprintln(os.Stderr)
@@ -408,6 +569,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	var systemPackageScans []model.SystemPackageScanResult
 
 	if exec.GOOS() == model.PlatformLinux {
+		tracker.Start("syspkg_scan")
 		log.Progress("Detecting system packages...")
 		sysPkgDetector := detector.NewSystemPkgDetector(userExec)
 
@@ -460,6 +622,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 			log.Progress("  No system package managers found")
 		}
 		fmt.Fprintln(os.Stderr)
+		tracker.Finish()
+		postPhase()
 	} else {
 		log.Progress("System package scanning: skipped (non-Linux)")
 		fmt.Fprintln(os.Stderr)
@@ -477,6 +641,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	var nodeScanMs int64
 
 	if npmEnabled {
+		tracker.Start("node_scan")
 		log.Progress("Node.js package scanning is ENABLED")
 
 		log.Progress("Detecting Node.js package managers...")
@@ -489,6 +654,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 		log.Progress("Scanning globally installed packages...")
 		nodeScanner := detector.NewNodeScanner(exec, log, loggedInUsername)
+		// Stream sub-progress so heartbeats show "project 12 of 47" /
+		// "global: yarn" during the long-running node phase. Both
+		// ScanGlobalPackages and ScanProjects share this hook.
+		nodeScanner.ProgressHook = func(detail string) { tracker.UpdateDetail(detail) }
 		globalPkgs = nodeScanner.ScanGlobalPackages(ctx)
 		log.Progress("  Found %d global package location(s)", len(globalPkgs))
 		fmt.Fprintln(os.Stderr)
@@ -500,6 +669,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		log.Progress("  Found %d Node.js projects", len(nodeProjects))
 		log.Progress("  Scan duration: %dms", nodeScanMs)
 		fmt.Fprintln(os.Stderr)
+		tracker.Finish()
+		postPhase()
 	} else {
 		log.Progress("Node.js package scanning is DISABLED")
 		fmt.Fprintln(os.Stderr)
@@ -547,6 +718,12 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	execLogsBase64 := capture.Finalize()
 	endTime := time.Now()
 
+	// Snapshot the final progress state right before we serialize. By this
+	// point every analysis phase has been Finish()-ed so PhasesCompleted
+	// holds the full list and CurrentPhase is empty — the upload itself
+	// runs after this snapshot and is intentionally not tracked as a phase.
+	finalStatusInfo := tracker.Snapshot()
+
 	// Build payload
 	payload := &Payload{
 		CustomerID:     config.CustomerID,
@@ -560,6 +737,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		AgentVersion:   buildinfo.Version,
 		CollectedAt:    endTime.Unix(),
 		NoUserLoggedIn: noUserLoggedIn,
+
+		InvocationMethod: invocationMethod,
+		StatusInfo:       &finalStatusInfo,
 
 		IDEExtensions:        extensions,
 		IDEInstallations:     ides,
@@ -600,11 +780,18 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		},
 	}
 
-	// Upload to S3
+	// Upload to S3 — tracked as the final phase. The Payload's StatusInfo
+	// above is intentionally snapshotted *before* this phase starts (the
+	// payload can't describe its own upload), so this phase only appears
+	// on the run-status row via heartbeats and the post-upload progress
+	// post below.
+	tracker.Start("telemetry_upload")
 	log.Progress("Requesting upload URL from backend...")
-	if err := uploadToS3(ctx, log, payload, executionID); err != nil {
+	if err := uploadToS3(ctx, log, payload, executionID, tracker); err != nil {
 		return fmt.Errorf("uploading telemetry: %w", err)
 	}
+	tracker.Finish()
+	postPhase()
 
 	fmt.Fprintln(os.Stderr)
 	log.Progress("Telemetry collection completed successfully")
@@ -637,7 +824,17 @@ func totalSystemPackagesCount(scans []model.SystemPackageScanResult) int {
 	return total
 }
 
-func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, executionID string) error {
+func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, executionID string, tracker *PhaseTracker) error {
+	// updateDetail forwards sub-progress to the heartbeat goroutine via the
+	// tracker. Tolerates nil so the function stays callable from tests that
+	// don't supply a tracker.
+	updateDetail := func(detail string) {
+		if tracker != nil {
+			tracker.UpdateDetail(detail)
+		}
+	}
+
+	updateDetail("compressing payload")
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshaling payload: %w", err)
@@ -650,6 +847,7 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, exe
 	if err != nil {
 		return fmt.Errorf("compressing payload: %w", err)
 	}
+	updateDetail("requesting upload URL")
 
 	// Request upload URL
 	reqBody, _ := json.Marshal(map[string]any{
@@ -698,6 +896,7 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, exe
 	uploaded := false
 	var lastFailure string
 	for attempt := 1; attempt <= maxRetries; attempt++ {
+		updateDetail(fmt.Sprintf("uploading to S3 (attempt %d/%d, %d KiB)", attempt, maxRetries, len(compressedPayload)/1024))
 		uploadStart := time.Now()
 		putReq, reqErr := http.NewRequestWithContext(ctx, http.MethodPut, urlResp.UploadURL, bytes.NewReader(compressedPayload))
 		if reqErr != nil {
@@ -780,6 +979,7 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, exe
 	}
 
 	// Notify backend
+	updateDetail("notifying backend")
 	log.Progress("Notifying backend of upload...")
 	notifyBody, _ := json.Marshal(map[string]string{
 		"s3_key":       urlResp.S3Key,
