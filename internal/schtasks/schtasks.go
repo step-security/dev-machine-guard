@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
@@ -12,7 +13,10 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
-const taskName = "StepSecurity Dev Machine Guard"
+const (
+	taskName     = "StepSecurity Dev Machine Guard"
+	launcherName = "stepsecurity-dev-machine-guard-task.exe"
+)
 
 // Install configures Windows Task Scheduler for periodic scanning.
 // If already installed, upgrades by removing and re-creating the task.
@@ -43,14 +47,13 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 		return fmt.Errorf("creating log directory: %w", err)
 	}
 
-	// For admin installs the log dir lives at C:\ProgramData\StepSecurity, which
-	// inherits ACLs from C:\ProgramData and only grants non-admin users
-	// Read & Execute on the files inside. The /ru INTERACTIVE task fires under
-	// whatever user is logged on — typically a non-admin developer — and
-	// cmd.exe's `>>` redirect to agent.log would fail with Access Denied, which
-	// aborts the whole task action. Grant BUILTIN\Users (SID 545) Modify rights
-	// on the log dir, propagated to files and subfolders, so any logged-in
-	// user can append to the log files.
+	// For admin installs the log dir lives at C:\ProgramData\StepSecurity,
+	// which inherits ACLs from C:\ProgramData and only grants non-admin
+	// users Read & Execute. The /ru INTERACTIVE task fires under the
+	// logged-in user (typically non-admin), and the agent's filelog
+	// opens agent.error.log here in append mode — that needs write
+	// access. Grant BUILTIN\Users (SID 545) Modify rights on the dir,
+	// propagated to files and subfolders.
 	if exec.IsRoot() {
 		_, _, _, icaclsErr := exec.Run(ctx, "icacls", logDir, "/grant", "*S-1-5-32-545:(OI)(CI)M", "/Q")
 		if icaclsErr != nil {
@@ -71,8 +74,9 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 		stepHome = paths.Home()
 	}
 
-	args := buildCreateArgs(binaryPath, stepHome, hours, exec.IsRoot())
-	log.Debug("schtasks create: binary=%q log_dir=%q step_home=%q hours=%d is_admin=%v", binaryPath, logDir, stepHome, hours, exec.IsRoot())
+	taskBinary := resolveTaskBinary(exec, binaryPath)
+	args := buildCreateArgs(taskBinary, stepHome, hours, exec.IsRoot())
+	log.Debug("schtasks create: task_binary=%q agent=%q log_dir=%q step_home=%q hours=%d is_admin=%v", taskBinary, binaryPath, logDir, stepHome, hours, exec.IsRoot())
 
 	_, stderr, exitCode, err := exec.Run(ctx, "schtasks", args...)
 	log.Debug("schtasks /create: exit_code=%d err=%v", exitCode, err)
@@ -122,6 +126,21 @@ func doUninstall(ctx context.Context, exec executor.Executor, log *progress.Logg
 func isConfigured(ctx context.Context, exec executor.Executor) bool {
 	_, _, exitCode, _ := exec.Run(ctx, "schtasks", "/query", "/tn", taskName)
 	return exitCode == 0
+}
+
+// resolveTaskBinary returns the path the scheduled task should invoke.
+// When the GUI-subsystem launcher sits next to the agent (MSI install
+// layout), the task points at it so Windows doesn't allocate a console
+// for the agent under /ru INTERACTIVE. When the launcher isn't present
+// (ad-hoc deploys of just the agent .exe), we fall back to the agent
+// directly — subprocess flashes are still suppressed via winproc, only
+// the agent's own console-flash mitigation is forfeited.
+func resolveTaskBinary(exec executor.Executor, agentPath string) string {
+	launcher := filepath.Join(filepath.Dir(agentPath), launcherName)
+	if exec.FileExists(launcher) {
+		return launcher
+	}
+	return agentPath
 }
 
 // buildCreateArgs returns the schtasks /create arguments for the

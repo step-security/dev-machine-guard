@@ -55,7 +55,7 @@ jobs:
           wix --version
           wix extension add --global WixToolset.Util.wixext/4.0.5
 
-      - name: Build Windows .exe
+      - name: Build Windows .exes (agent + launcher)
         shell: pwsh
         run: |
           $env:GOOS = "windows"
@@ -64,7 +64,11 @@ jobs:
           go build -trimpath -ldflags "-s -w" `
             -o "$PWD\dmg-smoke.exe" `
             ./cmd/stepsecurity-dev-machine-guard
-          Get-Item "$PWD\dmg-smoke.exe" | Select-Object Name, Length
+          go build -trimpath -ldflags "-s -w -H windowsgui" `
+            -o "$PWD\dmg-smoke-task.exe" `
+            ./cmd/stepsecurity-dev-machine-guard-task
+          Get-Item "$PWD\dmg-smoke.exe", "$PWD\dmg-smoke-task.exe" |
+            Select-Object Name, Length
 
       - name: Build MSI
         shell: pwsh
@@ -83,6 +87,7 @@ jobs:
             -d Arch=x64 `
             -d "Version=$version" `
             -d "BinaryPath=$PWD\dmg-smoke.exe" `
+            -d "LauncherPath=$PWD\dmg-smoke-task.exe" `
             -out "dist\dmg-smoke.msi"
           Get-Item "dist\dmg-smoke.msi" | Select-Object Name, Length
 
@@ -112,18 +117,28 @@ jobs:
       - name: Verify install artifacts
         shell: pwsh
         run: |
-          $bin   = "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard.exe"
-          $cfg   = "C:\ProgramData\StepSecurity\config.json"
-          $task  = "StepSecurity Dev Machine Guard"
+          $bin      = "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard.exe"
+          $launcher = "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard-task.exe"
+          $cfg      = "C:\ProgramData\StepSecurity\config.json"
+          $task     = "StepSecurity Dev Machine Guard"
 
           $checks = @()
 
-          # 1. Binary on disk
+          # 1a. Agent binary on disk
           if (Test-Path $bin) {
-            Write-Host "[OK] Binary present at $bin"
+            Write-Host "[OK] Agent present at $bin"
             $checks += $true
           } else {
-            Write-Host "::error::Binary missing: $bin"
+            Write-Host "::error::Agent missing: $bin"
+            $checks += $false
+          }
+
+          # 1b. Launcher binary on disk
+          if (Test-Path $launcher) {
+            Write-Host "[OK] Launcher present at $launcher"
+            $checks += $true
+          } else {
+            Write-Host "::error::Launcher missing: $launcher"
             $checks += $false
           }
 
@@ -160,7 +175,8 @@ jobs:
             $checks += $false
           }
 
-          # 4. Scheduled task registered and runs as INTERACTIVE
+          # 4. Scheduled task registered, runs as INTERACTIVE, and its
+          # action points at the launcher (not the agent directly).
           $taskInfo = schtasks /query /tn $task /v /fo LIST 2>&1
           if ($LASTEXITCODE -eq 0) {
             $runAs = ($taskInfo | Select-String -Pattern '^\s*Run As User:').ToString()
@@ -169,6 +185,15 @@ jobs:
               $checks += $true
             } else {
               Write-Host "::error::Run As User wrong: $runAs"
+              $checks += $false
+            }
+
+            $action = ($taskInfo | Select-String -Pattern '^\s*Task To Run:').ToString()
+            if ($action -match 'stepsecurity-dev-machine-guard-task\.exe') {
+              Write-Host "[OK] Task action points at GUI launcher"
+              $checks += $true
+            } else {
+              Write-Host "::error::Task action does not point at launcher: $action"
               $checks += $false
             }
           } else {
@@ -199,12 +224,17 @@ jobs:
         run: |
           $task = "StepSecurity Dev Machine Guard"
 
-          # Binary should be gone
-          if (Test-Path "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard.exe") {
-            Write-Host "::error::Binary still present after uninstall"
-            exit 1
+          # Both binaries should be gone
+          foreach ($leftover in @(
+            "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard.exe",
+            "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard-task.exe"
+          )) {
+            if (Test-Path $leftover) {
+              Write-Host "::error::File still present after uninstall: $leftover"
+              exit 1
+            }
           }
-          Write-Host "[OK] Binary removed"
+          Write-Host "[OK] Agent + launcher removed"
 
           # Scheduled task should be gone. Capture the exit code into a
           # local — PowerShell uses $LASTEXITCODE from the last native call

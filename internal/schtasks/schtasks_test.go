@@ -148,6 +148,36 @@ func TestBuildCreateArgs_NonAdmin(t *testing.T) {
 	}
 }
 
+// When the launcher binary is co-installed (MSI layout) it must be
+// preferred over the agent so the scheduled task fires through the
+// GUI-subsystem wrapper.
+//
+// Paths use forward slashes so the test is portable: filepath.{Dir,Join}
+// in resolveTaskBinary follow the host OS separator. The Windows
+// production path looks like C:\Program Files\StepSecurity\... — same
+// logic, just darwin-incompatible to assert against directly.
+func TestResolveTaskBinary_LauncherPresent(t *testing.T) {
+	mock := executor.NewMock()
+	agent := "/install/dir/stepsecurity-dev-machine-guard.exe"
+	launcher := "/install/dir/stepsecurity-dev-machine-guard-task.exe"
+	mock.SetFile(launcher, []byte{})
+
+	if got := resolveTaskBinary(mock, agent); got != launcher {
+		t.Errorf("want launcher %q, got %q", launcher, got)
+	}
+}
+
+// Ad-hoc deploys may ship only the agent .exe. The task must still
+// register correctly against the agent in that case.
+func TestResolveTaskBinary_NoLauncher(t *testing.T) {
+	mock := executor.NewMock()
+	agent := "/install/dir/stepsecurity-dev-machine-guard.exe"
+
+	if got := resolveTaskBinary(mock, agent); got != agent {
+		t.Errorf("want agent fallback %q, got %q", agent, got)
+	}
+}
+
 // The task action must invoke the binary directly. A `cmd /c` wrapper
 // (the pre-fix form) spawns a console window every time Task Scheduler
 // fires the task under an interactive user session.

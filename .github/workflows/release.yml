@@ -92,8 +92,13 @@ jobs:
         id: binaries
         run: |
           DARWIN=$(find dist -type f -name '*darwin_unnotarized' | head -1)
-          WIN_AMD64=$(find dist -type f -name '*.exe' -path '*windows_amd64*' | head -1)
-          WIN_ARM64=$(find dist -type f -name '*.exe' -path '*windows_arm64*' | head -1)
+          # Filter agent vs launcher (-task) explicitly — both ship as
+          # <name>-<version>-<os>_<arch>.exe so a bare *.exe glob would
+          # match either.
+          WIN_AMD64=$(find dist -type f -name 'stepsecurity-dev-machine-guard-*-windows_amd64.exe' ! -name '*-task-*' | head -1)
+          WIN_ARM64=$(find dist -type f -name 'stepsecurity-dev-machine-guard-*-windows_arm64.exe' ! -name '*-task-*' | head -1)
+          WIN_TASK_AMD64=$(find dist -type f -name 'stepsecurity-dev-machine-guard-task-*-windows_amd64.exe' | head -1)
+          WIN_TASK_ARM64=$(find dist -type f -name 'stepsecurity-dev-machine-guard-task-*-windows_arm64.exe' | head -1)
           LINUX_AMD64=$(find dist -type f -name 'stepsecurity-dev-machine-guard' -path '*linux_amd64*' | head -1)
           LINUX_ARM64=$(find dist -type f -name 'stepsecurity-dev-machine-guard' -path '*linux_arm64*' | head -1)
 
@@ -102,7 +107,7 @@ jobs:
           RPM_AMD64=$(find dist -type f -name '*-amd64.rpm' | head -1)
           RPM_ARM64=$(find dist -type f -name '*-arm64.rpm' | head -1)
 
-          for label in "darwin:${DARWIN}" "windows_amd64:${WIN_AMD64}" "windows_arm64:${WIN_ARM64}" "linux_amd64:${LINUX_AMD64}" "linux_arm64:${LINUX_ARM64}" "deb_amd64:${DEB_AMD64}" "deb_arm64:${DEB_ARM64}" "rpm_amd64:${RPM_AMD64}" "rpm_arm64:${RPM_ARM64}"; do
+          for label in "darwin:${DARWIN}" "windows_amd64:${WIN_AMD64}" "windows_arm64:${WIN_ARM64}" "windows_task_amd64:${WIN_TASK_AMD64}" "windows_task_arm64:${WIN_TASK_ARM64}" "linux_amd64:${LINUX_AMD64}" "linux_arm64:${LINUX_ARM64}" "deb_amd64:${DEB_AMD64}" "deb_arm64:${DEB_ARM64}" "rpm_amd64:${RPM_AMD64}" "rpm_arm64:${RPM_ARM64}"; do
             name="${label%%:*}"
             path="${label#*:}"
             if [ -z "$path" ] || [ ! -f "$path" ]; then
@@ -115,6 +120,8 @@ jobs:
           echo "darwin=$DARWIN" >> "$GITHUB_OUTPUT"
           echo "win_amd64=$WIN_AMD64" >> "$GITHUB_OUTPUT"
           echo "win_arm64=$WIN_ARM64" >> "$GITHUB_OUTPUT"
+          echo "win_task_amd64=$WIN_TASK_AMD64" >> "$GITHUB_OUTPUT"
+          echo "win_task_arm64=$WIN_TASK_ARM64" >> "$GITHUB_OUTPUT"
           echo "linux_amd64=$LINUX_AMD64" >> "$GITHUB_OUTPUT"
           echo "linux_arm64=$LINUX_ARM64" >> "$GITHUB_OUTPUT"
           echo "deb_amd64=$DEB_AMD64" >> "$GITHUB_OUTPUT"
@@ -147,6 +154,10 @@ jobs:
             "dist/stepsecurity-dev-machine-guard-windows_amd64.exe.bundle"
           sign_with_retry "${{ steps.binaries.outputs.win_arm64 }}" \
             "dist/stepsecurity-dev-machine-guard-windows_arm64.exe.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.win_task_amd64 }}" \
+            "dist/stepsecurity-dev-machine-guard-task-windows_amd64.exe.bundle"
+          sign_with_retry "${{ steps.binaries.outputs.win_task_arm64 }}" \
+            "dist/stepsecurity-dev-machine-guard-task-windows_arm64.exe.bundle"
           sign_with_retry "${{ steps.binaries.outputs.linux_amd64 }}" \
             "dist/stepsecurity-dev-machine-guard-linux_amd64.bundle"
           sign_with_retry "${{ steps.binaries.outputs.linux_arm64 }}" \
@@ -168,6 +179,8 @@ jobs:
             dist/stepsecurity-dev-machine-guard-darwin_unnotarized.bundle \
             dist/stepsecurity-dev-machine-guard-windows_amd64.exe.bundle \
             dist/stepsecurity-dev-machine-guard-windows_arm64.exe.bundle \
+            dist/stepsecurity-dev-machine-guard-task-windows_amd64.exe.bundle \
+            dist/stepsecurity-dev-machine-guard-task-windows_arm64.exe.bundle \
             dist/stepsecurity-dev-machine-guard-linux_amd64.bundle \
             dist/stepsecurity-dev-machine-guard-linux_arm64.bundle \
             "${{ steps.binaries.outputs.deb_amd64 }}.bundle" \
@@ -183,6 +196,8 @@ jobs:
             ${{ steps.binaries.outputs.darwin }}
             ${{ steps.binaries.outputs.win_amd64 }}
             ${{ steps.binaries.outputs.win_arm64 }}
+            ${{ steps.binaries.outputs.win_task_amd64 }}
+            ${{ steps.binaries.outputs.win_task_arm64 }}
             ${{ steps.binaries.outputs.linux_amd64 }}
             ${{ steps.binaries.outputs.linux_arm64 }}
             ${{ steps.binaries.outputs.deb_amd64 }}
@@ -240,10 +255,15 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ needs.release.outputs.version }}"
-          $amd64 = Get-ChildItem dist -Filter "*-windows_amd64.exe" | Select-Object -First 1
-          $arm64 = Get-ChildItem dist -Filter "*-windows_arm64.exe" | Select-Object -First 1
-          if (-not $amd64 -or -not $arm64) {
-            Write-Error "Windows .exe assets missing under dist/"
+          # Both agent and launcher .exes share the *-windows_<arch>.exe
+          # suffix; filter on the -task- segment to tell them apart.
+          $amd64       = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-*-windows_amd64.exe" | Where-Object Name -NotLike '*-task-*' | Select-Object -First 1
+          $arm64       = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-*-windows_arm64.exe" | Where-Object Name -NotLike '*-task-*' | Select-Object -First 1
+          $taskAmd64   = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-task-*-windows_amd64.exe" | Select-Object -First 1
+          $taskArm64   = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-task-*-windows_arm64.exe" | Select-Object -First 1
+          if (-not $amd64 -or -not $arm64 -or -not $taskAmd64 -or -not $taskArm64) {
+            Write-Error "Windows .exe assets (agent + launcher, both arches) missing under dist/"
+            Get-ChildItem dist | Format-Table Name
             exit 1
           }
 
@@ -253,6 +273,7 @@ jobs:
             -d Arch=x64 `
             -d "Version=$version" `
             -d "BinaryPath=$($amd64.FullName)" `
+            -d "LauncherPath=$($taskAmd64.FullName)" `
             -out "dist/stepsecurity-dev-machine-guard-$version-x64.msi"
 
           wix build packaging/windows/Product.wxs `
@@ -261,6 +282,7 @@ jobs:
             -d Arch=arm64 `
             -d "Version=$version" `
             -d "BinaryPath=$($arm64.FullName)" `
+            -d "LauncherPath=$($taskArm64.FullName)" `
             -out "dist/stepsecurity-dev-machine-guard-$version-arm64.msi"
 
           Get-ChildItem dist -Filter "*.msi" | Format-Table Name, Length

@@ -7,6 +7,9 @@
 
     -d Version=<semver>       e.g. 1.8.2
     -d BinaryPath=<path>      path to stepsecurity-dev-machine-guard.exe
+    -d LauncherPath=<path>    path to stepsecurity-dev-machine-guard-task.exe
+                              (GUI-subsystem launcher Task Scheduler invokes
+                              so the agent doesn't flash a console window)
     -d Arch=<x64|arm64>       selects InstallScope + UpgradeCode
 
   Designed for SCCM/Intune deployment under environments where PowerShell
@@ -65,8 +68,12 @@
          Customers manage via SCCM, not via the user-facing ARP. -->
     <Property Id="ARPNOMODIFY" Value="1"/>
 
-    <!-- File payload: a single .exe under C:\Program Files\StepSecurity\.
-         The Source path resolves via $(var.BinaryPath) at build time. -->
+    <!-- File payload: the agent + the GUI-subsystem launcher, both under
+         C:\Program Files\StepSecurity\. Source paths resolve from
+         $(var.BinaryPath) and $(var.LauncherPath) at build time.
+         schtasks.Install picks the launcher when present (side-by-side
+         layout) so Windows doesn't allocate a console for the agent
+         under /ru INTERACTIVE. -->
     <StandardDirectory Id="$(var.ProgramFiles)">
       <Directory Id="INSTALLFOLDER" Name="StepSecurity">
         <Component Id="MainBinary" Bitness="always64">
@@ -75,11 +82,18 @@
                 Name="stepsecurity-dev-machine-guard.exe"
                 KeyPath="yes"/>
         </Component>
+        <Component Id="LauncherBinary" Bitness="always64">
+          <File Id="DMGLauncher"
+                Source="$(var.LauncherPath)"
+                Name="stepsecurity-dev-machine-guard-task.exe"
+                KeyPath="yes"/>
+        </Component>
       </Directory>
     </StandardDirectory>
 
     <Feature Id="Main" Title="Dev Machine Guard" Level="1">
       <ComponentRef Id="MainBinary"/>
+      <ComponentRef Id="LauncherBinary"/>
     </Feature>
 
     <!--

@@ -9,7 +9,7 @@ LDFLAGS := -s -w \
 	-X $(MODULE)/internal/buildinfo.ReleaseTag=$(TAG) \
 	-X $(MODULE)/internal/buildinfo.ReleaseBranch=$(BRANCH)
 
-.PHONY: build build-windows build-windows-arm64 build-linux deploy-windows test lint clean smoke build-msi-amd64 build-msi-arm64
+.PHONY: build build-windows build-windows-task build-windows-arm64 build-windows-task-arm64 build-linux deploy-windows test lint clean smoke build-msi-amd64 build-msi-arm64
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/stepsecurity-dev-machine-guard
@@ -26,6 +26,9 @@ build-windows-task:
 build-windows-arm64:
 	GOOS=windows GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY)-arm64.exe ./cmd/stepsecurity-dev-machine-guard
 
+build-windows-task-arm64:
+	GOOS=windows GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS) -H windowsgui" -o $(BINARY)-task-arm64.exe ./cmd/stepsecurity-dev-machine-guard-task
+
 build-linux:
 	GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY)-linux ./cmd/stepsecurity-dev-machine-guard
 
@@ -33,7 +36,7 @@ build-linux:
 # Output: dist/stepsecurity-dev-machine-guard-<version>-{x64,arm64}.msi
 # Reads Version from internal/buildinfo so MajorUpgrade semantics line up
 # with whatever the binary reports as `--version`.
-build-msi-amd64: build-windows
+build-msi-amd64: build-windows build-windows-task
 	mkdir -p dist
 	@wix extension list --global 2>/dev/null | grep -q "WixToolset.Util.wixext" || \
 		wix extension add --global WixToolset.Util.wixext/4.0.5
@@ -43,9 +46,10 @@ build-msi-amd64: build-windows
 		-d Arch=x64 \
 		-d Version=$(VERSION) \
 		-d BinaryPath=$(CURDIR)/$(BINARY).exe \
+		-d LauncherPath=$(CURDIR)/$(BINARY)-task.exe \
 		-out dist/stepsecurity-dev-machine-guard-$(VERSION)-x64.msi
 
-build-msi-arm64: build-windows-arm64
+build-msi-arm64: build-windows-arm64 build-windows-task-arm64
 	mkdir -p dist
 	@wix extension list --global 2>/dev/null | grep -q "WixToolset.Util.wixext" || \
 		wix extension add --global WixToolset.Util.wixext/4.0.5
@@ -55,6 +59,7 @@ build-msi-arm64: build-windows-arm64
 		-d Arch=arm64 \
 		-d Version=$(VERSION) \
 		-d BinaryPath=$(CURDIR)/$(BINARY)-arm64.exe \
+		-d LauncherPath=$(CURDIR)/$(BINARY)-task-arm64.exe \
 		-out dist/stepsecurity-dev-machine-guard-$(VERSION)-arm64.msi
 
 deploy-windows:
@@ -67,7 +72,7 @@ lint:
 	golangci-lint run ./...
 
 clean:
-	rm -f $(BINARY) $(BINARY).exe $(BINARY)-arm64.exe $(BINARY)-linux
+	rm -f $(BINARY) $(BINARY).exe $(BINARY)-task.exe $(BINARY)-arm64.exe $(BINARY)-task-arm64.exe $(BINARY)-linux
 	rm -rf dist/
 
 smoke: build
