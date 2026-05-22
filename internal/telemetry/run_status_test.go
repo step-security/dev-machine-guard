@@ -37,7 +37,7 @@ func TestReportRunStatus_StartedRetriesOn5xx(t *testing.T) {
 	defer withEnterpriseConfig(t, srv.URL)()
 
 	log := progress.NewLogger(progress.LevelInfo)
-	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", runStatusStarted, "")
+	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", runStatusStarted, "", "")
 
 	if got := atomic.LoadInt32(&calls); got != int32(runStatusStartedAttempts) {
 		t.Fatalf("expected %d retries on 5xx, got %d", runStatusStartedAttempts, got)
@@ -54,7 +54,7 @@ func TestReportRunStatus_StartedStopsAfter2xx(t *testing.T) {
 	defer withEnterpriseConfig(t, srv.URL)()
 
 	log := progress.NewLogger(progress.LevelInfo)
-	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", runStatusStarted, "")
+	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", runStatusStarted, "", "")
 
 	if got := atomic.LoadInt32(&calls); got != 1 {
 		t.Fatalf("expected exactly 1 call on 2xx, got %d", got)
@@ -72,7 +72,7 @@ func TestReportRunStatus_DoesNotRetryOn4xx(t *testing.T) {
 	defer withEnterpriseConfig(t, srv.URL)()
 
 	log := progress.NewLogger(progress.LevelInfo)
-	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", runStatusStarted, "")
+	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", runStatusStarted, "", "")
 
 	if got := atomic.LoadInt32(&calls); got != 1 {
 		t.Fatalf("expected 1 call for 4xx (no retry), got %d", got)
@@ -89,7 +89,7 @@ func TestReportRunStatus_FailedRetriesOn5xx(t *testing.T) {
 	defer withEnterpriseConfig(t, srv.URL)()
 
 	log := progress.NewLogger(progress.LevelInfo)
-	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", runStatusFailed, "boom")
+	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", runStatusFailed, "boom", "")
 
 	if got := atomic.LoadInt32(&calls); got != int32(runStatusFailedAttempts) {
 		t.Fatalf("expected %d retries on 5xx for failed, got %d", runStatusFailedAttempts, got)
@@ -107,7 +107,7 @@ func TestReportRunStatus_FailedIncludesErrorMessage(t *testing.T) {
 	defer withEnterpriseConfig(t, srv.URL)()
 
 	log := progress.NewLogger(progress.LevelInfo)
-	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", runStatusFailed, "context deadline exceeded")
+	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", runStatusFailed, "context deadline exceeded", "")
 
 	if gotBody["status"] != runStatusFailed {
 		t.Errorf("status = %q, want %q", gotBody["status"], runStatusFailed)
@@ -129,8 +129,8 @@ func TestReportRunStatus_SkipsSucceededAndUnknownStatus(t *testing.T) {
 	defer withEnterpriseConfig(t, srv.URL)()
 
 	log := progress.NewLogger(progress.LevelInfo)
-	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", "succeeded", "")
-	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", "cancelled", "")
+	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", "succeeded", "", "")
+	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", "cancelled", "", "")
 
 	if got := atomic.LoadInt32(&calls); got != 0 {
 		t.Fatalf("expected zero HTTP calls for non-agent statuses, got %d", got)
@@ -151,7 +151,7 @@ func TestReportRunStatus_SkipsWhenNotEnterprise(t *testing.T) {
 	defer func() { config.APIKey = savedKey }()
 
 	log := progress.NewLogger(progress.LevelInfo)
-	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", runStatusStarted, "")
+	reportRunStatus(context.Background(), log, "11111111-2222-4333-8444-555555555555", "dev-1", runStatusStarted, "", "")
 
 	if got := atomic.LoadInt32(&calls); got != 0 {
 		t.Fatalf("expected zero calls when not in enterprise mode, got %d", got)
@@ -167,7 +167,7 @@ func TestReportRunStatus_SkipsEmptyExecutionID(t *testing.T) {
 	defer withEnterpriseConfig(t, srv.URL)()
 
 	log := progress.NewLogger(progress.LevelInfo)
-	reportRunStatus(context.Background(), log, "", "dev-1", runStatusStarted, "")
+	reportRunStatus(context.Background(), log, "", "dev-1", runStatusStarted, "", "")
 
 	if got := atomic.LoadInt32(&calls); got != 0 {
 		t.Fatalf("expected zero calls when execution_id is empty, got %d", got)
@@ -192,7 +192,7 @@ func TestReportRunStatus_AbortsRetriesOnCtxCancel(t *testing.T) {
 	done := make(chan struct{})
 	start := time.Now()
 	go func() {
-		reportRunStatus(ctx, log, "11111111-2222-4333-8444-555555555555", "dev-1", runStatusStarted, "")
+		reportRunStatus(ctx, log, "11111111-2222-4333-8444-555555555555", "dev-1", runStatusStarted, "", "")
 		close(done)
 	}()
 
@@ -212,4 +212,111 @@ func TestReportRunStatus_AbortsRetriesOnCtxCancel(t *testing.T) {
 
 func int64Attempts() time.Duration {
 	return time.Duration(runStatusStartedAttempts)
+}
+
+func TestReportRunStatus_IncludesInvocationMethod(t *testing.T) {
+	// invocation_method must round-trip on the wire so the backend can
+	// distinguish installed-agent runs from manual CLI runs.
+	var gotBody runStatusBody
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	defer withEnterpriseConfig(t, srv.URL)()
+
+	log := progress.NewLogger(progress.LevelInfo)
+	reportRunStatus(context.Background(), log,
+		"11111111-2222-4333-8444-555555555555", "dev-1",
+		runStatusStarted, "", InvocationInstall)
+
+	if gotBody.InvocationMethod != InvocationInstall {
+		t.Errorf("invocation_method = %q, want %q", gotBody.InvocationMethod, InvocationInstall)
+	}
+	if gotBody.StatusInfo != nil {
+		t.Errorf("status_info should be nil on plain started post, got %+v", gotBody.StatusInfo)
+	}
+}
+
+func TestReportRunStatus_OmitsInvocationMethodWhenEmpty(t *testing.T) {
+	// Empty invocation_method must be omitted from the wire so older agents
+	// that don't detect it land identical bytes to before this change.
+	var raw map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &raw)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	defer withEnterpriseConfig(t, srv.URL)()
+
+	log := progress.NewLogger(progress.LevelInfo)
+	reportRunStatus(context.Background(), log,
+		"11111111-2222-4333-8444-555555555555", "dev-1",
+		runStatusStarted, "", "")
+
+	if _, ok := raw["invocation_method"]; ok {
+		t.Errorf("invocation_method should be omitted when empty, got body: %+v", raw)
+	}
+}
+
+func TestPostProgress_SendsStatusInfo(t *testing.T) {
+	var gotBody runStatusBody
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	defer withEnterpriseConfig(t, srv.URL)()
+
+	info := RunStatusInfo{
+		PhasesCompleted: []PhaseCompletion{
+			{Name: "device_info", FinishedAt: 1_700_000_001, DurationMs: 1000},
+			{Name: "ide_scan", FinishedAt: 1_700_000_005, DurationMs: 4000},
+		},
+		CurrentPhase: "brew_scan",
+		ElapsedMs:    7000,
+	}
+
+	log := progress.NewLogger(progress.LevelInfo)
+	postProgress(context.Background(), log,
+		"11111111-2222-4333-8444-555555555555", "dev-1",
+		InvocationInstall, info)
+
+	if gotBody.Status != runStatusStarted {
+		t.Errorf("status = %q, want %q (progress posts ride on started)", gotBody.Status, runStatusStarted)
+	}
+	if gotBody.InvocationMethod != InvocationInstall {
+		t.Errorf("invocation_method = %q, want %q", gotBody.InvocationMethod, InvocationInstall)
+	}
+	if gotBody.StatusInfo == nil {
+		t.Fatal("status_info missing from progress post")
+	}
+	if gotBody.StatusInfo.CurrentPhase != "brew_scan" {
+		t.Errorf("current_phase = %q, want brew_scan", gotBody.StatusInfo.CurrentPhase)
+	}
+	if len(gotBody.StatusInfo.PhasesCompleted) != 2 {
+		t.Errorf("phases_completed = %d, want 2", len(gotBody.StatusInfo.PhasesCompleted))
+	}
+	if gotBody.StatusInfo.ElapsedMs != 7000 {
+		t.Errorf("elapsed_ms = %d, want 7000", gotBody.StatusInfo.ElapsedMs)
+	}
+}
+
+func TestPostProgress_SkipsEmptyExecutionID(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+	}))
+	defer srv.Close()
+	defer withEnterpriseConfig(t, srv.URL)()
+
+	log := progress.NewLogger(progress.LevelInfo)
+	postProgress(context.Background(), log, "", "dev-1", InvocationInstall, RunStatusInfo{})
+
+	if got := atomic.LoadInt32(&calls); got != 0 {
+		t.Fatalf("expected zero calls when execution_id is empty, got %d", got)
+	}
 }

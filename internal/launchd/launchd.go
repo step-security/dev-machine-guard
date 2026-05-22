@@ -20,8 +20,22 @@ const (
 	systemLogDir    = "/var/log/stepsecurity"
 )
 
+// DaemonPlistPath is the system-wide launchd plist installed when the agent
+// runs as root. Exported so other packages (notably telemetry's invocation
+// detector) can check for an installed footprint without re-deriving the path.
+const DaemonPlistPath = daemonPlistPath
+
+// UserPlistPath returns the per-user launchd plist path installed when the
+// agent runs without root. Empty when the home directory cannot be resolved.
+func UserPlistPath() string {
+	return agentPlistPath()
+}
+
 func agentPlistPath() string {
 	homeDir, _ := os.UserHomeDir()
+	if homeDir == "" {
+		return ""
+	}
 	return homeDir + "/Library/LaunchAgents/com.stepsecurity.agent.plist"
 }
 

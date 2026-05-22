@@ -16,6 +16,8 @@ package paths
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
 )
@@ -38,18 +40,60 @@ func SetOverride(s string) {
 
 // Home returns the resolved install dir. Falls back to LegacyHome when
 // nothing else is set. Empty string is possible only when the home
-// directory itself cannot be resolved.
+// directory itself cannot be resolved. A leading $HOME or ~ token in
+// any source is expanded via expandHome so the returned path is
+// canonical for the current OS, keeping the migration warning in main
+// from misfiring on hand-edited values like "$HOME/.stepsecurity" that
+// resolve to the legacy default.
+//
+// Note: this is a superset of resolveSearchDirs in internal/scan/scanner.go,
+// which only expands the exact literal "$HOME" — the install dir comes
+// from operator-edited config so it has to tolerate the "$HOME/foo" /
+// "~/foo" forms our docs use; search_dirs come from --search-dirs flag
+// values that operators don't combine with subpaths.
 func Home() string {
 	if cliOverride != "" {
-		return cliOverride
+		return expandHome(cliOverride)
 	}
 	if v := os.Getenv(HomeEnvVar); v != "" {
-		return v
+		return expandHome(v)
 	}
 	if config.InstallDir != "" {
-		return config.InstallDir
+		return expandHome(config.InstallDir)
 	}
 	return LegacyHome()
+}
+
+// expandHome replaces a leading $HOME or ~ token with the resolved
+// user home directory. Returns the input unchanged when the home
+// directory cannot be resolved or no token is present. Callers that
+// hand-edit config.json with "$HOME/.stepsecurity" — the literal value
+// our docs use — get the same canonical form as LegacyHome(), which
+// keeps the migration warning in main from misfiring on identical
+// paths.
+func expandHome(s string) string {
+	if s == "" {
+		return s
+	}
+	if !strings.HasPrefix(s, "$HOME") && !strings.HasPrefix(s, "~") {
+		return s
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return s
+	}
+	switch {
+	case s == "$HOME" || s == "~":
+		return home
+	case strings.HasPrefix(s, "$HOME/") || strings.HasPrefix(s, `$HOME\`):
+		// filepath.Join + Clean canonicalises separators so Windows
+		// gets C:\Users\me\.stepsecurity (not C:\Users\me/.stepsecurity)
+		// and the equality check against LegacyHome() can succeed.
+		return filepath.Join(home, s[len("$HOME"):])
+	case strings.HasPrefix(s, "~/") || strings.HasPrefix(s, `~\`):
+		return filepath.Join(home, s[len("~"):])
+	}
+	return s
 }
 
 // LegacyHome returns ~/.stepsecurity. Exposed for the migration check

@@ -2,6 +2,7 @@ package paths
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -83,6 +84,65 @@ func TestHome_CLIOverridesEnv(t *testing.T) {
 
 	if got := Home(); got != "/from/cli" {
 		t.Errorf("Home() = %q, want /from/cli (cli > env > config)", got)
+	}
+}
+
+func TestHome_ExpandsHomeTokenFromConfig(t *testing.T) {
+	withOverride(t, "")
+	withEnv(t, HomeEnvVar, "")
+	withConfigInstallDir(t, "$HOME/.stepsecurity")
+
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("home dir unresolved in this environment")
+	}
+	want := filepath.Join(home, ".stepsecurity")
+	if got := Home(); got != want {
+		t.Errorf("Home() = %q, want %q (config $HOME should expand)", got, want)
+	}
+	// And the migration warning's equality check must now succeed.
+	if Home() != LegacyHome() {
+		t.Errorf("Home()=%q vs LegacyHome()=%q — expected equal after $HOME expansion", Home(), LegacyHome())
+	}
+}
+
+func TestHome_ExpandsTildeFromEnvVar(t *testing.T) {
+	withOverride(t, "")
+	withConfigInstallDir(t, "")
+	withEnv(t, HomeEnvVar, "~/agent")
+
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("home dir unresolved in this environment")
+	}
+	want := filepath.Join(home, "agent")
+	if got := Home(); got != want {
+		t.Errorf("Home() = %q, want %q (env ~ should expand)", got, want)
+	}
+}
+
+func TestHome_ExpandsHomeFromCLIFlag(t *testing.T) {
+	withConfigInstallDir(t, "")
+	withEnv(t, HomeEnvVar, "")
+	withOverride(t, "$HOME/custom")
+
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("home dir unresolved in this environment")
+	}
+	want := filepath.Join(home, "custom")
+	if got := Home(); got != want {
+		t.Errorf("Home() = %q, want %q (CLI $HOME should expand)", got, want)
+	}
+}
+
+func TestHome_AbsolutePathUnchanged(t *testing.T) {
+	withOverride(t, "")
+	withEnv(t, HomeEnvVar, "")
+	withConfigInstallDir(t, "/opt/stepsecurity")
+
+	if got := Home(); got != "/opt/stepsecurity" {
+		t.Errorf("Home() = %q, want /opt/stepsecurity (absolute path must not be modified)", got)
 	}
 }
 

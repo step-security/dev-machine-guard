@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
+  osexec "os/exec"
+  "path/filepath"
 	"strconv"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
@@ -17,6 +18,17 @@ const (
 	taskName     = "StepSecurity Dev Machine Guard"
 	launcherName = "stepsecurity-dev-machine-guard-task.exe"
 )
+
+// IsTaskRegistered reports whether the Windows scheduled task created by
+// `dev-machine-guard install` is currently registered. Used by the
+// telemetry package's invocation detector to distinguish a manual CLI run
+// from a scheduler-triggered one. Any error or non-zero schtasks exit is
+// treated as "not registered" so a transient Schedule-service hiccup
+// degrades to "one_time" rather than erroring the run.
+func IsTaskRegistered() bool {
+	cmd := osexec.Command("schtasks", "/query", "/tn", taskName)
+	return cmd.Run() == nil
+}
 
 // Install configures Windows Task Scheduler for periodic scanning.
 // If already installed, upgrades by removing and re-creating the task.
