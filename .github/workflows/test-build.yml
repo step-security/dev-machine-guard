@@ -1,0 +1,247 @@
+name: Test Build (Binaries & MSIs)
+
+# Build test binaries and MSIs from an arbitrary commit, without cutting a
+# release tag or touching the upstream release pipeline. Artifacts are
+# uploaded to the workflow run for download. Optionally posts a comment on
+# a PR linking to the run and the commit it was built from.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_id:
+        description: "Commit SHA to build the binaries from"
+        required: true
+        type: string
+      pr_id:
+        description: "Optional PR number to comment on with the artifact location"
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build binaries (goreleaser snapshot)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository at requested commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.commit_id }}
+          fetch-depth: 0
+
+      - name: Extract version from source
+        id: version
+        run: |
+          version=$(grep -m1 'Version.*=' internal/buildinfo/version.go | sed 's/.*"\(.*\)".*/\1/')
+          if [ -z "$version" ]; then
+            echo "::error::Could not extract Version from internal/buildinfo/version.go"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+
+      - name: Run GoReleaser (snapshot, no publish)
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --snapshot --clean --skip=publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List dist/
+        run: find dist -type f
+
+      - name: Stage artifacts with release-style names
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          mkdir -p staging
+
+          # Goreleaser snapshot leaves the per-OS/arch binaries inside their
+          # builder subdirectories (e.g. dist/stepsecurity-dev-machine-guard_linux_amd64_v1/...).
+          # Locate each by name+arch path and copy out to staging/ with the
+          # release-style filename, so the artifacts look the same as a real
+          # release and the MSI job's Get-ChildItem filter still matches.
+          find_one() {
+            local result
+            result=$(find dist -type f "$@" | head -1)
+            if [ -z "$result" ] || [ ! -f "$result" ]; then
+              echo "::error::No file matched: $*"
+              find dist -type f
+              exit 1
+            fi
+            printf '%s\n' "$result"
+          }
+
+          darwin_src=$(find_one -name '*-darwin_unnotarized')
+          linux_amd64_src=$(find_one -name 'stepsecurity-dev-machine-guard' -path '*linux_amd64*')
+          linux_arm64_src=$(find_one -name 'stepsecurity-dev-machine-guard' -path '*linux_arm64*')
+          win_amd64_src=$(find_one -name 'stepsecurity-dev-machine-guard.exe' -path '*windows_amd64*')
+          win_arm64_src=$(find_one -name 'stepsecurity-dev-machine-guard.exe' -path '*windows_arm64*')
+          win_task_amd64_src=$(find_one -name 'stepsecurity-dev-machine-guard-task.exe' -path '*windows_amd64*')
+          win_task_arm64_src=$(find_one -name 'stepsecurity-dev-machine-guard-task.exe' -path '*windows_arm64*')
+
+          cp "$darwin_src"          "staging/stepsecurity-dev-machine-guard-${version}-darwin_unnotarized"
+          cp "$linux_amd64_src"     "staging/stepsecurity-dev-machine-guard-${version}-linux_amd64"
+          cp "$linux_arm64_src"     "staging/stepsecurity-dev-machine-guard-${version}-linux_arm64"
+          cp "$win_amd64_src"       "staging/stepsecurity-dev-machine-guard-${version}-windows_amd64.exe"
+          cp "$win_arm64_src"       "staging/stepsecurity-dev-machine-guard-${version}-windows_arm64.exe"
+          cp "$win_task_amd64_src"  "staging/stepsecurity-dev-machine-guard-task-${version}-windows_amd64.exe"
+          cp "$win_task_arm64_src"  "staging/stepsecurity-dev-machine-guard-task-${version}-windows_arm64.exe"
+          cp dist/*.deb staging/
+          cp dist/*.rpm staging/
+          ls -la staging/
+
+      - name: Upload macOS binary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: darwin
+          path: staging/stepsecurity-dev-machine-guard-*-darwin_unnotarized
+          if-no-files-found: error
+
+      - name: Upload Linux binaries and packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: linux
+          path: |
+            staging/stepsecurity-dev-machine-guard-*-linux_amd64
+            staging/stepsecurity-dev-machine-guard-*-linux_arm64
+            staging/*.deb
+            staging/*.rpm
+          if-no-files-found: error
+
+      - name: Upload Windows .exe binaries
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-exes
+          path: |
+            staging/stepsecurity-dev-machine-guard-*-windows_amd64.exe
+            staging/stepsecurity-dev-machine-guard-*-windows_arm64.exe
+            staging/stepsecurity-dev-machine-guard-task-*-windows_amd64.exe
+            staging/stepsecurity-dev-machine-guard-task-*-windows_arm64.exe
+          if-no-files-found: error
+
+  build-msi:
+    name: Build MSIs
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository at requested commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.commit_id }}
+
+      - name: Install WiX 4 + Util extension
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 4.0.5
+          wix --version
+          wix extension add --global WixToolset.Util.wixext/4.0.5
+          wix extension list --global
+
+      - name: Download Windows .exes from build job
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: windows-exes
+          path: dist
+
+      - name: Build MSIs (x64 + arm64)
+        shell: pwsh
+        run: |
+          $version = "${{ needs.build.outputs.version }}"
+          # Both agent and launcher .exes share the *-windows_<arch>.exe
+          # suffix; filter on the -task- segment to tell them apart.
+          $amd64       = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-*-windows_amd64.exe" | Where-Object Name -NotLike '*-task-*' | Select-Object -First 1
+          $arm64       = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-*-windows_arm64.exe" | Where-Object Name -NotLike '*-task-*' | Select-Object -First 1
+          $taskAmd64   = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-task-*-windows_amd64.exe" | Select-Object -First 1
+          $taskArm64   = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-task-*-windows_arm64.exe" | Select-Object -First 1
+          if (-not $amd64 -or -not $arm64 -or -not $taskAmd64 -or -not $taskArm64) {
+            Write-Error "Windows .exe assets (agent + launcher, both arches) missing under dist/"
+            Get-ChildItem dist | Format-Table Name
+            exit 1
+          }
+
+          wix build packaging/windows/Product.wxs `
+            -arch x64 `
+            -ext WixToolset.Util.wixext `
+            -d Arch=x64 `
+            -d "Version=$version" `
+            -d "BinaryPath=$($amd64.FullName)" `
+            -d "LauncherPath=$($taskAmd64.FullName)" `
+            -out "dist/stepsecurity-dev-machine-guard-$version-x64.msi"
+
+          wix build packaging/windows/Product.wxs `
+            -arch arm64 `
+            -ext WixToolset.Util.wixext `
+            -d Arch=arm64 `
+            -d "Version=$version" `
+            -d "BinaryPath=$($arm64.FullName)" `
+            -d "LauncherPath=$($taskArm64.FullName)" `
+            -out "dist/stepsecurity-dev-machine-guard-$version-arm64.msi"
+
+          Get-ChildItem dist -Filter "*.msi" | Format-Table Name, Length
+
+      - name: Upload MSIs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-msis
+          path: dist/*.msi
+          if-no-files-found: error
+
+  comment-on-pr:
+    name: Comment on PR
+    needs: [build, build-msi]
+    if: ${{ inputs.pr_id != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
+      - name: Post comment with run + commit links
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_ID: ${{ inputs.commit_id }}
+          PR_ID: ${{ inputs.pr_id }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          short_sha="${COMMIT_ID:0:7}"
+          commit_url="https://github.com/${REPO}/commit/${COMMIT_ID}"
+          run_url="https://github.com/${REPO}/actions/runs/${RUN_ID}"
+          body=$(cat <<EOF
+          Test binaries and MSIs are ready.
+
+          - Built from commit: [\`${short_sha}\`](${commit_url})
+          - Workflow run (download artifacts here): [${RUN_ID}](${run_url})
+          EOF
+          )
+          gh pr comment "$PR_ID" --repo "$REPO" --body "$body"
