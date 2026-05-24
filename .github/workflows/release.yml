@@ -91,14 +91,12 @@ jobs:
       - name: Locate binaries and packages
         id: binaries
         run: |
+          # Windows .exes are uploaded to the draft release directly by GoReleaser
+          # (formats: binary keeps the raw build outputs in dist/<id>_<os>_<arch>/
+          # subdirs without renaming, only the upload uses the templated name).
+          # The windows-sign-and-package job downloads them from the draft release,
+          # so we don't need to locate them locally here.
           DARWIN=$(find dist -type f -name '*darwin_unnotarized' | head -1)
-          # Filter agent vs launcher (-task) explicitly — both ship as
-          # <name>-<version>-<os>_<arch>.exe so a bare *.exe glob would
-          # match either.
-          WIN_AMD64=$(find dist -type f -name 'stepsecurity-dev-machine-guard-*-windows_amd64.exe' ! -name '*-task-*' | head -1)
-          WIN_ARM64=$(find dist -type f -name 'stepsecurity-dev-machine-guard-*-windows_arm64.exe' ! -name '*-task-*' | head -1)
-          WIN_TASK_AMD64=$(find dist -type f -name 'stepsecurity-dev-machine-guard-task-*-windows_amd64.exe' | head -1)
-          WIN_TASK_ARM64=$(find dist -type f -name 'stepsecurity-dev-machine-guard-task-*-windows_arm64.exe' | head -1)
           LINUX_AMD64=$(find dist -type f -name 'stepsecurity-dev-machine-guard' -path '*linux_amd64*' | head -1)
           LINUX_ARM64=$(find dist -type f -name 'stepsecurity-dev-machine-guard' -path '*linux_arm64*' | head -1)
 
@@ -107,7 +105,7 @@ jobs:
           RPM_AMD64=$(find dist -type f -name '*-amd64.rpm' | head -1)
           RPM_ARM64=$(find dist -type f -name '*-arm64.rpm' | head -1)
 
-          for label in "darwin:${DARWIN}" "windows_amd64:${WIN_AMD64}" "windows_arm64:${WIN_ARM64}" "windows_task_amd64:${WIN_TASK_AMD64}" "windows_task_arm64:${WIN_TASK_ARM64}" "linux_amd64:${LINUX_AMD64}" "linux_arm64:${LINUX_ARM64}" "deb_amd64:${DEB_AMD64}" "deb_arm64:${DEB_ARM64}" "rpm_amd64:${RPM_AMD64}" "rpm_arm64:${RPM_ARM64}"; do
+          for label in "darwin:${DARWIN}" "linux_amd64:${LINUX_AMD64}" "linux_arm64:${LINUX_ARM64}" "deb_amd64:${DEB_AMD64}" "deb_arm64:${DEB_ARM64}" "rpm_amd64:${RPM_AMD64}" "rpm_arm64:${RPM_ARM64}"; do
             name="${label%%:*}"
             path="${label#*:}"
             if [ -z "$path" ] || [ ! -f "$path" ]; then
@@ -118,10 +116,6 @@ jobs:
           done
 
           echo "darwin=$DARWIN" >> "$GITHUB_OUTPUT"
-          echo "win_amd64=$WIN_AMD64" >> "$GITHUB_OUTPUT"
-          echo "win_arm64=$WIN_ARM64" >> "$GITHUB_OUTPUT"
-          echo "win_task_amd64=$WIN_TASK_AMD64" >> "$GITHUB_OUTPUT"
-          echo "win_task_arm64=$WIN_TASK_ARM64" >> "$GITHUB_OUTPUT"
           echo "linux_amd64=$LINUX_AMD64" >> "$GITHUB_OUTPUT"
           echo "linux_arm64=$LINUX_ARM64" >> "$GITHUB_OUTPUT"
           echo "deb_amd64=$DEB_AMD64" >> "$GITHUB_OUTPUT"
@@ -148,16 +142,11 @@ jobs:
             return 1
           }
 
+          # Windows .exes are signed in the windows-sign-and-package job after
+          # Authenticode signing, so the cosign bundles match the bytes users
+          # download from the published release.
           sign_with_retry "${{ steps.binaries.outputs.darwin }}" \
             "dist/stepsecurity-dev-machine-guard-darwin_unnotarized.bundle"
-          sign_with_retry "${{ steps.binaries.outputs.win_amd64 }}" \
-            "dist/stepsecurity-dev-machine-guard-windows_amd64.exe.bundle"
-          sign_with_retry "${{ steps.binaries.outputs.win_arm64 }}" \
-            "dist/stepsecurity-dev-machine-guard-windows_arm64.exe.bundle"
-          sign_with_retry "${{ steps.binaries.outputs.win_task_amd64 }}" \
-            "dist/stepsecurity-dev-machine-guard-task-windows_amd64.exe.bundle"
-          sign_with_retry "${{ steps.binaries.outputs.win_task_arm64 }}" \
-            "dist/stepsecurity-dev-machine-guard-task-windows_arm64.exe.bundle"
           sign_with_retry "${{ steps.binaries.outputs.linux_amd64 }}" \
             "dist/stepsecurity-dev-machine-guard-linux_amd64.bundle"
           sign_with_retry "${{ steps.binaries.outputs.linux_arm64 }}" \
@@ -175,12 +164,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Windows .exe bundles are uploaded by the windows-sign-and-package job.
           gh release upload "${{ steps.release.outputs.tag }}" \
             dist/stepsecurity-dev-machine-guard-darwin_unnotarized.bundle \
-            dist/stepsecurity-dev-machine-guard-windows_amd64.exe.bundle \
-            dist/stepsecurity-dev-machine-guard-windows_arm64.exe.bundle \
-            dist/stepsecurity-dev-machine-guard-task-windows_amd64.exe.bundle \
-            dist/stepsecurity-dev-machine-guard-task-windows_arm64.exe.bundle \
             dist/stepsecurity-dev-machine-guard-linux_amd64.bundle \
             dist/stepsecurity-dev-machine-guard-linux_arm64.bundle \
             "${{ steps.binaries.outputs.deb_amd64 }}.bundle" \
@@ -190,14 +176,12 @@ jobs:
             --clobber
 
       - name: Attest build provenance
+        # Windows .exe and MSI attestations are emitted by the
+        # windows-sign-and-package job after Authenticode signing.
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
             ${{ steps.binaries.outputs.darwin }}
-            ${{ steps.binaries.outputs.win_amd64 }}
-            ${{ steps.binaries.outputs.win_arm64 }}
-            ${{ steps.binaries.outputs.win_task_amd64 }}
-            ${{ steps.binaries.outputs.win_task_arm64 }}
             ${{ steps.binaries.outputs.linux_amd64 }}
             ${{ steps.binaries.outputs.linux_arm64 }}
             ${{ steps.binaries.outputs.deb_amd64 }}
@@ -205,10 +189,15 @@ jobs:
             ${{ steps.binaries.outputs.rpm_amd64 }}
             ${{ steps.binaries.outputs.rpm_arm64 }}
 
-  build-msi:
-    name: Build & Sign MSIs
+  windows-sign-and-package:
+    name: Sign Windows binaries, build & sign MSIs
     needs: release
     runs-on: windows-latest
+    # The `release` environment (lowercase — must match the GitHub Environment
+    # name exactly) requires two reviewers and is restricted to main. The Azure
+    # Federated Identity Credential is bound to this environment's OIDC subject,
+    # so azure/login below only works from jobs that gate on this environment.
+    environment: release
     permissions:
       contents: write
       id-token: write
@@ -216,7 +205,11 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        # trusted-signing-action talks to wus2.codesigning.azure.net,
+        # login.microsoftonline.com, timestamp.acs.microsoft.com, and Azure
+        # storage CDNs. Audit mode logs warnings without blocking — capture
+        # the full endpoint list before switching to block mode.
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
 
@@ -224,9 +217,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Install WiX 4 + Util extension
-        # WiX 4 ships as a .NET global tool. The Util extension (WixQuietExec
-        # and friends) is a separate NuGet package that must be added to the
-        # global wix tool before referencing util: namespace types.
         shell: pwsh
         run: |
           dotnet tool install --global wix --version 4.0.5
@@ -241,9 +231,6 @@ jobs:
         run: |
           $tag = "${{ needs.release.outputs.release_tag }}"
           New-Item -ItemType Directory -Path dist -Force | Out-Null
-          # Goreleaser produces archive names like:
-          #   stepsecurity-dev-machine-guard-<version>-windows_amd64.exe
-          # We download them by exact pattern to dist/.
           gh release download "$tag" `
             -R "${{ github.repository }}" `
             -p "*-windows_amd64.exe" `
@@ -251,29 +238,152 @@ jobs:
             -D dist
           Get-ChildItem dist | Format-Table Name, Length
 
-      - name: Build MSIs (x64 + arm64)
+      - name: Resolve Windows binary paths
+        id: paths
         shell: pwsh
         run: |
-          $version = "${{ needs.release.outputs.version }}"
-          # Both agent and launcher .exes share the *-windows_<arch>.exe
-          # suffix; filter on the -task- segment to tell them apart.
-          $amd64       = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-*-windows_amd64.exe" | Where-Object Name -NotLike '*-task-*' | Select-Object -First 1
-          $arm64       = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-*-windows_arm64.exe" | Where-Object Name -NotLike '*-task-*' | Select-Object -First 1
-          $taskAmd64   = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-task-*-windows_amd64.exe" | Select-Object -First 1
-          $taskArm64   = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-task-*-windows_arm64.exe" | Select-Object -First 1
+          $ErrorActionPreference = 'Stop'
+          $amd64     = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-*-windows_amd64.exe" | Where-Object Name -NotLike '*-task-*' | Select-Object -First 1
+          $arm64     = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-*-windows_arm64.exe" | Where-Object Name -NotLike '*-task-*' | Select-Object -First 1
+          $taskAmd64 = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-task-*-windows_amd64.exe" | Select-Object -First 1
+          $taskArm64 = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-task-*-windows_arm64.exe" | Select-Object -First 1
           if (-not $amd64 -or -not $arm64 -or -not $taskAmd64 -or -not $taskArm64) {
             Write-Error "Windows .exe assets (agent + launcher, both arches) missing under dist/"
             Get-ChildItem dist | Format-Table Name
             exit 1
           }
+          # trusted-signing-action v2 requires absolute (rooted) paths in `files:`.
+          "amd64=$($amd64.FullName)"          | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "arm64=$($arm64.FullName)"          | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "task_amd64=$($taskAmd64.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "task_arm64=$($taskArm64.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Azure login (OIDC)
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Authenticode-sign Windows .exes
+        uses: Azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ secrets.AZURE_TS_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_TS_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ secrets.AZURE_TS_CERT_PROFILE_NAME }}
+          files: |
+            ${{ steps.paths.outputs.amd64 }}
+            ${{ steps.paths.outputs.arm64 }}
+            ${{ steps.paths.outputs.task_amd64 }}
+            ${{ steps.paths.outputs.task_arm64 }}
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          # Disable the action's same-job module cache to avoid a silent-exit
+          # bug when this action runs twice in the same job. See "Authenticode-sign MSIs"
+          # below — when both invocations get same-key cache hits, the second
+          # invocation dies without logging an error.
+          cache-dependencies: false
+
+      - name: Verify .exe signatures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $failed = $false
+          foreach ($f in @(
+            '${{ steps.paths.outputs.amd64 }}',
+            '${{ steps.paths.outputs.arm64 }}',
+            '${{ steps.paths.outputs.task_amd64 }}',
+            '${{ steps.paths.outputs.task_arm64 }}'
+          )) {
+            $sig = Get-AuthenticodeSignature $f
+            $subject = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { '<none>' }
+            Write-Host "$(Split-Path $f -Leaf): Status=$($sig.Status), Signer=$subject"
+            if ($sig.Status -ne 'Valid') {
+              Write-Host "::error::Signature status is $($sig.Status) (expected Valid) for $f"
+              $failed = $true
+            }
+            if (-not $sig.TimeStamperCertificate) {
+              Write-Host "::error::No RFC3161 timestamp on $f"
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign signed .exes with Sigstore
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ needs.release.outputs.version }}"
+
+          sign_with_retry() {
+            local blob="$1"
+            local bundle="$2"
+            for attempt in 1 2 3; do
+              if cosign sign-blob "$blob" --bundle "$bundle" --yes; then
+                return 0
+              fi
+              echo "::warning::Signing attempt $attempt failed for $(basename "$blob"), retrying in 10s..."
+              sleep 10
+            done
+            echo "::error::Signing failed for $(basename "$blob") after 3 attempts"
+            return 1
+          }
+
+          sign_with_retry "dist/stepsecurity-dev-machine-guard-${version}-windows_amd64.exe" \
+            "dist/stepsecurity-dev-machine-guard-windows_amd64.exe.bundle"
+          sign_with_retry "dist/stepsecurity-dev-machine-guard-${version}-windows_arm64.exe" \
+            "dist/stepsecurity-dev-machine-guard-windows_arm64.exe.bundle"
+          sign_with_retry "dist/stepsecurity-dev-machine-guard-task-${version}-windows_amd64.exe" \
+            "dist/stepsecurity-dev-machine-guard-task-windows_amd64.exe.bundle"
+          sign_with_retry "dist/stepsecurity-dev-machine-guard-task-${version}-windows_arm64.exe" \
+            "dist/stepsecurity-dev-machine-guard-task-windows_arm64.exe.bundle"
+
+      - name: Upload signed .exes and bundles to draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ needs.release.outputs.release_tag }}"
+          version="${{ needs.release.outputs.version }}"
+          gh release upload "$tag" \
+            "dist/stepsecurity-dev-machine-guard-${version}-windows_amd64.exe" \
+            "dist/stepsecurity-dev-machine-guard-${version}-windows_arm64.exe" \
+            "dist/stepsecurity-dev-machine-guard-task-${version}-windows_amd64.exe" \
+            "dist/stepsecurity-dev-machine-guard-task-${version}-windows_arm64.exe" \
+            dist/stepsecurity-dev-machine-guard-windows_amd64.exe.bundle \
+            dist/stepsecurity-dev-machine-guard-windows_arm64.exe.bundle \
+            dist/stepsecurity-dev-machine-guard-task-windows_amd64.exe.bundle \
+            dist/stepsecurity-dev-machine-guard-task-windows_arm64.exe.bundle \
+            --clobber
+
+      - name: Attest .exe build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            ${{ steps.paths.outputs.amd64 }}
+            ${{ steps.paths.outputs.arm64 }}
+            ${{ steps.paths.outputs.task_amd64 }}
+            ${{ steps.paths.outputs.task_arm64 }}
+
+      - name: Build MSIs (x64 + arm64)
+        id: msi
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = "${{ needs.release.outputs.version }}"
 
           wix build packaging/windows/Product.wxs `
             -arch x64 `
             -ext WixToolset.Util.wixext `
             -d Arch=x64 `
             -d "Version=$version" `
-            -d "BinaryPath=$($amd64.FullName)" `
-            -d "LauncherPath=$($taskAmd64.FullName)" `
+            -d "BinaryPath=${{ steps.paths.outputs.amd64 }}" `
+            -d "LauncherPath=${{ steps.paths.outputs.task_amd64 }}" `
             -out "dist/stepsecurity-dev-machine-guard-$version-x64.msi"
 
           wix build packaging/windows/Product.wxs `
@@ -281,14 +391,52 @@ jobs:
             -ext WixToolset.Util.wixext `
             -d Arch=arm64 `
             -d "Version=$version" `
-            -d "BinaryPath=$($arm64.FullName)" `
-            -d "LauncherPath=$($taskArm64.FullName)" `
+            -d "BinaryPath=${{ steps.paths.outputs.arm64 }}" `
+            -d "LauncherPath=${{ steps.paths.outputs.task_arm64 }}" `
             -out "dist/stepsecurity-dev-machine-guard-$version-arm64.msi"
+
+          $x64   = (Get-Item "dist/stepsecurity-dev-machine-guard-$version-x64.msi").FullName
+          $arm64 = (Get-Item "dist/stepsecurity-dev-machine-guard-$version-arm64.msi").FullName
+          "x64=$x64"     | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "arm64=$arm64" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
           Get-ChildItem dist -Filter "*.msi" | Format-Table Name, Length
 
-      - name: Install cosign
-        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+      - name: Authenticode-sign MSIs
+        uses: Azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ secrets.AZURE_TS_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_TS_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ secrets.AZURE_TS_CERT_PROFILE_NAME }}
+          files: |
+            ${{ steps.msi.outputs.x64 }}
+            ${{ steps.msi.outputs.arm64 }}
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          # Same workaround as the .exe sign step above — disable in-job cache
+          # to avoid the silent-exit bug when both invocations get cache hits.
+          cache-dependencies: false
+
+      - name: Verify MSI signatures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $failed = $false
+          foreach ($msi in @('${{ steps.msi.outputs.x64 }}', '${{ steps.msi.outputs.arm64 }}')) {
+            $sig = Get-AuthenticodeSignature $msi
+            $subject = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { '<none>' }
+            Write-Host "$(Split-Path $msi -Leaf): Status=$($sig.Status), Signer=$subject"
+            if ($sig.Status -ne 'Valid') {
+              Write-Host "::error::MSI signature status is $($sig.Status) (expected Valid) for $msi"
+              $failed = $true
+            }
+            if (-not $sig.TimeStamperCertificate) {
+              Write-Host "::error::No RFC3161 timestamp on $msi"
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
 
       - name: Sign MSIs with Sigstore
         shell: bash
@@ -328,5 +476,5 @@ jobs:
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
-            dist/stepsecurity-dev-machine-guard-${{ needs.release.outputs.version }}-x64.msi
-            dist/stepsecurity-dev-machine-guard-${{ needs.release.outputs.version }}-arm64.msi
+            ${{ steps.msi.outputs.x64 }}
+            ${{ steps.msi.outputs.arm64 }}

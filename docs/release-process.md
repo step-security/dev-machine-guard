@@ -10,7 +10,7 @@ This document describes how releases are created, signed, notarized, and verifie
 
 Releases are a two-phase process:
 
-1. **CI (automated)** — GitHub Actions builds the universal macOS binary, Windows binaries (amd64 + arm64), and Linux binaries (amd64 + arm64), signs them all with Sigstore, and creates a **draft** release.
+1. **CI (automated, gated)** — GitHub Actions builds binaries for all platforms, Authenticode-signs the Windows `.exe`s and `.msi`s via Azure Trusted Signing, Sigstore-signs every artifact (after Authenticode for Windows, so cosign bundles match the bytes users download), creates a **draft** release, and emits SLSA build provenance attestations. The Windows signing job runs in the `release` GitHub Environment, which requires two reviewers and is restricted to `main`.
 2. **Apple notarization (manual)** — Download the macOS binary, sign and notarize it with an Apple Developer account, upload the notarized binary to the draft release, and publish.
 
 ---
@@ -36,11 +36,15 @@ The workflow will:
 - Create a git tag (`v1.9.1`)
 - Build via GoReleaser:
   - Universal macOS binary (amd64 + arm64)
-  - Windows binaries (amd64 + arm64)
+  - Windows binaries (amd64 + arm64; agent + launcher)
   - Linux binaries (amd64 + arm64)
-- Sign all artifacts with Sigstore cosign (keyless)
+  - Build MSIs (x64 + arm64) from the signed Windows binaries
+- Authenticode-sign Windows `.exe`s and `.msi`s via Azure Trusted Signing (with RFC3161 timestamp from Microsoft)
+- Sign all artifacts with Sigstore cosign (keyless); Windows cosign bundles cover the post-Authenticode bytes
 - Upload to a **draft** release
 - Generate SLSA build provenance attestation
+
+**Approval gate**: the Windows signing job waits at the `release` environment — two reviewers must approve before signing runs. The job won't start until the macOS/Linux portion finishes the draft upload, so the macOS notarization step below can run in parallel with reviewers approving.
 
 ### 3. Apple notarization (manual)
 
@@ -89,10 +93,18 @@ Each release includes:
 | `stepsecurity-dev-machine-guard-VERSION-darwin` | Notarized universal macOS binary (amd64 + arm64) |
 | `stepsecurity-dev-machine-guard-VERSION-darwin_unnotarized` | Original CI-built binary (for provenance verification) |
 | `stepsecurity-dev-machine-guard-darwin_unnotarized.bundle` | Sigstore cosign bundle for the unnotarized binary |
-| `stepsecurity-dev-machine-guard-VERSION-windows_amd64.exe` | Windows 64-bit binary |
-| `stepsecurity-dev-machine-guard-windows_amd64.exe.bundle` | Sigstore cosign bundle for the Windows amd64 binary |
-| `stepsecurity-dev-machine-guard-VERSION-windows_arm64.exe` | Windows ARM64 binary |
-| `stepsecurity-dev-machine-guard-windows_arm64.exe.bundle` | Sigstore cosign bundle for the Windows arm64 binary |
+| `stepsecurity-dev-machine-guard-VERSION-windows_amd64.exe` | Authenticode-signed Windows 64-bit agent |
+| `stepsecurity-dev-machine-guard-windows_amd64.exe.bundle` | Sigstore cosign bundle (covers the signed bytes) |
+| `stepsecurity-dev-machine-guard-VERSION-windows_arm64.exe` | Authenticode-signed Windows ARM64 agent |
+| `stepsecurity-dev-machine-guard-windows_arm64.exe.bundle` | Sigstore cosign bundle (covers the signed bytes) |
+| `stepsecurity-dev-machine-guard-task-VERSION-windows_amd64.exe` | Authenticode-signed Windows 64-bit launcher |
+| `stepsecurity-dev-machine-guard-task-windows_amd64.exe.bundle` | Sigstore cosign bundle (covers the signed bytes) |
+| `stepsecurity-dev-machine-guard-task-VERSION-windows_arm64.exe` | Authenticode-signed Windows ARM64 launcher |
+| `stepsecurity-dev-machine-guard-task-windows_arm64.exe.bundle` | Sigstore cosign bundle (covers the signed bytes) |
+| `stepsecurity-dev-machine-guard-VERSION-x64.msi` | Authenticode-signed Windows x64 MSI installer |
+| `stepsecurity-dev-machine-guard-VERSION-x64.msi.bundle` | Sigstore cosign bundle for the MSI |
+| `stepsecurity-dev-machine-guard-VERSION-arm64.msi` | Authenticode-signed Windows ARM64 MSI installer |
+| `stepsecurity-dev-machine-guard-VERSION-arm64.msi.bundle` | Sigstore cosign bundle for the MSI |
 | `stepsecurity-dev-machine-guard-VERSION-linux_amd64` | Linux 64-bit binary |
 | `stepsecurity-dev-machine-guard-linux_amd64.bundle` | Sigstore cosign bundle for the Linux amd64 binary |
 | `stepsecurity-dev-machine-guard-VERSION-linux_arm64` | Linux ARM64 binary |
@@ -133,6 +145,54 @@ cosign verify-blob "stepsecurity-dev-machine-guard-${VERSION}-darwin_unnotarized
 
 # Verify build provenance
 gh attestation verify "stepsecurity-dev-machine-guard-${VERSION}-darwin_unnotarized" \
+  --repo step-security/dev-machine-guard
+```
+
+### Verify Windows release
+
+Run on a Windows machine (or any Windows VM) with the Windows 10/11 SDK installed for `signtool`. PowerShell 5.1 is fine.
+
+```powershell
+$VERSION = "1.9.1"
+
+gh release download "v$VERSION" --repo step-security/dev-machine-guard `
+  --pattern "stepsecurity-dev-machine-guard-$VERSION-windows_amd64.exe" `
+  --pattern "stepsecurity-dev-machine-guard-windows_amd64.exe.bundle" `
+  --pattern "stepsecurity-dev-machine-guard-$VERSION-x64.msi" `
+  --pattern "stepsecurity-dev-machine-guard-$VERSION-x64.msi.bundle"
+
+# Authenticode + RFC3161 timestamp
+Get-AuthenticodeSignature ".\stepsecurity-dev-machine-guard-$VERSION-windows_amd64.exe"
+Get-AuthenticodeSignature ".\stepsecurity-dev-machine-guard-$VERSION-x64.msi"
+# Expected: Status=Valid, SignerCertificate.Subject contains "Step Security, Inc.",
+# TimeStamperCertificate.Subject contains "Microsoft".
+
+# Full chain via signtool (path may vary by Windows SDK version)
+$signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+& $signtool.FullName verify /pa /v ".\stepsecurity-dev-machine-guard-$VERSION-windows_amd64.exe"
+& $signtool.FullName verify /pa /v ".\stepsecurity-dev-machine-guard-$VERSION-x64.msi"
+```
+
+Verify the Sigstore bundle covers the Authenticode-signed bytes (run on any machine with cosign installed):
+
+```bash
+VERSION="1.9.1"
+
+cosign verify-blob "stepsecurity-dev-machine-guard-${VERSION}-windows_amd64.exe" \
+  --bundle "stepsecurity-dev-machine-guard-windows_amd64.exe.bundle" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  --certificate-identity-regexp "^https://github.com/step-security/dev-machine-guard/.github/workflows/"
+
+cosign verify-blob "stepsecurity-dev-machine-guard-${VERSION}-x64.msi" \
+  --bundle "stepsecurity-dev-machine-guard-${VERSION}-x64.msi.bundle" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  --certificate-identity-regexp "^https://github.com/step-security/dev-machine-guard/.github/workflows/"
+
+# SLSA build provenance
+gh attestation verify "stepsecurity-dev-machine-guard-${VERSION}-windows_amd64.exe" \
+  --repo step-security/dev-machine-guard
+gh attestation verify "stepsecurity-dev-machine-guard-${VERSION}-x64.msi" \
   --repo step-security/dev-machine-guard
 ```
 
@@ -188,9 +248,11 @@ gh attestation verify "stepsecurity-dev-machine-guard-${VERSION}-linux_${ARCH}" 
 ## Immutability Guarantees
 
 1. **Draft → publish flow** — binaries are uploaded to a draft release, notarized manually, then published. Once published, the release is immutable.
-2. **Sigstore transparency log** — the unnotarized binary signature is recorded in the public [Rekor](https://rekor.sigstore.dev/) transparency log.
+2. **Sigstore transparency log** — every artifact's signature is recorded in the public [Rekor](https://rekor.sigstore.dev/) transparency log. Windows cosign bundles cover the post-Authenticode bytes, so they match what users download.
 3. **SLSA build provenance** — attestation links the artifact to the exact workflow run, commit SHA, and build environment.
-4. **Duplicate tag check** — the release workflow fails if the tag already exists.
+4. **Authenticode + RFC3161 timestamp** — Windows `.exe` and `.msi` signatures from Azure Trusted Signing are timestamped by Microsoft's RFC3161 timestamp server, so they remain verifiable on Windows after the signing certificate expires.
+5. **Release environment gate** — the Windows signing job won't run without approval from two reviewers, and only from `main`.
+6. **Duplicate tag check** — the release workflow fails if the tag already exists.
 
 ---
 
