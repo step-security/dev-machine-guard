@@ -2,6 +2,7 @@ package launchd
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"strconv"
@@ -13,6 +14,18 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
+
+// plistEscape XML-escapes a string for use inside a plist <string>
+// element. Without this, a path containing &, <, >, ', or " would
+// produce malformed XML that launchctl rejects with an opaque parse
+// error at load time. text/template's raw substitution does no
+// escaping by default — html/template would over-escape unrelated
+// content — so we route every templated value through this helper.
+func plistEscape(s string) string {
+	var sb strings.Builder
+	_ = xml.EscapeText(&sb, []byte(s))
+	return sb.String()
+}
 
 const (
 	label           = "com.stepsecurity.agent"
@@ -114,14 +127,17 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 		stepHome = paths.Home()
 	}
 
-	// Generate plist
+	// Generate plist. Every <string>-bound value is XML-escaped so a
+	// path with &, <, >, ', or " produces a well-formed plist that
+	// launchctl can actually load. IntervalSeconds is an integer, no
+	// escape needed; Label is a fixed constant.
 	plistData := plistTemplateData{
 		Label:            label,
-		BinaryPath:       binaryPath,
+		BinaryPath:       plistEscape(binaryPath),
 		IntervalSeconds:  intervalSeconds,
-		LogDir:           logDir,
-		UserHome:         userHome,
-		StepSecurityHome: stepHome,
+		LogDir:           plistEscape(logDir),
+		UserHome:         plistEscape(userHome),
+		StepSecurityHome: plistEscape(stepHome),
 	}
 
 	f, err := os.Create(plistPath)

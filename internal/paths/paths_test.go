@@ -11,12 +11,32 @@ import (
 
 // withOverride temporarily replaces the CLI override and restores it on
 // cleanup. The override is package-level mutable state, so tests serialise
-// through this helper.
+// through this helper. Also clears cliDisabled so a previous-test value
+// can't leak through.
 func withOverride(t *testing.T, v string) {
 	t.Helper()
-	prev := cliOverride
+	prevOverride := cliOverride
+	prevDisabled := cliDisabled
 	cliOverride = v
-	t.Cleanup(func() { cliOverride = prev })
+	cliDisabled = false
+	t.Cleanup(func() {
+		cliOverride = prevOverride
+		cliDisabled = prevDisabled
+	})
+}
+
+// withDisabled sets the package-level disable flag for the test and
+// restores it (plus cliOverride) on cleanup.
+func withDisabled(t *testing.T) {
+	t.Helper()
+	prevOverride := cliOverride
+	prevDisabled := cliDisabled
+	cliOverride = ""
+	cliDisabled = true
+	t.Cleanup(func() {
+		cliOverride = prevOverride
+		cliDisabled = prevDisabled
+	})
 }
 
 func withEnv(t *testing.T, key, value string) {
@@ -67,23 +87,40 @@ func TestHome_ConfigOverridesLegacy(t *testing.T) {
 	}
 }
 
-func TestHome_EnvVarOverridesConfig(t *testing.T) {
+// TestHome_ConfigOverridesEnv encodes the precedence flip that makes
+// config.InstallDir authoritative: the loader scripts write to config,
+// so editing config must immediately take effect even when a stale
+// $STEPSECURITY_HOME was baked into a unit file at install time.
+func TestHome_ConfigOverridesEnv(t *testing.T) {
 	withOverride(t, "")
-	withConfigInstallDir(t, "/from/config")
 	withEnv(t, HomeEnvVar, "/from/env")
+	withConfigInstallDir(t, "/from/config")
 
-	if got := Home(); got != "/from/env" {
-		t.Errorf("Home() = %q, want /from/env (env > config)", got)
+	if got := Home(); got != "/from/config" {
+		t.Errorf("Home() = %q, want /from/config (config > env)", got)
 	}
 }
 
-func TestHome_CLIOverridesEnv(t *testing.T) {
+// TestHome_EnvFallsThroughWhenConfigUnset confirms env is still
+// consulted when config is empty — it remains a defensive fallback,
+// just at lower precedence than config.
+func TestHome_EnvFallsThroughWhenConfigUnset(t *testing.T) {
+	withOverride(t, "")
+	withConfigInstallDir(t, "")
+	withEnv(t, HomeEnvVar, "/from/env")
+
+	if got := Home(); got != "/from/env" {
+		t.Errorf("Home() = %q, want /from/env (env fallback when config unset)", got)
+	}
+}
+
+func TestHome_CLIOverridesEverything(t *testing.T) {
 	withConfigInstallDir(t, "/from/config")
 	withEnv(t, HomeEnvVar, "/from/env")
 	withOverride(t, "/from/cli")
 
 	if got := Home(); got != "/from/cli" {
-		t.Errorf("Home() = %q, want /from/cli (cli > env > config)", got)
+		t.Errorf("Home() = %q, want /from/cli (cli > config > env)", got)
 	}
 }
 
@@ -153,5 +190,59 @@ func TestSetOverride_Sticks(t *testing.T) {
 
 	if got := Home(); got != "/sticky" {
 		t.Errorf("Home() = %q, want /sticky", got)
+	}
+}
+
+// TestSetDisabled_ReturnsEmpty proves that --install-dir= (empty)
+// makes Home() return "" globally — every downstream consumer
+// (filelog, ai-agent hook errors, future files) uniformly skips,
+// not just file logging.
+func TestSetDisabled_ReturnsEmpty(t *testing.T) {
+	withDisabled(t)
+	withEnv(t, HomeEnvVar, "/from/env")
+	withConfigInstallDir(t, "/from/config")
+
+	if got := Home(); got != "" {
+		t.Errorf("Home() = %q, want \"\" (SetDisabled must override every source)", got)
+	}
+}
+
+// TestSetOverride_ClearsDisabled covers the case where a later
+// SetOverride call must un-stick a prior SetDisabled — otherwise tests
+// that exercise both flows in sequence would carry the disable through.
+func TestSetOverride_ClearsDisabled(t *testing.T) {
+	withDisabled(t)
+	SetOverride("/back/on")
+	t.Cleanup(func() { SetOverride("") })
+
+	if got := Home(); got != "/back/on" {
+		t.Errorf("Home() = %q, want /back/on (SetOverride should clear cliDisabled)", got)
+	}
+}
+
+// TestHome_TrailingSlashCanonicalised ensures filepath.Clean normalises
+// the resolved path so the migration warning's equality check (Home()
+// vs LegacyHome()) does not misfire on "/foo/.stepsecurity/" vs
+// "/foo/.stepsecurity".
+func TestHome_TrailingSlashCanonicalised(t *testing.T) {
+	withOverride(t, "")
+	withEnv(t, HomeEnvVar, "")
+	withConfigInstallDir(t, "/opt/stepsecurity/")
+
+	if got := Home(); got != "/opt/stepsecurity" {
+		t.Errorf("Home() = %q, want /opt/stepsecurity (trailing slash must be stripped)", got)
+	}
+}
+
+// TestHome_DotComponentsCanonicalised covers filepath.Clean of internal
+// "./" and "../" tokens — same goal as the trailing-slash case, just a
+// different form of non-canonical input.
+func TestHome_DotComponentsCanonicalised(t *testing.T) {
+	withOverride(t, "")
+	withEnv(t, HomeEnvVar, "")
+	withConfigInstallDir(t, "/opt/./stepsecurity/../sec")
+
+	if got := Home(); got != "/opt/sec" {
+		t.Errorf("Home() = %q, want /opt/sec (Clean must collapse . and ..)", got)
 	}
 }

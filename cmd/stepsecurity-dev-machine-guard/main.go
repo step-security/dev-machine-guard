@@ -100,24 +100,30 @@ func main() {
 	exec := executor.NewReal()
 
 	// Install dir resolution (see internal/paths.Home for the canonical
-	// chain): --install-dir CLI flag > $STEPSECURITY_HOME env var >
-	// install_dir config field > ~/.stepsecurity default. The CLI flag
-	// wins because it is the most explicit per-invocation override the
-	// operator can supply. We feed it to paths via SetOverride; an
-	// explicit `--install-dir=` (empty) is preserved and short-circuits
-	// the path computation below to disable file logging for this run.
+	// chain): --install-dir CLI flag > install_dir config field >
+	// $STEPSECURITY_HOME env var > ~/.stepsecurity default. Config beats
+	// env because config.json is the source of truth that the loader
+	// scripts write to and operators hand-edit; the env var baked into
+	// service unit files at install time can otherwise become stale.
+	// An explicit `--install-dir=` (empty) routes through SetDisabled,
+	// after which paths.Home() returns "" so EVERY on-disk consumer
+	// (filelog, ai-agent hook errors, any future file) uniformly skips
+	// — not just file logging.
 	//
 	// The capture is installed before the logger so every subsequent
 	// stderr write — including the pipe-tee in
 	// internal/telemetry/logcapture.go, which nests inside this one —
 	// flows through to disk.
 	if cfg.InstallDirSet {
-		paths.SetOverride(cfg.InstallDir) // may be "" = disabled
+		if cfg.InstallDir == "" {
+			paths.SetDisabled()
+		} else {
+			paths.SetOverride(cfg.InstallDir)
+		}
 	}
-	installDir := paths.Home()
-	disabled := cfg.InstallDirSet && cfg.InstallDir == ""
+	installDir := paths.Home() // "" when SetDisabled or home unresolved
 	logFilePath := ""
-	if !disabled && installDir != "" {
+	if installDir != "" {
 		logFilePath = filepath.Join(installDir, filelog.Filename)
 		// Pre-rotate BOTH files unconditionally. In interactive mode the
 		// stderr rotation is redundant with filelog.Start's own rotation
@@ -164,7 +170,7 @@ func main() {
 	// auto-move — too risky for v1 (silent overwrites, races with other
 	// processes, perms changes). Just point at the leftovers.
 	legacy := paths.LegacyHome()
-	if !disabled && legacy != "" && installDir != "" && installDir != legacy {
+	if legacy != "" && installDir != "" && installDir != legacy {
 		if leftovers := findLegacyLeftovers(legacy); len(leftovers) > 0 {
 			log.Warn("install dir is %s but the legacy default %s still has files: %s — copy them over manually if you want their history.",
 				installDir, legacy, strings.Join(leftovers, ", "))
