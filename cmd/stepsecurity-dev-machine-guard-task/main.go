@@ -1,58 +1,72 @@
 //go:build windows
 
 // Command stepsecurity-dev-machine-guard-task is a GUI-subsystem
-// launcher that invokes the console-subsystem agent under
+// launcher that invokes a console-subsystem child under
 // CREATE_NO_WINDOW. Built with `-ldflags "-H windowsgui"`.
 //
 // Why a separate binary: Windows allocates a console for any
-// console-subsystem process whose parent has none. Task Scheduler
-// under /ru INTERACTIVE is such a parent, so the agent itself would
-// always flash a window. The only fully-reliable suppression is for
-// the parent CreateProcess call to pass CREATE_NO_WINDOW, and the
-// only way to be that parent without flashing our own console is to
-// be GUI-subsystem. The agent stays console-subsystem so interactive
-// CLI use (install, configure, manual scans) still works normally.
+// console-subsystem process whose parent has none. Task Scheduler under
+// /ru INTERACTIVE is such a parent, so a console-subsystem child
+// invoked directly would always flash a window. The only fully reliable
+// suppression is for the parent CreateProcess call to pass
+// CREATE_NO_WINDOW, and the only way to be that parent without flashing
+// our own console is to be GUI-subsystem.
 //
-// Layout: both binaries sit in the same directory. The scheduled task
-// points at this launcher; arguments forward unchanged.
+// Two operating modes (target-resolution lives in internal/launcher so
+// it can be unit-tested cross-platform):
 //
-// Lifecycle: the agent is assigned to a Job Object with
-// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE so it dies when the launcher
-// does — including under Stop-ScheduledTask, which only terminates
-// the registered action's PID.
+//   - Default. Invoked without --exec, the launcher spawns its sibling
+//     stepsecurity-dev-machine-guard.exe and forwards argv unchanged.
+//     This is what the MSI install layout's scheduled-task action uses.
+//
+//   - --exec mode. Invoked as `task.exe --exec <exe> [args...]`, the
+//     launcher spawns <exe> (exec.LookPath resolved) with the remaining
+//     args. Used by the PowerShell loader's scheduled task to wrap
+//     `powershell.exe -File loader.ps1 send-telemetry` in the same
+//     no-console envelope the MSI flow uses for the agent.
+//
+// The agent (and any --exec target) stays console-subsystem so
+// interactive CLI use continues to work normally.
+//
+// Lifecycle: the child is assigned to a Job Object with
+// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE so it dies when the launcher does
+// — including under Stop-ScheduledTask, which only terminates the
+// registered action's PID.
 package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"syscall"
 	"unsafe"
 
+	"github.com/step-security/dev-machine-guard/internal/launcher"
 	"golang.org/x/sys/windows"
 )
 
-const (
-	createNoWindow uint32 = 0x08000000
-	agentBinary           = "stepsecurity-dev-machine-guard.exe"
-)
+const createNoWindow uint32 = 0x08000000
 
 func main() {
-	os.Exit(run())
+	os.Exit(run(os.Args[1:]))
 }
 
-func run() int {
-	me, err := os.Executable()
+// run is split out so the entrypoint stays one line. argv is the slice
+// after the program name (os.Args[1:] in main); accepting it explicitly
+// keeps the windows-only test path open if we add one later.
+func run(argv []string) int {
+	target, childArgs, err := launcher.ResolveTarget(argv)
 	if err != nil {
-		return 1
-	}
-	agent := filepath.Join(filepath.Dir(me), agentBinary)
-	if _, err := os.Stat(agent); err != nil {
-		return 1
+		// stderr is normally unreachable for a GUI-subsystem process
+		// launched by Task Scheduler, but it's visible to interactive
+		// invocations and to test runs — both worth surfacing the
+		// concrete misuse string for.
+		fmt.Fprintln(os.Stderr, err)
+		return 2
 	}
 
-	cmd := exec.Command(agent, os.Args[1:]...)
+	cmd := exec.Command(target, childArgs...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,
 		CreationFlags: createNoWindow,
@@ -62,10 +76,11 @@ func run() int {
 		return 1
 	}
 
-	// Best-effort: bind the agent to a kill-on-close job. The job
+	// Best-effort: bind the child to a kill-on-close job. The job
 	// handle stays open in this process; the kernel closes it on our
 	// exit, which fires the kill. Failure here only weakens lifecycle
-	// (orphan possible on forced termination), not the scan itself.
+	// (orphan possible on forced termination), not the work the child
+	// was started to do.
 	if job, jerr := newKillOnCloseJob(); jerr == nil {
 		if h, oerr := windows.OpenProcess(
 			windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
