@@ -167,6 +167,11 @@ func (d *PipConfigDetector) detectPip(ctx context.Context) (string, []string, st
 		if err != nil {
 			continue
 		}
+		if d.exec.IsAppleCLTStub(ctx, path) {
+			// Skip Apple's /usr/bin/ shims on Macs without Command Line Tools;
+			// invoking --version against them pops a GUI install prompt.
+			continue
+		}
 		args := append([]string(nil), cand.args...)
 		args = append(args, "--version")
 		stdout, _, exit, err := d.exec.RunWithTimeout(ctx, 5*time.Second, cand.binary, args...)
@@ -190,7 +195,15 @@ func (d *PipConfigDetector) detectPip(ctx context.Context) (string, []string, st
 // was available at all.
 func (d *PipConfigDetector) runPip(ctx context.Context, timeout time.Duration, pipArgs ...string) (string, int, bool) {
 	for _, cand := range pipInvocationsToTry {
-		if _, err := d.exec.LookPath(cand.binary); err != nil {
+		path, err := d.exec.LookPath(cand.binary)
+		if err != nil {
+			continue
+		}
+		if d.exec.IsAppleCLTStub(ctx, path) {
+			// Same guard as detectPip: don't invoke Apple's /usr/bin/ shims
+			// on Macs without Command Line Tools — they pop a GUI install
+			// prompt. detectPip should have already returned ok=false in
+			// this case, but guard here too so a future caller can't bypass.
 			continue
 		}
 		args := append([]string(nil), cand.args...)

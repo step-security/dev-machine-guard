@@ -322,3 +322,69 @@ func TestParseEffective_RedactsEmbeddedCreds(t *testing.T) {
 		t.Errorf("effective.config should have redacted to user:****@host form, got: %q", got)
 	}
 }
+
+// On a Mac without Xcode Command Line Tools, /usr/bin/pip3 and /usr/bin/python3
+// are Apple shims that pop a GUI install prompt the moment they're invoked.
+// PipConfigDetector must skip them — otherwise rolling out the agent to Jamf
+// endpoints that don't deploy CLT triggers a Developer Tools dialog for every
+// user on first scan.
+//
+// We stub pip3/python3 to return SUCCESS so the assertion catches the bug: if
+// the guard isn't applied, detectPip will invoke the shim, get a successful
+// response, and set Available=true. With the guard, the shim is never invoked
+// and Available stays false. A test that left the stubs unset would pass even
+// against the unfixed code, because the mock's "no command stub" error would
+// be swallowed as if pip just wasn't installed.
+func TestPipConfigDetector_SkipsAppleStubWithoutCLT(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+	mock.SetAppleCLTInstalled(false)
+	mock.SetPath("pip3", "/usr/bin/pip3")
+	mock.SetPath("python3", "/usr/bin/python3")
+	// Stub both shims to *succeed* — if the guard fails, detectPip will
+	// consume these and mistakenly set Available=true.
+	mock.SetCommand("pip 24.0 from /usr/bin (python 3.12)\n", "", 0, "pip3", "--version")
+	mock.SetCommand("pip 24.0 from /usr/bin (python 3.12)\n", "", 0, "python3", "-m", "pip", "--version")
+
+	d := NewPipConfigDetector(mock)
+	d.ownerLookup = fixedPipOwner()
+	d.gitTracked = func(_ context.Context, _ string) bool { return false }
+	d.inGitRepo = func(_ string) bool { return false }
+
+	audit := d.Detect(context.Background(), nil)
+	if audit.Available {
+		t.Errorf("expected Available=false when only Apple stubs are on PATH, got true (path=%q, invocation=%q) — the guard let the shim run", audit.Path, audit.Invocation)
+	}
+	if audit.Effective != nil {
+		t.Errorf("expected Effective=nil when pip detection was skipped, got %+v", audit.Effective)
+	}
+}
+
+// When CLT is installed, /usr/bin/pip3 resolves to the real CLT-shipped pip
+// and must be invoked normally. Confirms the guard is darwin+CLT-absent only,
+// not a blanket /usr/bin/ skip.
+func TestPipConfigDetector_DetectsUsrBinWhenCLTInstalled(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+	mock.SetAppleCLTInstalled(true)
+	mock.SetPath("pip3", "/usr/bin/pip3")
+	mock.SetCommand("pip 24.0 from /usr/bin (python 3.12)\n", "", 0, "pip3", "--version")
+	mock.SetCommand("", "", 0, "pip3", "config", "debug")
+	mock.SetCommand("", "", 0, "pip3", "config", "list", "-v")
+
+	d := NewPipConfigDetector(mock)
+	d.ownerLookup = fixedPipOwner()
+	d.gitTracked = func(_ context.Context, _ string) bool { return false }
+	d.inGitRepo = func(_ string) bool { return false }
+
+	audit := d.Detect(context.Background(), nil)
+	if !audit.Available {
+		t.Fatalf("expected Available=true with CLT installed, got false")
+	}
+	if audit.Path != "/usr/bin/pip3" {
+		t.Errorf("expected Path=/usr/bin/pip3, got %q", audit.Path)
+	}
+	if audit.Version != "24.0" {
+		t.Errorf("expected Version=24.0, got %q", audit.Version)
+	}
+}
