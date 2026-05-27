@@ -14,6 +14,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 const defaultMaxProjectScanBytes = 500 * 1024 * 1024 // 500MB total limit
@@ -34,10 +35,29 @@ type NodeScanner struct {
 	exec         executor.Executor
 	log          *progress.Logger
 	loggedInUser string // when non-empty and running as root, commands run as this user
+	skipper      *tcc.Skipper
+	// ProgressHook, when non-nil, is invoked from inside ScanProjects /
+	// ScanGlobalPackages with a short human-readable detail string ("project
+	// 12 of 47", "scanning yarn", ...). Telemetry plumbs this into
+	// PhaseTracker.UpdateDetail so heartbeats surface mid-phase progress.
+	ProgressHook func(detail string)
 }
 
 func NewNodeScanner(exec executor.Executor, log *progress.Logger, loggedInUser string) *NodeScanner {
 	return &NodeScanner{exec: exec, log: log, loggedInUser: loggedInUser}
+}
+
+// WithSkipper attaches a TCC skipper so the discovery walk skips
+// macOS-protected directories. A nil skipper is a no-op.
+func (s *NodeScanner) WithSkipper(skipper *tcc.Skipper) *NodeScanner {
+	s.skipper = skipper
+	return s
+}
+
+func (s *NodeScanner) emitProgress(detail string) {
+	if s.ProgressHook != nil {
+		s.ProgressHook(detail)
+	}
 }
 
 // shouldRunAsUser returns true when commands should be delegated to the logged-in user.
@@ -107,16 +127,19 @@ func (s *NodeScanner) checkPath(ctx context.Context, name string) error {
 func (s *NodeScanner) ScanGlobalPackages(ctx context.Context) []model.NodeScanResult {
 	var results []model.NodeScanResult
 
+	s.emitProgress("global: npm")
 	s.log.Progress("  Checking npm global packages...")
 	if r, ok := s.scanNPMGlobal(ctx); ok {
 		results = append(results, r)
 	}
 
+	s.emitProgress("global: yarn")
 	s.log.Progress("  Checking yarn global packages...")
 	if r, ok := s.scanYarnGlobal(ctx); ok {
 		results = append(results, r)
 	}
 
+	s.emitProgress("global: pnpm")
 	s.log.Progress("  Checking pnpm global packages...")
 	if r, ok := s.scanPnpmGlobal(ctx); ok {
 		results = append(results, r)
@@ -318,6 +341,9 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 				return nil
 			}
 			if entry.IsDir() {
+				if s.skipper.ShouldSkip(path, dir) {
+					return filepath.SkipDir
+				}
 				name := entry.Name()
 				if name == "node_modules" || name == ".git" || name == ".cache" ||
 					strings.HasPrefix(name, ".") {
@@ -354,6 +380,10 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 	var results []model.NodeScanResult
 	totalSize := int64(0)
 
+	totalProjects := len(projects)
+	if totalProjects > maxNodeProjects {
+		totalProjects = maxNodeProjects
+	}
 	for i, p := range projects {
 		if i >= maxNodeProjects {
 			s.log.Progress("  Reached maximum of %d projects, stopping search", maxNodeProjects)
@@ -365,6 +395,11 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 			s.log.Warn("Skipping remaining projects (prioritized by most recently modified)")
 			break
 		}
+
+		// Per-project sub-progress for the heartbeat goroutine. Surfaces
+		// to console as "current_phase_detail: project 12 of 47" so a
+		// stuck scan is visibly so, not just opaque "node_scan in progress".
+		s.emitProgress(fmt.Sprintf("project %d of %d", i+1, totalProjects))
 
 		s.log.Progress("  Found project: %s", p.dir)
 		pm := DetectProjectPM(s.exec, p.dir)

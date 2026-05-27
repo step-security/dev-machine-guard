@@ -28,3 +28,9 @@ stepsecurity-dev-machine-guard-linux
 
 # Temporary files
 todo-remove/
+
+# Agent runtime state. When the binary or its tests run from inside the
+# repo (working dir = a subpkg, HOME pointing under it, etc.), it drops
+# config.json, agent.error.log, ai-agent-hook-errors.jsonl, hooks-state.json
+# and friends here. Never artifacts we want to track.
+**/.stepsecurity/

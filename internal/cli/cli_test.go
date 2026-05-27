@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -63,6 +64,24 @@ func TestParse_Verbose(t *testing.T) {
 	}
 	if !cfg.Verbose {
 		t.Error("expected verbose=true")
+	}
+}
+
+func TestParse_OverrideGate(t *testing.T) {
+	cfg, err := Parse([]string{"--override-gate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.OverrideGate {
+		t.Error("expected OverrideGate=true on top-level parse")
+	}
+
+	cfg, err = Parse([]string{"hooks", "install", "--override-gate"})
+	if err != nil {
+		t.Fatalf("parseHooks should accept --override-gate: %v", err)
+	}
+	if !cfg.OverrideGate {
+		t.Error("expected OverrideGate=true on hooks parse")
 	}
 }
 
@@ -269,7 +288,9 @@ func TestParse_HooksAgentMissingValue(t *testing.T) {
 	}
 }
 
-// DMG global flags must not leak into the hooks group.
+// DMG global flags must not leak into the hooks group. --install-dir
+// is the deliberate exception — when hooks fail, the customer needs the
+// same on-disk diagnostic file every other command produces.
 func TestParse_HooksRejectsGlobalFlags(t *testing.T) {
 	cases := [][]string{
 		{"hooks", "install", "--json"},
@@ -284,6 +305,114 @@ func TestParse_HooksRejectsGlobalFlags(t *testing.T) {
 		if err == nil {
 			t.Errorf("expected error rejecting global flag in %v", args)
 		}
+	}
+}
+
+func TestParse_InstallDir_EqualsForm(t *testing.T) {
+	cfg, err := Parse([]string{"--install-dir=/opt/sec"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.InstallDir != "/opt/sec" {
+		t.Errorf("InstallDir = %q, want /opt/sec", cfg.InstallDir)
+	}
+	if !cfg.InstallDirSet {
+		t.Error("InstallDirSet should be true after --install-dir=")
+	}
+}
+
+func TestParse_InstallDir_SpaceForm(t *testing.T) {
+	cfg, err := Parse([]string{"--install-dir", "/opt/sec"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.InstallDir != "/opt/sec" {
+		t.Errorf("InstallDir = %q, want /opt/sec", cfg.InstallDir)
+	}
+	if !cfg.InstallDirSet {
+		t.Error("InstallDirSet should be true after --install-dir <path>")
+	}
+}
+
+func TestParse_InstallDir_EmptyValueDisables(t *testing.T) {
+	cfg, err := Parse([]string{"--install-dir="})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.InstallDir != "" {
+		t.Errorf("InstallDir = %q, want empty (disabled)", cfg.InstallDir)
+	}
+	if !cfg.InstallDirSet {
+		t.Error("InstallDirSet should be true (explicit empty is opt-out)")
+	}
+}
+
+func TestParse_InstallDir_SpaceFormMissingValue(t *testing.T) {
+	_, err := Parse([]string{"--install-dir"})
+	if err == nil {
+		t.Error("expected error for --install-dir without value (use --install-dir= to disable)")
+	}
+}
+
+func TestParse_InstallDir_AbsentLeavesUnset(t *testing.T) {
+	cfg, err := Parse([]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.InstallDir != "" || cfg.InstallDirSet {
+		t.Errorf("absent --install-dir should yield InstallDir=%q InstallDirSet=%v", cfg.InstallDir, cfg.InstallDirSet)
+	}
+}
+
+// TestParse_InstallDir_EmptyRejectedForInstall guards against the
+// combination that would make systemd/launchd Install mkdir an empty
+// path: --install-dir= disables paths.Home() globally, but the install
+// command unconditionally calls os.MkdirAll(paths.Home()). Rejecting at
+// parse time gives the operator a clear error instead of an opaque
+// installer failure.
+func TestParse_InstallDir_EmptyRejectedForInstall(t *testing.T) {
+	for _, cmd := range []string{"install", "uninstall"} {
+		_, err := Parse([]string{cmd, "--install-dir="})
+		if err == nil {
+			t.Errorf("Parse(%q --install-dir=) returned nil error, want rejection", cmd)
+			continue
+		}
+		if !strings.Contains(err.Error(), "--install-dir=") || !strings.Contains(err.Error(), cmd) {
+			t.Errorf("Parse(%q --install-dir=) error %q should reference the flag and the command", cmd, err)
+		}
+	}
+}
+
+// TestParse_InstallDir_EmptyAllowedWithoutInstallCommand confirms the
+// existing "disable file logging" use case for ad-hoc scans still
+// works — the rejection only fires when paired with install/uninstall.
+func TestParse_InstallDir_EmptyAllowedWithoutInstallCommand(t *testing.T) {
+	for _, args := range [][]string{
+		{"--install-dir="},
+		{"send-telemetry", "--install-dir="},
+		{"configure", "show", "--install-dir="},
+	} {
+		if _, err := Parse(args); err != nil {
+			t.Errorf("Parse(%v) returned error %v; --install-dir= should still be valid outside install/uninstall", args, err)
+		}
+	}
+}
+
+func TestParseHooks_AcceptsInstallDir(t *testing.T) {
+	cfg, err := Parse([]string{"hooks", "install", "--install-dir=/opt/sec"})
+	if err != nil {
+		t.Fatalf("hooks install --install-dir rejected: %v", err)
+	}
+	if cfg.InstallDir != "/opt/sec" {
+		t.Errorf("InstallDir = %q, want /opt/sec", cfg.InstallDir)
+	}
+
+	cfg, err = Parse([]string{"hooks", "uninstall", "--install-dir", "/opt/u"})
+	if err != nil {
+		t.Fatalf("hooks uninstall --install-dir rejected: %v", err)
+	}
+	if cfg.InstallDir != "/opt/u" {
+		t.Errorf("InstallDir = %q, want /opt/u", cfg.InstallDir)
 	}
 }
 

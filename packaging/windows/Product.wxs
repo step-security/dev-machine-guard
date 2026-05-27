@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  StepSecurity Dev Machine Guard — MSI manifest.
+
+  Single source for both x64 and arm64 MSIs. The build driver (Makefile /
+  CI) supplies preprocessor variables:
+
+    -d Version=<semver>       e.g. 1.8.2
+    -d BinaryPath=<path>      path to stepsecurity-dev-machine-guard.exe
+    -d LauncherPath=<path>    path to stepsecurity-dev-machine-guard-task.exe
+                              (GUI-subsystem launcher Task Scheduler invokes
+                              so the agent doesn't flash a console window)
+    -d Arch=<x64|arm64>       selects InstallScope + UpgradeCode
+
+  Designed for SCCM/Intune deployment under environments where PowerShell
+  egress is blocked by EDR. Custom actions invoke the .exe directly via
+  msiexec — powershell.exe is never spawned anywhere in install/upgrade/
+  uninstall flows.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <?if $(var.Arch) = "x64" ?>
+    <?define UpgradeCode = "65AE0FC0-2070-4F40-B0CA-413637F94121" ?>
+    <?define ProgramFiles = "ProgramFiles64Folder" ?>
+    <?define ProductName = "StepSecurity Dev Machine Guard" ?>
+  <?elseif $(var.Arch) = "arm64" ?>
+    <?define UpgradeCode = "99C4A108-6A71-4006-8AA7-F3D14DA045A9" ?>
+    <?define ProgramFiles = "ProgramFiles64Folder" ?>
+    <?define ProductName = "StepSecurity Dev Machine Guard (ARM64)" ?>
+  <?else?>
+    <?error Unknown Arch: must be x64 or arm64 ?>
+  <?endif?>
+
+  <Package
+      Name="$(var.ProductName)"
+      Manufacturer="StepSecurity"
+      Version="$(var.Version)"
+      UpgradeCode="$(var.UpgradeCode)"
+      Scope="perMachine"
+      Compressed="yes"
+      InstallerVersion="500">
+
+    <!-- Major upgrade: same UpgradeCode + higher Version triggers an
+         atomic uninstall-old / install-new during a single MSI transaction.
+         Schedule="afterInstallInitialize" runs the uninstall pass before
+         CostFinalize so existing files don't conflict with new ones. -->
+    <MajorUpgrade
+        Schedule="afterInstallInitialize"
+        DowngradeErrorMessage="A newer version of [ProductName] is already installed."/>
+
+    <!-- Embedded CAB keeps everything in a single .msi file. SCCM
+         distributes one artifact, not a .msi + sidecar .cab. -->
+    <MediaTemplate EmbedCab="yes"/>
+
+    <!-- Properties exposed on the msiexec command line. Secure="yes"
+         allows them to flow through UAC elevation; Hidden="yes" on
+         APIKEY keeps it out of the MSI property table dumps (it still
+         appears in verbose execution logs — use BOOTSTRAPFILE for full
+         secrecy; see docs/deploying-via-sccm.md). -->
+    <Property Id="CUSTOMERID"    Secure="yes"/>
+    <Property Id="APIENDPOINT"   Secure="yes"/>
+    <Property Id="APIKEY"        Secure="yes" Hidden="yes"/>
+    <Property Id="SCANFREQUENCY" Secure="yes" Value="4"/>
+    <Property Id="BOOTSTRAPFILE" Secure="yes"/>
+
+    <!-- Empty disable=do-not-allow-modify in Add/Remove Programs.
+         Customers manage via SCCM, not via the user-facing ARP. -->
+    <Property Id="ARPNOMODIFY" Value="1"/>
+
+    <!-- File payload: the agent + the GUI-subsystem launcher, both under
+         C:\Program Files\StepSecurity\. Source paths resolve from
+         $(var.BinaryPath) and $(var.LauncherPath) at build time.
+         schtasks.Install picks the launcher when present (side-by-side
+         layout) so Windows doesn't allocate a console for the agent
+         under /ru INTERACTIVE. -->
+    <StandardDirectory Id="$(var.ProgramFiles)">
+      <Directory Id="INSTALLFOLDER" Name="StepSecurity">
+        <Component Id="MainBinary" Bitness="always64">
+          <File Id="DMGBinary"
+                Source="$(var.BinaryPath)"
+                Name="stepsecurity-dev-machine-guard.exe"
+                KeyPath="yes"/>
+        </Component>
+        <Component Id="LauncherBinary" Bitness="always64">
+          <File Id="DMGLauncher"
+                Source="$(var.LauncherPath)"
+                Name="stepsecurity-dev-machine-guard-task.exe"
+                KeyPath="yes"/>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="Dev Machine Guard" Level="1">
+      <ComponentRef Id="MainBinary"/>
+      <ComponentRef Id="LauncherBinary"/>
+    </Feature>
+
+    <!--
+      ================================================================
+      Custom Actions
+
+      All four CAs run DEFERRED with Impersonate=no — they execute
+      during the install script phase (after InstallFiles physically
+      writes the .exe to disk) in SYSTEM context. Immediate CAs were
+      tried first but failed with MSI error 1721 ("program required
+      could not be run") because immediate CAs run during sequence
+      *building*, before the binary is on disk.
+
+      Deferred CAs can't read MSI properties directly. The standard
+      workaround is paired SetProperty elements that populate the
+      CustomActionData property which the deferred CA then reads as
+      its command line.
+      ================================================================
+    -->
+
+    <!-- Use WixQuietExec from WixToolset.Util.wixext. This is the WiX-blessed
+         pattern for running an exe with property-substituted args from a
+         deferred custom action. WiX 4 has a known bug where [CustomActionData]
+         in ExeCommand is silently stripped at compile time
+         (https://github.com/orgs/wixtoolset/discussions/9143), and the bare
+         Property attribute is invalid without ExeCommand. WixQuietExec is a
+         DLL CA that reads its command line from a property whose Id matches
+         the CA Id — solving the relay problem cleanly.
+
+         BinaryRef "Wix4UtilCA_$(sys.BUILDARCHSHORT)" auto-selects the right
+         arch (X64 for our x64 MSI, A64 for arm64).
+         DllEntry "WixQuietExec64" runs in 64-bit context. -->
+
+    <CustomAction Id="RunConfigureInline"
+                  BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+                  DllEntry="WixQuietExec64"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"/>
+
+    <CustomAction Id="RunConfigureFromFile"
+                  BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+                  DllEntry="WixQuietExec64"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"/>
+
+    <CustomAction Id="RunInstallScheduledTask"
+                  BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+                  DllEntry="WixQuietExec64"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"/>
+
+    <CustomAction Id="RunUninstallScheduledTask"
+                  BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+                  DllEntry="WixQuietExec64"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"/>
+
+    <!-- SetProperty values now carry the FULL command line (exe path + args).
+         [INSTALLFOLDER] and the per-tenant properties are substituted at
+         immediate-phase execution time (when they ARE expandable), then
+         the resulting string is shipped to the deferred CA via the matching
+         property name. -->
+
+    <SetProperty Id="RunConfigureInline"
+                 Value='"[INSTALLFOLDER]stepsecurity-dev-machine-guard.exe" configure --non-interactive --customer-id "[CUSTOMERID]" --api-endpoint "[APIENDPOINT]" --api-key "[APIKEY]" --scan-frequency "[SCANFREQUENCY]"'
+                 Sequence="execute"
+                 Before="RunConfigureInline"
+                 Condition="APIKEY AND NOT BOOTSTRAPFILE AND NOT Installed"/>
+
+    <SetProperty Id="RunConfigureFromFile"
+                 Value='"[INSTALLFOLDER]stepsecurity-dev-machine-guard.exe" configure --non-interactive --from-file "[BOOTSTRAPFILE]"'
+                 Sequence="execute"
+                 Before="RunConfigureFromFile"
+                 Condition="BOOTSTRAPFILE AND NOT Installed"/>
+
+    <SetProperty Id="RunInstallScheduledTask"
+                 Value='"[INSTALLFOLDER]stepsecurity-dev-machine-guard.exe" install --ignore-telemetry-error'
+                 Sequence="execute"
+                 Before="RunInstallScheduledTask"
+                 Condition="NOT Installed"/>
+
+    <SetProperty Id="RunUninstallScheduledTask"
+                 Value='"[INSTALLFOLDER]stepsecurity-dev-machine-guard.exe" uninstall'
+                 Sequence="execute"
+                 Before="RunUninstallScheduledTask"
+                 Condition="REMOVE=&quot;ALL&quot;"/>
+
+    <!--
+      InstallExecuteSequence: where each CA fires in the MSI sequence.
+
+      On install (NOT Installed):
+        InstallFiles → RunConfigureFromFile OR RunConfigureInline → RunInstallScheduledTask
+      On uninstall (REMOVE="ALL"):
+        RunUninstallScheduledTask → RemoveFiles
+      On major upgrade:
+        The MajorUpgrade element schedules the old version's uninstall
+        first (RunUninstallScheduledTask from the old MSI fires), then
+        the new install path runs.
+    -->
+    <InstallExecuteSequence>
+      <!-- Prefer file-based configure when BOOTSTRAPFILE is provided.
+           Inline runs only when BOOTSTRAPFILE is empty AND APIKEY is set. -->
+      <Custom Action="RunConfigureFromFile"
+              After="InstallFiles"
+              Condition="BOOTSTRAPFILE AND NOT Installed"/>
+      <Custom Action="RunConfigureInline"
+              After="RunConfigureFromFile"
+              Condition="APIKEY AND NOT BOOTSTRAPFILE AND NOT Installed"/>
+      <Custom Action="RunInstallScheduledTask"
+              After="RunConfigureInline"
+              Condition="NOT Installed"/>
+      <Custom Action="RunUninstallScheduledTask"
+              Before="RemoveFiles"
+              Condition="REMOVE=&quot;ALL&quot;"/>
+    </InstallExecuteSequence>
+
+  </Package>
+</Wix>

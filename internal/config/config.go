@@ -11,45 +11,110 @@ import (
 
 // Default placeholders (replaced by backend for enterprise installation scripts).
 var (
-	CustomerID         = "{{CUSTOMER_ID}}"
-	APIEndpoint        = "{{API_ENDPOINT}}"
-	APIKey             = "{{API_KEY}}"
-	ScanFrequencyHours = "{{SCAN_FREQUENCY_HOURS}}"
-	SearchDirs         []string
-	EnableNPMScan      *bool  // nil=auto
-	EnableBrewScan     *bool  // nil=auto
-	EnablePythonScan   *bool  // nil=auto
-	ColorMode          string // "" means auto
-	OutputFormat       string // "" means default (pretty)
-	HTMLOutputFile     string // "" means not set
-	LogLevel           string // "" means default (info); one of error/warn/info/debug
+	CustomerID          = "{{CUSTOMER_ID}}"
+	APIEndpoint         = "{{API_ENDPOINT}}"
+	APIKey              = "{{API_KEY}}" //#nosec G101 -- build-time placeholder substituted by the backend installer; the literal is not a real credential.
+	ScanFrequencyHours  = "{{SCAN_FREQUENCY_HOURS}}"
+	SearchDirs          []string
+	EnableNPMScan       *bool  // nil=auto
+	EnableBrewScan      *bool  // nil=auto
+	EnablePythonScan    *bool  // nil=auto
+	IncludeTCCProtected *bool  // nil=auto (skip when running under macOS launchd, scan otherwise)
+	ColorMode           string // "" means auto
+	OutputFormat        string // "" means default (pretty)
+	HTMLOutputFile      string // "" means not set
+	LogLevel            string // "" means default (info); one of error/warn/info/debug
+	InstallDir          string // "" means default (~/.stepsecurity); non-empty makes the agent put all its files (logs, hook errors, future state) under this directory. Bootstrap config.json itself stays at the legacy location. Per-run opt-out is the CLI flag --install-dir=. Resolution: --install-dir flag > STEPSECURITY_HOME env > this field > default — see internal/paths.
 )
 
 // ConfigFile is the JSON structure persisted to ~/.stepsecurity/config.json.
 type ConfigFile struct {
-	CustomerID         string   `json:"customer_id,omitempty"`
-	APIEndpoint        string   `json:"api_endpoint,omitempty"`
-	APIKey             string   `json:"api_key,omitempty"`
-	ScanFrequencyHours string   `json:"scan_frequency_hours,omitempty"`
-	SearchDirs         []string `json:"search_dirs,omitempty"`
-	EnableNPMScan      *bool    `json:"enable_npm_scan,omitempty"`
-	EnableBrewScan     *bool    `json:"enable_brew_scan,omitempty"`
-	EnablePythonScan   *bool    `json:"enable_python_scan,omitempty"`
-	ColorMode          string   `json:"color_mode,omitempty"`
-	OutputFormat       string   `json:"output_format,omitempty"`
-	HTMLOutputFile     string   `json:"html_output_file,omitempty"`
-	LogLevel           string   `json:"log_level,omitempty"`
+	CustomerID          string   `json:"customer_id,omitempty"`
+	APIEndpoint         string   `json:"api_endpoint,omitempty"`
+	APIKey              string   `json:"api_key,omitempty"`
+	ScanFrequencyHours  string   `json:"scan_frequency_hours,omitempty"`
+	SearchDirs          []string `json:"search_dirs,omitempty"`
+	EnableNPMScan       *bool    `json:"enable_npm_scan,omitempty"`
+	EnableBrewScan      *bool    `json:"enable_brew_scan,omitempty"`
+	EnablePythonScan    *bool    `json:"enable_python_scan,omitempty"`
+	IncludeTCCProtected *bool    `json:"include_tcc_protected,omitempty"`
+	ColorMode           string   `json:"color_mode,omitempty"`
+	OutputFormat        string   `json:"output_format,omitempty"`
+	HTMLOutputFile      string   `json:"html_output_file,omitempty"`
+	LogLevel            string   `json:"log_level,omitempty"`
+	InstallDir          string   `json:"install_dir,omitempty"`
 }
 
-// configDir returns ~/.stepsecurity.
-func configDir() string {
+// userConfigDir returns ~/.stepsecurity — the per-user config location.
+// Used by community installs and by enterprise installs done via a
+// developer's own login (not via MSI/SCCM).
+func userConfigDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".stepsecurity")
 }
 
-// ConfigFilePath returns the path to the config file.
+// machineConfigDir returns the machine-wide config dir on Windows (and ""
+// elsewhere). Defined in config_windows.go / config_other.go.
+//
+// On Windows, MSI custom actions run as SYSTEM and the scheduled task runs
+// as the logged-in user — the two never share a $HOME, so config has to
+// live somewhere both can read. C:\ProgramData is that place.
+
+// readConfigDir returns the directory we should READ config from.
+// Prefers machine-wide if a config exists there (so an MSI-deployed install
+// is visible even when the scanner runs as an unprivileged user).
+func readConfigDir() string {
+	if mcd := machineConfigDir(); mcd != "" {
+		if _, err := os.Stat(filepath.Join(mcd, "config.json")); err == nil {
+			return mcd
+		}
+	}
+	return userConfigDir()
+}
+
+// writeConfigDir returns the directory we should WRITE config to.
+// Elevated/admin/SYSTEM context → machine-wide (Windows only). Otherwise
+// per-user. This is what makes `configure` invoked from an MSI custom
+// action put the config where the scheduled task can later read it.
+func writeConfigDir() string {
+	if isElevated() {
+		if mcd := machineConfigDir(); mcd != "" {
+			return mcd
+		}
+	}
+	return userConfigDir()
+}
+
+// ConfigFilePath returns the path to the config file (read-preferred).
 func ConfigFilePath() string {
-	return filepath.Join(configDir(), "config.json")
+	return filepath.Join(readConfigDir(), "config.json")
+}
+
+// WriteConfigFilePath returns the path config would be written to under
+// the current process's privilege level. Surfaced so `configure show` /
+// install messages can name the exact file the next save will touch.
+func WriteConfigFilePath() string {
+	return filepath.Join(writeConfigDir(), "config.json")
+}
+
+// LegacyDirName is the basename of the per-user agent directory under
+// $HOME. config.json always lives here so the agent can bootstrap;
+// other files (logs, hook errors, the binary) may be relocated via the
+// resolved install dir — see internal/paths.
+const LegacyDirName = ".stepsecurity"
+
+// LegacyDir returns the per-user agent directory (~/.stepsecurity), used
+// as the reference point for the install-dir migration warning in main:
+// if the operator has moved the install dir but this directory still
+// holds diagnostic files, the agent surfaces a heads-up. Returns "" when
+// $HOME can't be resolved.
+//
+// Distinct from ConfigFilePath / WriteConfigFilePath above: those follow
+// the machine-vs-user resolution that lets MSI-deployed installs share
+// config with a scheduled task running as a logged-in user. LegacyDir is
+// always per-user, regardless of elevation.
+func LegacyDir() string {
+	return userConfigDir()
 }
 
 // Load reads the config file and applies values to the package-level variables.
@@ -89,6 +154,9 @@ func Load() {
 	if cfg.EnablePythonScan != nil && EnablePythonScan == nil {
 		EnablePythonScan = cfg.EnablePythonScan
 	}
+	if cfg.IncludeTCCProtected != nil && IncludeTCCProtected == nil {
+		IncludeTCCProtected = cfg.IncludeTCCProtected
+	}
 	if cfg.ColorMode != "" && ColorMode == "" {
 		ColorMode = cfg.ColorMode
 	}
@@ -100,6 +168,9 @@ func Load() {
 	}
 	if cfg.LogLevel != "" && LogLevel == "" {
 		LogLevel = cfg.LogLevel
+	}
+	if cfg.InstallDir != "" && InstallDir == "" {
+		InstallDir = cfg.InstallDir
 	}
 }
 
@@ -255,6 +326,15 @@ func RunConfigure() error {
 		existing.LogLevel = "info"
 	}
 
+	// Install directory override (empty = ~/.stepsecurity). All
+	// non-bootstrap files live under this directory: agent.log,
+	// agent.error.log (+ .prev rotation), ai-agent-hook-errors.jsonl,
+	// and the binary itself when placed via the loader script.
+	// Bootstrap config.json keeps living at the legacy ~/.stepsecurity
+	// path so the agent can always find it. To temporarily override
+	// for one run, pass --install-dir=PATH or set $STEPSECURITY_HOME.
+	existing.InstallDir = promptValue(reader, "Install Directory (blank = default)", existing.InstallDir)
+
 	// Save
 	if err := save(existing); err != nil {
 		return fmt.Errorf("saving configuration: %w", err)
@@ -318,8 +398,24 @@ func loadExisting() *ConfigFile {
 }
 
 func save(cfg *ConfigFile) error {
-	dir := configDir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	dir := writeConfigDir()
+
+	// File-mode bits below ARE meaningful on POSIX (per-user community installs
+	// on macOS/Linux); on Windows they're ignored by the OS — access is
+	// controlled exclusively by ACLs. We set the mode for POSIX correctness
+	// and harden Windows access separately via hardenMachineConfigACL below.
+	dirMode := os.FileMode(0o700)
+	fileMode := os.FileMode(0o600)
+	machineWide := isElevated() && machineConfigDir() != "" && dir == machineConfigDir()
+	if machineWide {
+		// Machine-wide install: the scheduled task fires under a less-privileged
+		// logged-in user account (see schtasks.go's /ru INTERACTIVE), so the
+		// file must be READABLE by that user — but should not be writable by
+		// non-admins. hardenMachineConfigACL handles the Windows-specific ACL.
+		dirMode = 0o755
+		fileMode = 0o644
+	}
+	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return err
 	}
 
@@ -328,7 +424,22 @@ func save(cfg *ConfigFile) error {
 		return err
 	}
 
-	return os.WriteFile(ConfigFilePath(), data, 0o600)
+	configPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(configPath, data, fileMode); err != nil {
+		return err
+	}
+
+	if machineWide {
+		// Best-effort ACL hardening. Failure does not block the install — the
+		// config is still functional, just inheriting default ProgramData ACLs.
+		// Note: api_key persists in plaintext on disk. On multi-user dev
+		// machines this is a known tradeoff, documented in deploying-via-sccm.md.
+		// Customers needing stronger isolation should use the --from-file
+		// bootstrap pattern and lock down the bootstrap file separately.
+		_ = hardenMachineConfigACL(configPath)
+	}
+
+	return nil
 }
 
 // ShowConfigure prints the current configuration to stdout.
@@ -350,6 +461,7 @@ func ShowConfigure() {
 		fmt.Printf("  %-24s %s\n", "HTML Output File:", displayValue(cfg.HTMLOutputFile))
 	}
 	fmt.Printf("  %-24s %s\n", "Log Level:", displayLogLevel(cfg.LogLevel))
+	fmt.Printf("  %-24s %s\n", "Install Directory:", displayInstallDir(cfg.InstallDir))
 }
 
 func displayValue(v string) string {
@@ -422,6 +534,100 @@ func displayLogLevel(level string) string {
 	}
 }
 
+func displayInstallDir(v string) string {
+	if v == "" {
+		return "~/.stepsecurity (default)"
+	}
+	return v
+}
+
 func isPlaceholder(v string) bool {
 	return strings.Contains(v, "{{")
+}
+
+// NonInteractiveOptions captures every input the non-interactive configure
+// path accepts. Populated by main.go from cli.Config plus the DMG_API_KEY
+// env var fallback. Empty fields preserve the existing on-disk value
+// (merge semantics — same as the interactive prompt's "press Enter to keep").
+type NonInteractiveOptions struct {
+	FromFile      string   // path to a complete ConfigFile JSON; wins over inline values
+	CustomerID    string   // --customer-id
+	APIEndpoint   string   // --api-endpoint
+	APIKey        string   // --api-key (or DMG_API_KEY env)
+	ScanFrequency string   // --scan-frequency (hours, as string)
+	SearchDirs    []string // --search-dirs (re-used from scan flag; empty = unchanged)
+}
+
+// HasAny reports whether the caller supplied any inline value. Used by
+// main.go to decide whether `configure` was invoked non-interactively
+// even without the explicit --non-interactive flag (e.g. an MSI that only
+// passes --from-file).
+func (o NonInteractiveOptions) HasAny() bool {
+	return o.FromFile != "" ||
+		o.CustomerID != "" ||
+		o.APIEndpoint != "" ||
+		o.APIKey != "" ||
+		o.ScanFrequency != "" ||
+		len(o.SearchDirs) > 0
+}
+
+// RunConfigureNonInteractive applies the supplied options to the existing
+// on-disk config and saves. Designed for MSI custom actions, CI, and any
+// orchestrator that can't drive stdin prompts. Always writes to
+// writeConfigDir() — so an MSI running as SYSTEM lands config under
+// C:\ProgramData\StepSecurity where the scheduled task (running as the
+// logged-in user) can read it.
+func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
+	existing := loadExisting()
+
+	// --from-file: replace base. Inline flags still override individual
+	// fields below, so customers can ship a base config via the file and
+	// inject the per-tenant API key via an env var on the command line.
+	if opts.FromFile != "" {
+		data, err := os.ReadFile(opts.FromFile)
+		if err != nil {
+			return fmt.Errorf("reading --from-file %q: %w", opts.FromFile, err)
+		}
+		var fromFile ConfigFile
+		if err := json.Unmarshal(data, &fromFile); err != nil {
+			return fmt.Errorf("parsing --from-file %q: %w", opts.FromFile, err)
+		}
+		existing = &fromFile
+	}
+
+	if opts.CustomerID != "" {
+		existing.CustomerID = opts.CustomerID
+	}
+	if opts.APIEndpoint != "" {
+		existing.APIEndpoint = opts.APIEndpoint
+	}
+	if opts.APIKey != "" {
+		existing.APIKey = opts.APIKey
+	}
+	if opts.ScanFrequency != "" {
+		existing.ScanFrequencyHours = opts.ScanFrequency
+	}
+	if len(opts.SearchDirs) > 0 {
+		existing.SearchDirs = opts.SearchDirs
+	}
+
+	// Validation: an MSI deploy with no creds is almost certainly a bug.
+	// Fail loud so the MSI transaction rolls back instead of silently
+	// installing a half-configured agent.
+	if existing.APIKey == "" {
+		return fmt.Errorf("api_key is required (pass --api-key, --from-file, or DMG_API_KEY env var)")
+	}
+	if existing.CustomerID == "" {
+		return fmt.Errorf("customer_id is required (pass --customer-id or --from-file)")
+	}
+	if existing.APIEndpoint == "" {
+		return fmt.Errorf("api_endpoint is required (pass --api-endpoint or --from-file)")
+	}
+
+	if err := save(existing); err != nil {
+		return fmt.Errorf("saving configuration: %w", err)
+	}
+
+	fmt.Printf("Configuration saved to %s\n", WriteConfigFilePath())
+	return nil
 }

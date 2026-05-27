@@ -11,9 +11,11 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/featuregate"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/output"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 // Run executes a community-mode scan and outputs results.
@@ -28,6 +30,19 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 			log.Warn("search directory %q is not accessible: %v — it will be skipped", d, err)
 		} else if !info.IsDir() {
 			log.Warn("search directory %q is not a directory — it will be skipped", d)
+		}
+	}
+
+	// Build the TCC skipper so directory walks avoid macOS-protected dirs
+	// (Documents, Downloads, ~/Library/Mail, ...) and don't trigger system
+	// permission prompts. Nil when --include-tcc-protected is set; the
+	// skipper's ShouldSkip is nil-safe so downstream callers don't branch.
+	var tccSkipper *tcc.Skipper
+	if tcc.Enabled(cfg.IncludeTCCProtected) {
+		tccSkipper = tcc.New(executor.ResolveHome(exec))
+		if cands := tccSkipper.Candidates(); len(cands) > 0 {
+			log.Warn("macOS TCC: skipping %d protected dirs (Documents, Downloads, ~/Library/Mail, ...) to avoid permission prompts. Pass --include-tcc-protected to scan them.", len(cands))
+			log.Debug("tcc skip list: %v", cands)
 		}
 	}
 
@@ -106,7 +121,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 
 		log.StepStart("Scanning Node.js projects")
 		start = time.Now()
-		projectDetector := detector.NewNodeProjectDetector(exec)
+		projectDetector := detector.NewNodeProjectDetector(exec).WithSkipper(tccSkipper)
 		nodeProjects = projectDetector.ListProjects(searchDirs)
 		log.StepDone(time.Since(start))
 	} else {
@@ -199,7 +214,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 
 		log.StepStart("Scanning Python projects")
 		start = time.Now()
-		pyProjectDetector := detector.NewPythonProjectDetector(exec)
+		pyProjectDetector := detector.NewPythonProjectDetector(exec).WithSkipper(tccSkipper)
 		pythonProjects = pyProjectDetector.ListProjects(searchDirs)
 		log.StepDone(time.Since(start))
 	} else {
@@ -208,20 +223,28 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	}
 
 	// npm config audit — surface-only inventory of every .npmrc on the host
-	// plus the merged effective view npm itself would resolve. Always on;
-	// the audit is cheap (a few stat calls and at most two npm invocations).
-	log.StepStart("Auditing npm configuration")
-	start = time.Now()
+	// plus the merged effective view npm itself would resolve. The audit is
+	// cheap (a few stat calls and at most two npm invocations) but stays
+	// inert until the feature ships; zero-value structs flow through to the
+	// output so JSON/HTML keep emitting the audit shape.
 	loggedInUser, _ := exec.LoggedInUser()
-	npmrcAudit := configaudit.NewNPMRCDetector(exec).Detect(ctx, searchDirs, loggedInUser)
-	log.StepDone(time.Since(start))
+	var npmrcAudit model.NPMRCAudit
+	if featuregate.IsEnabled(featuregate.FeatureNPMRCAudit) {
+		log.StepStart("Auditing npm configuration")
+		start = time.Now()
+		npmrcAudit = configaudit.NewNPMRCDetector(exec).WithSkipper(tccSkipper).Detect(ctx, searchDirs, loggedInUser)
+		log.StepDone(time.Since(start))
+	}
 
 	// pip config audit — same shape: every pip.conf / pip.ini discovered,
 	// merged effective view, env-var snapshot, and a fixed finding catalog.
-	log.StepStart("Auditing pip configuration")
-	start = time.Now()
-	pipAudit := configaudit.NewPipConfigDetector(exec).Detect(ctx, loggedInUser)
-	log.StepDone(time.Since(start))
+	var pipAudit model.PipAudit
+	if featuregate.IsEnabled(featuregate.FeaturePipConfigAudit) {
+		log.StepStart("Auditing pip configuration")
+		start = time.Now()
+		pipAudit = configaudit.NewPipConfigDetector(exec).Detect(ctx, loggedInUser)
+		log.StepDone(time.Since(start))
+	}
 
 	// Ensure no nil slices (JSON must emit [] not null)
 	if aiTools == nil {
@@ -310,6 +333,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 
 	log.Debug("scan complete: ais=%d ides=%d extensions=%d mcp=%d node_projects=%d brew_formulae=%d brew_casks=%d python_projects=%d",
 		len(aiTools), len(ides), len(extensions), len(mcpConfigs), len(nodeProjects), len(brewFormulae), len(brewCasks), len(pythonProjects))
+	tccSkipper.LogHits(log.Warn)
 
 	// Output
 	switch cfg.OutputFormat {

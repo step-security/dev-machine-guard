@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [1.11.4] - 2026-05-26
+
+### Added
+
+- **Authenticode-signed Windows binaries and MSIs**: release artifacts are now signed via Azure Trusted Signing, so installs no longer trip SmartScreen/EDR unsigned-binary heuristics on Windows.
+- **Feature gate for selective scanning**: new feature-gate mechanism allows disabling or enabling individual scanners at runtime, giving operators a way to scope what a deployment reports without rebuilding.
+- **Invocation method + in-flight status reporting**: telemetry now records how the agent was invoked (launchd / systemd / scheduled task / interactive) and emits structured per-phase status info while a scan is running.
+- **`$HOME` expansion in configured paths**: path-style config values now expand `$HOME` (and `~`) consistently across platforms.
+
+### Fixed
+
+- **Windows console window flashes during scheduled scans**: the scheduled task no longer pops a visible console window on each run.
+- **Telemetry post-phase is non-blocking**: post-phase telemetry submission can no longer stall scan completion if the backend is slow or unreachable; sandbox invocation tests added to cover the path.
+- **Canonicalised `$HOME`/`~` expansion**: path expansion now goes through `filepath.Join` so the resulting paths are normalised across `/`-vs-`\` and trailing-separator edge cases.
+
+### Changed
+
+- **Per-phase telemetry sub-progress incl. upload phase**: progress reporting now tracks sub-progress within each phase and adds an explicit upload phase, giving the dashboard finer-grained visibility into long-running scans.
+- **CI: on-demand test-binary + MSI workflow** added so non-release builds can be produced from a PR without cutting a tag.
+- **CI: msi-smoke workflow hardened** following StepSecurity best-practice review.
+
+## [1.11.3] - 2026-05-21
+
+### Added
+
+- **AI agent hook state polling**: agents periodically check the StepSecurity backend for desired hook enable/disable state and reconcile local installation to match. Silent no-op in community mode; failures are logged but never crash the scanner.
+- **Static machine resource info in device payload**: each scan now reports CPU model and count, total RAM, and disk capacity for the scanned host, giving the dashboard a clearer picture of the endpoint context.
+- **Configurable install directory + persistent stderr logs**: new `--install-dir` flag (and matching env var/config field) relocates all non-bootstrap agent state, and stderr is now captured to a rotated `agent.error.log` under the install dir so MDM/service deployments have durable diagnostics (#88).
+
+### Fixed
+
+- **Auto-update signing**: fixed a signing regression in the previous 1.11.2 release that prevented auto-update from working. v1.11.2 has been removed; install or upgrade to 1.11.3 directly.
+- **Windows scheduled task user context**: the scheduled task now runs under the logged-in user via `/ru INTERACTIVE` instead of `SYSTEM`, so the scanner can read `HKCU`, `%USERPROFILE%`, and the user's `PATH` — fixing a class of missed detections for tools installed in user scope.
+- **Windows agent log directory permissions**: `C:\ProgramData\StepSecurity` now grants `BUILTIN\Users` Modify rights so the scheduled task (running as the logged-in user) can append to `agent.log` instead of failing with Access Denied.
+- **AI agent hook command path on Windows**: hook entries written into agent config files now use forward-slash paths, avoiding Windows shell quoting issues that could prevent the hook from firing.
+- **pnpm v11 global scan regression**: globally installed pnpm packages were missing from the npm scan output on pnpm v11; detection logic updated for the new layout.
+- **Linux/macOS lock contention race**: an edge case where the singleton-lock check could misidentify the console user on systems with no active interactive session is fixed.
+
+### Changed
+
+- **CI: gosec SAST scan** added to the workflow set, with a corresponding badge in the README.
+- **CI: cross-platform build + vet/fmt/tidy** checks added to the Tests workflow, surfacing platform-specific compile errors at PR time instead of at release time.
+
 ## [1.11.1] - 2026-05-05
 
 ### Added
@@ -159,6 +202,8 @@ First open-source release. The scanning engine was previously an internal enterp
 - Execution log capture and base64 encoding
 - Instance locking to prevent concurrent runs
 
+[1.11.4]: https://github.com/step-security/dev-machine-guard/compare/v1.11.3...v1.11.4
+[1.11.3]: https://github.com/step-security/dev-machine-guard/compare/v1.11.1...v1.11.3
 [1.11.1]: https://github.com/step-security/dev-machine-guard/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/step-security/dev-machine-guard/compare/v1.10.2...v1.11.0
 [1.10.2]: https://github.com/step-security/dev-machine-guard/compare/v1.10.1...v1.10.2
