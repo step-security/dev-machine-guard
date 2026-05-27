@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [1.11.6] - 2026-05-27
+
+### Fixed
+
+- **macOS Tahoe Media Library prompt**: the project walker now skips `~/Library` wholesale instead of curating individual TCC-protected subpaths. This prevents new TCC prompts (e.g. `kTCCServiceMediaLibrary` from `~/Library/Application Support/com.apple.avfoundation/`) from firing after each macOS release adds Apple-managed subtrees behind new TCC services. Targeted detectors that read specific files under `~/Library` (JetBrains plugins, Claude desktop MCP config, pip global config) keep working unchanged.
+
 ## [1.11.5] - 2026-05-27
 
 ### Added
@@ -215,6 +221,7 @@ First open-source release. The scanning engine was previously an internal enterp
 - Execution log capture and base64 encoding
 - Instance locking to prevent concurrent runs
 
+[1.11.6]: https://github.com/step-security/dev-machine-guard/compare/v1.11.5...v1.11.6
 [1.11.5]: https://github.com/step-security/dev-machine-guard/compare/v1.11.4...v1.11.5
 [1.11.4]: https://github.com/step-security/dev-machine-guard/compare/v1.11.3...v1.11.4
 [1.11.3]: https://github.com/step-security/dev-machine-guard/compare/v1.11.1...v1.11.3
