@@ -18,13 +18,20 @@ func TestSkipper_ShouldSkip(t *testing.T) {
 		{"documents trailing slash", "/Users/alice/Documents/", "/Users/alice", true},
 		{"downloads skipped", "/Users/alice/Downloads", "/Users/alice", true},
 		{"desktop skipped", "/Users/alice/Desktop", "/Users/alice", true},
-		{"library mail skipped", "/Users/alice/Library/Mail", "/Users/alice", true},
-		{"icloud drive skipped", "/Users/alice/Library/Mobile Documents", "/Users/alice", true},
+		// ~/Library is matched at the parent — the walker SkipDirs there
+		// and never descends into Mail/Photos/Music/Containers/etc., so
+		// we no longer need exact-match entries for the gated subdirs.
+		// ShouldSkip on a Library subdir on its own returns false because
+		// WalkDir wouldn't reach it after the parent skip; the test below
+		// pins this behavior so future readers don't get surprised.
+		{"library parent skipped", "/Users/alice/Library", "/Users/alice", true},
+		{"library subdir not directly matched (walker handles via parent SkipDir)", "/Users/alice/Library/Mail", "/Users/alice", false},
 		{"trash skipped", "/Users/alice/.Trash", "/Users/alice", true},
 		{"random code dir not skipped", "/Users/alice/code", "/Users/alice", false},
 		{"vscode dotdir not skipped", "/Users/alice/.vscode", "/Users/alice", false},
 		{"walk root opt-in", "/Users/alice/Documents", "/Users/alice/Documents", false},
 		{"walk root opt-in trailing slash", "/Users/alice/Documents", "/Users/alice/Documents/", false},
+		{"library walk root opt-in", "/Users/alice/Library", "/Users/alice/Library", false},
 		{"timemachine prefix matched", "/Volumes/.timemachine.donottouch/2026-05-25", "/Volumes/MyDrive", true},
 		{"timemachine exact prefix", "/Volumes/.timemachine", "/Volumes/MyDrive", true},
 		{"timemachine subdir slash", "/Volumes/.timemachine/snap", "/Volumes/MyDrive", true},

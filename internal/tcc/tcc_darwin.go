@@ -5,12 +5,28 @@ package tcc
 import "path/filepath"
 
 // protectedSuffixes are paths relative to the user's home directory that
-// macOS gates behind TCC permission prompts. Categories:
-//   - Files & Folders (Catalina+): Desktop, Documents, Downloads
-//   - Removable / Network (Catalina+): handled via opt-in search dirs
-//   - Photos / Music / Movies (Sequoia hardened): Pictures, Movies, Music
-//   - Full Disk Access subtrees: ~/Library/Mail, Messages, Safari, etc.
-//   - Cloud sync (Sonoma+): Mobile Documents, CloudStorage
+// macOS gates behind TCC permission prompts. Categories collapsed for
+// maintainability:
+//
+//   - User data folders (Files & Folders since Catalina, hardened in
+//     Sequoia): Desktop, Documents, Downloads, Pictures, Movies, Music,
+//     Public, .Trash.
+//
+//   - The entire ~/Library tree. Apple gates many subdirs behind
+//     distinct TCC services (Photos for com.apple.photos.*, Media
+//     Library for com.apple.Music / iTunes / Apple/AssetCache,
+//     Calendars, Contacts, the Sonoma App Management service for
+//     ~/Library/Containers/<app>/Data, Sonoma+ cloud-sync services for
+//     Mobile Documents / CloudStorage, etc.). Enumerating each gated
+//     subdir is whack-a-mole — Apple adds new services per major
+//     release. Nothing inside ~/Library is useful inventory data for
+//     dev-machine-guard (code projects live under ~/, ~/code, ~/work,
+//     etc.), so a whole-tree skip silences every per-service popup in
+//     one shot. Sibling detectors that need specific Library subpaths
+//     (JetBrains plugins at ~/Library/Application Support/JetBrains,
+//     Android Studio plugins at ~/Library/Application Support/Google)
+//     use direct ReadDir on known paths, not WalkDir, and are not
+//     affected by this skip.
 var protectedSuffixes = []string{
 	"Desktop",
 	"Documents",
@@ -20,34 +36,7 @@ var protectedSuffixes = []string{
 	"Music",
 	"Public",
 	".Trash",
-
-	"Library/Mail",
-	"Library/Messages",
-	"Library/Safari",
-	"Library/Calendars",
-	"Library/Reminders",
-	"Library/HomeKit",
-	"Library/Suggestions",
-	"Library/Application Support/AddressBook",
-	"Library/Application Support/CallHistoryDB",
-	"Library/Application Support/CallHistoryTransactions",
-	"Library/Application Support/com.apple.TCC",
-	"Library/IdentityServices",
-	"Library/Metadata/CoreSpotlight",
-	"Library/PersonalizationPortrait",
-
-	// App sandbox containers — skipped wholesale because any descent into
-	// these triggers per-service prompts (Photos for com.apple.Photos,
-	// Media Library for com.apple.Music, the macOS Sonoma "App Management"
-	// / "Data from other apps" prompt for arbitrary <app>/Data subdirs).
-	// Nothing inside an app's sandbox is meaningful inventory data for
-	// dev-machine-guard's purpose, so the broader skip is a clean win.
-	"Library/Containers",
-	"Library/Group Containers",
-	"Library/Application Scripts",
-
-	"Library/Mobile Documents",
-	"Library/CloudStorage",
+	"Library",
 }
 
 // protectedAbsolutePrefixes are matched with strings.HasPrefix. Time

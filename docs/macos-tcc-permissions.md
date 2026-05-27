@@ -33,33 +33,35 @@ The skip list is hard-coded against the well-known TCC categories on
 modern macOS (anchored at the logged-in user's `$HOME`):
 
 ```
-~/Desktop                  ~/Library/Mail
-~/Documents                ~/Library/Messages
-~/Downloads                ~/Library/Safari
-~/Pictures                 ~/Library/Calendars
-~/Movies                   ~/Library/Reminders
-~/Music                    ~/Library/HomeKit
-~/Public                   ~/Library/Suggestions
-~/.Trash                   ~/Library/IdentityServices
-~/Library/Mobile Documents ~/Library/Metadata/CoreSpotlight
-~/Library/CloudStorage     ~/Library/PersonalizationPortrait
-~/Library/Containers       ~/Library/Application Support/AddressBook
-~/Library/Group Containers ~/Library/Application Support/CallHistoryDB
-~/Library/Application      ~/Library/Application Support/CallHistoryTransactions
-  Scripts                  ~/Library/Application Support/com.apple.TCC
-
-/Volumes/.timemachine*     (Time Machine local snapshots, prefix match)
+~/Desktop                 ~/Library         (entire subtree)
+~/Documents               ~/.Trash
+~/Downloads
+~/Pictures                /Volumes/.timemachine*   (prefix match —
+~/Movies                                            Time Machine local
+~/Music                                             snapshots)
+~/Public
 ```
 
-The two parent skips that look broad (`~/Library/Containers` and
-`~/Library/Group Containers`) collapse per-app sandbox containers in
-one go. Apple gates many of those subtrees behind separate TCC
-services on modern macOS — Photos for `com.apple.Photos`, Media
-Library for `com.apple.Music`, and the Sonoma "App Management" /
-"Data from other apps" prompt for arbitrary `<app>/Data` subdirs. The
-contents (per-app sandbox state) aren't meaningful inventory data for
-the agent's purpose, so the broader skip avoids three distinct popup
-categories without losing useful coverage.
+The wholesale `~/Library` skip collapses every per-service prompt
+under one rule. Apple gates many `~/Library` subdirs behind distinct
+TCC services and the list grows per macOS release — Photos for
+`com.apple.photos.*`, Media Library for `com.apple.Music` / iTunes /
+`Apple/AssetCache`, Calendars / Contacts / Mail / Safari, the
+Sonoma "App Management" prompt for any `~/Library/Containers/<app>/Data`,
+the Sonoma+ cloud-sync services for `Mobile Documents` and
+`CloudStorage`, and so on. Enumerating each gated subdir was
+whack-a-mole — every macOS release exposed a new service that wasn't
+yet on the list. Nothing inside `~/Library` is meaningful inventory
+data for dev-machine-guard (code projects live under `~/`,
+`~/code/`, `~/work/`, etc., not in Library), so the parent-tree skip
+is behavior-preserving and silences every per-service popup in one
+shot.
+
+Sibling detectors that need specific paths under `~/Library`
+(JetBrains plugin scanning at `~/Library/Application Support/JetBrains`,
+Android Studio plugins at `~/Library/Application Support/Google`)
+use direct `ReadDir` on those known paths — they don't go through the
+TCC-gated `WalkDir` and are unaffected by this skip.
 
 If a search dir is explicitly named (`--search-dirs ~/Documents`) the
 walk root itself is honored — the skip only applies to TCC paths
@@ -213,6 +215,7 @@ granting **SystemPolicyAllFiles** (Full Disk Access) to the agent:
 ```
 
 Replace:
+
 - Both `REPLACE-WITH-UUIDGEN-OUTPUT` values with fresh UUIDs
   (`uuidgen` on macOS).
 - `REPLACE_USERNAME` with the target user's short username so the
@@ -228,13 +231,13 @@ Replace:
 
 #### Push the profile
 
-| MDM | Path |
-|---|---|
-| **Jamf Pro** | Computers → Configuration Profiles → New → Upload → select the `.mobileconfig` file. Scope to a Smart Group containing developer machines. |
-| **Kandji** | Library → Add new → Custom Profile → upload `.mobileconfig`. Assign the Blueprint that targets developer devices. |
-| **Intune (Microsoft)** | Devices → Configuration → Create → macOS → Templates → Custom → upload the `.mobileconfig`. Assign to a device group. |
-| **Mosyle** | Management → Profiles → Add → Custom → upload `.mobileconfig`. |
-| **JumpCloud** | MDM → Policies → Custom Mac Profile → upload. |
+| MDM                    | Path                                                                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Jamf Pro**           | Computers → Configuration Profiles → New → Upload → select the `.mobileconfig` file. Scope to a Smart Group containing developer machines. |
+| **Kandji**             | Library → Add new → Custom Profile → upload `.mobileconfig`. Assign the Blueprint that targets developer devices.                          |
+| **Intune (Microsoft)** | Devices → Configuration → Create → macOS → Templates → Custom → upload the `.mobileconfig`. Assign to a device group.                      |
+| **Mosyle**             | Management → Profiles → Add → Custom → upload `.mobileconfig`.                                                                             |
+| **JumpCloud**          | MDM → Policies → Custom Mac Profile → upload.                                                                                              |
 
 The profile takes effect on the next MDM check-in (usually within
 minutes). Verify with:
@@ -290,7 +293,7 @@ If a popup appears after deploying the PPPC profile and setting
 
 - **Code requirement mismatch.** The PPPC profile's `CodeRequirement`
   string must match the binary's actual signing. Re-run `codesign -d
-  -r-` against the deployed binary and update the profile.
+-r-` against the deployed binary and update the profile.
 - **Binary path mismatch.** If `IdentifierType=path` is used, the
   `Identifier` must match the absolute path of the binary on disk.
   Different per-user install dirs can require deploying the profile
@@ -307,6 +310,7 @@ If a popup appears after deploying the PPPC profile and setting
   This forces re-evaluation against the latest profile on the next
   access. The agent does not call `tccutil` on its own; this is a
   diagnostic step only.
+
 - **`include_tcc_protected` not actually set.** Verify with
   `cat ~/.stepsecurity/config.json` and re-run the loader's
   `write_config` step if the field is missing.
