@@ -26,6 +26,13 @@ type RunStatusInfo struct {
 	PhasesCompleted []PhaseCompletion `json:"phases_completed,omitempty"`
 	CurrentPhase    string            `json:"current_phase,omitempty"`
 	ElapsedMs       int64             `json:"elapsed_ms"`
+	// LogTailGzipBase64 is an optional snapshot of the most recent
+	// captureTailBytes bytes of the agent's stderr stream, gzip-compressed
+	// and base64-encoded. Attached on a throttle (logTailHeartbeatInterval)
+	// so the wire cost stays bounded even when phase boundaries fire
+	// rapidly. Backend handlers must tolerate this field being absent on
+	// any given snapshot.
+	LogTailGzipBase64 string `json:"log_tail_gzip_b64,omitempty"`
 }
 
 // PhaseTracker accumulates phase lifecycle events for a single telemetry

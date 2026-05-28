@@ -6,10 +6,41 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 )
+
+// setupKillgroupOnCancel arranges for cmd's whole process group to be killed
+// when ctx fires, and bounds how long Wait() will block on hung pipe copies.
+//
+// Without this, exec.CommandContext only SIGKILLs the immediate child PID on
+// timeout. If that child has forked grandchildren that inherit stdout/stderr
+// (Electron helpers, npm sandbox workers, bash backgrounded subprocesses),
+// the pipes remain open from the surviving descendants and cmd.Wait() blocks
+// forever — the deadline is effectively ignored. Seen in production as
+// node_scan hangs averaging 3.6 min per project under a 30s per-call ceiling.
+//
+// Setpgid: true makes cmd its own process group leader, so kill(-pid, SIGKILL)
+// reaches the whole subtree. cmd.Cancel runs on ctx cancel/deadline.
+// WaitDelay bounds the pipe-copy wait independently of the kill — if a child
+// somehow survives the group kill (e.g. PID reused), Wait still returns.
+func setupKillgroupOnCancel(cmd *exec.Cmd) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setpgid = true
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		// Negative PID targets the process group leader's group.
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	cmd.WaitDelay = 2 * time.Second
+}
 
 func (r *Real) IsRoot() bool {
 	return os.Getuid() == 0

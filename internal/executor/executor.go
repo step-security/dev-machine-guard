@@ -85,6 +85,7 @@ func NewReal() *Real { return &Real{} }
 func (r *Real) Run(ctx context.Context, name string, args ...string) (string, string, int, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	winproc.HideWindow(cmd)
+	setupKillgroupOnCancel(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -115,6 +116,7 @@ func (r *Real) RunInDir(ctx context.Context, dir string, timeout time.Duration, 
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	winproc.HideWindow(cmd)
+	setupKillgroupOnCancel(cmd)
 	cmd.Dir = dir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

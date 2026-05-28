@@ -110,14 +110,30 @@ type PerformanceMetrics struct {
 //	[scanning] Device ID (Serial): ...
 //	...
 func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err error) {
-	// cancelRun signals the heartbeat goroutine to exit. The post-goroutine
-	// defer below does cancel-then-wait so heartbeat shutdown is clean on
-	// the happy path. This top-level defer is a safety net for early
-	// returns (lock-acquire failure, etc.) that bail before the goroutine
-	// is even spawned — in that case cancelRun must still run so the ctx
-	// is released. Double-cancel on the normal path is a no-op.
-	ctx, cancelRun := context.WithCancel(context.Background())
+	// runCtx is the cancel-only outer context used by the heartbeat
+	// goroutine, the phase-post worker, and the final telemetry upload —
+	// none of which should be subject to the optional scan deadline below.
+	// The deferred cancelRun() is a safety net for early returns (lock
+	// failure, etc.) that bail before the goroutines are even spawned;
+	// double-cancel on the normal path is a no-op.
+	runCtx, cancelRun := context.WithCancel(context.Background())
 	defer cancelRun()
+
+	// ctx is the scan body's working context. It carries the optional
+	// global scan deadline so a single hung subprocess (Electron
+	// --version, npm ls on a runaway monorepo) cannot hold the agent
+	// open for the full 24h TTL window. Override via STEPSEC_MAX_SCAN_DURATION
+	// (Go duration syntax: "45m", "2h"). Set to "0" to disable. The
+	// telemetry upload below uses runCtx so partial data still ships when
+	// the deadline trips mid-scan.
+	ctx := runCtx
+	if d := scanDeadlineFromEnv(defaultScanDeadline); d > 0 {
+		var cancelDeadline context.CancelFunc
+		ctx, cancelDeadline = context.WithTimeout(runCtx, d)
+		defer cancelDeadline()
+		log.Debug("scan deadline armed: %s", d)
+	}
+
 	startTime := time.Now()
 
 	// Detect invocation method once at run start: "install" if the platform's
@@ -193,7 +209,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 			select {
 			case snap := <-phaseCh:
 				process(snap)
-			case <-ctx.Done():
+			case <-runCtx.Done():
 				// Drain any queued snapshot before exiting. Without this,
 				// a naïve select on the next iteration would 50/50 between
 				// the ready ctx.Done() and the ready phaseCh — dropping
@@ -211,11 +227,19 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		}
 	}()
 
+	// tailEmitter is bound to the LogCapture initialized further down in
+	// this function. It's declared as a nil pointer here so postPhase can
+	// close over it; logTailEmitter.MaybeAttach is nil-safe, so the brief
+	// window before StartCapture runs (lock acquisition, banner) just
+	// produces snapshots without a log tail.
+	var tailEmitter *logTailEmitter
+
 	// postPhase is the convergence point for phase-boundary and heartbeat
 	// progress updates. Captured here so the heartbeat goroutine and the
 	// inline phase wrappers share a single call site.
 	postPhase := func() {
 		snap := tracker.Snapshot()
+		tailEmitter.MaybeAttach(&snap)
 		phaseSendMu.Lock()
 		defer phaseSendMu.Unlock()
 		// Drop any queued (older) snapshot so the freshest one always lands.
@@ -274,6 +298,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	capture := StartCapture()
 	defer capture.Finalize()
 
+	// Bind the throttled log-tail emitter to the live capture so every
+	// subsequent postPhase() can ship a recent stderr slice attached to
+	// status_info on the throttle's cadence. See log_tail_emitter.go.
+	tailEmitter = newLogTailEmitter(capture, logTailHeartbeatInterval)
+
 	// Banner (matches shell script format)
 	fmt.Fprintf(os.Stderr, "==========================================\n")
 	fmt.Fprintf(os.Stderr, "StepSecurity Device Agent v%s\n", buildinfo.Version)
@@ -294,9 +323,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 	// Device info — first tracked phase. Completes before the "started"
 	// post so the first heartbeat already includes it in phases_completed.
-	tracker.Start("device_info")
+	phaseCtx, phaseCancel := startPhase(ctx, tracker, "device_info")
 	log.Progress("Gathering device information...")
-	dev := device.Gather(ctx, exec)
+	dev := device.Gather(phaseCtx, exec)
 	deviceID = dev.SerialNumber
 	// Single source of truth for "is this a real developer or a daemon
 	// context?" — same predicate the payload uses below, so the warning,
@@ -318,7 +347,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	if noUserLoggedIn {
 		log.Warn("no real developer identity (UserIdentity=%q, root=%v) — telemetry will be marked no_user_logged_in", dev.UserIdentity, exec.IsRoot())
 	}
-	tracker.Finish()
+	endPhase(phaseCtx, phaseCancel, tracker, log, "device_info")
 
 	// Report "started" now that we have a device_id. Fire-and-forget.
 	reportRunStatus(ctx, log, executionID, deviceID, runStatusStarted, "", invocationMethod)
@@ -338,7 +367,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		defer ticker.Stop()
 		for {
 			select {
-			case <-ctx.Done():
+			case <-runCtx.Done():
 				return
 			case <-ticker.C:
 				postPhase()
@@ -394,10 +423,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	}
 
 	// Detect IDEs
-	tracker.Start("ide_scan")
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "ide_scan")
 	log.Progress("Detecting IDE and AI desktop app installations...")
 	ideDetector := detector.NewIDEDetector(exec)
-	ides := ideDetector.Detect(ctx)
+	ides := ideDetector.Detect(phaseCtx)
 	for _, ide := range ides {
 		log.Progress("  Found: %s (%s) v%s at %s", ideDisplayName(ide.IDEType), ide.Vendor, ide.Version, ide.InstallPath)
 	}
@@ -405,18 +434,18 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		log.Progress("  No IDEs or AI desktop apps found")
 	}
 	fmt.Fprintln(os.Stderr)
-	tracker.Finish()
+	endPhase(phaseCtx, phaseCancel, tracker, log, "ide_scan")
 	postPhase()
 
 	// Collect extensions
-	tracker.Start("extension_scan")
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "extension_scan")
 	log.Progress("Scanning extensions...")
 	extDetector := detector.NewExtensionDetector(exec)
-	extensions := extDetector.Detect(ctx, searchDirs, ides)
+	extensions := extDetector.Detect(phaseCtx, searchDirs, ides)
 
 	// Collect JetBrains plugins
 	jbDetector := detector.NewJetBrainsPluginDetector(exec)
-	jbPlugins := jbDetector.Detect(ctx, ides)
+	jbPlugins := jbDetector.Detect(phaseCtx, ides)
 	extensions = append(extensions, jbPlugins...)
 
 	// On Windows, filter out bundled/platform plugins (e.g., Eclipse's 500+ OSGi
@@ -426,18 +455,18 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	}
 	log.Progress("Found total of %d IDE extensions", len(extensions))
 	fmt.Fprintln(os.Stderr)
-	tracker.Finish()
+	endPhase(phaseCtx, phaseCancel, tracker, log, "extension_scan")
 	postPhase()
 
 	// Detect AI tools — CLI + general agents + frameworks roll up into one
 	// phase since they're all quick discovery passes against the same user
 	// home and exec PATH.
-	tracker.Start("ai_tools_scan")
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "ai_tools_scan")
 	log.Progress("Detecting AI agents and tools...")
 	fmt.Fprintln(os.Stderr)
 
 	log.Progress("Detecting AI CLI tools...")
-	cliTools := detector.NewAICLIDetector(userExec).Detect(ctx)
+	cliTools := detector.NewAICLIDetector(userExec).Detect(phaseCtx)
 	for _, t := range cliTools {
 		log.Progress("  Found: %s (%s) v%s at %s", t.Name, t.Vendor, t.Version, t.BinaryPath)
 	}
@@ -447,7 +476,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	fmt.Fprintln(os.Stderr)
 
 	log.Progress("Detecting general-purpose AI agents...")
-	agents := detector.NewAgentDetector(userExec).Detect(ctx, searchDirs)
+	agents := detector.NewAgentDetector(userExec).Detect(phaseCtx, searchDirs)
 	for _, a := range agents {
 		log.Progress("  Found: %s (%s) at %s", a.Name, a.Vendor, a.InstallPath)
 	}
@@ -457,7 +486,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	fmt.Fprintln(os.Stderr)
 
 	log.Progress("Detecting AI frameworks and runtimes...")
-	frameworks := detector.NewFrameworkDetector(userExec).Detect(ctx)
+	frameworks := detector.NewFrameworkDetector(userExec).Detect(phaseCtx)
 	for _, f := range frameworks {
 		running := "false"
 		if f.IsRunning != nil && *f.IsRunning {
@@ -471,14 +500,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	fmt.Fprintln(os.Stderr)
 
 	allAI := append(append(cliTools, agents...), frameworks...)
-	tracker.Finish()
+	endPhase(phaseCtx, phaseCancel, tracker, log, "ai_tools_scan")
 	postPhase()
 
 	// MCP configs
-	tracker.Start("mcp_config_scan")
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "mcp_config_scan")
 	log.Progress("Collecting MCP configuration files...")
 	mcpDetector := detector.NewMCPDetector(exec)
-	mcpConfigs := mcpDetector.DetectEnterprise(ctx)
+	mcpConfigs := mcpDetector.DetectEnterprise(phaseCtx)
 	for _, c := range mcpConfigs {
 		log.Progress("  Found: %s config (%s)", c.ConfigSource, c.Vendor)
 	}
@@ -488,7 +517,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	log.Debug("scan totals: ides=%d extensions=%d ai_cli=%d agents=%d frameworks=%d mcp_configs=%d",
 		len(ides), len(extensions), len(cliTools), len(agents), len(frameworks), len(mcpConfigs))
 	fmt.Fprintln(os.Stderr)
-	tracker.Finish()
+	endPhase(phaseCtx, phaseCancel, tracker, log, "mcp_config_scan")
 	postPhase()
 
 	// Homebrew scanning
@@ -502,25 +531,25 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	var brewFormulae, brewCasks []model.BrewPackage
 
 	if brewEnabled {
-		tracker.Start("brew_scan")
+		phaseCtx, phaseCancel = startPhase(ctx, tracker, "brew_scan")
 		log.Progress("Detecting Homebrew...")
 		brewDetector := detector.NewBrewDetector(userExec)
-		brewPkgMgr = brewDetector.DetectBrew(ctx)
+		brewPkgMgr = brewDetector.DetectBrew(phaseCtx)
 		log.Debug("brew detection: found=%v", brewPkgMgr != nil)
 		if brewPkgMgr != nil {
 			log.Progress("  Found: Homebrew v%s at %s", brewPkgMgr.Version, brewPkgMgr.Path)
 
 			// Collect rich metadata (pre-parsed packages with desc/license/homepage)
-			brewFormulae = brewDetector.ListFormulaeRich(ctx)
-			brewCasks = brewDetector.ListCasksRich(ctx)
+			brewFormulae = brewDetector.ListFormulaeRich(phaseCtx)
+			brewCasks = brewDetector.ListCasksRich(phaseCtx)
 			log.Progress("  Formulae: %d, Casks: %d (pre-parsed with metadata)", len(brewFormulae), len(brewCasks))
 
 			// Also collect raw scans for backward compatibility with older backends
 			brewScanner := detector.NewBrewScanner(userExec, log)
-			if r, ok := brewScanner.ScanFormulae(ctx); ok {
+			if r, ok := brewScanner.ScanFormulae(phaseCtx); ok {
 				brewScans = append(brewScans, r)
 			}
-			if r, ok := brewScanner.ScanCasks(ctx); ok {
+			if r, ok := brewScanner.ScanCasks(phaseCtx); ok {
 				brewScans = append(brewScans, r)
 			}
 			log.Progress("  Raw scans: %d", len(brewScans))
@@ -528,7 +557,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 			log.Progress("  Homebrew not found")
 		}
 		fmt.Fprintln(os.Stderr)
-		tracker.Finish()
+		endPhase(phaseCtx, phaseCancel, tracker, log, "brew_scan")
 		postPhase()
 	} else {
 		log.Progress("Homebrew scanning is DISABLED")
@@ -546,10 +575,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	var pythonProjects []model.ProjectInfo
 
 	if pythonEnabled {
-		tracker.Start("python_scan")
+		phaseCtx, phaseCancel = startPhase(ctx, tracker, "python_scan")
 		log.Progress("Detecting Python package managers...")
 		pyDetector := detector.NewPythonPMDetector(userExec)
-		pythonPkgManagers = pyDetector.DetectManagers(ctx)
+		pythonPkgManagers = pyDetector.DetectManagers(phaseCtx)
 		for _, pm := range pythonPkgManagers {
 			log.Progress("  Found: %s v%s at %s", pm.Name, pm.Version, pm.Path)
 		}
@@ -563,7 +592,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		// "scanning uv") into the phase tracker so heartbeats surface where
 		// inside the python phase a slow pip3 list is stuck.
 		pyScanner.ProgressHook = func(detail string) { tracker.UpdateDetail(detail) }
-		pythonGlobalPkgs = pyScanner.ScanGlobalPackages(ctx)
+		pythonGlobalPkgs = pyScanner.ScanGlobalPackages(phaseCtx)
 		log.Progress("  Found %d Python global package source(s)", len(pythonGlobalPkgs))
 
 		log.Progress("Searching for Python projects...")
@@ -571,7 +600,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		pythonProjects = pyProjectDetector.ListProjects(searchDirs)
 		log.Progress("  Found %d Python projects", len(pythonProjects))
 		fmt.Fprintln(os.Stderr)
-		tracker.Finish()
+		endPhase(phaseCtx, phaseCancel, tracker, log, "python_scan")
 		postPhase()
 	} else {
 		log.Progress("Python scanning is DISABLED")
@@ -582,15 +611,15 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	var systemPackageScans []model.SystemPackageScanResult
 
 	if exec.GOOS() == model.PlatformLinux {
-		tracker.Start("syspkg_scan")
+		phaseCtx, phaseCancel = startPhase(ctx, tracker, "syspkg_scan")
 		log.Progress("Detecting system packages...")
 		sysPkgDetector := detector.NewSystemPkgDetector(userExec)
 
 		// Primary system PM (rpm, dpkg, pacman, or apk)
-		if pm := sysPkgDetector.Detect(ctx); pm != nil {
+		if pm := sysPkgDetector.Detect(phaseCtx); pm != nil {
 			log.Progress("  Found: %s v%s at %s", pm.Name, pm.Version, pm.Path)
 			start := time.Now()
-			packages := sysPkgDetector.ListPackages(ctx)
+			packages := sysPkgDetector.ListPackages(phaseCtx)
 			duration := time.Since(start).Milliseconds()
 			if packages == nil {
 				packages = []model.SystemPackage{}
@@ -606,16 +635,16 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		}
 
 		// Additional PMs (snap, flatpak) — coexist with system PM
-		for _, mgr := range sysPkgDetector.DetectAdditionalManagers(ctx) {
+		for _, mgr := range sysPkgDetector.DetectAdditionalManagers(phaseCtx) {
 			mgr := mgr
 			log.Progress("  Found: %s v%s at %s", mgr.Name, mgr.Version, mgr.Path)
 			start := time.Now()
 			var packages []model.SystemPackage
 			switch mgr.Name {
 			case "snap":
-				packages = sysPkgDetector.ListSnapPackages(ctx)
+				packages = sysPkgDetector.ListSnapPackages(phaseCtx)
 			case "flatpak":
-				packages = sysPkgDetector.ListFlatpakPackages(ctx)
+				packages = sysPkgDetector.ListFlatpakPackages(phaseCtx)
 			}
 			duration := time.Since(start).Milliseconds()
 			if packages == nil {
@@ -635,7 +664,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 			log.Progress("  No system package managers found")
 		}
 		fmt.Fprintln(os.Stderr)
-		tracker.Finish()
+		endPhase(phaseCtx, phaseCancel, tracker, log, "syspkg_scan")
 		postPhase()
 	} else {
 		log.Progress("System package scanning: skipped (non-Linux)")
@@ -654,12 +683,12 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	var nodeScanMs int64
 
 	if npmEnabled {
-		tracker.Start("node_scan")
+		phaseCtx, phaseCancel = startPhase(ctx, tracker, "node_scan")
 		log.Progress("Node.js package scanning is ENABLED")
 
 		log.Progress("Detecting Node.js package managers...")
 		npmDetector := detector.NewNodePMDetector(userExec)
-		pkgManagers = npmDetector.DetectManagers(ctx)
+		pkgManagers = npmDetector.DetectManagers(phaseCtx)
 		for _, pm := range pkgManagers {
 			log.Progress("  Found: %s v%s at %s", pm.Name, pm.Version, pm.Path)
 		}
@@ -671,18 +700,18 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		// "global: yarn" during the long-running node phase. Both
 		// ScanGlobalPackages and ScanProjects share this hook.
 		nodeScanner.ProgressHook = func(detail string) { tracker.UpdateDetail(detail) }
-		globalPkgs = nodeScanner.ScanGlobalPackages(ctx)
+		globalPkgs = nodeScanner.ScanGlobalPackages(phaseCtx)
 		log.Progress("  Found %d global package location(s)", len(globalPkgs))
 		fmt.Fprintln(os.Stderr)
 
 		log.Progress("Searching for Node.js projects...")
 		scanStart := time.Now()
-		nodeProjects = nodeScanner.ScanProjects(ctx, searchDirs)
+		nodeProjects = nodeScanner.ScanProjects(phaseCtx, searchDirs)
 		nodeScanMs = time.Since(scanStart).Milliseconds()
 		log.Progress("  Found %d Node.js projects", len(nodeProjects))
 		log.Progress("  Scan duration: %dms", nodeScanMs)
 		fmt.Fprintln(os.Stderr)
-		tracker.Finish()
+		endPhase(phaseCtx, phaseCancel, tracker, log, "node_scan")
 		postPhase()
 	} else {
 		log.Progress("Node.js package scanning is DISABLED")
@@ -798,12 +827,17 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// payload can't describe its own upload), so this phase only appears
 	// on the run-status row via heartbeats and the post-upload progress
 	// post below.
-	tracker.Start("telemetry_upload")
+	// Upload deliberately roots on runCtx (no scan deadline) so partial
+	// data still ships when the scan deadline trips earlier. We still
+	// apply the per-phase telemetry_upload budget on top so the upload
+	// itself cannot wedge the agent indefinitely.
+	phaseCtx, phaseCancel = startPhase(runCtx, tracker, "telemetry_upload")
 	log.Progress("Requesting upload URL from backend...")
-	if err := uploadToS3(ctx, log, payload, executionID, tracker); err != nil {
+	if err := uploadToS3(phaseCtx, log, payload, executionID, tracker); err != nil {
+		endPhase(phaseCtx, phaseCancel, tracker, log, "telemetry_upload")
 		return fmt.Errorf("uploading telemetry: %w", err)
 	}
-	tracker.Finish()
+	endPhase(phaseCtx, phaseCancel, tracker, log, "telemetry_upload")
 	postPhase()
 
 	fmt.Fprintln(os.Stderr)
