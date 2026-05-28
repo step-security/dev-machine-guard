@@ -4,10 +4,19 @@ package executor
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 
 	"golang.org/x/sys/windows"
 )
+
+// setupKillgroupOnCancel is a no-op on Windows for now. The Unix equivalent
+// uses Setpgid + kill(-pgid) to kill grandchildren on ctx cancel. The
+// Windows analogue (JobObject + CREATE_BREAKAWAY_FROM_JOB) is a larger
+// change and is tracked separately — Windows hosts are less exposed to the
+// unreaped-helper hang because most scanned binaries are not Electron apps
+// invoked under launchd.
+func setupKillgroupOnCancel(cmd *exec.Cmd) {}
 
 func (r *Real) IsRoot() bool {
 	return windows.GetCurrentProcessToken().IsElevated()
