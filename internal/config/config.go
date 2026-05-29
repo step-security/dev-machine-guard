@@ -134,7 +134,7 @@ func Load() {
 		CustomerID = cfg.CustomerID
 	}
 	if cfg.APIEndpoint != "" && isPlaceholder(APIEndpoint) {
-		APIEndpoint = cfg.APIEndpoint
+		APIEndpoint = NormalizeAPIEndpoint(cfg.APIEndpoint)
 	}
 	if cfg.APIKey != "" && isPlaceholder(APIKey) {
 		APIKey = cfg.APIKey
@@ -397,7 +397,18 @@ func loadExisting() *ConfigFile {
 	return &cfg
 }
 
+// NormalizeAPIEndpoint strips trailing slashes and surrounding whitespace
+// from an API endpoint URL. Every callsite in the agent composes URLs as
+// fmt.Sprintf("%s/v1/...", APIEndpoint, ...) — a trailing slash on the
+// configured value would compose to "//v1/..." and some gateways respond
+// with 403/500 instead of normalizing. Normalising once at the config
+// boundary keeps every consumer simple.
+func NormalizeAPIEndpoint(s string) string {
+	return strings.TrimRight(strings.TrimSpace(s), "/")
+}
+
 func save(cfg *ConfigFile) error {
+	cfg.APIEndpoint = NormalizeAPIEndpoint(cfg.APIEndpoint)
 	dir := writeConfigDir()
 
 	// File-mode bits below ARE meaningful on POSIX (per-user community installs
