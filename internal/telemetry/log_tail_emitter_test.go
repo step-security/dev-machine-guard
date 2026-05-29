@@ -13,7 +13,7 @@ import (
 // stepClock is a deterministic time source for the throttle test.
 type stepClock struct{ t time.Time }
 
-func (c *stepClock) now() time.Time     { return c.t }
+func (c *stepClock) now() time.Time          { return c.t }
 func (c *stepClock) advance(d time.Duration) { c.t = c.t.Add(d) }
 
 func newEmitterWithFakeClock(cap *LogCapture, interval time.Duration, clk *stepClock) *logTailEmitter {
