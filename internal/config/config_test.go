@@ -29,6 +29,27 @@ func TestIsEnterpriseMode_Valid(t *testing.T) {
 	}
 }
 
+func TestNormalizeAPIEndpoint(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"https://api.example.com", "https://api.example.com"},
+		{"https://api.example.com/", "https://api.example.com"},
+		{"https://api.example.com//", "https://api.example.com"},
+		{"  https://api.example.com/  ", "https://api.example.com"},
+		{"https://api.example.com/v1", "https://api.example.com/v1"},
+		{"https://api.example.com/v1/", "https://api.example.com/v1"},
+		{"", ""},
+		{"   ", ""},
+		{"/", ""},
+	}
+	for _, tt := range tests {
+		if got := NormalizeAPIEndpoint(tt.in); got != tt.want {
+			t.Errorf("NormalizeAPIEndpoint(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestIsPlaceholder(t *testing.T) {
 	tests := []struct {
 		input string
