@@ -525,10 +525,19 @@ jobs:
         run: |
           # IntuneWinAppUtil takes a SOURCE FOLDER (-c) and a SETUP FILE within
           # it (-s); it packs the folder's contents into the .intunewin and
-          # records the setup file as the install entry point. The MSI's
-          # Authenticode signature is preserved verbatim inside the encrypted
-          # payload -- IME extracts and runs the same signed bytes on the
-          # endpoint, so the trust chain (Azure Trusted Signing -> MSI ->
+          # records the setup file as the install entry point.
+          #
+          # The setup file is install.cmd (NOT the MSI directly). The wrapper
+          # forces verbose logging to %ProgramData%\StepSecurity\install.log on
+          # every deploy, forwards Intune's install-command args (APIKEY etc.)
+          # to msiexec via %*, and matches the MSI by wildcard so the command
+          # stays version-agnostic. uninstall.cmd ships alongside so the Intune
+          # uninstall command is a single uniform string across every version in
+          # a supersedence chain. The signed MSI is bundled in the same folder.
+          #
+          # The MSI's Authenticode signature is preserved verbatim inside the
+          # encrypted payload -- IME extracts and runs the same signed bytes on
+          # the endpoint, so the trust chain (Azure Trusted Signing -> MSI ->
           # MSI-inside-.intunewin -> MSI-extracted-on-device) holds end-to-end.
           #
           # The .intunewin format itself is an encrypted ZIP and cannot be
@@ -542,20 +551,28 @@ jobs:
             $msiName = "stepsecurity-dev-machine-guard-$version-$arch.msi"
             $stage   = "dist/intunewin-staging-$arch"
             New-Item -ItemType Directory -Path $stage -Force | Out-Null
-            Copy-Item -Path "dist/$msiName" -Destination $stage -Force
-            & $tool -c $stage -s $msiName -o dist -q
+            Copy-Item -Path "dist/$msiName"                        -Destination $stage -Force
+            Copy-Item -Path "packaging/windows/intune/install.cmd"   -Destination $stage -Force
+            Copy-Item -Path "packaging/windows/intune/uninstall.cmd" -Destination $stage -Force
+
+            & $tool -c $stage -s install.cmd -o dist -q
             if ($LASTEXITCODE -ne 0) {
               Write-Error "IntuneWinAppUtil.exe failed for $arch (exit $LASTEXITCODE)"
               exit 1
             }
             Remove-Item -Path $stage -Recurse -Force
 
-            $expected = "dist/stepsecurity-dev-machine-guard-$version-$arch.intunewin"
-            if (-not (Test-Path $expected)) {
-              Write-Error "Expected output not found: $expected"
+            # IntuneWinAppUtil names the output after the setup file
+            # (install.intunewin); rename to the versioned, arch-tagged filename.
+            $produced = "dist/install.intunewin"
+            if (-not (Test-Path $produced)) {
+              Write-Error "Expected output not found: $produced"
               exit 1
             }
-            $full = (Get-Item $expected).FullName
+            $final = "dist/stepsecurity-dev-machine-guard-$version-$arch.intunewin"
+            if (Test-Path $final) { Remove-Item -Path $final -Force }
+            Move-Item -Path $produced -Destination $final
+            $full = (Get-Item $final).FullName
             "$arch=$full" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           }
 
