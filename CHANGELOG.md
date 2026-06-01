@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [1.11.7] - 2026-05-31
+
+### Added
+
+- **Antigravity IDE detection**: scans now recognize the Antigravity editor.
+- **Bounded scan execution**: scans are now capped by a global deadline (60m default; override via `STEPSEC_MAX_SCAN_DURATION`, or `0` to disable) plus per-phase deadlines, so a single stuck phase no longer hangs the whole run. Subprocesses are killed by process group on cancel, preventing forked grandchildren (Electron `--version`, npm/yarn/pnpm `ls`) from blocking on inherited file descriptors.
+- **Log tail in heartbeat**: heartbeats now carry a gzipped+base64 tail of recent stderr (throttled), and log capture uses a bounded ring buffer to cap memory on long runs, surfacing where a scan is stuck.
+
+### Fixed
+
+- **`api_endpoint` trailing slash**: configured `api_endpoint` values are now normalized to strip trailing slashes at the config boundary, avoiding malformed `//v1/...` URLs that some gateways reject with 403/500.
+- **pip detection triggering CLT install dialog**: pip detection no longer invokes a command that could pop the macOS Command Line Tools install dialog.
+- **macOS IDE pop-ups and stuck processes**: macOS scans are further hardened against IDE permission pop-ups and processes that never exit.
+- **Execution-watchdog limit via config**: the execution-watchdog limit is now delivered through `config.json`.
+
 ## [1.11.6] - 2026-05-27
 
 ### Fixed
@@ -221,6 +236,7 @@ First open-source release. The scanning engine was previously an internal enterp
 - Execution log capture and base64 encoding
 - Instance locking to prevent concurrent runs
 
+[1.11.7]: https://github.com/step-security/dev-machine-guard/compare/v1.11.6...v1.11.7
 [1.11.6]: https://github.com/step-security/dev-machine-guard/compare/v1.11.5...v1.11.6
 [1.11.5]: https://github.com/step-security/dev-machine-guard/compare/v1.11.4...v1.11.5
 [1.11.4]: https://github.com/step-security/dev-machine-guard/compare/v1.11.3...v1.11.4
