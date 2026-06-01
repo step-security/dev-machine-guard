@@ -30,6 +30,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/schtasks"
 	"github.com/step-security/dev-machine-guard/internal/systemd"
 	"github.com/step-security/dev-machine-guard/internal/telemetry"
+	"github.com/step-security/dev-machine-guard/internal/winproc"
 )
 
 // hookReconcileTimeout caps the entire reconcile step (fetch + cache
@@ -273,6 +274,24 @@ func main() {
 		// means scheduled runs fall back to the binary's built-in default.
 		if err := config.PersistMaxExecutionDuration(os.Getenv(telemetry.EnvMaxExecutionDuration)); err != nil {
 			log.Warn("failed to persist max execution duration to config (%v) — scheduled runs will use the built-in default", err)
+		}
+
+		// MSI deferred custom actions run as NT AUTHORITY\SYSTEM. A scan
+		// from that context sees SYSTEM's profile (no IDEs, no AI agents,
+		// no user dotfiles) and ships a near-empty payload as the first
+		// data point — the symptom customers reported as "first run is
+		// empty, subsequent runs are correct." Instead of scanning inline,
+		// ask the scheduler to fire the just-registered task, which is
+		// bound to /ru INTERACTIVE and runs under the logged-in user.
+		// If no one is logged in (unattended SCCM deploys), the trigger
+		// silently no-ops and the task fires on its next hourly tick;
+		// either way, no SYSTEM-context telemetry ever ships.
+		if runtime.GOOS == "windows" && winproc.IsLocalSystem() {
+			if err := schtasks.RunNow(exec, log); err != nil {
+				log.Warn("could not trigger initial scan (%v) — the scheduled task will fire on its next interval", err)
+			}
+			runHookStateReconcile(exec, log)
+			return
 		}
 
 		log.Progress("Sending initial telemetry...")

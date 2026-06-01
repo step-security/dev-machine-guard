@@ -104,6 +104,30 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	return nil
 }
 
+// RunNow asks Task Scheduler to fire the registered task immediately,
+// using its configured principal (/ru INTERACTIVE for admin installs).
+// Used by the install flow under LocalSystem to surface first-run
+// telemetry under the logged-in user rather than scanning SYSTEM's
+// empty profile inline.
+//
+// schtasks /run returns 0 once the scheduler has accepted the request;
+// it does not wait for the task to complete and does not report whether
+// an interactive session exists. If no user is logged in, the trigger
+// silently no-ops and the task fires on its next hourly tick.
+func RunNow(exec executor.Executor, log *progress.Logger) error {
+	ctx := context.Background()
+	_, stderr, exitCode, err := exec.Run(ctx, "schtasks", "/run", "/tn", taskName)
+	log.Debug("schtasks /run: exit_code=%d err=%v", exitCode, err)
+	if err != nil {
+		return fmt.Errorf("failed to trigger scheduled task: %w", err)
+	}
+	if exitCode != 0 {
+		return fmt.Errorf("failed to trigger scheduled task (exit code %d): %s", exitCode, stderr)
+	}
+	log.Progress("Triggered initial scan under the logged-in user")
+	return nil
+}
+
 // Uninstall removes the scheduled task.
 func Uninstall(exec executor.Executor, log *progress.Logger) error {
 	ctx := context.Background()

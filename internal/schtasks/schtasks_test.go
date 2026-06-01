@@ -178,6 +178,30 @@ func TestResolveTaskBinary_NoLauncher(t *testing.T) {
 	}
 }
 
+func TestRunNow_Success(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	mock.SetCommand("SUCCESS: Attempted to run the scheduled task.", "", 0, "schtasks", "/run", "/tn", taskName)
+
+	if err := RunNow(mock, newTestLogger()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestRunNow_NonZeroExit(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	mock.SetCommand("", "ERROR: The system cannot find the path specified.", 1, "schtasks", "/run", "/tn", taskName)
+
+	err := RunNow(mock, newTestLogger())
+	if err == nil {
+		t.Fatal("expected error when schtasks /run exits non-zero")
+	}
+	if !strings.Contains(err.Error(), "exit code 1") {
+		t.Errorf("expected exit code in error, got %v", err)
+	}
+}
+
 // The task action must invoke the binary directly. A `cmd /c` wrapper
 // (the pre-fix form) spawns a console window every time Task Scheduler
 // fires the task under an interactive user session.

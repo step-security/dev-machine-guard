@@ -10,3 +10,8 @@ import "os/exec"
 
 // HideWindow is a no-op on non-Windows platforms.
 func HideWindow(_ *exec.Cmd) {}
+
+// IsLocalSystem always returns false on non-Windows platforms. The
+// SYSTEM-context discrimination only matters for MSI deferred custom
+// actions, which are Windows-only.
+func IsLocalSystem() bool { return false }
