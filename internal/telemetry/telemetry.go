@@ -705,6 +705,16 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		for _, pm := range pkgManagers {
 			log.Progress("  Found: %s v%s at %s", pm.Name, pm.Version, pm.Path)
 		}
+		// Surface the empty-detector case explicitly. Previously this
+		// printed nothing — a 20-minute blank between "Detecting Node.js
+		// package managers..." and the next section, hiding the fact that
+		// the per-project scans about to run would all ENOENT and ship
+		// empty stdout records. Output.log from cfacorp prod showed this
+		// blank on every broken device; the warning makes the root cause
+		// visible at the agent level.
+		if len(pkgManagers) == 0 {
+			log.Warn("No Node.js package managers found on PATH — per-project scans will be skipped")
+		}
 		fmt.Fprintln(os.Stderr)
 
 		log.Progress("Scanning globally installed packages...")

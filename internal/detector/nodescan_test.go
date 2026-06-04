@@ -327,8 +327,11 @@ func TestNodeScanner_ScanProject_Windows(t *testing.T) {
 		"npm", "ls", "--json", "--depth=3")
 
 	scanner := newTestScanner(mock)
-	result := scanner.scanProject(context.Background(), `C:\Users\dev\myapp`)
+	result, ok := scanner.scanProject(context.Background(), `C:\Users\dev\myapp`)
 
+	if !ok {
+		t.Fatal("expected scanProject to emit a result when npm is available")
+	}
 	if result.PackageManager != "npm" {
 		t.Errorf("expected npm, got %s", result.PackageManager)
 	}
@@ -361,8 +364,11 @@ func TestNodeScanner_ScanProject_YarnBerry_Windows(t *testing.T) {
 		"yarn", "info", "--all", "--json")
 
 	scanner := newTestScanner(mock)
-	result := scanner.scanProject(context.Background(), projectDir)
+	result, ok := scanner.scanProject(context.Background(), projectDir)
 
+	if !ok {
+		t.Fatal("expected scanProject to emit a result when yarn is available")
+	}
 	if result.PackageManager != "yarn-berry" {
 		t.Errorf("expected yarn-berry, got %s", result.PackageManager)
 	}
@@ -371,6 +377,80 @@ func TestNodeScanner_ScanProject_YarnBerry_Windows(t *testing.T) {
 	}
 	if result.ExitCode != 0 {
 		t.Errorf("expected ExitCode 0, got %d", result.ExitCode)
+	}
+}
+
+// TestNodeScanner_ScanProject_PMNotInPATH covers the cfacorp regression:
+// a package-lock.json project on a Windows device where Node.js wasn't
+// deployed by IT (npm absent from PATH). Previously this path discarded
+// the exec.CommandContext ENOENT and shipped a NodeScanResult with empty
+// RawStdoutBase64 — indistinguishable on the backend from a successful
+// scan of an empty project. The fix drops the record entirely: "PM not
+// installed" is a normal configuration state, not an error to report.
+func TestNodeScanner_ScanProject_PMNotInPATH(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	// Note: deliberately do NOT call mock.SetPath("npm", ...) — that's the
+	// condition we're regression-testing.
+	projectDir := `C:\Users\dev\myapp`
+	mock.SetFile(filepath.Join(projectDir, "package-lock.json"), []byte{})
+
+	scanner := newTestScanner(mock)
+	_, ok := scanner.scanProject(context.Background(), projectDir)
+
+	if ok {
+		t.Error("expected scanProject to return ok=false when PM not on PATH (so no record is emitted)")
+	}
+}
+
+// TestNodeScanner_ScanProjects_DropsRecordsForMissingPM exercises the
+// loop-level contract end-to-end: a device with multiple package.json
+// files but no installed PM should produce zero records, not zero-result
+// records. This is what cfacorp's broken devices needed.
+func TestNodeScanner_ScanProjects_DropsRecordsForMissingPM(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	// Two real package.json files, no npm on PATH.
+	dirA := `C:\Users\dev\a`
+	dirB := `C:\Users\dev\b`
+	mock.SetFile(filepath.Join(dirA, "package.json"), []byte("{}"))
+	mock.SetFile(filepath.Join(dirA, "package-lock.json"), []byte{})
+	mock.SetFile(filepath.Join(dirB, "package.json"), []byte("{}"))
+	mock.SetFile(filepath.Join(dirB, "package-lock.json"), []byte{})
+
+	scanner := newTestScanner(mock)
+	results := scanner.ScanProjects(context.Background(), []string{`C:\Users\dev`})
+
+	if len(results) != 0 {
+		t.Errorf("expected 0 telemetry records when PM not installed, got %d", len(results))
+	}
+}
+
+// TestNodeScanner_ScanProject_BinaryAvailabilityCached verifies the
+// pmAvailability cache: two scanProject calls for the same PM should
+// trigger exactly one PATH lookup. Important on devices with hundreds
+// of lockfiles — without caching we'd pay a LookPath per project.
+func TestNodeScanner_ScanProject_BinaryAvailabilityCached(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	dirA := `C:\Users\dev\a`
+	dirB := `C:\Users\dev\b`
+	mock.SetFile(filepath.Join(dirA, "package-lock.json"), []byte{})
+	mock.SetFile(filepath.Join(dirB, "package-lock.json"), []byte{})
+
+	scanner := newTestScanner(mock)
+	_, firstOK := scanner.scanProject(context.Background(), dirA)
+	_, secondOK := scanner.scanProject(context.Background(), dirB)
+
+	if firstOK || secondOK {
+		t.Errorf("expected both scanProject calls to return ok=false, got firstOK=%v secondOK=%v",
+			firstOK, secondOK)
+	}
+	if got, want := len(scanner.pmAvailability), 1; got != want {
+		t.Errorf("expected exactly %d cached PM lookup after two scans of same PM, got %d", want, got)
+	}
+	if _, ok := scanner.pmAvailability["npm"]; !ok {
+		t.Error("expected pmAvailability to contain entry for npm")
 	}
 }
 

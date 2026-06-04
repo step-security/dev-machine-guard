@@ -41,10 +41,35 @@ type NodeScanner struct {
 	// 12 of 47", "scanning yarn", ...). Telemetry plumbs this into
 	// PhaseTracker.UpdateDetail so heartbeats surface mid-phase progress.
 	ProgressHook func(detail string)
+	// pmAvailability caches checkPath results per package-manager binary
+	// for the lifetime of a single ScanProjects call. On a device with 700+
+	// lockfiles, the per-project scan path previously paid a PATH lookup
+	// per project; this cache collapses that to one lookup per distinct
+	// PM. Also avoided: spamming the same "x not found in PATH" warning
+	// hundreds of times when the PM truly isn't installed.
+	pmAvailability map[string]error
 }
 
 func NewNodeScanner(exec executor.Executor, log *progress.Logger, loggedInUser string) *NodeScanner {
-	return &NodeScanner{exec: exec, log: log, loggedInUser: loggedInUser}
+	return &NodeScanner{
+		exec:           exec,
+		log:            log,
+		loggedInUser:   loggedInUser,
+		pmAvailability: make(map[string]error),
+	}
+}
+
+// binaryAvailable returns the cached checkPath result for a package-manager
+// binary, populating the cache on first call. Wraps checkPath so callers in
+// the per-project loop don't pay an LookPath per project on devices that
+// have hundreds of lockfiles for a PM that isn't installed.
+func (s *NodeScanner) binaryAvailable(ctx context.Context, name string) error {
+	if err, ok := s.pmAvailability[name]; ok {
+		return err
+	}
+	err := s.checkPath(ctx, name)
+	s.pmAvailability[name] = err
+	return err
 }
 
 // WithSkipper attaches a TCC skipper so the discovery walk skips
@@ -405,7 +430,12 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 		pm := DetectProjectPM(s.exec, p.dir)
 		s.log.Progress("    Package manager: %s", pm)
 
-		r := s.scanProject(ctx, p.dir)
+		r, ok := s.scanProject(ctx, p.dir)
+		if !ok {
+			// PM not installed on this device — not an error, just nothing
+			// to scan. Skip without emitting a telemetry record.
+			continue
+		}
 		resultSize := int64(len(r.RawStdoutBase64)) + int64(len(r.RawStderrBase64))
 
 		if totalSize+resultSize > maxBytes {
@@ -421,53 +451,79 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 	return results
 }
 
-func (s *NodeScanner) scanProject(ctx context.Context, projectDir string) model.NodeScanResult {
+// scanProject runs the project's detected package manager in the project
+// directory and returns the raw stdout/stderr as a NodeScanResult. The
+// second return is false when no record should be emitted — currently only
+// the case when the PM binary isn't on PATH, which is a normal "Node not
+// installed on this device" state, not a scan failure. Mirrors the
+// (result, ok) shape of scanNPMGlobal / scanYarnGlobal / scanPnpmGlobal.
+func (s *NodeScanner) scanProject(ctx context.Context, projectDir string) (model.NodeScanResult, bool) {
 	pm := DetectProjectPM(s.exec, projectDir)
-	version := ""
 
 	var cmd string
 	var args []string
-
 	switch pm {
 	case "npm":
-		version = s.getVersion(ctx, "npm", "--version")
-		cmd = "npm"
-		args = []string{"ls", "--json", "--depth=3"}
+		cmd, args = "npm", []string{"ls", "--json", "--depth=3"}
 	case "yarn":
-		version = s.getVersion(ctx, "yarn", "--version")
-		cmd = "yarn"
-		args = []string{"list", "--json"}
+		cmd, args = "yarn", []string{"list", "--json"}
 	case "yarn-berry":
-		version = s.getVersion(ctx, "yarn", "--version")
-		cmd = "yarn"
-		args = []string{"info", "--all", "--json"}
+		cmd, args = "yarn", []string{"info", "--all", "--json"}
 	case "pnpm":
-		version = s.getVersion(ctx, "pnpm", "--version")
-		cmd = "pnpm"
-		args = []string{"ls", "--json", "--depth=3"}
+		cmd, args = "pnpm", []string{"ls", "--json", "--depth=3"}
 	case "bun":
-		version = s.getVersion(ctx, "bun", "--version")
-		cmd = "bun"
-		args = []string{"pm", "ls", "--all"}
+		cmd, args = "bun", []string{"pm", "ls", "--all"}
 	default:
+		// "unsupported package manager" is a genuine error state — the
+		// lockfile detector matched something we don't have a scanner for.
+		// Emit so the backend can surface it; this is distinct from the
+		// "PM not installed" case handled below.
 		return model.NodeScanResult{
 			ProjectPath:    projectDir,
 			PackageManager: pm,
 			Error:          "unsupported package manager",
 			ExitCode:       1,
-		}
+		}, true
 	}
+
+	// "PM not installed on this device" is not a scan failure — it's a
+	// normal configuration state (e.g. a Windows machine that hasn't
+	// received the corporate Node.js deployment, scanning vendored
+	// package.json files inside VS Code extensions). Without this guard
+	// the per-project loop fell through to exec.CommandContext, hit ENOENT,
+	// and shipped an empty-RawStdoutBase64 record per project to the
+	// backend. The backend can't tell the difference between "agent
+	// couldn't run npm" and "agent ran npm and got 0 packages", so devices
+	// with hundreds of vendored package.json files dropped off the UI's
+	// "Has npm_packages" view despite the backend running cleanly.
+	//
+	// Symmetric with scanNPMGlobal / scanYarnGlobal / scanPnpmGlobal which
+	// already do this — global scans for missing PMs are dropped from
+	// telemetry rather than emitted as zero-result records.
+	if err := s.binaryAvailable(ctx, cmd); err != nil {
+		return model.NodeScanResult{}, false
+	}
+
+	version := s.getVersion(ctx, cmd, "--version")
 
 	start := time.Now()
 	// Run the package manager command directly in the project directory.
 	// Avoids shell cd + quoting issues on Windows where cmd.exe misinterprets
 	// Go's backslash-escaped quotes in paths.
-	stdout, stderr, exitCode, _ := s.runInDir(ctx, projectDir, 30*time.Second, cmd, args...)
+	stdout, stderr, exitCode, runErr := s.runInDir(ctx, projectDir, 30*time.Second, cmd, args...)
 	duration := time.Since(start).Milliseconds()
 
+	// Capture the real failure reason for the case where the PM IS
+	// available but the run still fails (timeout, mid-run exec error,
+	// non-zero exit). Previously runErr was discarded and errMsg was
+	// derived from exitCode alone, making spawn failure mid-run,
+	// context cancellation, and a genuine non-zero exit indistinguishable.
 	errMsg := ""
-	if exitCode != 0 {
-		errMsg = cmd + " command failed with exit code"
+	switch {
+	case runErr != nil:
+		errMsg = fmt.Sprintf("%s exec failed: %v", cmd, runErr)
+	case exitCode != 0:
+		errMsg = fmt.Sprintf("%s exited with code %d", cmd, exitCode)
 	}
 
 	return model.NodeScanResult{
@@ -480,7 +536,7 @@ func (s *NodeScanner) scanProject(ctx context.Context, projectDir string) model.
 		Error:            errMsg,
 		ExitCode:         exitCode,
 		ScanDurationMs:   duration,
-	}
+	}, true
 }
 
 func (s *NodeScanner) getVersion(ctx context.Context, binary, flag string) string {
