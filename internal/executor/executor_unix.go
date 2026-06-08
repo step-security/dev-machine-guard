@@ -88,16 +88,6 @@ func (r *Real) resolveUserShell(ctx context.Context, username string) string {
 }
 
 func (r *Real) RunAsUser(ctx context.Context, username, command string) (string, error) {
-	if !r.IsRoot() {
-		stdout, _, exitCode, err := r.Run(ctx, "bash", "-c", command)
-		if err != nil {
-			return strings.TrimSpace(stdout), err
-		}
-		if exitCode != 0 {
-			return strings.TrimSpace(stdout), fmt.Errorf("command exited with code %d", exitCode)
-		}
-		return strings.TrimSpace(stdout), nil
-	}
 	shell := r.resolveUserShell(ctx, username)
 	if shell == "" {
 		shell = "/bin/bash"
@@ -111,12 +101,50 @@ func (r *Real) RunAsUser(ctx context.Context, username, command string) (string,
 		rcSource = "[ -f ~/.zshrc ] && . ~/.zshrc 2>/dev/null; "
 	}
 
-	stdout, _, exitCode, err := r.Run(ctx, "sudo", "-H", "-u", username, shell, "-l", "-c", rcSource+command)
+	var stdout, stderr string
+	var exitCode int
+	var err error
+	if r.IsRoot() {
+		// Running as root (MDM "Run Script" / LaunchDaemon): drop to the target
+		// user via sudo so the command runs in their environment. -H sets HOME so
+		// ~ in rcSource resolves to the target user's home.
+		stdout, stderr, exitCode, err = r.Run(ctx, "sudo", "-H", "-u", username, shell, "-l", "-c", rcSource+command)
+	} else {
+		// Already running as the user (the LaunchAgent's periodic fire). No sudo
+		// needed, but launchd hands user agents a stripped PATH
+		// (/usr/bin:/bin:/usr/sbin:/sbin), so we still go through the user's login
+		// shell with rc sourced — otherwise nvm/fnm/homebrew-installed npm/yarn/pnpm
+		// aren't on PATH and the bare exec fails with "executable not found"
+		// (exit -1, empty output, version "unknown").
+		stdout, stderr, exitCode, err = r.Run(ctx, shell, "-l", "-c", rcSource+command)
+	}
+
 	if err != nil {
 		return strings.TrimSpace(stdout), err
 	}
 	if exitCode != 0 {
+		// Fold the shell's stderr into the error. Callers record this — the
+		// node scanner puts it in the telemetry Error field — so a failure
+		// should explain itself ("zsh: command not found: npm", a missing
+		// lockfile, an npm ELSPROBLEMS line) rather than surfacing as an
+		// opaque "exited with code N". Previously stderr was discarded here
+		// and the real reason was lost.
+		if detail := stderrSnippet(stderr); detail != "" {
+			return strings.TrimSpace(stdout), fmt.Errorf("command exited with code %d: %s", exitCode, detail)
+		}
 		return strings.TrimSpace(stdout), fmt.Errorf("command exited with code %d", exitCode)
 	}
 	return strings.TrimSpace(stdout), nil
+}
+
+// stderrSnippet trims and length-bounds shell stderr for embedding in an error
+// message — enough to explain a failure (e.g. "zsh: command not found: npm")
+// without bloating a telemetry Error field with a full npm/pnpm dependency dump.
+func stderrSnippet(s string) string {
+	s = strings.TrimSpace(s)
+	const max = 200
+	if r := []rune(s); len(r) > max {
+		return string(r[:max]) + "..."
+	}
+	return s
 }

@@ -3,7 +3,9 @@ package detector
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -453,6 +455,116 @@ func TestNodeScanner_ScanProject_BinaryAvailabilityCached(t *testing.T) {
 	}
 	if _, ok := scanner.pmAvailability["npm"]; !ok {
 		t.Error("expected pmAvailability to contain entry for npm")
+	}
+}
+
+// TestNodeScanner_ShouldRunAsUser pins the delegation decision. The fix dropped
+// the old IsRoot() requirement: whenever there's a logged-in user on a non-
+// Windows host, package-manager commands run through that user's login shell —
+// in BOTH deployment modes. The non-root row is the LaunchAgent regression:
+// launchd runs the agent as the user with a stripped PATH, and before the fix
+// shouldRunAsUser was false there, so npm/yarn/pnpm fell through to a bare exec
+// and weren't found (exit -1, empty output, version "unknown").
+func TestNodeScanner_ShouldRunAsUser(t *testing.T) {
+	tests := []struct {
+		name         string
+		goos         string
+		isRoot       bool
+		loggedInUser string
+		want         bool
+	}{
+		{"non-root macOS with user (LaunchAgent regression)", "darwin", false, "alice", true},
+		{"root macOS with user (LaunchDaemon)", "darwin", true, "alice", true},
+		{"non-root linux with user", "linux", false, "alice", true},
+		{"no logged-in user", "darwin", false, "", false},
+		{"windows excluded", "windows", false, "alice", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := executor.NewMock()
+			mock.SetGOOS(tc.goos)
+			mock.SetIsRoot(tc.isRoot)
+			scanner := NewNodeScanner(mock, progress.NewLogger(progress.LevelInfo), tc.loggedInUser)
+			if got := scanner.shouldRunAsUser(); got != tc.want {
+				t.Errorf("shouldRunAsUser() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestNodeScanner_ScanProject_Delegated_NonRoot is the core LaunchAgent
+// regression: the agent runs as the console user (NOT root) under launchd's
+// stripped PATH. The scanner must still route npm through the user's login
+// shell — the Mock dispatches RunAsUser as `bash -c "<cmd>"` — so an
+// nvm/fnm/homebrew npm is resolved. checkPath (`which npm`), getVersion
+// (`npm --version`) and the scan itself (a cd + single-quoted argv built by
+// platformShellQuote) all flow through that path.
+func TestNodeScanner_ScanProject_Delegated_NonRoot(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+	// Deliberately NOT root — this is the LaunchAgent-as-user deployment that
+	// previously skipped delegation.
+	projectDir := "/Users/testuser/myapp"
+
+	mock.SetCommand("/Users/testuser/.nvm/versions/node/v20.11.0/bin/npm\n", "", 0, "bash", "-c", "which npm")
+	mock.SetCommand("10.9.0\n", "", 0, "bash", "-c", "npm --version")
+	scanCmd := "cd '/Users/testuser/myapp' && 'npm' 'ls' '--json' '--depth=3'"
+	mock.SetCommand(`{"dependencies":{"lodash":{"version":"4.17.21"}}}`, "", 0, "bash", "-c", scanCmd)
+
+	scanner := NewNodeScanner(mock, progress.NewLogger(progress.LevelInfo), "testuser")
+	if !scanner.shouldRunAsUser() {
+		t.Fatal("shouldRunAsUser must be true for a non-root macOS scan with a logged-in user")
+	}
+
+	result, ok := scanner.scanProject(context.Background(), projectDir, "npm")
+	if !ok {
+		t.Fatal("expected scanProject to emit a result (npm resolved via the user's login shell)")
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("ExitCode = %d, want 0 — the scan should have run through `bash -c`, not a bare exec", result.ExitCode)
+	}
+	if result.PMVersion != "10.9.0" {
+		t.Errorf("PMVersion = %q, want 10.9.0", result.PMVersion)
+	}
+	decoded, _ := base64.StdEncoding.DecodeString(result.RawStdoutBase64)
+	if len(decoded) == 0 {
+		t.Error("expected non-empty RawStdoutBase64 from the delegated scan")
+	}
+	if result.Error != "" {
+		t.Errorf("Error = %q, want empty on a successful scan", result.Error)
+	}
+}
+
+// TestNodeScanner_ScanProject_Delegated_SurfacesError verifies a delegated
+// failure is captured in the telemetry Error field (and log.Warn'd) rather than
+// reduced to an opaque exit code. When npm IS resolvable but the run itself
+// fails, RunAsUser returns an error carrying the shell's reason; scanProject
+// must fold that into result.Error so the next occurrence is self-explanatory.
+func TestNodeScanner_ScanProject_Delegated_SurfacesError(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+	projectDir := "/Users/testuser/broken"
+
+	mock.SetCommand("/opt/homebrew/bin/npm\n", "", 0, "bash", "-c", "which npm")
+	mock.SetCommand("10.9.0\n", "", 0, "bash", "-c", "npm --version")
+	scanCmd := "cd '/Users/testuser/broken' && 'npm' 'ls' '--json' '--depth=3'"
+	// SetCommandError mirrors what executor.RunAsUser returns when the user
+	// shell exits non-zero — now with the stderr folded into the message.
+	mock.SetCommandError(
+		fmt.Errorf("command exited with code 127: zsh: command not found: npm"),
+		"bash", "-c", scanCmd,
+	)
+
+	scanner := NewNodeScanner(mock, progress.NewLogger(progress.LevelInfo), "testuser")
+	result, ok := scanner.scanProject(context.Background(), projectDir, "npm")
+	if !ok {
+		t.Fatal("expected scanProject to still emit a record when the PM is present but the run fails")
+	}
+	if result.Error == "" {
+		t.Fatal("expected a non-empty Error capturing the failure reason (was the runErr discarded?)")
+	}
+	if !strings.Contains(result.Error, "command not found") {
+		t.Errorf("Error = %q, want it to carry the underlying shell reason", result.Error)
 	}
 }
 

@@ -398,24 +398,30 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		<-phaseDone
 	}()
 
-	// Detect logged-in user for running commands as the real user when root.
-	// Skip "root" — if LoggedInUser() fell back to CurrentUser(), delegating
-	// via sudo -H -u root is pointless and changes PATH/env behavior.
+	// Detect the logged-in user so package-manager commands run with that
+	// user's PATH/env in both deployment modes: as root (LaunchDaemon / MDM
+	// "Run Script") we sudo to them; as the user (LaunchAgent's periodic fire)
+	// we already are them but still go through their login shell because
+	// launchd hands a stripped PATH either way. Skip "root" — if LoggedInUser()
+	// fell back to CurrentUser() and that is root, there's no user context to
+	// adopt and delegating is pointless.
 	loggedInUsername := ""
 	if u, err := exec.LoggedInUser(); err == nil && u.Username != "root" {
 		loggedInUsername = u.Username
-		log.Debug("logged-in user detected: username=%q home=%q — commands will delegate via sudo", u.Username, u.HomeDir)
+		log.Debug("logged-in user detected: username=%q home=%q — commands will run through the user's login shell", u.Username, u.HomeDir)
 	} else if err != nil {
 		log.Warn("could not detect logged-in user (%v) — package manager commands will run as current user and may return different results", err)
 	} else {
 		log.Debug("LoggedInUser() returned root — not delegating")
 	}
 
-	// Create a user-aware executor that delegates commands to the logged-in user
-	// when running as root. This ensures tools like brew, pip3, npm etc. execute
-	// in the correct user context (many refuse to run as root or return different
-	// results). File-based detectors (IDE, extensions, MCP) use the original exec
-	// since file operations don't need user delegation.
+	// Create a user-aware executor that runs commands through the logged-in
+	// user's login shell (rc files sourced for a full PATH). This ensures tools
+	// like brew, pip3, npm etc. execute in the correct user context — launchd
+	// strips PATH whether the agent runs as root or as the user, and many tools
+	// refuse to run as root or return different results. File-based detectors
+	// (IDE, extensions, MCP) use the original exec since file operations don't
+	// need user delegation.
 	userExec := executor.NewUserAwareExecutor(exec, loggedInUsername)
 
 	// Resolve search dirs

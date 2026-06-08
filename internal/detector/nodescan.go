@@ -69,6 +69,13 @@ func (s *NodeScanner) binaryAvailable(ctx context.Context, name string) error {
 		return err
 	}
 	err := s.checkPath(ctx, name)
+	if err != nil {
+		// Logged once per PM (cache miss). "Not on PATH" is a normal
+		// "PM not installed" state — projects using it are silently skipped —
+		// but recording it at Debug makes "device emits no npm data" diagnosable
+		// (send the Debug header) instead of an unexplained absence.
+		s.log.Debug("%s not found in PATH (delegated=%v) — projects using it will be skipped: %v", name, s.shouldRunAsUser(), err)
+	}
 	s.pmAvailability[name] = err
 	return err
 }
@@ -86,10 +93,19 @@ func (s *NodeScanner) emitProgress(detail string) {
 	}
 }
 
-// shouldRunAsUser returns true when commands should be delegated to the logged-in user.
-// Only applies on Unix — RunAsUser uses sudo which is not available on Windows.
+// shouldRunAsUser returns true when package-manager commands should run through
+// the logged-in user's login shell (with rc files sourced for a full PATH)
+// instead of a bare exec. Applies on Unix whenever we have a target user, in
+// both deployment modes:
+//   - root (LaunchDaemon / MDM "Run Script"): RunAsUser sudo's to the console user.
+//   - non-root (LaunchAgent's periodic fire): RunAsUser runs as the current user.
+//
+// launchd hands both a stripped PATH (/usr/bin:/bin:/usr/sbin:/sbin), so a bare
+// exec can't find npm/yarn/pnpm installed via nvm/fnm/homebrew/npm-global —
+// producing exit_code -1, empty output, and version "unknown". Windows is
+// excluded (no sudo / rc-sourcing model).
 func (s *NodeScanner) shouldRunAsUser() bool {
-	return s.exec.GOOS() != model.PlatformWindows && s.exec.IsRoot() && s.loggedInUser != ""
+	return s.exec.GOOS() != model.PlatformWindows && s.loggedInUser != ""
 }
 
 // runCmd runs a command, delegating to the logged-in user when running as root.
@@ -174,8 +190,26 @@ func (s *NodeScanner) ScanGlobalPackages(ctx context.Context) []model.NodeScanRe
 	return results
 }
 
+// pmRunError returns a self-explanatory error string for a failed package-
+// manager run, or "" on success. When runErr is non-nil it carries the user
+// shell's stderr (see executor.RunAsUser), so the message names the real cause
+// — "command not found", an npm ELSPROBLEMS line — rather than a bare exit
+// code. The previous static strings ("npm list -g command failed with exit
+// code") discarded both the code and the reason, which is what made the
+// production failures opaque in telemetry.
+func pmRunError(label string, exitCode int, runErr error) string {
+	switch {
+	case runErr != nil:
+		return fmt.Sprintf("%s exec failed: %v", label, runErr)
+	case exitCode != 0:
+		return fmt.Sprintf("%s exited with code %d", label, exitCode)
+	}
+	return ""
+}
+
 func (s *NodeScanner) scanNPMGlobal(ctx context.Context) (model.NodeScanResult, bool) {
 	if err := s.checkPath(ctx, "npm"); err != nil {
+		s.log.Debug("npm not found on PATH — skipping npm global scan: %v", err)
 		return model.NodeScanResult{}, false
 	}
 
@@ -187,13 +221,12 @@ func (s *NodeScanner) scanNPMGlobal(ctx context.Context) (model.NodeScanResult, 
 	}
 
 	start := time.Now()
-	stdout, stderr, exitCode, _ := s.runCmd(ctx, 60*time.Second, "npm", "list", "-g", "--json", "--depth=3")
+	stdout, stderr, exitCode, runErr := s.runCmd(ctx, 60*time.Second, "npm", "list", "-g", "--json", "--depth=3")
 	duration := time.Since(start).Milliseconds()
 
-	errMsg := ""
-	if exitCode != 0 {
-		errMsg = "npm list -g command failed with exit code"
-		s.log.Warn("npm list -g failed (exit_code=%d, %dms) — results may be incomplete", exitCode, duration)
+	errMsg := pmRunError("npm list -g", exitCode, runErr)
+	if errMsg != "" {
+		s.log.Warn("npm global scan failed (%dms): %s — results may be incomplete", duration, errMsg)
 	}
 	s.log.Debug("npm global scan: version=%s prefix=%s exit_code=%d stdout_bytes=%d duration=%dms", version, prefix, exitCode, len(stdout), duration)
 
@@ -212,24 +245,25 @@ func (s *NodeScanner) scanNPMGlobal(ctx context.Context) (model.NodeScanResult, 
 
 func (s *NodeScanner) scanYarnGlobal(ctx context.Context) (model.NodeScanResult, bool) {
 	if err := s.checkPath(ctx, "yarn"); err != nil {
+		s.log.Debug("yarn not found on PATH — skipping yarn global scan: %v", err)
 		return model.NodeScanResult{}, false
 	}
 
 	version := s.getVersion(ctx, "yarn", "--version")
 	globalDir := s.getOutput(ctx, "yarn", "global", "dir")
 	if globalDir == "" {
+		s.log.Debug("yarn found but `yarn global dir` returned empty — skipping yarn global scan")
 		return model.NodeScanResult{}, false
 	}
 
 	start := time.Now()
 	// Run directly in the global dir instead of shell cd (avoids Windows quoting issues).
-	stdout, stderr, exitCode, _ := s.runInDir(ctx, globalDir, 60*time.Second, "yarn", "list", "--json", "--depth=0")
+	stdout, stderr, exitCode, runErr := s.runInDir(ctx, globalDir, 60*time.Second, "yarn", "list", "--json", "--depth=0")
 	duration := time.Since(start).Milliseconds()
 
-	errMsg := ""
-	if exitCode != 0 {
-		errMsg = "yarn global list command failed"
-		s.log.Warn("yarn global list failed (exit_code=%d, %dms) — results may be incomplete", exitCode, duration)
+	errMsg := pmRunError("yarn global list", exitCode, runErr)
+	if errMsg != "" {
+		s.log.Warn("yarn global scan failed (%dms): %s — results may be incomplete", duration, errMsg)
 	}
 	s.log.Debug("yarn global scan: version=%s global_dir=%s exit_code=%d stdout_bytes=%d duration=%dms", version, globalDir, exitCode, len(stdout), duration)
 
@@ -309,10 +343,9 @@ func (s *NodeScanner) scanPnpmGlobal(ctx context.Context) (model.NodeScanResult,
 	}
 	duration := time.Since(start).Milliseconds()
 
-	errMsg := ""
-	if exitCode != 0 {
-		errMsg = "pnpm list -g command failed"
-		s.log.Warn("pnpm list -g failed (exit_code=%d, %dms) — results may be incomplete", exitCode, duration)
+	errMsg := pmRunError("pnpm list -g", exitCode, err)
+	if errMsg != "" {
+		s.log.Warn("pnpm global scan failed (%dms): %s — results may be incomplete", duration, errMsg)
 	}
 	s.log.Debug("pnpm global scan: version=%s global_dir=%s exit_code=%d stdout_bytes=%d duration=%dms err=%v", version, globalDir, exitCode, len(stdout), duration, err)
 
@@ -523,12 +556,17 @@ func (s *NodeScanner) scanProject(ctx context.Context, projectDir, pm string) (m
 	// non-zero exit). Previously runErr was discarded and errMsg was
 	// derived from exitCode alone, making spawn failure mid-run,
 	// context cancellation, and a genuine non-zero exit indistinguishable.
-	errMsg := ""
-	switch {
-	case runErr != nil:
-		errMsg = fmt.Sprintf("%s exec failed: %v", cmd, runErr)
-	case exitCode != 0:
-		errMsg = fmt.Sprintf("%s exited with code %d", cmd, exitCode)
+	// runErr carries the user shell's stderr (see executor.RunAsUser), so the
+	// message names the real cause instead of a bare exit code.
+	errMsg := pmRunError(cmd, exitCode, runErr)
+
+	// Surface the failure in the agent log, not just the telemetry record.
+	// A recurring failure (e.g. npm unreachable under the LaunchAgent's
+	// stripped PATH) previously left both the log and — on the delegated
+	// path, where stderr is unavailable — the telemetry stderr blank, so the
+	// only signal was an opaque exit code.
+	if errMsg != "" {
+		s.log.Warn("node project scan failed: %s (project=%s, exit=%d)", errMsg, projectDir, exitCode)
 	}
 
 	return model.NodeScanResult{

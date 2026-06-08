@@ -9,11 +9,13 @@ import (
 	"time"
 )
 
-// UserAwareExecutor wraps an Executor and delegates LookPath and RunWithTimeout
-// to the logged-in user when the process is running as root. This ensures that
-// commands like "brew list", "pip3 list", "npm --version" etc. execute in the
-// correct user context, since many tools refuse to run as root or return
-// different results for different users.
+// UserAwareExecutor wraps an Executor and delegates LookPath/Run/RunWithTimeout/
+// RunInDir to the logged-in user's login shell (with rc files sourced for a full
+// PATH). This ensures commands like "brew list", "pip3 list", "npm --version"
+// execute in the user's context with their real PATH — whether the agent runs
+// as root (sudo to the user) or as the user itself under a LaunchAgent. launchd
+// strips PATH in both cases, so package managers installed via nvm/fnm/homebrew
+// aren't found by a bare exec.
 //
 // All other Executor methods are forwarded unchanged.
 type UserAwareExecutor struct {
@@ -21,20 +23,38 @@ type UserAwareExecutor struct {
 	username string // logged-in user to delegate to; empty = no delegation
 }
 
-// NewUserAwareExecutor returns a wrapped executor that delegates command execution
-// to the given user when running as root on Unix. If username is empty or the
-// process is not root, all calls pass through to the inner executor unchanged.
+// NewUserAwareExecutor returns a wrapped executor that runs commands through the
+// given user's login shell (rc files sourced for a full PATH) on Unix, in both
+// deployment modes:
+//   - root (LaunchDaemon / MDM "Run Script"): RunAsUser sudo's to the user.
+//   - non-root (LaunchAgent's periodic fire): RunAsUser runs as the current user.
+//
+// launchd hands both a stripped PATH, so package managers (brew/pip3/npm via
+// nvm/fnm/homebrew/npm-global) need the user's rc-sourced shell to be resolved.
+// Passes through to the inner executor unchanged when username is empty or on Windows.
 func NewUserAwareExecutor(inner Executor, username string) Executor {
-	if username == "" || !inner.IsRoot() || inner.GOOS() == "windows" {
+	if username == "" || inner.GOOS() == "windows" {
 		return inner // no wrapping needed
 	}
 	return &UserAwareExecutor{inner: inner, username: username}
 }
 
+// posixShellQuote wraps s in single quotes so it survives the shell's word-
+// splitting and globbing when embedded in a command string for RunAsUser,
+// escaping any embedded single quote (POSIX close-quote, escaped quote, reopen). Every command name, argument and
+// path handed to RunAsUser must be quoted — otherwise an argument containing
+// spaces (a "/Applications/LM Studio.app/..." path, a multi-word PlistBuddy
+// "-c" expression) is split into multiple argv entries and the command fails.
+// UserAwareExecutor never wraps on Windows (NewUserAwareExecutor passes through
+// there), so POSIX single-quote quoting is sufficient.
+func posixShellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 func (e *UserAwareExecutor) Run(ctx context.Context, name string, args ...string) (string, string, int, error) {
-	cmd := name
+	cmd := posixShellQuote(name)
 	for _, a := range args {
-		cmd += " " + a
+		cmd += " " + posixShellQuote(a)
 	}
 	stdout, err := e.inner.RunAsUser(ctx, e.username, cmd)
 	if err != nil {
@@ -58,10 +78,12 @@ func (e *UserAwareExecutor) RunWithTimeout(ctx context.Context, timeout time.Dur
 func (e *UserAwareExecutor) RunInDir(ctx context.Context, dir string, timeout time.Duration, name string, args ...string) (string, string, int, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	// For user-aware execution, use cd + command via RunAsUser
-	cmd := "cd " + dir + " && " + name
+	// For user-aware execution, use cd + command via RunAsUser. Quote the dir,
+	// command and every arg so paths with spaces (e.g. "/Users/me/My App")
+	// survive the shell's word-splitting as single argv entries.
+	cmd := "cd " + posixShellQuote(dir) + " && " + posixShellQuote(name)
 	for _, a := range args {
-		cmd += " " + a
+		cmd += " " + posixShellQuote(a)
 	}
 	stdout, err := e.inner.RunAsUser(ctx, e.username, cmd)
 	if err != nil {
@@ -78,7 +100,7 @@ func (e *UserAwareExecutor) RunAsUser(ctx context.Context, username, command str
 }
 
 func (e *UserAwareExecutor) LookPath(name string) (string, error) {
-	stdout, err := e.inner.RunAsUser(context.Background(), e.username, "which "+name)
+	stdout, err := e.inner.RunAsUser(context.Background(), e.username, "which "+posixShellQuote(name))
 	path := strings.TrimSpace(stdout)
 	if err != nil || path == "" || !strings.HasPrefix(path, "/") {
 		return "", fmt.Errorf("%s not found in user PATH", name)
