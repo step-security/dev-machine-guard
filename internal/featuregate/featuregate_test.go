@@ -7,7 +7,7 @@ import (
 
 func TestIsEnabled_DefaultDeny(t *testing.T) {
 	resetOverride(t)
-	for _, f := range []Feature{FeatureAIAgentHooks, FeatureNPMRCAudit, FeaturePipConfigAudit} {
+	for _, f := range []Feature{FeatureAIAgentHooks} {
 		if IsEnabled(f) {
 			t.Errorf("%s should be gated by default", f)
 		}
