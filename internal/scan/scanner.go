@@ -256,6 +256,17 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		log.StepDone(time.Since(start))
 	}
 
+	// bun config audit — surfaces bunfig.toml inventory plus any .npmrc bun
+	// reads as an auth side-channel. No effective view (bun has no
+	// `config list` equivalent).
+	var bunAudit model.BunAudit
+	if featuregate.IsEnabled(featuregate.FeatureBunConfigAudit) {
+		log.StepStart("Auditing bun configuration")
+		start = time.Now()
+		bunAudit = configaudit.NewBunDetector(exec).WithSkipper(tccSkipper).Detect(ctx, searchDirs, loggedInUser)
+		log.StepDone(time.Since(start))
+	}
+
 	// Ensure no nil slices (JSON must emit [] not null)
 	if aiTools == nil {
 		aiTools = []model.AITool{}
@@ -327,6 +338,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		NPMRCAudit:        &npmrcAudit,
 		PipAudit:          &pipAudit,
 		PnpmAudit:         &pnpmAudit,
+		BunAudit:          &bunAudit,
 		Summary: model.Summary{
 			AIAgentsAndToolsCount: len(aiTools),
 			IDEInstallationsCount: len(ides),

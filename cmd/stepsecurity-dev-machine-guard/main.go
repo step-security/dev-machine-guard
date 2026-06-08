@@ -400,6 +400,17 @@ func main() {
 			}
 			return
 		}
+		if cfg.BunfigOnly {
+			if !featuregate.IsEnabled(featuregate.FeatureBunConfigAudit) {
+				fmt.Fprintln(os.Stderr, featuregate.UnavailableMessage("--bunfig"))
+				os.Exit(1)
+			}
+			if err := runBunfigOnly(exec, cfg); err != nil {
+				log.Error("%v", err)
+				os.Exit(1)
+			}
+			return
+		}
 		// Community mode or auto-detect enterprise
 		switch {
 		case cfg.OutputFormatSet || cfg.HTMLOutputFile != "":
@@ -475,6 +486,23 @@ func runPnpmRCOnly(exec executor.Executor, cfg *cli.Config) error {
 		return scanJSONEncoder(os.Stdout).Encode(audit)
 	}
 	output.PrettyPnpm(os.Stdout, &audit, dev, cfg.ColorMode)
+	return nil
+}
+
+// runBunfigOnly executes only the bun detector and renders the verbose
+// pretty view (or JSON when --json is also passed).
+func runBunfigOnly(exec executor.Executor, cfg *cli.Config) error {
+	ctx := context.Background()
+	dev := device.Gather(ctx, exec)
+	loggedInUser, _ := exec.LoggedInUser()
+
+	searchDirs := resolveScanSearchDirs(exec, cfg.SearchDirs)
+	audit := configaudit.NewBunDetector(exec).Detect(ctx, searchDirs, loggedInUser)
+
+	if cfg.OutputFormat == "json" {
+		return scanJSONEncoder(os.Stdout).Encode(audit)
+	}
+	output.PrettyBun(os.Stdout, &audit, dev, cfg.ColorMode)
 	return nil
 }
 

@@ -40,6 +40,7 @@ type Config struct {
 	NPMRCOnly           bool     // --npmrc: run only the npmrc audit and render verbose pretty output
 	PipConfigOnly       bool     // --pipconfig: run only the pip config audit and render verbose pretty output
 	PnpmRCOnly          bool     // --pnpmrc: run only the pnpm config audit and render verbose pretty output
+	BunfigOnly          bool     // --bunfig: run only the bun config audit and render verbose pretty output
 	SearchDirs          []string // defaults to ["$HOME"]
 
 	// HooksAgent is the --agent value on `hooks install` / `hooks uninstall`;
@@ -178,6 +179,8 @@ func Parse(args []string) (*Config, error) {
 			cfg.PipConfigOnly = true
 		case arg == "--pnpmrc":
 			cfg.PnpmRCOnly = true
+		case arg == "--bunfig":
+			cfg.BunfigOnly = true
 		case strings.HasPrefix(arg, "--color="):
 			mode := strings.TrimPrefix(arg, "--color=")
 			if mode != "auto" && mode != "always" && mode != "never" {
@@ -280,8 +283,8 @@ func Parse(args []string) (*Config, error) {
 		i++
 	}
 
-	if onlyCount := boolCount(cfg.NPMRCOnly, cfg.PipConfigOnly, cfg.PnpmRCOnly); onlyCount > 1 {
-		return nil, fmt.Errorf("--npmrc, --pipconfig, and --pnpmrc are mutually exclusive; pick one")
+	if onlyCount := boolCount(cfg.NPMRCOnly, cfg.PipConfigOnly, cfg.PnpmRCOnly, cfg.BunfigOnly); onlyCount > 1 {
+		return nil, fmt.Errorf("--npmrc, --pipconfig, --pnpmrc, and --bunfig are mutually exclusive; pick one")
 	}
 
 	// --install-dir= (explicit empty) disables file logging by routing
@@ -442,6 +445,7 @@ Options:
   --npmrc                       Run ONLY the npm config audit (verbose pretty view; --json supported)
   --pipconfig                   Run ONLY the pip config audit (verbose pretty view; --json supported)
   --pnpmrc                      Run ONLY the pnpm config audit (verbose pretty view; --json supported)
+  --bunfig                      Run ONLY the bun config audit (verbose pretty view; --json supported)
   --log-level=LEVEL      Log level: error | warn | info | debug (default: info)
   --install-dir=DIR      Base directory the agent puts ALL its files under
                          (logs, hook errors, binary placement via loader).

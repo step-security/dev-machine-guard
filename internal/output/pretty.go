@@ -286,7 +286,32 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 		printPnpmAuditSummary(w, c, result.PnpmAudit)
 	}
 
+	// BUN CONFIG AUDIT (compact summary; deep view via --bunfig)
+	if result.BunAudit != nil {
+		printBunAuditSummary(w, c, result.BunAudit)
+	}
+
 	return nil
+}
+
+//nolint:errcheck // terminal output
+func printBunAuditSummary(w io.Writer, c *colors, a *model.BunAudit) {
+	fmt.Fprintf(w, "  %s%sBUN CONFIG AUDIT%s\n", c.purple, c.bold, c.reset)
+	if a.Available {
+		fmt.Fprintf(w, "    %sbun:%s %s @ %s\n", c.dim, c.reset, a.BunVersion, a.BunPath)
+	} else {
+		fmt.Fprintf(w, "    %sbun:%s not found in PATH\n", c.dim, c.reset)
+	}
+	existing := 0
+	for _, f := range a.Files {
+		if f.Exists {
+			existing++
+		}
+	}
+	fmt.Fprintf(w, "    %sfiles:%s %d bunfig.toml discovered, %d present  (+%d .npmrc side-channel)\n",
+		c.dim, c.reset, len(a.Files), existing, len(a.NPMRCFiles))
+	fmt.Fprintf(w, "    %srun --bunfig for the deep view%s\n", c.dim, c.reset)
+	fmt.Fprintln(w)
 }
 
 //nolint:errcheck // terminal output

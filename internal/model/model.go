@@ -29,6 +29,7 @@ type ScanResult struct {
 	NPMRCAudit        *NPMRCAudit     `json:"npmrc_audit,omitempty"`
 	PipAudit          *PipAudit       `json:"pip_audit,omitempty"`
 	PnpmAudit         *PnpmAudit      `json:"pnpm_audit,omitempty"`
+	BunAudit          *BunAudit       `json:"bun_audit,omitempty"`
 	Summary           Summary         `json:"summary"`
 }
 
@@ -347,6 +348,55 @@ type PnpmEffective struct {
 	SourceByKey map[string]string `json:"source_by_key,omitempty"`
 	Config      map[string]any    `json:"config,omitempty"`
 	Error       string            `json:"error,omitempty"`
+}
+
+// BunAudit is the top-level structure produced by the bun detector. Unlike
+// npm/pnpm/pip there is no `bun config list` equivalent — Effective is
+// deliberately absent from this audit. Consumers render the union of parsed
+// files instead, and the NPMRCFiles slot carries any .npmrc files bun reads
+// for auth side-channels.
+type BunAudit struct {
+	Available      bool            `json:"bun_available"`
+	BunVersion     string          `json:"bun_version,omitempty"`
+	BunPath        string          `json:"bun_path,omitempty"`
+	Files          []BunConfigFile `json:"files"`
+	NPMRCFiles     []NPMRCFile     `json:"npmrc_files"`
+	Env            []NPMRCEnvVar   `json:"env"`
+	DiscoveryError string          `json:"discovery_error,omitempty"`
+}
+
+// BunConfigFile is a single bunfig.toml. Scope captures where the file lives:
+// user (~/.bunfig.toml), user-xdg (~/.config/.bunfig.toml), or project
+// (bunfig.toml in a walked search dir).
+type BunConfigFile struct {
+	Path        string       `json:"path"`
+	Scope       string       `json:"scope"`
+	Exists      bool         `json:"exists"`
+	Readable    bool         `json:"readable"`
+	SizeBytes   int64        `json:"size_bytes,omitempty"`
+	ModTimeUnix int64        `json:"mtime_unix,omitempty"`
+	Mode        string       `json:"mode,omitempty"`
+	OwnerUID    int          `json:"owner_uid,omitempty"`
+	OwnerName   string       `json:"owner_name,omitempty"`
+	GroupGID    int          `json:"group_gid,omitempty"`
+	GroupName   string       `json:"group_name,omitempty"`
+	SHA256      string       `json:"sha256,omitempty"`
+	SymlinkTo   string       `json:"symlink_target,omitempty"`
+	InGitRepo   bool         `json:"in_git_repo,omitempty"`
+	GitTracked  bool         `json:"git_tracked,omitempty"`
+	Sections    []BunSection `json:"sections,omitempty"`
+	ParseError  string       `json:"parse_error,omitempty"`
+}
+
+// BunSection groups entries by their dotted section path: "install",
+// "install.scopes", "install.scopes.@step-security", etc. The entry shape is
+// reused from NPMRCEntry — bun TOML key/value pairs surface with the same
+// auth / env-ref / redaction semantics. LineNum is best-effort: go-toml/v2
+// doesn't cheaply expose per-key positions, so all bun entries currently
+// report LineNum=0.
+type BunSection struct {
+	Name    string       `json:"name"`
+	Entries []NPMRCEntry `json:"entries"`
 }
 
 // --- pip configuration audit -------------------------------------------------
