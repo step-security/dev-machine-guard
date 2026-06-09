@@ -25,16 +25,17 @@ import (
 // "Disabled" means no per-phase deadline; the parent scan deadline
 // (STEPSEC_MAX_SCAN_DURATION) and the whole-process watchdog still apply.
 var phaseBudgets = map[string]time.Duration{
-	"device_info":      30 * time.Second,
-	"ide_scan":         2 * time.Minute,
-	"extension_scan":   2 * time.Minute,
-	"ai_tools_scan":    5 * time.Minute,
-	"mcp_config_scan":  1 * time.Minute,
-	"brew_scan":        5 * time.Minute,
-	"python_scan":      10 * time.Minute,
-	"syspkg_scan":      5 * time.Minute,
-	"node_scan":        15 * time.Minute,
-	"telemetry_upload": 10 * time.Minute,
+	"device_info":         30 * time.Second,
+	"ide_scan":            2 * time.Minute,
+	"extension_scan":      2 * time.Minute,
+	"ai_tools_scan":       5 * time.Minute,
+	"mcp_config_scan":     1 * time.Minute,
+	"malicious_file_scan": 10 * time.Minute,
+	"brew_scan":           5 * time.Minute,
+	"python_scan":         10 * time.Minute,
+	"syspkg_scan":         5 * time.Minute,
+	"node_scan":           15 * time.Minute,
+	"telemetry_upload":    10 * time.Minute,
 }
 
 const defaultPhaseBudget = 5 * time.Minute

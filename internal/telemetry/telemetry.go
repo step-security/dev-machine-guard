@@ -20,6 +20,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/detector"
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
+	"github.com/step-security/dev-machine-guard/internal/detector/rules"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/lock"
@@ -75,6 +76,10 @@ type Payload struct {
 	MCPConfigs           []model.MCPConfigEnterprise     `json:"mcp_configs"`
 	NPMRCAudit           *model.NPMRCAudit               `json:"npmrc_audit,omitempty"`
 	PipAudit             *model.PipAudit                 `json:"pip_audit,omitempty"`
+	RuleScan             *model.RuleScan                 `json:"rule_scan,omitempty"`
+	PnpmAudit            *model.PnpmAudit                `json:"pnpm_audit,omitempty"`
+	BunAudit             *model.BunAudit                 `json:"bun_audit,omitempty"`
+	YarnAudit            *model.YarnAudit                `json:"yarn_audit,omitempty"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -539,6 +544,50 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	endPhase(phaseCtx, phaseCancel, tracker, log, "mcp_config_scan")
 	postPhase()
 
+	// Malicious-file detection (enterprise only). Rules live only in the
+	// backend: fetched at run start, evaluated against searchDirs. On any
+	// fetch/parse failure the engine scans nothing this run — it never fails
+	// the run. The phase is recorded ONLY when the engine actually runs (rules
+	// were available), so its presence in StatusInfo is the backend's "device
+	// was scanned" signal even on zero matches; when no rules are available we
+	// deliberately do NOT record it. ruleScan stays nil ⇒ omitted from the
+	// Payload ⇒ "not scanned". The explicit IsEnterpriseMode() check is defense
+	// in depth (telemetry.Run is already enterprise-only).
+	var ruleScan *model.RuleScan
+	if config.IsEnterpriseMode() {
+		var rs rules.RuleSet
+		if cfg.RulesFile != "" {
+			// Dev-only offline source; never set in production.
+			rs = rules.LoadFileOrEmpty(cfg.RulesFile, log)
+		} else {
+			fetcher, _ := rules.NewHTTPFetcher(config.APIEndpoint, config.APIKey, nil)
+			rs = rules.FetchOrEmpty(ctx, fetcher, config.CustomerID, deviceID, log)
+		}
+		if len(rs.Rules) == 0 {
+			log.Progress("Malicious-file scan: no detection rules available — skipping")
+		} else {
+			phaseCtx, phaseCancel = startPhase(ctx, tracker, "malicious_file_scan")
+			log.Progress("Scanning for malicious-file indicators (%d detection rule(s))...", len(rs.Rules))
+			// File-based detector: uses the original exec (file reads need no
+			// user delegation), consistent with the IDE/extension/MCP scans.
+			eng := rules.NewEngine(exec, tccSkipper, rules.DefaultCaps(), log)
+			scanStart := time.Now()
+			scan := eng.Scan(phaseCtx, rs, searchDirs)
+			ruleScan = &scan
+
+			matchedFiles := 0
+			for _, r := range scan.Results {
+				matchedFiles += len(r.Files)
+			}
+			log.Progress("  Evaluated %d rule(s): %d file match(es) across %d rule(s) in %s (scan_complete=%v)",
+				len(scan.EvaluatedRules), matchedFiles, len(scan.Results),
+				time.Since(scanStart), scan.ScanComplete)
+			fmt.Fprintln(os.Stderr)
+			endPhase(phaseCtx, phaseCancel, tracker, log, "malicious_file_scan")
+			postPhase()
+		}
+	}
+
 	// Homebrew scanning
 	brewEnabled := true
 	if cfg.EnableBrewScan != nil {
@@ -785,6 +834,21 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	log.Progress("  pip available: %v, files discovered: %d, findings: %d", pipAudit.Available, len(pipAudit.Files), len(pipAudit.Findings))
 	fmt.Fprintln(os.Stderr)
 
+	log.Progress("Auditing pnpm configuration...")
+	pnpmAudit := configaudit.NewPnpmDetector(userExec).WithSkipper(tccSkipper).Detect(ctx, searchDirs, npmrcLoggedIn)
+	log.Progress("  pnpm available: %v, files discovered: %d", pnpmAudit.Available, len(pnpmAudit.Files))
+	fmt.Fprintln(os.Stderr)
+
+	log.Progress("Auditing bun configuration...")
+	bunAudit := configaudit.NewBunDetector(userExec).WithSkipper(tccSkipper).Detect(ctx, searchDirs, npmrcLoggedIn)
+	log.Progress("  bun available: %v, files discovered: %d", bunAudit.Available, len(bunAudit.Files))
+	fmt.Fprintln(os.Stderr)
+
+	log.Progress("Auditing yarn configuration...")
+	yarnAudit := configaudit.NewYarnDetector(userExec).WithSkipper(tccSkipper).Detect(ctx, searchDirs, npmrcLoggedIn)
+	log.Progress("  yarn available: %v (flavor=%s), files discovered: %d", yarnAudit.Available, yarnAudit.Flavor, len(yarnAudit.Files))
+	fmt.Fprintln(os.Stderr)
+
 	// Snapshot execution logs for the payload WITHOUT stopping capture, so the
 	// upload that follows (and the completion lines) keep being recorded and
 	// can ship in the final run-status log tail via postPhaseFinal below. The
@@ -834,6 +898,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		MCPConfigs:           mcpConfigs,
 		NPMRCAudit:           &npmrcAudit,
 		PipAudit:             &pipAudit,
+		RuleScan:             ruleScan,
+		PnpmAudit:            &pnpmAudit,
+		BunAudit:             &bunAudit,
+		YarnAudit:            &yarnAudit,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,
@@ -854,6 +922,20 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 			PythonProjectsCount:   len(pythonProjects),
 			SystemPackagesCount:   totalSystemPackagesCount(systemPackageScans),
 		},
+	}
+
+	// Dev-only offline harness: dump the assembled Payload to a local
+	// file and skip the upload + run-status notify entirely. This is exactly
+	// the inner JSON process-uploaded sees after gunzip, so it doubles as a
+	// backend ingestion fixture. Never set in production (zero impact when
+	// the flag/env var is unset).
+	if cfg.TelemetryOutFile != "" {
+		if err := writeTelemetryFile(cfg.TelemetryOutFile, payload); err != nil {
+			log.Error("telemetry-out: %v", err)
+			return err
+		}
+		log.Progress("telemetry written to %s (upload skipped)", cfg.TelemetryOutFile)
+		return nil
 	}
 
 	// Upload to S3 — tracked as the final phase. The Payload's StatusInfo
@@ -888,6 +970,21 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// skipped. Capture is still live; the deferred capture.Finalize() restores
 	// os.Stderr on return, after the phase-post worker has drained this snapshot.
 	postPhaseFinal()
+	return nil
+}
+
+// writeTelemetryFile marshals the assembled Payload to PATH as indented JSON
+// (mode 0600). It backs the dev-only --telemetry-out flow: the file is
+// exactly the inner JSON the backend's process-uploaded sees after gunzip, so
+// it doubles as a backend ingestion fixture.
+func writeTelemetryFile(path string, payload *Payload) error {
+	out, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return fmt.Errorf("telemetry-out: marshal payload: %w", err)
+	}
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		return fmt.Errorf("telemetry-out: write payload: %w", err)
+	}
 	return nil
 }
 
