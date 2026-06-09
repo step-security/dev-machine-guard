@@ -39,6 +39,9 @@ type Config struct {
 	IncludeTCCProtected *bool
 	NPMRCOnly           bool     // --npmrc: run only the npmrc audit and render verbose pretty output
 	PipConfigOnly       bool     // --pipconfig: run only the pip config audit and render verbose pretty output
+	PnpmRCOnly          bool     // --pnpmrc: run only the pnpm config audit and render verbose pretty output
+	BunfigOnly          bool     // --bunfig: run only the bun config audit and render verbose pretty output
+	YarnRCOnly          bool     // --yarnrc: run only the yarn config audit (both flavors) and render verbose pretty output
 	SearchDirs          []string // defaults to ["$HOME"]
 
 	// HooksAgent is the --agent value on `hooks install` / `hooks uninstall`;
@@ -75,6 +78,18 @@ type Config struct {
 // supportedHookAgents lists the agent names accepted by `hooks --agent <name>` and `_hook <agent> ...`.
 // Supported agents: claude-code and codex; the list grows as adapters are added.
 var supportedHookAgents = []string{"claude-code", "codex"}
+
+// boolCount returns how many of the booleans are true. Used to keep the
+// "*-only" mutual-exclusion checks readable when the set grows past two.
+func boolCount(bs ...bool) int {
+	n := 0
+	for _, b := range bs {
+		if b {
+			n++
+		}
+	}
+	return n
+}
 
 func isSupportedHookAgent(name string) bool {
 	return slices.Contains(supportedHookAgents, name)
@@ -163,6 +178,12 @@ func Parse(args []string) (*Config, error) {
 			cfg.NPMRCOnly = true
 		case arg == "--pipconfig":
 			cfg.PipConfigOnly = true
+		case arg == "--pnpmrc":
+			cfg.PnpmRCOnly = true
+		case arg == "--bunfig":
+			cfg.BunfigOnly = true
+		case arg == "--yarnrc":
+			cfg.YarnRCOnly = true
 		case strings.HasPrefix(arg, "--color="):
 			mode := strings.TrimPrefix(arg, "--color=")
 			if mode != "auto" && mode != "always" && mode != "never" {
@@ -265,8 +286,8 @@ func Parse(args []string) (*Config, error) {
 		i++
 	}
 
-	if cfg.NPMRCOnly && cfg.PipConfigOnly {
-		return nil, fmt.Errorf("--npmrc and --pipconfig are mutually exclusive; pick one")
+	if onlyCount := boolCount(cfg.NPMRCOnly, cfg.PipConfigOnly, cfg.PnpmRCOnly, cfg.BunfigOnly, cfg.YarnRCOnly); onlyCount > 1 {
+		return nil, fmt.Errorf("--npmrc, --pipconfig, --pnpmrc, --bunfig, and --yarnrc are mutually exclusive; pick one")
 	}
 
 	// --install-dir= (explicit empty) disables file logging by routing
@@ -426,6 +447,9 @@ Options:
                                 include_tcc_protected: true.
   --npmrc                       Run ONLY the npm config audit (verbose pretty view; --json supported)
   --pipconfig                   Run ONLY the pip config audit (verbose pretty view; --json supported)
+  --pnpmrc                      Run ONLY the pnpm config audit (verbose pretty view; --json supported)
+  --bunfig                      Run ONLY the bun config audit (verbose pretty view; --json supported)
+  --yarnrc                      Run ONLY the yarn config audit covering both v1 (.yarnrc) and v2+ (.yarnrc.yml) (verbose pretty view; --json supported)
   --log-level=LEVEL      Log level: error | warn | info | debug (default: info)
   --install-dir=DIR      Base directory the agent puts ALL its files under
                          (logs, hook errors, binary placement via loader).
