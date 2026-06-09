@@ -20,11 +20,24 @@
 !docs/**/*.html
 !images/**/*.html
 
-# Go build artifacts — never commit compiled binaries
-**/stepsecurity-dev-machine-guard
+# Go build artifacts — never commit compiled binaries. Anchored to repo
+# root + the cmd/ subdirs so the pattern doesn't accidentally match the
+# source directory cmd/stepsecurity-dev-machine-guard/ and hide every
+# file inside it (the previous unanchored "**/stepsecurity-dev-machine-guard"
+# matched the directory itself, with the gitignore side-effect of
+# excluding all its contents from new tracking).
+/stepsecurity-dev-machine-guard
+/cmd/stepsecurity-dev-machine-guard/stepsecurity-dev-machine-guard
+/cmd/stepsecurity-dev-machine-guard-task/stepsecurity-dev-machine-guard-task
 *.exe
 dist/
 stepsecurity-dev-machine-guard-linux
 
 # Temporary files
 todo-remove/
+
+# Agent runtime state. When the binary or its tests run from inside the
+# repo (working dir = a subpkg, HOME pointing under it, etc.), it drops
+# config.json, agent.error.log, ai-agent-hook-errors.jsonl, hooks-state.json
+# and friends here. Never artifacts we want to track.
+**/.stepsecurity/

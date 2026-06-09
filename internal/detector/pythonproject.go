@@ -10,17 +10,26 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 const maxPythonProjects = 1000
 
 // PythonProjectDetector scans for Python projects with virtual environments.
 type PythonProjectDetector struct {
-	exec executor.Executor
+	exec    executor.Executor
+	skipper *tcc.Skipper
 }
 
 func NewPythonProjectDetector(exec executor.Executor) *PythonProjectDetector {
 	return &PythonProjectDetector{exec: exec}
+}
+
+// WithSkipper attaches a TCC skipper so the walk skips macOS-protected
+// directories. A nil skipper is a no-op. Returns the detector for chaining.
+func (d *PythonProjectDetector) WithSkipper(s *tcc.Skipper) *PythonProjectDetector {
+	d.skipper = s
+	return d
 }
 
 // CountProjects counts Python projects with virtual environments.
@@ -128,6 +137,9 @@ func (d *PythonProjectDetector) listInDir(dir string) []model.ProjectInfo {
 		}
 		if !entry.IsDir() {
 			return nil
+		}
+		if d.skipper.ShouldSkip(path, dir) {
+			return filepath.SkipDir
 		}
 		name := entry.Name()
 		if name == "node_modules" || name == ".git" || name == ".cache" ||

@@ -9,17 +9,26 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 const maxNodeProjects = 1000
 
 // NodeProjectDetector scans for Node.js projects.
 type NodeProjectDetector struct {
-	exec executor.Executor
+	exec    executor.Executor
+	skipper *tcc.Skipper
 }
 
 func NewNodeProjectDetector(exec executor.Executor) *NodeProjectDetector {
 	return &NodeProjectDetector{exec: exec}
+}
+
+// WithSkipper attaches a TCC skipper so the walk skips macOS-protected
+// directories. A nil skipper is a no-op. Returns the detector for chaining.
+func (d *NodeProjectDetector) WithSkipper(s *tcc.Skipper) *NodeProjectDetector {
+	d.skipper = s
+	return d
 }
 
 // CountProjects counts the number of Node.js projects found under the given directories.
@@ -47,6 +56,9 @@ func (d *NodeProjectDetector) listInDir(dir string) []model.ProjectInfo {
 			return nil
 		}
 		if entry.IsDir() {
+			if d.skipper.ShouldSkip(path, dir) {
+				return filepath.SkipDir
+			}
 			name := entry.Name()
 			if name == "node_modules" || name == ".git" || name == ".cache" ||
 				strings.HasPrefix(name, ".") {

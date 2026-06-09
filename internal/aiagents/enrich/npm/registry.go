@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/step-security/dev-machine-guard/internal/winproc"
 )
 
 // Source identifies which command produced the resolution. Empty when
@@ -25,6 +27,7 @@ var runFunc = execRun
 
 func execRun(ctx context.Context, cwd, bin string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
+	winproc.HideWindow(cmd)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}

@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [1.11.7] - 2026-05-31
+
+### Added
+
+- **Antigravity IDE detection**: scans now recognize the Antigravity editor.
+- **Bounded scan execution**: scans are now capped by a global deadline (60m default; override via `STEPSEC_MAX_SCAN_DURATION`, or `0` to disable) plus per-phase deadlines, so a single stuck phase no longer hangs the whole run. Subprocesses are killed by process group on cancel, preventing forked grandchildren (Electron `--version`, npm/yarn/pnpm `ls`) from blocking on inherited file descriptors.
+- **Log tail in heartbeat**: heartbeats now carry a gzipped+base64 tail of recent stderr (throttled), and log capture uses a bounded ring buffer to cap memory on long runs, surfacing where a scan is stuck.
+
+### Fixed
+
+- **`api_endpoint` trailing slash**: configured `api_endpoint` values are now normalized to strip trailing slashes at the config boundary, avoiding malformed `//v1/...` URLs that some gateways reject with 403/500.
+- **pip detection triggering CLT install dialog**: pip detection no longer invokes a command that could pop the macOS Command Line Tools install dialog.
+- **macOS IDE pop-ups and stuck processes**: macOS scans are further hardened against IDE permission pop-ups and processes that never exit.
+- **Execution-watchdog limit via config**: the execution-watchdog limit is now delivered through `config.json`.
+
+## [1.11.6] - 2026-05-27
+
+### Fixed
+
+- **macOS Tahoe Media Library prompt**: the project walker now skips `~/Library` wholesale instead of curating individual TCC-protected subpaths. This prevents new TCC prompts (e.g. `kTCCServiceMediaLibrary` from `~/Library/Application Support/com.apple.avfoundation/`) from firing after each macOS release adds Apple-managed subtrees behind new TCC services. Targeted detectors that read specific files under `~/Library` (JetBrains plugins, Claude desktop MCP config, pip global config) keep working unchanged.
+
+## [1.11.5] - 2026-05-27
+
+### Added
+
+- **macOS TCC-protected directory skipping**: scanners now skip TCC-protected paths (Photos, Media Library, App Management, etc.) by default when running under launchd, avoiding spurious permission prompts and noisy denials. Hits are logged so operators can see which paths were skipped.
+- **PPPC configuration guide**: new docs explain how to grant the agent the necessary TCC permissions via a PPPC profile for environments that want full coverage.
+- **`verify-msi.ps1` script**: client-side PowerShell script for verifying the integrity and Authenticode signature of distributed MSI artifacts.
+
+### Fixed
+
+- **Empty `--install-dir` rejected**: install/uninstall commands now reject an empty `--install-dir` value instead of silently falling back to a default, preventing accidental installs to the wrong location.
+- **`install_dir` config field is authoritative**: the configured `install_dir` is now treated as the source of truth across install/uninstall paths, resolving inconsistencies when the field disagreed with runtime defaults.
+
+## [1.11.4] - 2026-05-26
+
+### Added
+
+- **Authenticode-signed Windows binaries and MSIs**: release artifacts are now signed via Azure Trusted Signing, so installs no longer trip SmartScreen/EDR unsigned-binary heuristics on Windows.
+- **Feature gate for selective scanning**: new feature-gate mechanism allows disabling or enabling individual scanners at runtime, giving operators a way to scope what a deployment reports without rebuilding.
+- **Invocation method + in-flight status reporting**: telemetry now records how the agent was invoked (launchd / systemd / scheduled task / interactive) and emits structured per-phase status info while a scan is running.
+- **`$HOME` expansion in configured paths**: path-style config values now expand `$HOME` (and `~`) consistently across platforms.
+
+### Fixed
+
+- **Windows console window flashes during scheduled scans**: the scheduled task no longer pops a visible console window on each run.
+- **Telemetry post-phase is non-blocking**: post-phase telemetry submission can no longer stall scan completion if the backend is slow or unreachable; sandbox invocation tests added to cover the path.
+- **Canonicalised `$HOME`/`~` expansion**: path expansion now goes through `filepath.Join` so the resulting paths are normalised across `/`-vs-`\` and trailing-separator edge cases.
+
+### Changed
+
+- **Per-phase telemetry sub-progress incl. upload phase**: progress reporting now tracks sub-progress within each phase and adds an explicit upload phase, giving the dashboard finer-grained visibility into long-running scans.
+- **CI: on-demand test-binary + MSI workflow** added so non-release builds can be produced from a PR without cutting a tag.
+- **CI: msi-smoke workflow hardened** following StepSecurity best-practice review.
+
+## [1.11.3] - 2026-05-21
+
+### Added
+
+- **AI agent hook state polling**: agents periodically check the StepSecurity backend for desired hook enable/disable state and reconcile local installation to match. Silent no-op in community mode; failures are logged but never crash the scanner.
+- **Static machine resource info in device payload**: each scan now reports CPU model and count, total RAM, and disk capacity for the scanned host, giving the dashboard a clearer picture of the endpoint context.
+- **Configurable install directory + persistent stderr logs**: new `--install-dir` flag (and matching env var/config field) relocates all non-bootstrap agent state, and stderr is now captured to a rotated `agent.error.log` under the install dir so MDM/service deployments have durable diagnostics (#88).
+
+### Fixed
+
+- **Auto-update signing**: fixed a signing regression in the previous 1.11.2 release that prevented auto-update from working. v1.11.2 has been removed; install or upgrade to 1.11.3 directly.
+- **Windows scheduled task user context**: the scheduled task now runs under the logged-in user via `/ru INTERACTIVE` instead of `SYSTEM`, so the scanner can read `HKCU`, `%USERPROFILE%`, and the user's `PATH` — fixing a class of missed detections for tools installed in user scope.
+- **Windows agent log directory permissions**: `C:\ProgramData\StepSecurity` now grants `BUILTIN\Users` Modify rights so the scheduled task (running as the logged-in user) can append to `agent.log` instead of failing with Access Denied.
+- **AI agent hook command path on Windows**: hook entries written into agent config files now use forward-slash paths, avoiding Windows shell quoting issues that could prevent the hook from firing.
+- **pnpm v11 global scan regression**: globally installed pnpm packages were missing from the npm scan output on pnpm v11; detection logic updated for the new layout.
+- **Linux/macOS lock contention race**: an edge case where the singleton-lock check could misidentify the console user on systems with no active interactive session is fixed.
+
+### Changed
+
+- **CI: gosec SAST scan** added to the workflow set, with a corresponding badge in the README.
+- **CI: cross-platform build + vet/fmt/tidy** checks added to the Tests workflow, surfacing platform-specific compile errors at PR time instead of at release time.
+
 ## [1.11.1] - 2026-05-05
 
 ### Added
@@ -159,6 +236,11 @@ First open-source release. The scanning engine was previously an internal enterp
 - Execution log capture and base64 encoding
 - Instance locking to prevent concurrent runs
 
+[1.11.7]: https://github.com/step-security/dev-machine-guard/compare/v1.11.6...v1.11.7
+[1.11.6]: https://github.com/step-security/dev-machine-guard/compare/v1.11.5...v1.11.6
+[1.11.5]: https://github.com/step-security/dev-machine-guard/compare/v1.11.4...v1.11.5
+[1.11.4]: https://github.com/step-security/dev-machine-guard/compare/v1.11.3...v1.11.4
+[1.11.3]: https://github.com/step-security/dev-machine-guard/compare/v1.11.1...v1.11.3
 [1.11.1]: https://github.com/step-security/dev-machine-guard/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/step-security/dev-machine-guard/compare/v1.10.2...v1.11.0
 [1.10.2]: https://github.com/step-security/dev-machine-guard/compare/v1.10.1...v1.10.2

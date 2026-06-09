@@ -15,10 +15,21 @@ import (
 type PythonScanner struct {
 	exec executor.Executor
 	log  *progress.Logger
+	// ProgressHook, when non-nil, is invoked from inside ScanGlobalPackages
+	// with a short human-readable detail string ("scanning pip3", ...).
+	// Telemetry plumbs this into PhaseTracker.UpdateDetail so heartbeats
+	// surface mid-phase progress.
+	ProgressHook func(detail string)
 }
 
 func NewPythonScanner(exec executor.Executor, log *progress.Logger) *PythonScanner {
 	return &PythonScanner{exec: exec, log: log}
+}
+
+func (s *PythonScanner) emitProgress(detail string) {
+	if s.ProgressHook != nil {
+		s.ProgressHook(detail)
+	}
 }
 
 type pythonScanSpec struct {
@@ -49,6 +60,7 @@ func (s *PythonScanner) ScanGlobalPackages(ctx context.Context) []model.PythonSc
 			continue
 		}
 
+		s.emitProgress("scanning " + spec.name)
 		s.log.Progress("  Checking %s global packages...", spec.name)
 		version := s.getVersion(ctx, spec.binary, spec.versionCmd)
 

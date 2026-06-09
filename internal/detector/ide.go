@@ -16,6 +16,7 @@ type ideSpec struct {
 	IDEType      string
 	Vendor       string
 	AppPath      string   // macOS: /Applications/X.app
+	AppPathAlts  []string // macOS: alternate bundle paths (vendor renames, e.g. "Antigravity.app" → "Antigravity IDE.app")
 	BinaryPath   string   // macOS: relative to AppPath
 	WinPaths     []string // Windows: candidate install dirs (may contain %ENVVAR% and glob patterns)
 	WinBinary    string   // Windows: binary relative to install dir
@@ -51,18 +52,45 @@ var ideDefinitions = []ideSpec{
 	},
 	{
 		AppName: "Windsurf", IDEType: "windsurf", Vendor: "Codeium",
-		AppPath: "/Applications/Windsurf.app", BinaryPath: "Contents/MacOS/Windsurf",
-		// Use the .cmd console wrapper to avoid launching the GUI
+		AppPath: "/Applications/Windsurf.app", BinaryPath: "Contents/Resources/app/bin/windsurf",
+		// macOS BinaryPath points at the CLI shim (Contents/Resources/app/bin/windsurf),
+		// NOT the GUI binary Contents/MacOS/Windsurf, matching VS Code and Cursor — the
+		// shim prints --version and exits without opening a window. resolveDarwinVersion
+		// reads package.json before ever reaching the shim, so it's only a safe fallback.
+		// Windows uses the .cmd console wrapper for the same reason.
 		WinPaths: []string{`%LOCALAPPDATA%\Programs\Windsurf`}, WinBinary: `resources\app\bin\windsurf.cmd`,
 		LinuxPaths: []string{"/opt/Windsurf", "/usr/share/windsurf", "~/.local/share/windsurf"}, LinuxBinary: "windsurf",
 		VersionFlag: "--version",
 	},
 	{
 		AppName: "Antigravity", IDEType: "antigravity", Vendor: "Google",
-		AppPath: "/Applications/Antigravity.app", BinaryPath: "Contents/MacOS/Antigravity",
-		// Use the .cmd console wrapper to avoid launching the GUI
-		WinPaths: []string{`%LOCALAPPDATA%\Programs\Antigravity`}, WinBinary: `resources\app\bin\antigravity.cmd`,
-		LinuxPaths: []string{"/opt/Antigravity", "/usr/share/antigravity"}, LinuxBinary: "antigravity",
+		// Google shipped this as "Antigravity.app" (the Coveo build) and later
+		// renamed it "Antigravity IDE.app" (bundle id com.google.antigravity-ide,
+		// CLI shim bin/antigravity-ide) — both verified in the field, so match both.
+		AppPath:     "/Applications/Antigravity IDE.app",
+		AppPathAlts: []string{"/Applications/Antigravity.app"},
+		// BinaryPath is the CLI shim, NOT the GUI binary Contents/MacOS/Electron.
+		// Exec'ing the GUI binary boots the app and hangs (verified: --version on the
+		// real bundle initialized the onboarding server and never returned) — the
+		// Coveo incident. The shim prints --version in ~1s and exits. resolveDarwinVersion
+		// reads package.json first anyway, so the shim is only a safe fallback.
+		BinaryPath: "Contents/Resources/app/bin/antigravity-ide",
+		// Windows: the per-user install folder was renamed "Antigravity" →
+		// "Antigravity IDE" (%LOCALAPPDATA%\Programs\Antigravity IDE\Antigravity IDE.exe);
+		// system-wide installs land in %PROGRAMFILES%\Google\Antigravity. Legacy folder
+		// kept for older installs. The Phase-2 registry fallback already matches via
+		// case-insensitive substring on "Antigravity", so RegistryName stays unset.
+		// The .cmd shim follows the macOS rename; package.json fast-path resolves the
+		// version regardless, so the shim is only a fallback. (Verified from Google's
+		// docs/forums, not a live Windows box.)
+		WinPaths:  []string{`%LOCALAPPDATA%\Programs\Antigravity IDE`, `%PROGRAMFILES%\Google\Antigravity`, `%LOCALAPPDATA%\Programs\Antigravity`},
+		WinBinary: `resources\app\bin\antigravity-ide.cmd`,
+		// Linux: tarball/helper installs land under /opt/antigravity-ide or
+		// ~/Applications/antigravity-ide; the CLI is on PATH as "antigravity-ide"
+		// (symlinked into /usr/local/bin or ~/.local/bin). Legacy paths kept.
+		// (Verified from Google's docs + AUR/community installers, not a live Linux box.)
+		LinuxPaths:  []string{"/opt/antigravity-ide/Antigravity-IDE", "/opt/antigravity-ide", "~/Applications/antigravity-ide", "/opt/Antigravity", "/usr/share/antigravity"},
+		LinuxBinary: "antigravity-ide",
 		VersionFlag: "--version",
 	},
 	{
@@ -222,34 +250,69 @@ func (d *IDEDetector) Detect(ctx context.Context) []model.IDE {
 }
 
 func (d *IDEDetector) detectDarwin(ctx context.Context, spec ideSpec) (model.IDE, bool) {
-	if !d.exec.DirExists(spec.AppPath) {
+	appPath, ok := d.resolveDarwinAppPath(spec)
+	if !ok {
 		return model.IDE{}, false
 	}
-
-	version := "unknown"
-
-	// Try version from binary
-	if spec.BinaryPath != "" && spec.VersionFlag != "" {
-		binaryFull := filepath.Join(spec.AppPath, spec.BinaryPath)
-		if d.exec.FileExists(binaryFull) {
-			version = runVersionCmd(ctx, d.exec, binaryFull, spec.VersionFlag)
-		}
-	}
-
-	// Fallback: product-info.json (JetBrains IDEs)
-	if version == "unknown" {
-		version = readProductInfoVersion(d.exec, filepath.Join(spec.AppPath, "Contents", "Resources", "product-info.json"))
-	}
-
-	// Fallback: Info.plist
-	if version == "unknown" {
-		version = readPlistVersion(ctx, d.exec, filepath.Join(spec.AppPath, "Contents", "Info.plist"))
-	}
-
 	return model.IDE{
-		IDEType: spec.IDEType, Version: version, InstallPath: spec.AppPath,
+		IDEType: spec.IDEType, Version: d.resolveDarwinVersion(ctx, spec, appPath), InstallPath: appPath,
 		Vendor: spec.Vendor, IsInstalled: true,
 	}, true
+}
+
+// resolveDarwinAppPath returns the first installed bundle among AppPath and
+// AppPathAlts. Vendors rename .app bundles across releases (Antigravity
+// shipped as "Antigravity.app", later "Antigravity IDE.app"), so a single
+// hardcoded path silently stops detecting the IDE after a rename.
+func (d *IDEDetector) resolveDarwinAppPath(spec ideSpec) (string, bool) {
+	if d.exec.DirExists(spec.AppPath) {
+		return spec.AppPath, true
+	}
+	for _, alt := range spec.AppPathAlts {
+		if d.exec.DirExists(alt) {
+			return alt, true
+		}
+	}
+	return "", false
+}
+
+// resolveDarwinVersion tries package.json, product-info.json, Info.plist,
+// and finally the binary --version in that order, all relative to the
+// resolved appPath. The static-first order is critical because some IDEs'
+// BinaryPath historically pointed at Contents/MacOS/<App> (a GUI binary) —
+// invoking that flashes a window and, on a real Antigravity install,
+// initializes the app and hangs (the Coveo incident). Apple-signed apps
+// always carry CFBundleShortVersionString in Info.plist, so the exec path
+// is a last-ditch fallback for bundles missing both package.json and the
+// plist key. Mirrors resolveWindowsVersionFromDir's package.json fast-path.
+func (d *IDEDetector) resolveDarwinVersion(ctx context.Context, spec ideSpec, appPath string) string {
+	// 1. package.json — covers Electron IDEs (VS Code, Cursor, Windsurf, Antigravity, and any future Electron-based IDE).
+	if v := readJSONVersion(d.exec, filepath.Join(appPath, "Contents", "Resources", "app", "package.json")); v != "unknown" {
+		return v
+	}
+	// 2. product-info.json — JetBrains IDEs.
+	if v := readJSONVersion(d.exec, filepath.Join(appPath, "Contents", "Resources", "product-info.json")); v != "unknown" {
+		return v
+	}
+	// 3. Info.plist — every signed .app carries CFBundleShortVersionString
+	//    (Zed, Claude.app, Copilot.app, Xcode, Eclipse on macOS, …).
+	if v := readPlistVersion(ctx, d.exec, filepath.Join(appPath, "Contents", "Info.plist")); v != "unknown" {
+		return v
+	}
+	// 4. Last-resort binary exec. Every IDE's BinaryPath is a CLI shim
+	//    (VS Code/Cursor/Windsurf/Antigravity → Contents/Resources/app/bin/<name>),
+	//    never a Contents/MacOS/<App> GUI binary, so even this fallback can't
+	//    flash a window. In practice it's rarely reached: package.json (Electron
+	//    forks) or Info.plist (everything else) resolves first. Zed reaches here
+	//    only in theory — it has no VersionFlag, so the guard below is false and
+	//    it resolves purely from Info.plist.
+	if spec.BinaryPath != "" && spec.VersionFlag != "" {
+		binaryFull := filepath.Join(appPath, spec.BinaryPath)
+		if d.exec.FileExists(binaryFull) {
+			return runVersionCmd(ctx, d.exec, binaryFull, spec.VersionFlag)
+		}
+	}
+	return "unknown"
 }
 
 func (d *IDEDetector) detectLinux(ctx context.Context, spec ideSpec) (model.IDE, bool) {
@@ -305,6 +368,16 @@ func (d *IDEDetector) detectLinux(ctx context.Context, spec ideSpec) (model.IDE,
 // Prefers the binary within installDir to avoid version mismatch with a different
 // install found via PATH. Falls back to PATH lookup, then metadata files.
 func (d *IDEDetector) resolveLinuxVersion(ctx context.Context, spec ideSpec, installDir string) string {
+	// Static-first (mirrors macOS resolveDarwinVersion and Windows
+	// resolveWindowsVersionFromDir): read package.json before exec'ing any
+	// binary, so an Electron IDE whose in-dir binary is the GUI app rather
+	// than a CLI shim can't flash a window or hang on --version. Electron
+	// forks keep the version in resources/app/package.json; JetBrains/Eclipse
+	// have none there and fall through to the existing logic unchanged.
+	if v := readJSONVersion(d.exec, filepath.Join(installDir, "resources", "app", "package.json")); v != "unknown" {
+		return v
+	}
+
 	if spec.LinuxBinary != "" && spec.VersionFlag != "" {
 		// Try binary inside the detected install directory first
 		for _, relBin := range []string{
@@ -328,7 +401,7 @@ func (d *IDEDetector) resolveLinuxVersion(ctx context.Context, spec ideSpec, ins
 	}
 
 	// product-info.json at the root of the install dir (JetBrains, some Electron apps)
-	if v := readProductInfoVersion(d.exec, filepath.Join(installDir, "product-info.json")); v != "unknown" {
+	if v := readJSONVersion(d.exec, filepath.Join(installDir, "product-info.json")); v != "unknown" {
 		return v
 	}
 
@@ -378,9 +451,19 @@ func (d *IDEDetector) resolveWindowsVersion(ctx context.Context, spec ideSpec, i
 	return version
 }
 
-// resolveWindowsVersionFromDir tries binary, product-info.json, and .eclipseproduct.
-// Does NOT query the registry (caller handles that to avoid redundant queries).
+// resolveWindowsVersionFromDir tries package.json, the binary,
+// product-info.json, and .eclipseproduct in that order. The
+// package.json fast-path covers VS Code-derived Electron IDEs (VS
+// Code, Cursor, Windsurf, Antigravity) so we don't shell out to the
+// bin\*.cmd shim — that shim spawns cmd.exe, which flashes a console
+// under Task Scheduler. JetBrains and Zed have no package.json at
+// that path and fall through unchanged. Registry lookup is the
+// caller's final fallback.
 func (d *IDEDetector) resolveWindowsVersionFromDir(ctx context.Context, spec ideSpec, installDir string) string {
+	if v := readJSONVersion(d.exec, filepath.Join(installDir, "resources", "app", "package.json")); v != "unknown" {
+		return v
+	}
+
 	version := "unknown"
 
 	if spec.WinBinary != "" && spec.VersionFlag != "" {
@@ -391,7 +474,7 @@ func (d *IDEDetector) resolveWindowsVersionFromDir(ctx context.Context, spec ide
 	}
 
 	if version == "unknown" {
-		version = readProductInfoVersion(d.exec, filepath.Join(installDir, "product-info.json"))
+		version = readJSONVersion(d.exec, filepath.Join(installDir, "product-info.json"))
 	}
 
 	if version == "unknown" {
@@ -487,9 +570,11 @@ func runVersionCmd(ctx context.Context, exec executor.Executor, binary, flag str
 	return "unknown"
 }
 
-// readProductInfoVersion reads the "version" field from a JetBrains product-info.json file.
-// Returns "unknown" if the file does not exist or cannot be parsed.
-func readProductInfoVersion(exec executor.Executor, filePath string) string {
+// readJSONVersion reads the top-level "version" field from a JSON file.
+// Used for both JetBrains product-info.json and the VS Code-family
+// resources/app/package.json — both expose the same shape. Returns
+// "unknown" if the file does not exist or cannot be parsed.
+func readJSONVersion(exec executor.Executor, filePath string) string {
 	data, err := exec.ReadFile(filePath)
 	if err != nil {
 		return "unknown"

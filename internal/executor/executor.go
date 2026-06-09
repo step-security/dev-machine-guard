@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/step-security/dev-machine-guard/internal/winproc"
 )
 
 // Executor defines the interface for all OS interactions.
@@ -82,6 +84,8 @@ func NewReal() *Real { return &Real{} }
 
 func (r *Real) Run(ctx context.Context, name string, args ...string) (string, string, int, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	winproc.HideWindow(cmd)
+	setupKillgroupOnCancel(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -111,6 +115,8 @@ func (r *Real) RunInDir(ctx context.Context, dir string, timeout time.Duration, 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
+	winproc.HideWindow(cmd)
+	setupKillgroupOnCancel(cmd)
 	cmd.Dir = dir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -266,6 +272,7 @@ func (r *Real) IsAppleCLTStub(_ context.Context, binPath string) bool {
 		probeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(probeCtx, "xcode-select", "-p")
+		winproc.HideWindow(cmd)
 		var stdout bytes.Buffer
 		cmd.Stdout = &stdout
 		err := cmd.Run()

@@ -469,6 +469,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 - [Changelog](CHANGELOG.md)
 - [Scan Coverage](SCAN_COVERAGE.md) — full catalog of detections
 - [Release Process](docs/release-process.md) — how releases are signed and verified
+- [Deploying via SCCM](docs/deploying-via-sccm.md) — Windows fleet rollout via Microsoft Configuration Manager (signed MSI, no PowerShell)
+- [macOS TCC Permissions](docs/macos-tcc-permissions.md) — how the agent handles Documents/Downloads/Mail TCC dirs, PPPC profile for MDM-pushed Full Disk Access, and the `include_tcc_protected` config field
 - [Versioning](VERSIONING.md) — why the version starts at 1.8.1
 - [Security Policy](SECURITY.md) — reporting vulnerabilities
 - [Code of Conduct](CODE_OF_CONDUCT.md)

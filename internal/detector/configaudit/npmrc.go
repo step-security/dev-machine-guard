@@ -16,6 +16,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 // maxNPMRCFiles caps the number of .npmrc files we report. Even on big
@@ -53,7 +54,8 @@ var secretEnvNamePattern = regexp.MustCompile(`(?i)(token|password|secret|_auth|
 // hashes) and git-tracking checks pluggable so unit tests don't need real
 // syscalls or a git binary.
 type NPMRCDetector struct {
-	exec executor.Executor
+	exec    executor.Executor
+	skipper *tcc.Skipper
 
 	// ownerLookup returns owner info for a path. Defaults to the real
 	// platform-specific impl in npmrc_stat_*.go; tests can override.
@@ -66,21 +68,20 @@ type NPMRCDetector struct {
 	inGitRepo func(path string) bool
 }
 
-type ownerInfo struct {
-	UID       int
-	GID       int
-	OwnerName string
-	GroupName string
-	OK        bool
-}
-
 // NewNPMRCDetector returns a detector with default platform-specific
 // metadata helpers wired in.
 func NewNPMRCDetector(exec executor.Executor) *NPMRCDetector {
 	d := &NPMRCDetector{exec: exec}
-	d.ownerLookup = func(p string) ownerInfo { return statOwner(p) }
-	d.gitTracked = d.defaultGitTracked
+	d.ownerLookup = statOwner
+	d.gitTracked = func(ctx context.Context, p string) bool { return gitTrackedViaExec(ctx, exec, p) }
 	d.inGitRepo = defaultInGitRepo
+	return d
+}
+
+// WithSkipper attaches a TCC skipper so .npmrc discovery skips macOS-protected
+// directories. A nil skipper is a no-op. Returns the detector for chaining.
+func (d *NPMRCDetector) WithSkipper(s *tcc.Skipper) *NPMRCDetector {
+	d.skipper = s
 	return d
 }
 
@@ -174,6 +175,9 @@ func (d *NPMRCDetector) findProjectNPMRCs(dir string) []string {
 			return nil
 		}
 		if entry.IsDir() {
+			if d.skipper.ShouldSkip(path, dir) {
+				return filepath.SkipDir
+			}
 			if shouldSkipNPMRCDir(path, entry.Name(), dir) {
 				return filepath.SkipDir
 			}
@@ -412,41 +416,4 @@ func (d *NPMRCDetector) collectEnv() []model.NPMRCEnvVar {
 		out = append(out, ev)
 	}
 	return out
-}
-
-// defaultGitTracked shells out to git to check if a file is tracked.
-// Returns false on any error (git not installed, not in a repo, untracked).
-func (d *NPMRCDetector) defaultGitTracked(ctx context.Context, path string) bool {
-	dir := filepath.Dir(path)
-	base := filepath.Base(path)
-	_, _, exit, err := d.exec.RunWithTimeout(ctx, 5*time.Second, "git", "-C", dir, "ls-files", "--error-unmatch", base)
-	return err == nil && exit == 0
-}
-
-// defaultInGitRepo walks parent directories looking for a .git entry.
-// Stops at the filesystem root.
-func defaultInGitRepo(path string) bool {
-	dir := filepath.Dir(path)
-	for {
-		gitPath := filepath.Join(dir, ".git")
-		if info, err := os.Stat(gitPath); err == nil {
-			// .git can be a directory (regular repo) or a file (worktree).
-			_ = info
-			return true
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return false
-		}
-		dir = parent
-	}
-}
-
-// sha256Hex returns the hex SHA-256 of a string.
-func sha256Hex(s string) string {
-	if s == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:])
 }

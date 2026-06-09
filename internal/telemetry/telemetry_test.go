@@ -98,7 +98,7 @@ func TestUploadToS3_SendsCompressedBodyAndIsCompressedFlag(t *testing.T) {
 	payload := &Payload{CustomerID: "test-customer", DeviceID: "dev-1"}
 
 	const testExecutionID = "11111111-2222-4333-8444-555555555555"
-	if err := uploadToS3(context.Background(), progress.NewLogger(progress.LevelInfo), payload, testExecutionID); err != nil {
+	if err := uploadToS3(context.Background(), progress.NewLogger(progress.LevelInfo), payload, testExecutionID, nil); err != nil {
 		t.Fatalf("uploadToS3 failed: %v", err)
 	}
 
@@ -198,7 +198,7 @@ func TestUploadToS3_Synthetic200ConfirmedByBackend(t *testing.T) {
 
 	err := uploadToS3(context.Background(), progress.NewLogger(progress.LevelInfo),
 		&Payload{CustomerID: "test-customer", DeviceID: "dev-1"},
-		"11111111-2222-4333-8444-555555555555")
+		"11111111-2222-4333-8444-555555555555", nil)
 	if err != nil {
 		t.Fatalf("uploadToS3 must succeed when backend confirms uploaded=true, got: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestUploadToS3_Synthetic200MissingExhaustsRetries(t *testing.T) {
 
 	err := uploadToS3(context.Background(), progress.NewLogger(progress.LevelInfo),
 		&Payload{CustomerID: "test-customer", DeviceID: "dev-1"},
-		"11111111-2222-4333-8444-555555555555")
+		"11111111-2222-4333-8444-555555555555", nil)
 	if err == nil {
 		t.Fatal("uploadToS3 must fail when every confirm reports the object missing")
 	}
@@ -313,7 +313,7 @@ func TestUploadToS3_Synthetic200UnsupportedBackendTrustsPUT(t *testing.T) {
 
 	err := uploadToS3(context.Background(), progress.NewLogger(progress.LevelInfo),
 		&Payload{CustomerID: "test-customer", DeviceID: "dev-1"},
-		"11111111-2222-4333-8444-555555555555")
+		"11111111-2222-4333-8444-555555555555", nil)
 	if err != nil {
 		t.Fatalf("uploadToS3 must succeed when confirm-upload is unsupported (404), got: %v", err)
 	}
@@ -363,7 +363,7 @@ func TestUploadToS3_Synthetic200IndeterminateExhausts(t *testing.T) {
 
 	err := uploadToS3(context.Background(), progress.NewLogger(progress.LevelInfo),
 		&Payload{CustomerID: "test-customer", DeviceID: "dev-1"},
-		"11111111-2222-4333-8444-555555555555")
+		"11111111-2222-4333-8444-555555555555", nil)
 	if err == nil {
 		t.Fatal("uploadToS3 must fail when every confirm is indeterminate")
 	}
@@ -432,7 +432,7 @@ func TestUploadToS3_Synthetic200ThenRealAWSHeaders(t *testing.T) {
 
 	err := uploadToS3(context.Background(), progress.NewLogger(progress.LevelInfo),
 		&Payload{CustomerID: "test-customer", DeviceID: "dev-1"},
-		"11111111-2222-4333-8444-555555555555")
+		"11111111-2222-4333-8444-555555555555", nil)
 	if err != nil {
 		t.Fatalf("uploadToS3 must recover when a later attempt reaches real S3, got: %v", err)
 	}
