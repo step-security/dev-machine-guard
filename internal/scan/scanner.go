@@ -246,6 +246,36 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		log.StepDone(time.Since(start))
 	}
 
+	// pnpm/bun/yarn config audits — pointers stay nil unless the
+	// corresponding feature gate ran the detector, so JSON `omitempty`
+	// drops the field entirely instead of emitting a zero-valued struct.
+	var pnpmAudit *model.PnpmAudit
+	if featuregate.IsEnabled(featuregate.FeaturePnpmConfigAudit) {
+		log.StepStart("Auditing pnpm configuration")
+		start = time.Now()
+		a := configaudit.NewPnpmDetector(exec).WithSkipper(tccSkipper).Detect(ctx, searchDirs, loggedInUser)
+		pnpmAudit = &a
+		log.StepDone(time.Since(start))
+	}
+
+	var bunAudit *model.BunAudit
+	if featuregate.IsEnabled(featuregate.FeatureBunConfigAudit) {
+		log.StepStart("Auditing bun configuration")
+		start = time.Now()
+		a := configaudit.NewBunDetector(exec).WithSkipper(tccSkipper).Detect(ctx, searchDirs, loggedInUser)
+		bunAudit = &a
+		log.StepDone(time.Since(start))
+	}
+
+	var yarnAudit *model.YarnAudit
+	if featuregate.IsEnabled(featuregate.FeatureYarnConfigAudit) {
+		log.StepStart("Auditing yarn configuration")
+		start = time.Now()
+		a := configaudit.NewYarnDetector(exec).WithSkipper(tccSkipper).Detect(ctx, searchDirs, loggedInUser)
+		yarnAudit = &a
+		log.StepDone(time.Since(start))
+	}
+
 	// Ensure no nil slices (JSON must emit [] not null)
 	if aiTools == nil {
 		aiTools = []model.AITool{}
@@ -316,6 +346,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		FlatpakPackages:   flatpakPackages,
 		NPMRCAudit:        &npmrcAudit,
 		PipAudit:          &pipAudit,
+		PnpmAudit:         pnpmAudit,
+		BunAudit:          bunAudit,
+		YarnAudit:         yarnAudit,
 		Summary: model.Summary{
 			AIAgentsAndToolsCount: len(aiTools),
 			IDEInstallationsCount: len(ides),

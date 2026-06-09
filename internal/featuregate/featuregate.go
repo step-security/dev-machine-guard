@@ -17,17 +17,23 @@ import (
 type Feature string
 
 const (
-	FeatureAIAgentHooks   Feature = "ai-agent-hooks"
-	FeatureNPMRCAudit     Feature = "npmrc-audit"
-	FeaturePipConfigAudit Feature = "pipconfig-audit"
+	FeatureAIAgentHooks    Feature = "ai-agent-hooks"
+	FeatureNPMRCAudit      Feature = "npmrc-audit"
+	FeaturePipConfigAudit  Feature = "pipconfig-audit"
+	FeaturePnpmConfigAudit Feature = "pnpm-config-audit"
+	FeatureBunConfigAudit  Feature = "bun-config-audit"
+	FeatureYarnConfigAudit Feature = "yarn-config-audit"
 )
 
 // enabled lists features safe to ship today. Uncomment a line once its
 // backend support has merged.
 var enabled = map[Feature]bool{
-	// FeatureAIAgentHooks:   true,
+	// FeatureAIAgentHooks:    true,
 	FeatureNPMRCAudit:     true,
 	FeaturePipConfigAudit: true,
+	// FeaturePnpmConfigAudit: true,
+	// FeatureBunConfigAudit:  true,
+	// FeatureYarnConfigAudit: true,
 }
 
 var override bool
