@@ -612,15 +612,13 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 			brewCasks = brewDetector.ListCasksRich(phaseCtx)
 			log.Progress("  Formulae: %d, Casks: %d (pre-parsed with metadata)", len(brewFormulae), len(brewCasks))
 
-			// Also collect raw scans for backward compatibility with older backends
+			// Also emit raw-format scans for backward compatibility with older backends.
+			// Synthesized from the rich data above — avoids re-invoking `brew list`,
+			// which can crash inside Homebrew on hosts with malformed cask metadata.
 			brewScanner := detector.NewBrewScanner(userExec, log)
-			if r, ok := brewScanner.ScanFormulae(phaseCtx); ok {
-				brewScans = append(brewScans, r)
-			}
-			if r, ok := brewScanner.ScanCasks(phaseCtx); ok {
-				brewScans = append(brewScans, r)
-			}
-			log.Progress("  Raw scans: %d", len(brewScans))
+			brewScans = append(brewScans, brewScanner.FormulaeResult(brewFormulae))
+			brewScans = append(brewScans, brewScanner.CasksResult(brewCasks))
+			log.Progress("  Raw scans: %d (synthesized)", len(brewScans))
 		} else {
 			log.Progress("  Homebrew not found")
 		}
