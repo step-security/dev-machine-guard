@@ -372,11 +372,11 @@ func defaultPnpmBinDir(exec executor.Executor) string {
 		}
 	case model.PlatformLinux:
 		if home := exec.Getenv("HOME"); home != "" {
-			return filepath.Join(home, ".local", "share", "pnpm")
+			return filepath.Join(home, ".local", "share", "pnpm", "bin")
 		}
 	case model.PlatformWindows:
 		if localAppData := exec.Getenv("LOCALAPPDATA"); localAppData != "" {
-			return filepath.Join(localAppData, "pnpm")
+			return filepath.Join(localAppData, "pnpm", "bin")
 		}
 	}
 	return ""

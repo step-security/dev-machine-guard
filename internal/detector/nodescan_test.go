@@ -254,9 +254,10 @@ func TestNodeScanner_ScanPnpmGlobal_RootGFallback(t *testing.T) {
 	}
 }
 
-// TestDefaultPnpmBinDir pins pnpm's per-platform global bin-dir layout. macOS
-// uses a /bin subdirectory; Linux and Windows place global binaries directly
-// in PNPM_HOME (no /bin). This asymmetry matches pnpm's own `pnpm setup`.
+// TestDefaultPnpmBinDir pins pnpm's per-platform global bin-dir layout.
+// pnpm v11 places global shims under a /bin subdirectory on macOS, Linux,
+// and Windows alike. This matches pnpm's own `pnpm setup` output: the error
+// it emits names "<PNPM_HOME>/bin" as the dir that must be on PATH.
 func TestDefaultPnpmBinDir(t *testing.T) {
 	tests := []struct {
 		name string
@@ -277,10 +278,10 @@ func TestDefaultPnpmBinDir(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "linux with HOME → no bin suffix",
+			name: "linux with HOME → bin subdir",
 			goos: "linux",
 			envs: map[string]string{"HOME": "/home/foo"},
-			want: "/home/foo/.local/share/pnpm",
+			want: "/home/foo/.local/share/pnpm/bin",
 		},
 		{
 			name: "linux without HOME → empty",
