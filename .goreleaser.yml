@@ -23,6 +23,29 @@ builds:
     env:
       - CGO_ENABLED=0
 
+  # GUI-subsystem launcher invoked by Windows Task Scheduler so the
+  # console-subsystem agent never gets a console window allocated.
+  # -H windowsgui flips the PE subsystem; otherwise identical config.
+  - id: stepsecurity-dev-machine-guard-task
+    main: ./cmd/stepsecurity-dev-machine-guard-task
+    binary: stepsecurity-dev-machine-guard-task
+    goos:
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -H windowsgui
+      - -X github.com/step-security/dev-machine-guard/internal/buildinfo.GitCommit={{.FullCommit}}
+      - -X github.com/step-security/dev-machine-guard/internal/buildinfo.ReleaseTag={{.Tag}}
+      - -X github.com/step-security/dev-machine-guard/internal/buildinfo.ReleaseBranch={{.Branch}}
+    env:
+      - CGO_ENABLED=0
+
 universal_binaries:
   - id: universal
     ids:
@@ -43,6 +66,13 @@ archives:
     formats:
       - binary
     name_template: "stepsecurity-dev-machine-guard-{{ .Version }}-{{ .Os }}_{{ .Arch }}"
+    allow_different_binary_count: true
+  - id: windows-task
+    ids:
+      - stepsecurity-dev-machine-guard-task
+    formats:
+      - binary
+    name_template: "stepsecurity-dev-machine-guard-task-{{ .Version }}-{{ .Os }}_{{ .Arch }}"
     allow_different_binary_count: true
 
 nfpms:

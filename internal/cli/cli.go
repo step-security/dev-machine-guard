@@ -17,29 +17,95 @@ import (
 // failure, so the hot path bypasses cli.Parse entirely — see main.go's
 // early-return and internal/aiagents/cli.RunHook.
 type Config struct {
-	Command               string   // "", "install", "uninstall", "send-telemetry", "configure", "configure show", "hooks install", "hooks uninstall"
-	OutputFormat          string   // "pretty", "json", "html"
-	OutputFormatSet       bool     // true if --pretty/--json/--html was explicitly passed (not persisted)
-	HTMLOutputFile        string   // set by --html (not persisted)
-	ColorMode             string   // "auto", "always", "never"
-	Verbose               bool     // --verbose (shortcut for --log-level=debug)
-	LogLevel              string   // "" = unset; one of "error", "warn", "info", "debug"
-	EnableNPMScan         *bool    // nil=auto, true/false=explicit
-	EnableBrewScan        *bool    // nil=auto, true/false=explicit
-	EnablePythonScan      *bool    // nil=auto, true/false=explicit
-	IncludeBundledPlugins bool     // --include-bundled-plugins: include bundled/platform plugins in output
-	NPMRCOnly             bool     // --npmrc: run only the npmrc audit and render verbose pretty output
-	PipConfigOnly         bool     // --pipconfig: run only the pip config audit and render verbose pretty output
-	SearchDirs            []string // defaults to ["$HOME"]
+	Command               string // "", "install", "uninstall", "send-telemetry", "configure", "configure show", "hooks install", "hooks uninstall"
+	OutputFormat          string // "pretty", "json", "html"
+	OutputFormatSet       bool   // true if --pretty/--json/--html was explicitly passed (not persisted)
+	HTMLOutputFile        string // set by --html (not persisted)
+	ColorMode             string // "auto", "always", "never"
+	Verbose               bool   // --verbose (shortcut for --log-level=debug)
+	LogLevel              string // "" = unset; one of "error", "warn", "info", "debug"
+	InstallDir            string // --install-dir=DIR base install directory; all non-bootstrap files (logs, hook errors, binary placement) live under this dir. "" w/ InstallDirSet=true means "explicitly disabled" (no file logging).
+	InstallDirSet         bool   // true if --install-dir was passed (empty value = disable file logging for this run)
+	EnableNPMScan         *bool  // nil=auto, true/false=explicit
+	EnableBrewScan        *bool  // nil=auto, true/false=explicit
+	EnablePythonScan      *bool  // nil=auto, true/false=explicit
+	IncludeBundledPlugins bool   // --include-bundled-plugins: include bundled/platform plugins in output
+	// IncludeTCCProtected is tristate: nil or false = skip the macOS
+	// TCC-protected dirs (Documents, Downloads, ~/Library/Mail, ...)
+	// so the agent never triggers permission prompts; true = scan them.
+	// Customers who have granted the agent Full Disk Access (e.g., via
+	// an MDM-pushed PPPC profile) flip this to true to opt back into
+	// full scan coverage. See docs/macos-tcc-permissions.md.
+	IncludeTCCProtected *bool
+	NPMRCOnly           bool     // --npmrc: run only the npmrc audit and render verbose pretty output
+	PipConfigOnly       bool     // --pipconfig: run only the pip config audit and render verbose pretty output
+	PnpmRCOnly          bool     // --pnpmrc: run only the pnpm config audit and render verbose pretty output
+	BunfigOnly          bool     // --bunfig: run only the bun config audit and render verbose pretty output
+	YarnRCOnly          bool     // --yarnrc: run only the yarn config audit (both flavors) and render verbose pretty output
+	SearchDirs          []string // defaults to ["$HOME"]
 
 	// HooksAgent is the --agent value on `hooks install` / `hooks uninstall`;
 	// "" means "every detected agent".
 	HooksAgent string
+
+	// Non-interactive `configure` inputs. Used by MSI/SCCM and other
+	// orchestrators that can't drive a stdin prompt loop. NonInteractive
+	// is implied when any of ConfigFromFile / ConfigCustomerID /
+	// ConfigAPIEndpoint / ConfigAPIKey / ConfigScanFrequency is set,
+	// and main.go routes accordingly.
+	NonInteractive      bool
+	ConfigFromFile      string // --from-file: read full config JSON from path
+	ConfigCustomerID    string // --customer-id
+	ConfigAPIEndpoint   string // --api-endpoint
+	ConfigAPIKey        string // --api-key (also accepts env var DMG_API_KEY)
+	ConfigScanFrequency string // --scan-frequency (hours)
+
+	// IgnoreTelemetryError opts the `install` subcommand into treating an
+	// initial-telemetry POST failure as a warning rather than a fatal exit.
+	// Default behavior (flag absent) preserves dev-workflow ergonomics —
+	// a failed first telemetry surfaces misconfigurations immediately. MSI
+	// custom actions and other unattended orchestrators set this so a
+	// transient network hiccup doesn't roll back the whole install.
+	IgnoreTelemetryError bool
+
+	// OverrideGate disables feature gating for this invocation, letting
+	// every capability run regardless of the featuregate allowlist.
+	// Internal — not advertised in --help. Equivalent env var:
+	// STEPSECURITY_OVERRIDE_GATE=1.
+	OverrideGate bool
+
+	// RulesFile makes the malicious-file detection engine load its RuleSet
+	// from a local JSON file instead of fetching it from the backend.
+	// Dev-only — not advertised in --help. Equivalent env var:
+	// STEPSECURITY_RULES_FILE=PATH. Lets the engine be exercised offline
+	// (rules live only in the backend, so an offline run would otherwise scan
+	// nothing). Zero production impact when unset.
+	RulesFile string
+
+	// TelemetryOutFile makes an enterprise run write the assembled telemetry
+	// Payload to a local JSON file and skip the S3 upload + run-status notify.
+	// Dev-only — not advertised in --help. Equivalent env var:
+	// STEPSECURITY_TELEMETRY_OUT=PATH. The dumped file is exactly what the
+	// backend's process-uploaded sees after gunzip, so it doubles as a backend
+	// ingestion fixture. Zero production impact when unset.
+	TelemetryOutFile string
 }
 
 // supportedHookAgents lists the agent names accepted by `hooks --agent <name>` and `_hook <agent> ...`.
 // Supported agents: claude-code and codex; the list grows as adapters are added.
 var supportedHookAgents = []string{"claude-code", "codex"}
+
+// boolCount returns how many of the booleans are true. Used to keep the
+// "*-only" mutual-exclusion checks readable when the set grows past two.
+func boolCount(bs ...bool) int {
+	n := 0
+	for _, b := range bs {
+		if b {
+			n++
+		}
+	}
+	return n
+}
 
 func isSupportedHookAgent(name string) bool {
 	return slices.Contains(supportedHookAgents, name)
@@ -118,10 +184,22 @@ func Parse(args []string) (*Config, error) {
 			cfg.EnablePythonScan = &v
 		case arg == "--include-bundled-plugins":
 			cfg.IncludeBundledPlugins = true
+		case arg == "--include-tcc-protected":
+			v := true
+			cfg.IncludeTCCProtected = &v
+		case arg == "--no-include-tcc-protected":
+			v := false
+			cfg.IncludeTCCProtected = &v
 		case arg == "--npmrc":
 			cfg.NPMRCOnly = true
 		case arg == "--pipconfig":
 			cfg.PipConfigOnly = true
+		case arg == "--pnpmrc":
+			cfg.PnpmRCOnly = true
+		case arg == "--bunfig":
+			cfg.BunfigOnly = true
+		case arg == "--yarnrc":
+			cfg.YarnRCOnly = true
 		case strings.HasPrefix(arg, "--color="):
 			mode := strings.TrimPrefix(arg, "--color=")
 			if mode != "auto" && mode != "always" && mode != "never" {
@@ -143,8 +221,70 @@ func Parse(args []string) (*Config, error) {
 				i++
 			}
 			continue // skip the i++ at the bottom
+		case arg == "--non-interactive":
+			cfg.NonInteractive = true
+		case arg == "--ignore-telemetry-error":
+			cfg.IgnoreTelemetryError = true
+		case arg == "--from-file":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--from-file requires a file path argument")
+			}
+			cfg.ConfigFromFile = args[i]
+		case strings.HasPrefix(arg, "--from-file="):
+			cfg.ConfigFromFile = strings.TrimPrefix(arg, "--from-file=")
+		case arg == "--customer-id":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--customer-id requires a value")
+			}
+			cfg.ConfigCustomerID = args[i]
+		case strings.HasPrefix(arg, "--customer-id="):
+			cfg.ConfigCustomerID = strings.TrimPrefix(arg, "--customer-id=")
+		case arg == "--api-endpoint":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--api-endpoint requires a value")
+			}
+			cfg.ConfigAPIEndpoint = args[i]
+		case strings.HasPrefix(arg, "--api-endpoint="):
+			cfg.ConfigAPIEndpoint = strings.TrimPrefix(arg, "--api-endpoint=")
+		case arg == "--api-key":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--api-key requires a value")
+			}
+			cfg.ConfigAPIKey = args[i]
+		case strings.HasPrefix(arg, "--api-key="):
+			cfg.ConfigAPIKey = strings.TrimPrefix(arg, "--api-key=")
+		case arg == "--scan-frequency":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--scan-frequency requires a value (hours)")
+			}
+			cfg.ConfigScanFrequency = args[i]
+		case strings.HasPrefix(arg, "--scan-frequency="):
+			cfg.ConfigScanFrequency = strings.TrimPrefix(arg, "--scan-frequency=")
 		case arg == "--verbose":
 			cfg.Verbose = true
+		case arg == "--override-gate":
+			cfg.OverrideGate = true
+		case strings.HasPrefix(arg, "--rules-file="):
+			cfg.RulesFile = strings.TrimPrefix(arg, "--rules-file=")
+		case arg == "--rules-file":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--rules-file requires a file path argument")
+			}
+			cfg.RulesFile = args[i]
+		case strings.HasPrefix(arg, "--telemetry-out="):
+			cfg.TelemetryOutFile = strings.TrimPrefix(arg, "--telemetry-out=")
+		case arg == "--telemetry-out":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--telemetry-out requires a file path argument")
+			}
+			cfg.TelemetryOutFile = args[i]
 		case strings.HasPrefix(arg, "--log-level="):
 			level := strings.ToLower(strings.TrimPrefix(arg, "--log-level="))
 			switch level {
@@ -156,6 +296,16 @@ func Parse(args []string) (*Config, error) {
 			default:
 				return nil, fmt.Errorf("invalid log level: %s (must be error, warn, info, or debug)", level)
 			}
+		case strings.HasPrefix(arg, "--install-dir="):
+			cfg.InstallDir = strings.TrimPrefix(arg, "--install-dir=")
+			cfg.InstallDirSet = true
+		case arg == "--install-dir":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--install-dir requires a directory argument (use --install-dir= to disable file logging)")
+			}
+			cfg.InstallDir = args[i]
+			cfg.InstallDirSet = true
 		case arg == "-v" || arg == "--version" || arg == "version":
 			_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n", buildinfo.VersionString())
 			os.Exit(0)
@@ -168,8 +318,29 @@ func Parse(args []string) (*Config, error) {
 		i++
 	}
 
-	if cfg.NPMRCOnly && cfg.PipConfigOnly {
-		return nil, fmt.Errorf("--npmrc and --pipconfig are mutually exclusive; pick one")
+	if onlyCount := boolCount(cfg.NPMRCOnly, cfg.PipConfigOnly, cfg.PnpmRCOnly, cfg.BunfigOnly, cfg.YarnRCOnly); onlyCount > 1 {
+		return nil, fmt.Errorf("--npmrc, --pipconfig, --pnpmrc, --bunfig, and --yarnrc are mutually exclusive; pick one")
+	}
+
+	// Env-var equivalents for the dev-only flags, so an installed
+	// launchd/systemd unit need not change to exercise the offline harness.
+	// An explicit flag wins over the env var.
+	if cfg.RulesFile == "" {
+		cfg.RulesFile = os.Getenv("STEPSECURITY_RULES_FILE")
+	}
+	if cfg.TelemetryOutFile == "" {
+		cfg.TelemetryOutFile = os.Getenv("STEPSECURITY_TELEMETRY_OUT")
+	}
+
+	// --install-dir= (explicit empty) disables file logging by routing
+	// paths.Home() to "" globally. That conflicts with `install` /
+	// `uninstall`, whose platform installers (systemd / launchd) call
+	// os.MkdirAll(paths.Home()) and bake STEPSECURITY_HOME into the unit
+	// file — both break or write nonsense values when Home() is empty.
+	// Reject the combination here with a clear message rather than
+	// letting the installer fail opaquely on an empty path.
+	if cfg.InstallDirSet && cfg.InstallDir == "" && (cfg.Command == "install" || cfg.Command == "uninstall") {
+		return nil, fmt.Errorf("--install-dir= (empty) cannot be combined with %s — pass a directory or omit the flag", cfg.Command)
 	}
 
 	return cfg, nil
@@ -226,11 +397,23 @@ func parseHooks(args []string) (*Config, error) {
 				return nil, fmt.Errorf("unsupported agent: %s (supported: %s)", name, strings.Join(supportedHookAgents, ", "))
 			}
 			cfg.HooksAgent = name
+		case strings.HasPrefix(arg, "--install-dir="):
+			cfg.InstallDir = strings.TrimPrefix(arg, "--install-dir=")
+			cfg.InstallDirSet = true
+		case arg == "--install-dir":
+			i++
+			if i >= len(rest) {
+				return nil, fmt.Errorf("--install-dir requires a directory argument (use --install-dir= to disable file logging)")
+			}
+			cfg.InstallDir = rest[i]
+			cfg.InstallDirSet = true
+		case arg == "--override-gate":
+			cfg.OverrideGate = true
 		case arg == "-h" || arg == "--help":
 			printHooksHelp()
 			os.Exit(0)
 		default:
-			return nil, fmt.Errorf("unknown option for `hooks %s`: %s (only --agent is accepted)", verb, arg)
+			return nil, fmt.Errorf("unknown option for `hooks %s`: %s (only --agent and --install-dir are accepted)", verb, arg)
 		}
 	}
 
@@ -252,6 +435,9 @@ Subcommands:
 Options:
   --agent <name>       Target a specific agent (default: every detected agent).
                        Supported: %s
+  --install-dir=DIR    Base directory the agent puts its files under
+                       (default: ~/.stepsecurity). Pass --install-dir= (empty)
+                       to disable file logging. Equivalent to $STEPSECURITY_HOME.
 
 Examples:
   %s hooks install                       # install for every detected agent
@@ -294,9 +480,27 @@ Options:
   --enable-python-scan          Enable Python package scanning
   --disable-python-scan         Disable Python package scanning
   --include-bundled-plugins     Include bundled/platform plugins in output (Windows)
+  --include-tcc-protected       Scan macOS TCC-protected dirs (Documents, Downloads,
+                                ~/Library/Mail, etc.). Default: skipped to avoid
+                                permission prompts. Pass after granting the agent
+                                Full Disk Access via PPPC profile or System
+                                Settings — see docs/macos-tcc-permissions.md.
+  --no-include-tcc-protected    Skip macOS TCC-protected dirs even if config has
+                                include_tcc_protected: true.
   --npmrc                       Run ONLY the npm config audit (verbose pretty view; --json supported)
   --pipconfig                   Run ONLY the pip config audit (verbose pretty view; --json supported)
+  --pnpmrc                      Run ONLY the pnpm config audit (verbose pretty view; --json supported)
+  --bunfig                      Run ONLY the bun config audit (verbose pretty view; --json supported)
+  --yarnrc                      Run ONLY the yarn config audit covering both v1 (.yarnrc) and v2+ (.yarnrc.yml) (verbose pretty view; --json supported)
   --log-level=LEVEL      Log level: error | warn | info | debug (default: info)
+  --install-dir=DIR      Base directory the agent puts ALL its files under
+                         (logs, hook errors, binary placement via loader).
+                         Default: ~/.stepsecurity. The diagnostic log file is
+                         <DIR>/agent.error.log, rotated at 5 MiB to .prev.
+                         Equivalent to STEPSECURITY_HOME env var. Pass
+                         --install-dir= (empty) to disable file logging for
+                         this run. Note: config.json itself always lives at
+                         ~/.stepsecurity/config.json for bootstrap.
   --verbose                     Shortcut for --log-level=debug
   --color=WHEN           Color mode: auto | always | never (default: auto)
   -v, --version          Show version
@@ -314,9 +518,21 @@ Examples:
   %s configure                          # Set up enterprise config and search dirs
   %s send-telemetry                   # Enterprise telemetry
 
+Non-interactive configure (for MSI / SCCM / Intune deployments):
+  --non-interactive             Skip prompts; require values via flags or --from-file
+  --from-file PATH              Read full config JSON from PATH (preferred for MSI)
+  --customer-id ID              Customer identifier
+  --api-endpoint URL            StepSecurity backend URL
+  --api-key KEY                 Authentication key (or set DMG_API_KEY env var)
+  --scan-frequency HOURS        Scheduled scan frequency
+  --ignore-telemetry-error      On 'install', treat a failed initial telemetry POST
+                                as a warning instead of a fatal exit (use in MSI
+                                custom actions to avoid rollback on transient network)
+
 Configuration:
-  Config file: ~/.stepsecurity/config.json
-  Run '%s configure' to set enterprise credentials and search directories interactively.
+  Per-user config:    ~/.stepsecurity/config.json
+  Machine-wide (Windows, admin): C:\ProgramData\StepSecurity\config.json
+  Run '%s configure' to set credentials and search directories interactively.
 
 %s
 `, buildinfo.Version, name, name,

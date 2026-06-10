@@ -1,0 +1,266 @@
+name: MSI Smoke Test
+
+# Runs the full Windows MSI flow (build → install → verify → uninstall)
+# on a fresh windows-latest runner. Catches breakage in the WiX manifest,
+# the deferred-CA wiring, the configure --non-interactive path, or the
+# icacls hardening — all of which only surface on a real install.
+#
+# Path-filtered so it doesn't run on doc-only PRs.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'packaging/windows/**'
+      - 'Makefile'
+      - '.github/workflows/msi-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'packaging/windows/**'
+      - 'Makefile'
+      - '.github/workflows/msi-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  msi-smoke:
+    name: Build, install, verify, uninstall
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install WiX 4 + Util extension
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 4.0.5
+          wix --version
+          wix extension add --global WixToolset.Util.wixext/4.0.5
+
+      - name: Build Windows .exes (agent + launcher)
+        shell: pwsh
+        run: |
+          $env:GOOS = "windows"
+          $env:GOARCH = "amd64"
+          $env:CGO_ENABLED = "0"
+          go build -trimpath -ldflags "-s -w" `
+            -o "$PWD\dmg-smoke.exe" `
+            ./cmd/stepsecurity-dev-machine-guard
+          go build -trimpath -ldflags "-s -w -H windowsgui" `
+            -o "$PWD\dmg-smoke-task.exe" `
+            ./cmd/stepsecurity-dev-machine-guard-task
+          Get-Item "$PWD\dmg-smoke.exe", "$PWD\dmg-smoke-task.exe" |
+            Select-Object Name, Length
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          # Read Version from internal/buildinfo/version.go so the MSI
+          # Package Version matches what the binary reports.
+          $vline = Select-String -Path internal/buildinfo/version.go `
+            -Pattern 'Version\s*=\s*"([^"]+)"' | Select-Object -First 1
+          $version = $vline.Matches[0].Groups[1].Value
+          Write-Host "Building MSI with Package Version: $version"
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          wix build packaging/windows/Product.wxs `
+            -arch x64 `
+            -ext WixToolset.Util.wixext `
+            -d Arch=x64 `
+            -d "Version=$version" `
+            -d "BinaryPath=$PWD\dmg-smoke.exe" `
+            -d "LauncherPath=$PWD\dmg-smoke-task.exe" `
+            -out "dist\dmg-smoke.msi"
+          Get-Item "dist\dmg-smoke.msi" | Select-Object Name, Length
+
+      - name: Install MSI with synthetic tenant config
+        shell: pwsh
+        run: |
+          # Synthetic config: real-looking values but pointed at an
+          # invalid endpoint. The MSI's install CA passes
+          # --ignore-telemetry-error so initial telemetry POST failure
+          # doesn't roll back the install. Exit 0 expected.
+          $p = Start-Process -FilePath "msiexec.exe" -ArgumentList @(
+            "/i", "dist\dmg-smoke.msi", "/qn",
+            "CUSTOMERID=ci-smoke",
+            "APIENDPOINT=https://api.invalid.example",
+            "APIKEY=ci-test-fake-api-key",
+            "SCANFREQUENCY=4",
+            "/l*v", "dist\dmg-install.log"
+          ) -Wait -PassThru
+          Write-Host "msiexec exit: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) {
+            Write-Host "::error::msiexec install failed with exit $($p.ExitCode)"
+            Write-Host "--- last 80 lines of install log ---"
+            Get-Content dist\dmg-install.log -Tail 80
+            exit 1
+          }
+
+      - name: Verify install artifacts
+        shell: pwsh
+        run: |
+          $bin      = "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard.exe"
+          $launcher = "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard-task.exe"
+          $cfg      = "C:\ProgramData\StepSecurity\config.json"
+          $task     = "StepSecurity Dev Machine Guard"
+
+          $checks = @()
+
+          # 1a. Agent binary on disk
+          if (Test-Path $bin) {
+            Write-Host "[OK] Agent present at $bin"
+            $checks += $true
+          } else {
+            Write-Host "::error::Agent missing: $bin"
+            $checks += $false
+          }
+
+          # 1b. Launcher binary on disk
+          if (Test-Path $launcher) {
+            Write-Host "[OK] Launcher present at $launcher"
+            $checks += $true
+          } else {
+            Write-Host "::error::Launcher missing: $launcher"
+            $checks += $false
+          }
+
+          # 2. Machine-wide config exists and contains our values
+          if (Test-Path $cfg) {
+            $content = Get-Content $cfg -Raw
+            if ($content -match '"customer_id"\s*:\s*"ci-smoke"' -and
+                $content -match '"api_key"\s*:\s*"ci-test-fake-api-key"') {
+              Write-Host "[OK] Config written with expected values"
+              $checks += $true
+            } else {
+              Write-Host "::error::Config content unexpected:"
+              Write-Host $content
+              $checks += $false
+            }
+          } else {
+            Write-Host "::error::Config missing: $cfg"
+            $checks += $false
+          }
+
+          # 3. ACL hardening on config.json — Users should be Read only,
+          # Administrators + SYSTEM should be Full Control, inheritance disabled.
+          $acl = & icacls $cfg | Out-String
+          $aclOk = $true
+          if ($acl -notmatch 'BUILTIN\\Users:\(R\)')              { $aclOk = $false; Write-Host "::error::Users(R) ACE missing" }
+          if ($acl -notmatch 'BUILTIN\\Administrators:\(F\)')     { $aclOk = $false; Write-Host "::error::Administrators(F) ACE missing" }
+          if ($acl -notmatch 'NT AUTHORITY\\SYSTEM:\(F\)')        { $aclOk = $false; Write-Host "::error::SYSTEM(F) ACE missing" }
+          if ($aclOk) {
+            Write-Host "[OK] config.json ACL hardened (Users:R, Admins:F, SYSTEM:F)"
+            $checks += $true
+          } else {
+            Write-Host "::error::ACL not as expected:"
+            Write-Host $acl
+            $checks += $false
+          }
+
+          # 4. Scheduled task registered, runs as INTERACTIVE, and its
+          # action points at the launcher (not the agent directly).
+          $taskInfo = schtasks /query /tn $task /v /fo LIST 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            $runAs = ($taskInfo | Select-String -Pattern '^\s*Run As User:').ToString()
+            if ($runAs -match 'INTERACTIVE') {
+              Write-Host "[OK] Scheduled task registered, Run As User: INTERACTIVE"
+              $checks += $true
+            } else {
+              Write-Host "::error::Run As User wrong: $runAs"
+              $checks += $false
+            }
+
+            $action = ($taskInfo | Select-String -Pattern '^\s*Task To Run:').ToString()
+            if ($action -match 'stepsecurity-dev-machine-guard-task\.exe') {
+              Write-Host "[OK] Task action points at GUI launcher"
+              $checks += $true
+            } else {
+              Write-Host "::error::Task action does not point at launcher: $action"
+              $checks += $false
+            }
+          } else {
+            Write-Host "::error::schtasks /query failed: $taskInfo"
+            $checks += $false
+          }
+
+          if ($checks -contains $false) {
+            Write-Host "::error::One or more install verifications failed"
+            exit 1
+          }
+          Write-Host "All install-time verifications passed."
+
+      - name: Uninstall MSI
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path "dist\dmg-smoke.msi") {
+            $p = Start-Process -FilePath "msiexec.exe" -ArgumentList @(
+              "/x", "dist\dmg-smoke.msi", "/qn",
+              "/l*v", "dist\dmg-uninstall.log"
+            ) -Wait -PassThru
+            Write-Host "msiexec /x exit: $($p.ExitCode)"
+          }
+
+      - name: Verify uninstall cleanup
+        shell: pwsh
+        run: |
+          $task = "StepSecurity Dev Machine Guard"
+
+          # Both binaries should be gone
+          foreach ($leftover in @(
+            "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard.exe",
+            "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard-task.exe"
+          )) {
+            if (Test-Path $leftover) {
+              Write-Host "::error::File still present after uninstall: $leftover"
+              exit 1
+            }
+          }
+          Write-Host "[OK] Agent + launcher removed"
+
+          # Scheduled task should be gone. Capture the exit code into a
+          # local — PowerShell uses $LASTEXITCODE from the last native call
+          # as the script's exit code, so we MUST clear it (via 'exit 0'
+          # below) once we've made our decision, otherwise the step is
+          # marked failed despite all checks passing.
+          schtasks /query /tn $task 2>&1 | Out-Null
+          $schtasksExit = $LASTEXITCODE
+          if ($schtasksExit -eq 0) {
+            Write-Host "::error::Scheduled task still registered after uninstall"
+            exit 1
+          }
+          Write-Host "[OK] Scheduled task removed"
+
+          # Note: C:\ProgramData\StepSecurity\config.json intentionally persists
+          # across uninstall — it's tenant config, not MSI-managed payload. This
+          # mirrors the documented behavior in docs/deploying-via-sccm.md.
+
+          exit 0
+
+      - name: Upload install logs on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: msi-smoke-logs
+          path: |
+            dist/dmg-install.log
+            dist/dmg-uninstall.log
+          if-no-files-found: ignore

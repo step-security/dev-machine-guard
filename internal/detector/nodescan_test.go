@@ -3,10 +3,13 @@ package detector
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
@@ -120,9 +123,13 @@ func TestNodeScanner_ScanPnpmGlobal_Windows(t *testing.T) {
 	mock.SetCommand("9.1.0\n", "", 0, "pnpm", "--version")
 	// pnpm root -g returns the global node_modules dir. The code calls
 	// filepath.Dir on it. Since filepath.Dir is host-OS dependent, we use
-	// forward slashes here so the test works on macOS hosts too.
+	// forward slashes here so the test works on macOS hosts too. First
+	// attempt succeeds so the PATH workaround is skipped on this path.
 	mock.SetCommand("C:/Users/dev/AppData/Local/pnpm/global/5/node_modules\n", "", 0, "pnpm", "root", "-g")
-	mock.SetCommand(`{"dependencies":{"typescript":{"version":"5.4.0"}}}`, "", 0, "pnpm", "list", "-g", "--json", "--depth=3")
+	// Production tries `--depth=3` first (v10 transitive), falls back to no --depth
+	// on non-zero exit (v11 path). Stub both legs so the fallback is verified.
+	mock.SetCommand("", "ERR_PNPM_GLOBAL_LS_DEPTH_NOT_SUPPORTED", 1, "pnpm", "list", "-g", "--json", "--depth=3")
+	mock.SetCommand(`{"dependencies":{"typescript":{"version":"5.4.0"}}}`, "", 0, "pnpm", "list", "-g", "--json")
 
 	scanner := newTestScanner(mock)
 	results := scanner.ScanGlobalPackages(context.Background())
@@ -139,10 +146,174 @@ func TestNodeScanner_ScanPnpmGlobal_Windows(t *testing.T) {
 			if r.PMVersion != "9.1.0" {
 				t.Errorf("expected PMVersion 9.1.0, got %s", r.PMVersion)
 			}
+			if r.ExitCode != 0 {
+				t.Errorf("expected ExitCode 0 (mock stub matched), got %d — check that production args still match the SetCommand stub", r.ExitCode)
+			}
 		}
 	}
 	if !pnpmFound {
 		t.Fatal("expected pnpm in global scan results on Windows")
+	}
+}
+
+// TestNodeScanner_ScanPnpmGlobal_Delegated exercises the root → user delegation
+// path (macOS-as-root or Linux-as-root with a logged-in user). Verifies the
+// lazy-fallback flow:
+//   - `pnpm --version` runs plainly (doesn't need bin dir on PATH).
+//   - First `pnpm root -g` runs plainly; on failure the scanner applies the
+//     inline `PATH='…':$PATH pnpm` workaround and retries.
+//   - `pnpm list -g` then uses the same prefixed pnpmCmd, so it survives sudo's
+//     env policy (Linux `secure_path` or hardened macOS sudoers).
+func TestNodeScanner_ScanPnpmGlobal_Delegated(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+	mock.SetIsRoot(true)
+	mock.SetEnv("HOME", "/Users/testuser")
+
+	// checkPath in delegation mode runs `which pnpm` through RunAsUser, which
+	// the Mock dispatches as `bash -c "<cmd>"`.
+	mock.SetCommand("/opt/homebrew/bin/pnpm\n", "", 0, "bash", "-c", "which pnpm")
+
+	// `pnpm --version` is called plainly (no prefix) — it doesn't need the
+	// bin dir on PATH.
+	mock.SetCommand("11.1.2\n", "", 0, "bash", "-c", "pnpm --version")
+
+	// First `pnpm root -g` attempt runs plainly; v11 errors when bin dir not on PATH.
+	mock.SetCommand("", "ERR_PNPM_GLOBAL_LS_DEPTH_NOT_SUPPORTED", 1, "bash", "-c", "pnpm root -g")
+
+	// Production then applies the workaround and retries with the inline PATH= prefix.
+	prefix := `PATH='/Users/testuser/Library/pnpm/bin':$PATH pnpm`
+	mock.SetCommand("/Users/testuser/Library/pnpm/global/v11/node_modules\n", "", 0, "bash", "-c", prefix+" root -g")
+
+	// `pnpm list -g` tries with --depth=3 first; v11 path errors → fall back to no --depth.
+	mock.SetCommand("", "ERR_PNPM_GLOBAL_LS_DEPTH_NOT_SUPPORTED", 1, "bash", "-c", prefix+" list -g --json --depth=3")
+	mock.SetCommand(`{"dependencies":{"typescript":{"version":"5.4.0"}}}`, "", 0, "bash", "-c", prefix+" list -g --json")
+
+	log := progress.NewLogger(progress.LevelInfo)
+	scanner := NewNodeScanner(mock, log, "testuser")
+
+	results := scanner.ScanGlobalPackages(context.Background())
+
+	var pnpm *model.NodeScanResult
+	for i, r := range results {
+		if r.PackageManager == "pnpm" {
+			pnpm = &results[i]
+			break
+		}
+	}
+	if pnpm == nil {
+		t.Fatal("expected pnpm in delegated scan results")
+	}
+	if pnpm.PMVersion != "11.1.2" {
+		t.Errorf("PMVersion = %q, want 11.1.2 — `pnpm --version` should run plainly without PATH prefix", pnpm.PMVersion)
+	}
+	if pnpm.ProjectPath != "/Users/testuser/Library/pnpm/global/v11" {
+		t.Errorf("ProjectPath = %q, want /Users/testuser/Library/pnpm/global/v11 — PATH= prefix likely missing from `pnpm root -g` retry", pnpm.ProjectPath)
+	}
+	if pnpm.ExitCode != 0 {
+		t.Errorf("ExitCode = %d, want 0 — PATH= prefix likely missing from `pnpm list -g` invocation", pnpm.ExitCode)
+	}
+}
+
+// TestNodeScanner_ScanPnpmGlobal_RootGFallback verifies that when BOTH
+// `pnpm root -g` attempts fail (plain + with PATH workaround), the scan does
+// not bail out — it falls back to the platform-default bin dir
+// (defaultPnpmBinDir) as ProjectPath so the result is still produced.
+func TestNodeScanner_ScanPnpmGlobal_RootGFallback(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+	mock.SetEnv("HOME", "/Users/foo")
+	mock.SetPath("pnpm", "/opt/homebrew/bin/pnpm")
+	mock.SetCommand("11.1.2\n", "", 0, "pnpm", "--version")
+	// pnpm root -g errors on every attempt — both the plain first call AND
+	// the retry use the same plain `pnpm root -g` command, because
+	// shouldRunAsUser is false on this in-process path (IsRoot not set).
+	mock.SetCommand("", "ERR_PNPM_GLOBAL_LS_DEPTH_NOT_SUPPORTED", 1, "pnpm", "root", "-g")
+	mock.SetCommand("", "ERR_PNPM_GLOBAL_LS_DEPTH_NOT_SUPPORTED", 1, "pnpm", "list", "-g", "--json", "--depth=3")
+	mock.SetCommand(`{"dependencies":{"jest":{"version":"30.4.2"}}}`, "", 0, "pnpm", "list", "-g", "--json")
+
+	scanner := newTestScanner(mock)
+	results := scanner.ScanGlobalPackages(context.Background())
+
+	var pnpm *model.NodeScanResult
+	for i, r := range results {
+		if r.PackageManager == "pnpm" {
+			pnpm = &results[i]
+			break
+		}
+	}
+	if pnpm == nil {
+		t.Fatal("expected pnpm in results — fallback should have prevented an early return")
+	}
+	// ProjectPath falls back to defaultPnpmBinDir on darwin = $HOME/Library/pnpm/bin.
+	if pnpm.ProjectPath != "/Users/foo/Library/pnpm/bin" {
+		t.Errorf("ProjectPath = %q, want /Users/foo/Library/pnpm/bin (defaultPnpmBinDir fallback)", pnpm.ProjectPath)
+	}
+	if pnpm.ExitCode != 0 {
+		t.Errorf("ExitCode = %d, want 0 — `pnpm list -g` should have succeeded via the no-depth fallback", pnpm.ExitCode)
+	}
+}
+
+// TestDefaultPnpmBinDir pins pnpm's per-platform global bin-dir layout.
+// pnpm v11 places global shims under a /bin subdirectory on macOS, Linux,
+// and Windows alike. This matches pnpm's own `pnpm setup` output: the error
+// it emits names "<PNPM_HOME>/bin" as the dir that must be on PATH.
+func TestDefaultPnpmBinDir(t *testing.T) {
+	tests := []struct {
+		name string
+		goos string
+		envs map[string]string
+		want string
+	}{
+		{
+			name: "darwin with HOME → bin subdir",
+			goos: "darwin",
+			envs: map[string]string{"HOME": "/Users/foo"},
+			want: "/Users/foo/Library/pnpm/bin",
+		},
+		{
+			name: "darwin without HOME → empty",
+			goos: "darwin",
+			envs: map[string]string{},
+			want: "",
+		},
+		{
+			name: "linux with HOME → bin subdir",
+			goos: "linux",
+			envs: map[string]string{"HOME": "/home/foo"},
+			want: "/home/foo/.local/share/pnpm/bin",
+		},
+		{
+			name: "linux without HOME → empty",
+			goos: "linux",
+			envs: map[string]string{},
+			want: "",
+		},
+		{
+			name: "windows without LOCALAPPDATA → empty",
+			goos: "windows",
+			envs: map[string]string{},
+			want: "",
+		},
+		{
+			name: "unrecognized OS → empty",
+			goos: "freebsd",
+			envs: map[string]string{"HOME": "/home/foo"},
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := executor.NewMock()
+			mock.SetGOOS(tt.goos)
+			for k, v := range tt.envs {
+				mock.SetEnv(k, v)
+			}
+			got := defaultPnpmBinDir(mock)
+			if got != tt.want {
+				t.Errorf("defaultPnpmBinDir() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -159,8 +330,11 @@ func TestNodeScanner_ScanProject_Windows(t *testing.T) {
 		"npm", "ls", "--json", "--depth=3")
 
 	scanner := newTestScanner(mock)
-	result := scanner.scanProject(context.Background(), `C:\Users\dev\myapp`)
+	result, ok := scanner.scanProject(context.Background(), `C:\Users\dev\myapp`, "npm")
 
+	if !ok {
+		t.Fatal("expected scanProject to emit a result when npm is available")
+	}
 	if result.PackageManager != "npm" {
 		t.Errorf("expected npm, got %s", result.PackageManager)
 	}
@@ -193,8 +367,11 @@ func TestNodeScanner_ScanProject_YarnBerry_Windows(t *testing.T) {
 		"yarn", "info", "--all", "--json")
 
 	scanner := newTestScanner(mock)
-	result := scanner.scanProject(context.Background(), projectDir)
+	result, ok := scanner.scanProject(context.Background(), projectDir, "yarn-berry")
 
+	if !ok {
+		t.Fatal("expected scanProject to emit a result when yarn is available")
+	}
 	if result.PackageManager != "yarn-berry" {
 		t.Errorf("expected yarn-berry, got %s", result.PackageManager)
 	}
@@ -206,86 +383,189 @@ func TestNodeScanner_ScanProject_YarnBerry_Windows(t *testing.T) {
 	}
 }
 
-func TestPnpmDepthArg(t *testing.T) {
-	tests := []struct {
-		version string
-		want    string
-	}{
-		{"", "--depth=3"},
-		{"unknown", "--depth=3"},
-		{"9.1.0", "--depth=3"},
-		{"10.12.4", "--depth=3"},
-		{"11.0.0", "--depth=Infinity"},
-		{"11.1.1", "--depth=Infinity"},
-		{"v12.0.0\n", "--depth=Infinity"},
+// TestNodeScanner_ScanProject_PMNotInPATH covers the empty-payload
+// regression: a package-lock.json project on a Windows device where
+// Node.js isn't deployed (npm absent from PATH). Previously this path
+// discarded the exec.CommandContext ENOENT and shipped a NodeScanResult
+// with empty RawStdoutBase64 — indistinguishable on the backend from a
+// successful scan of an empty project. The fix drops the record entirely:
+// "PM not installed" is a normal configuration state, not an error to
+// report.
+func TestNodeScanner_ScanProject_PMNotInPATH(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	// Note: deliberately do NOT call mock.SetPath("npm", ...) — that's the
+	// condition we're regression-testing.
+	projectDir := `C:\Users\dev\myapp`
+	mock.SetFile(filepath.Join(projectDir, "package-lock.json"), []byte{})
+
+	scanner := newTestScanner(mock)
+	_, ok := scanner.scanProject(context.Background(), projectDir, "npm")
+
+	if ok {
+		t.Error("expected scanProject to return ok=false when PM not on PATH (so no record is emitted)")
 	}
-	for _, tt := range tests {
-		t.Run(tt.version, func(t *testing.T) {
-			got := pnpmDepthArg(tt.version)
-			if got != tt.want {
-				t.Errorf("pnpmDepthArg(%q) = %q, want %q", tt.version, got, tt.want)
+}
+
+// TestNodeScanner_ScanProjects_DropsRecordsForMissingPM exercises the
+// loop-level contract end-to-end: a device with multiple package.json
+// files but no installed PM should produce zero records, not zero-result
+// records. Mirrors the field-observed scenario the empty-payload fix
+// addresses.
+func TestNodeScanner_ScanProjects_DropsRecordsForMissingPM(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	// Two real package.json files, no npm on PATH.
+	dirA := `C:\Users\dev\a`
+	dirB := `C:\Users\dev\b`
+	mock.SetFile(filepath.Join(dirA, "package.json"), []byte("{}"))
+	mock.SetFile(filepath.Join(dirA, "package-lock.json"), []byte{})
+	mock.SetFile(filepath.Join(dirB, "package.json"), []byte("{}"))
+	mock.SetFile(filepath.Join(dirB, "package-lock.json"), []byte{})
+
+	scanner := newTestScanner(mock)
+	results := scanner.ScanProjects(context.Background(), []string{`C:\Users\dev`})
+
+	if len(results) != 0 {
+		t.Errorf("expected 0 telemetry records when PM not installed, got %d", len(results))
+	}
+}
+
+// TestNodeScanner_ScanProject_BinaryAvailabilityCached verifies the
+// pmAvailability cache: two scanProject calls for the same PM should
+// trigger exactly one PATH lookup. Important on devices with hundreds
+// of lockfiles — without caching we'd pay a LookPath per project.
+func TestNodeScanner_ScanProject_BinaryAvailabilityCached(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	dirA := `C:\Users\dev\a`
+	dirB := `C:\Users\dev\b`
+	mock.SetFile(filepath.Join(dirA, "package-lock.json"), []byte{})
+	mock.SetFile(filepath.Join(dirB, "package-lock.json"), []byte{})
+
+	scanner := newTestScanner(mock)
+	_, firstOK := scanner.scanProject(context.Background(), dirA, "npm")
+	_, secondOK := scanner.scanProject(context.Background(), dirB, "npm")
+
+	if firstOK || secondOK {
+		t.Errorf("expected both scanProject calls to return ok=false, got firstOK=%v secondOK=%v",
+			firstOK, secondOK)
+	}
+	if got, want := len(scanner.pmAvailability), 1; got != want {
+		t.Errorf("expected exactly %d cached PM lookup after two scans of same PM, got %d", want, got)
+	}
+	if _, ok := scanner.pmAvailability["npm"]; !ok {
+		t.Error("expected pmAvailability to contain entry for npm")
+	}
+}
+
+// TestNodeScanner_ShouldRunAsUser pins the delegation decision. The fix dropped
+// the old IsRoot() requirement: whenever there's a logged-in user on a non-
+// Windows host, package-manager commands run through that user's login shell —
+// in BOTH deployment modes. The non-root row is the LaunchAgent regression:
+// launchd runs the agent as the user with a stripped PATH, and before the fix
+// shouldRunAsUser was false there, so npm/yarn/pnpm fell through to a bare exec
+// and weren't found (exit -1, empty output, version "unknown").
+func TestNodeScanner_ShouldRunAsUser(t *testing.T) {
+	tests := []struct {
+		name         string
+		goos         string
+		isRoot       bool
+		loggedInUser string
+		want         bool
+	}{
+		{"non-root macOS with user (LaunchAgent regression)", "darwin", false, "alice", true},
+		{"root macOS with user (LaunchDaemon)", "darwin", true, "alice", true},
+		{"non-root linux with user", "linux", false, "alice", true},
+		{"no logged-in user", "darwin", false, "", false},
+		{"windows excluded", "windows", false, "alice", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := executor.NewMock()
+			mock.SetGOOS(tc.goos)
+			mock.SetIsRoot(tc.isRoot)
+			scanner := NewNodeScanner(mock, progress.NewLogger(progress.LevelInfo), tc.loggedInUser)
+			if got := scanner.shouldRunAsUser(); got != tc.want {
+				t.Errorf("shouldRunAsUser() = %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestNodeScanner_ScanPnpmGlobal_V11(t *testing.T) {
+// TestNodeScanner_ScanProject_Delegated_NonRoot is the core LaunchAgent
+// regression: the agent runs as the console user (NOT root) under launchd's
+// stripped PATH. The scanner must still route npm through the user's login
+// shell — the Mock dispatches RunAsUser as `bash -c "<cmd>"` — so an
+// nvm/fnm/homebrew npm is resolved. checkPath (`which npm`), getVersion
+// (`npm --version`) and the scan itself (a cd + single-quoted argv built by
+// platformShellQuote) all flow through that path.
+func TestNodeScanner_ScanProject_Delegated_NonRoot(t *testing.T) {
 	mock := executor.NewMock()
-	mock.SetPath("pnpm", "/opt/homebrew/bin/pnpm")
-	mock.SetCommand("11.1.1\n", "", 0, "pnpm", "--version")
-	mock.SetCommand("/Users/dev/Library/pnpm/global/v11/abc/node_modules\n", "", 0, "pnpm", "root", "-g")
-	// v11 must use --depth=Infinity; --depth=3 would fail in real life.
-	mock.SetCommand(`{"dependencies":{"jest":{"version":"29.7.0"}}}`, "", 0, "pnpm", "list", "-g", "--json", "--depth=Infinity")
+	mock.SetGOOS("darwin")
+	// Deliberately NOT root — this is the LaunchAgent-as-user deployment that
+	// previously skipped delegation.
+	projectDir := "/Users/testuser/myapp"
 
-	scanner := newTestScanner(mock)
-	results := scanner.ScanGlobalPackages(context.Background())
+	mock.SetCommand("/Users/testuser/.nvm/versions/node/v20.11.0/bin/npm\n", "", 0, "bash", "-c", "which npm")
+	mock.SetCommand("10.9.0\n", "", 0, "bash", "-c", "npm --version")
+	scanCmd := "cd '/Users/testuser/myapp' && 'npm' 'ls' '--json' '--depth=3'"
+	mock.SetCommand(`{"dependencies":{"lodash":{"version":"4.17.21"}}}`, "", 0, "bash", "-c", scanCmd)
 
-	pnpmFound := false
-	for _, r := range results {
-		if r.PackageManager == "pnpm" {
-			pnpmFound = true
-			if r.PMVersion != "11.1.1" {
-				t.Errorf("expected PMVersion 11.1.1, got %s", r.PMVersion)
-			}
-			if r.ExitCode != 0 {
-				t.Errorf("expected ExitCode 0, got %d", r.ExitCode)
-			}
-			decoded, _ := base64.StdEncoding.DecodeString(r.RawStdoutBase64)
-			if len(decoded) == 0 {
-				t.Error("expected non-empty RawStdoutBase64")
-			}
-		}
+	scanner := NewNodeScanner(mock, progress.NewLogger(progress.LevelInfo), "testuser")
+	if !scanner.shouldRunAsUser() {
+		t.Fatal("shouldRunAsUser must be true for a non-root macOS scan with a logged-in user")
 	}
-	if !pnpmFound {
-		t.Fatal("expected pnpm in global scan results for v11")
+
+	result, ok := scanner.scanProject(context.Background(), projectDir, "npm")
+	if !ok {
+		t.Fatal("expected scanProject to emit a result (npm resolved via the user's login shell)")
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("ExitCode = %d, want 0 — the scan should have run through `bash -c`, not a bare exec", result.ExitCode)
+	}
+	if result.PMVersion != "10.9.0" {
+		t.Errorf("PMVersion = %q, want 10.9.0", result.PMVersion)
+	}
+	decoded, _ := base64.StdEncoding.DecodeString(result.RawStdoutBase64)
+	if len(decoded) == 0 {
+		t.Error("expected non-empty RawStdoutBase64 from the delegated scan")
+	}
+	if result.Error != "" {
+		t.Errorf("Error = %q, want empty on a successful scan", result.Error)
 	}
 }
 
-func TestNodeScanner_ScanPnpmGlobal_V10_StillUsesDepth3(t *testing.T) {
+// TestNodeScanner_ScanProject_Delegated_SurfacesError verifies a delegated
+// failure is captured in the telemetry Error field (and log.Warn'd) rather than
+// reduced to an opaque exit code. When npm IS resolvable but the run itself
+// fails, RunAsUser returns an error carrying the shell's reason; scanProject
+// must fold that into result.Error so the next occurrence is self-explanatory.
+func TestNodeScanner_ScanProject_Delegated_SurfacesError(t *testing.T) {
 	mock := executor.NewMock()
-	mock.SetPath("pnpm", "/usr/local/bin/pnpm")
-	mock.SetCommand("10.12.4\n", "", 0, "pnpm", "--version")
-	mock.SetCommand("/Users/dev/.local/share/pnpm/global/5/node_modules\n", "", 0, "pnpm", "root", "-g")
-	// v10 must still use --depth=3 (proves we didn't break the legacy path).
-	mock.SetCommand(`{"dependencies":{"typescript":{"version":"5.4.0"}}}`, "", 0, "pnpm", "list", "-g", "--json", "--depth=3")
+	mock.SetGOOS("darwin")
+	projectDir := "/Users/testuser/broken"
 
-	scanner := newTestScanner(mock)
-	results := scanner.ScanGlobalPackages(context.Background())
+	mock.SetCommand("/opt/homebrew/bin/npm\n", "", 0, "bash", "-c", "which npm")
+	mock.SetCommand("10.9.0\n", "", 0, "bash", "-c", "npm --version")
+	scanCmd := "cd '/Users/testuser/broken' && 'npm' 'ls' '--json' '--depth=3'"
+	// SetCommandError mirrors what executor.RunAsUser returns when the user
+	// shell exits non-zero — now with the stderr folded into the message.
+	mock.SetCommandError(
+		fmt.Errorf("command exited with code 127: zsh: command not found: npm"),
+		"bash", "-c", scanCmd,
+	)
 
-	pnpmFound := false
-	for _, r := range results {
-		if r.PackageManager == "pnpm" {
-			pnpmFound = true
-			if r.PMVersion != "10.12.4" {
-				t.Errorf("expected PMVersion 10.12.4, got %s", r.PMVersion)
-			}
-			if r.ExitCode != 0 {
-				t.Errorf("expected ExitCode 0, got %d", r.ExitCode)
-			}
-		}
+	scanner := NewNodeScanner(mock, progress.NewLogger(progress.LevelInfo), "testuser")
+	result, ok := scanner.scanProject(context.Background(), projectDir, "npm")
+	if !ok {
+		t.Fatal("expected scanProject to still emit a record when the PM is present but the run fails")
 	}
-	if !pnpmFound {
-		t.Fatal("expected pnpm in global scan results for v10")
+	if result.Error == "" {
+		t.Fatal("expected a non-empty Error capturing the failure reason (was the runErr discarded?)")
+	}
+	if !strings.Contains(result.Error, "command not found") {
+		t.Errorf("Error = %q, want it to carry the underlying shell reason", result.Error)
 	}
 }
 

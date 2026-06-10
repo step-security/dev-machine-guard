@@ -1,0 +1,383 @@
+name: Verify Release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to verify, e.g. v1.11.6 (draft or published).'
+        required: true
+        type: string
+      repository:
+        description: >-
+          Repo to verify, as owner/name. Leave blank to use the repo this
+          workflow runs in. Set it to step-security/dev-machine-guard to verify
+          an upstream PUBLISHED release (handy for confirming this workflow
+          works before opening a PR — draft releases in another repo are not
+          visible to this repo's token, so only published upstream releases work).
+        required: false
+        type: string
+        default: ''
+
+permissions: {}
+
+env:
+  # GoReleaser sets tag_name on the draft, so gh resolves drafts by this tag.
+  TAG: ${{ inputs.tag }}
+  # Empty input falls back to the current repo. An explicit owner/name (e.g.
+  # step-security/dev-machine-guard) targets that repo's PUBLISHED releases —
+  # public release assets are readable cross-repo with this repo's token.
+  REPO: ${{ inputs.repository || github.repository }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Requirement 3: every relevant binary artifact has a valid, correct signed
+  # checksum. Runs on Linux because ssh-keygen -Y verify (OpenSSH) is the same
+  # verifier loader.sh uses on customer machines.
+  # ---------------------------------------------------------------------------
+  verify-signed-checksums:
+    name: Verify signed checksums
+    runs-on: ubuntu-latest
+    permissions:
+      # contents: write (not read) is required so the GITHUB_TOKEN can see DRAFT
+      # releases — GitHub only exposes drafts to tokens with push access. The job
+      # only ever downloads assets; it never modifies the repo or the release.
+      contents: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        # Intentionally left unpinned — pin to a commit SHA after verifying.
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          gh release download "$TAG" -R "$REPO" -D assets
+          echo "Downloaded assets:"
+          ls -la assets
+
+      - name: Verify signed checksums (Ed25519 / ssh-keygen -Y verify)
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+
+          # --- Verification scheme, kept in sync with loader.sh ---
+          PUBLIC_KEY_SSH="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILN+WG4lOH/x6MysYOf1oY0PKXLLu9d3ZvQDcvq5Cboi releases@stepsecurity.io"
+          SIGNATURE_NAMESPACE="stepsecurity-mdm-checksum"
+          SIGNATURE_IDENTITY="releases@stepsecurity.io"
+
+          ALLOWED_SIGNERS="$(mktemp)"
+          # The namespaces value MUST be double-quoted or ssh-keygen's option
+          # parser rejects it ("bad options: missing start quote").
+          printf '%s namespaces="%s" %s\n' \
+            "$SIGNATURE_IDENTITY" "$SIGNATURE_NAMESPACE" "$PUBLIC_KEY_SSH" \
+            > "$ALLOWED_SIGNERS"
+
+          # Distributable binaries that MUST ship a signed checksum. These are
+          # the artifacts the loader / installers download and run. The cosign
+          # .bundle-only artifacts (deb, rpm, darwin_unnotarized) are deliberately
+          # excluded — they are not served as signed-checksum downloads.
+          ARTIFACTS=(
+            "stepsecurity-dev-machine-guard-${VERSION}-darwin"
+            "stepsecurity-dev-machine-guard-${VERSION}-linux_amd64"
+            "stepsecurity-dev-machine-guard-${VERSION}-linux_arm64"
+            "stepsecurity-dev-machine-guard-${VERSION}-windows_amd64.exe"
+            "stepsecurity-dev-machine-guard-${VERSION}-windows_arm64.exe"
+            "stepsecurity-dev-machine-guard-task-${VERSION}-windows_amd64.exe"
+            "stepsecurity-dev-machine-guard-task-${VERSION}-windows_arm64.exe"
+            "stepsecurity-dev-machine-guard-${VERSION}-x64.msi"
+            "stepsecurity-dev-machine-guard-${VERSION}-arm64.msi"
+          )
+
+          fail=0
+          {
+            echo "## Signed checksum verification"
+            echo ""
+            echo "| Artifact | Signed checksum | Result |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for art in "${ARTIFACTS[@]}"; do
+            bin="assets/${art}"
+            sig="assets/${art}.sha256.sig"
+            status="OK"
+
+            if [ ! -f "$bin" ]; then
+              echo "::error::Missing artifact: ${art}"
+              echo "| \`${art}\` | n/a | ❌ artifact missing |" >> "$GITHUB_STEP_SUMMARY"
+              fail=1
+              continue
+            fi
+            if [ ! -f "$sig" ]; then
+              echo "::error::Missing signed checksum: ${art}.sha256.sig"
+              echo "| \`${art}\` | ❌ missing | ❌ no .sha256.sig |" >> "$GITHUB_STEP_SUMMARY"
+              fail=1
+              continue
+            fi
+
+            # Actual SHA-256 of the artifact bytes.
+            hex="$(sha256sum "$bin" | awk '{print $1}')"
+
+            # The .sha256.sig is the base64-wrapped armored SSH signature. Decode
+            # it back to the multi-line -----BEGIN SSH SIGNATURE----- blob.
+            decoded="$(mktemp)"
+            if ! base64 -d < "$sig" > "$decoded" 2>/dev/null; then
+              echo "::error::Failed to base64-decode ${art}.sha256.sig"
+              echo "| \`${art}\` | ❌ undecodable | ❌ bad base64 |" >> "$GITHUB_STEP_SUMMARY"
+              fail=1
+              continue
+            fi
+
+            # The signed message is the BARE hex SHA-256 with NO trailing newline.
+            # Verifying against the freshly-computed hex proves both that the
+            # signature is valid AND that it covers this artifact's real checksum.
+            if printf '%s' "$hex" | ssh-keygen -Y verify \
+                -f "$ALLOWED_SIGNERS" \
+                -I "$SIGNATURE_IDENTITY" \
+                -n "$SIGNATURE_NAMESPACE" \
+                -s "$decoded" >/dev/null 2>&1; then
+              echo "OK: ${art} (sha256=${hex}) — signature verified"
+              echo "| \`${art}\` | \`${hex:0:16}…\` | ✅ verified |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::error::Signed checksum verification FAILED for ${art}"
+              echo "| \`${art}\` | \`${hex:0:16}…\` | ❌ signature invalid |" >> "$GITHUB_STEP_SUMMARY"
+              fail=1
+            fi
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::One or more signed checksums are missing or invalid."
+            exit 1
+          fi
+          echo "All relevant artifacts have valid signed checksums."
+
+          # NOTE: we deliberately do NOT cross-check the GoReleaser-generated
+          # checksums.txt. That file records the PRE-signing Windows hashes —
+          # the release pipeline Authenticode-signs the .exe/.msi files and
+          # re-uploads them with --clobber afterwards, so the published bytes no
+          # longer match checksums.txt for any Windows artifact. The signed
+          # .sha256.sig files verified above are computed on the final served
+          # bytes, which is the source of truth this gate enforces.
+
+  # ---------------------------------------------------------------------------
+  # Requirement 1: Windows .exe + .msi are Authenticode-signed. Mirrors the
+  # verification the Release workflow performs after signing.
+  # ---------------------------------------------------------------------------
+  verify-windows-signatures:
+    name: Verify Windows signatures
+    runs-on: windows-latest
+    permissions:
+      contents: write # see drafts; see note in verify-signed-checksums
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
+      - name: Download Windows assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          gh release download "$TAG" -R "$REPO" -D assets \
+            -p "*-windows_amd64.exe" \
+            -p "*-windows_arm64.exe" \
+            -p "*-x64.msi" \
+            -p "*-arm64.msi"
+          ls -la assets
+
+      - name: Verify Authenticode signatures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = "${{ inputs.tag }}".TrimStart('v')
+          $files = @(
+            "stepsecurity-dev-machine-guard-$version-windows_amd64.exe",
+            "stepsecurity-dev-machine-guard-$version-windows_arm64.exe",
+            "stepsecurity-dev-machine-guard-task-$version-windows_amd64.exe",
+            "stepsecurity-dev-machine-guard-task-$version-windows_arm64.exe",
+            "stepsecurity-dev-machine-guard-$version-x64.msi",
+            "stepsecurity-dev-machine-guard-$version-arm64.msi"
+          )
+
+          "## Windows Authenticode verification`n"            | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "| Artifact | Status | Signer | Timestamp |"         | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "| --- | --- | --- | --- |"                          | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+          $failed = $false
+          foreach ($name in $files) {
+            $f = Join-Path "assets" $name
+            if (-not (Test-Path $f)) {
+              Write-Host "::error::Missing Windows artifact: $name"
+              "| ``$name`` | ❌ missing | - | - |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+              $failed = $true
+              continue
+            }
+
+            $sig = Get-AuthenticodeSignature $f
+            $subject = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { '<none>' }
+            $hasTs = [bool]$sig.TimeStamperCertificate
+            Write-Host "$name : Status=$($sig.Status), Signer=$subject, Timestamped=$hasTs"
+
+            $ok = $true
+            if ($sig.Status -ne 'Valid') {
+              Write-Host "::error::Signature status is $($sig.Status) (expected Valid) for $name"
+              $ok = $false
+            }
+            if (-not $hasTs) {
+              Write-Host "::error::No RFC3161 timestamp on $name"
+              $ok = $false
+            }
+
+            $mark = if ($ok) { '✅ valid' } else { "❌ $($sig.Status)" }
+            $tsMark = if ($hasTs) { '✅' } else { '❌' }
+            "| ``$name`` | $mark | $subject | $tsMark |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            if (-not $ok) { $failed = $true }
+          }
+
+          if ($failed) {
+            Write-Host "::error::One or more Windows artifacts are not properly Authenticode-signed."
+            exit 1
+          }
+          Write-Host "All Windows artifacts are Authenticode-signed and timestamped."
+
+  # ---------------------------------------------------------------------------
+  # Requirement 2: the macOS darwin binary is signed (Developer ID + hardened
+  # runtime) and notarized. Runs on macOS so codesign/spctl are available; spctl
+  # performs the online Gatekeeper/notarization check.
+  # ---------------------------------------------------------------------------
+  verify-macos-notarization:
+    name: Verify macOS notarization
+    runs-on: macos-latest
+    permissions:
+      contents: write # see drafts; see note in verify-signed-checksums
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
+      - name: Download macOS binary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          mkdir -p assets
+          # Match only the notarized darwin binary, not *-darwin_unnotarized.
+          gh release download "$TAG" -R "$REPO" -D assets \
+            -p "stepsecurity-dev-machine-guard-${VERSION}-darwin"
+          ls -la assets
+
+      - name: Verify codesign + notarization
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          EXPECTED_AUTHORITY="Developer ID Application: Step Security, Inc. (D63S9HLM4L)"
+          BIN="assets/stepsecurity-dev-machine-guard-${VERSION}-darwin"
+
+          if [ ! -f "$BIN" ]; then
+            echo "::error::macOS darwin binary not found: $(basename "$BIN")"
+            exit 1
+          fi
+
+          fail=0
+
+          # 1. Valid code signature.
+          echo "== codesign --verify --strict =="
+          if codesign --verify --strict --verbose=2 "$BIN" 2>&1; then
+            echo "codesign verification passed."
+          else
+            echo "::error::codesign --verify failed for $(basename "$BIN")"
+            fail=1
+          fi
+
+          # 2. Signed by the Step Security Developer ID, with the hardened runtime.
+          echo "== codesign -dvvv =="
+          info="$(codesign -dvvv "$BIN" 2>&1 || true)"
+          echo "$info" | grep -Ei 'Authority|TeamIdentifier|flags|Timestamp' || true
+          if echo "$info" | grep -qF "$EXPECTED_AUTHORITY"; then
+            echo "Developer ID authority present."
+          else
+            echo "::error::Expected signing authority not found: ${EXPECTED_AUTHORITY}"
+            fail=1
+          fi
+          if echo "$info" | grep -Eq 'flags=.*runtime'; then
+            echo "Hardened runtime enabled."
+          else
+            echo "::error::Hardened runtime flag (runtime) not set on $(basename "$BIN")"
+            fail=1
+          fi
+
+          # 3. Notarization — the online Gatekeeper assessment. A bare Mach-O
+          # binary cannot be stapled, so spctl -t install is the authoritative
+          # check (this is exactly what the manual notarization step runs).
+          echo "== spctl -a -vvv -t install =="
+          assess="$(spctl -a -vvv -t install "$BIN" 2>&1 || true)"
+          echo "$assess"
+          if echo "$assess" | grep -q 'accepted' && echo "$assess" | grep -q 'source=Notarized Developer ID'; then
+            echo "Binary is notarized (Gatekeeper accepted, Notarized Developer ID)."
+          else
+            echo "::error::macOS binary is NOT notarized (spctl did not return 'accepted / Notarized Developer ID')."
+            fail=1
+          fi
+
+          {
+            echo "## macOS notarization verification"
+            echo ""
+            if [ "$fail" -eq 0 ]; then
+              echo "✅ \`$(basename "$BIN")\` is codesigned (Developer ID + hardened runtime) and notarized."
+            else
+              echo "❌ \`$(basename "$BIN")\` failed one or more macOS signing/notarization checks."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+          echo "macOS binary is signed and notarized."
+
+  # ---------------------------------------------------------------------------
+  # Single pass/fail gate. Fails the run if ANY requirement job did not succeed,
+  # giving one clear status to gate publishing the release on.
+  # ---------------------------------------------------------------------------
+  gate:
+    name: Release verification gate
+    needs: [verify-signed-checksums, verify-windows-signatures, verify-macos-notarization]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
+      - name: Summarize and gate
+        run: |
+          checksums="${{ needs.verify-signed-checksums.result }}"
+          windows="${{ needs.verify-windows-signatures.result }}"
+          macos="${{ needs.verify-macos-notarization.result }}"
+
+          {
+            echo "## Release verification gate — \`${TAG}\`"
+            echo ""
+            echo "| Requirement | Result |"
+            echo "| --- | --- |"
+            echo "| Signed checksums (all relevant artifacts) | ${checksums} |"
+            echo "| Windows Authenticode signatures | ${windows} |"
+            echo "| macOS notarization | ${macos} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$checksums" = "success" ] && [ "$windows" = "success" ] && [ "$macos" = "success" ]; then
+            echo "✅ Release ${TAG} meets all requirements — safe to publish." >> "$GITHUB_STEP_SUMMARY"
+            echo "Release ${TAG} meets all requirements."
+          else
+            echo "❌ Release ${TAG} is NOT ready — do not publish." >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Release ${TAG} failed verification (checksums=${checksums}, windows=${windows}, macos=${macos})."
+            exit 1
+          fi

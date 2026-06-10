@@ -11,15 +11,39 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
 const unitName = "stepsecurity-dev-machine-guard"
 
+// TimerUnitPath returns the per-user systemd timer unit path installed for
+// periodic scanning. Exported so the telemetry package's invocation detector
+// can stat for an installed footprint without re-deriving the path. Returns
+// empty when the home directory cannot be resolved.
+func TimerUnitPath() string {
+	homeDir, _ := os.UserHomeDir()
+	if homeDir == "" {
+		return ""
+	}
+	return filepath.Join(homeDir, ".config", "systemd", "user", unitName+".timer")
+}
+
 // Install configures a systemd user timer for periodic scanning.
 // If already installed, upgrades by removing and re-creating the units.
+//
+// Only `--user` units are supported. Root install would need a system
+// unit at /etc/systemd/system/, which has different lifecycle and
+// privilege requirements (the timer fires as root, the scanner expects
+// per-user search dirs and HOME). Reject early with a clear message
+// instead of failing opaquely on `systemctl --user` calls that root
+// has no session for.
 func Install(exec executor.Executor, log *progress.Logger) error {
 	ctx := context.Background()
+
+	if exec.IsRoot() {
+		return fmt.Errorf("systemd install as root is not supported — run as the target user (system-wide unit deployment will land in a future release)")
+	}
 
 	// Check for existing installation and upgrade
 	if isConfigured(ctx, exec) {
@@ -41,7 +65,7 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	}
 
 	homeDir, _ := os.UserHomeDir()
-	logDir := filepath.Join(homeDir, ".stepsecurity")
+	logDir := paths.Home()
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return fmt.Errorf("creating log directory: %w", err)
 	}
@@ -52,9 +76,10 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	}
 
 	data := unitTemplateData{
-		BinaryPath: systemdEscape(binaryPath),
-		LogDir:     systemdEscape(logDir),
-		Hours:      hours,
+		BinaryPath:       systemdEscape(binaryPath),
+		LogDir:           systemdEscape(logDir),
+		Hours:            hours,
+		StepSecurityHome: systemdEnvEscape(logDir),
 	}
 
 	// Write service unit
@@ -180,9 +205,10 @@ func writeTemplate(path, tmplStr string, data unitTemplateData) error {
 }
 
 type unitTemplateData struct {
-	BinaryPath string // systemd-escaped (spaces replaced with \x20)
-	LogDir     string
-	Hours      int
+	BinaryPath       string // systemd-escaped (spaces replaced with \x20)
+	LogDir           string
+	Hours            int
+	StepSecurityHome string // baked into Environment= so paths.Home() resolves under timer-invoked runs
 }
 
 // systemdEscape escapes a file path for use in systemd unit files.
@@ -191,12 +217,45 @@ func systemdEscape(path string) string {
 	return strings.ReplaceAll(path, " ", `\x20`)
 }
 
+// systemdEnvEscape escapes a value for inclusion inside a double-quoted
+// Environment="VAR=value" assignment. systemd treats the quoted span
+// as a single token but still honours backslash escaping inside it —
+// any literal control character or quote in the value must be escaped
+// or the unit file silently parses to garbage (systemd-analyze verify
+// catches it; a daemon-reload of a broken unit does not). Per
+// systemd.exec(5) the shell-style escapes inside the quoted form are
+// \", \\, \n, \r, \t — a raw newline in particular would terminate
+// the directive and let any trailing content land as a new top-level
+// unit-file line. Filesystem paths contain none of these on the happy
+// path, but config.json values are operator-editable (and an attacker
+// with write access there shouldn't be able to inject a new directive
+// into the generated unit).
+//
+// Order matters: replace `\` first so the backslashes we introduce for
+// the other escapes don't get double-escaped.
+func systemdEnvEscape(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `"`, `\"`)
+	value = strings.ReplaceAll(value, "\n", `\n`)
+	value = strings.ReplaceAll(value, "\r", `\r`)
+	value = strings.ReplaceAll(value, "\t", `\t`)
+	return value
+}
+
+// Environment="VAR=value" with the value-bearing form quoted so paths
+// containing spaces (e.g. /opt/Step Security/) survive systemd's
+// whitespace splitting. Per systemd.exec(5), the entire "VAR=value" can
+// be wrapped in either single or double quotes; we use double quotes
+// for consistency with the rest of the unit and only need to worry
+// about embedded `"` characters in the value, which would themselves be
+// unusual in a filesystem path.
 const serviceTmpl = `[Unit]
 Description=StepSecurity Dev Machine Guard scan
 
 [Service]
 Type=oneshot
 ExecStart={{.BinaryPath}} send-telemetry
+Environment="STEPSECURITY_HOME={{.StepSecurityHome}}"
 StandardOutput=append:{{.LogDir}}/agent.log
 StandardError=append:{{.LogDir}}/agent.error.log
 `
