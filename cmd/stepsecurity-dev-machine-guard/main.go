@@ -29,9 +29,20 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/scan"
 	"github.com/step-security/dev-machine-guard/internal/schtasks"
 	"github.com/step-security/dev-machine-guard/internal/systemd"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 	"github.com/step-security/dev-machine-guard/internal/telemetry"
 	"github.com/step-security/dev-machine-guard/internal/winproc"
 )
+
+// auditSkipper builds a TCC skipper if scanning into TCC-protected dirs is
+// not opted in. Mirrors scan.Run / telemetry.Run so the focused *Only audits
+// don't accidentally prompt the user on macOS.
+func auditSkipper(exec executor.Executor, cfg *cli.Config) *tcc.Skipper {
+	if !tcc.Enabled(cfg.IncludeTCCProtected) {
+		return nil
+	}
+	return tcc.New(executor.ResolveHome(exec))
+}
 
 // hookReconcileTimeout caps the entire reconcile step (fetch + cache
 // write + install/uninstall). Generous because install can chown a
@@ -389,6 +400,39 @@ func main() {
 			}
 			return
 		}
+		if cfg.PnpmRCOnly {
+			if !featuregate.IsEnabled(featuregate.FeaturePnpmConfigAudit) {
+				fmt.Fprintln(os.Stderr, featuregate.UnavailableMessage("--pnpmrc"))
+				os.Exit(1)
+			}
+			if err := runPnpmRCOnly(exec, cfg); err != nil {
+				log.Error("%v", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if cfg.BunfigOnly {
+			if !featuregate.IsEnabled(featuregate.FeatureBunConfigAudit) {
+				fmt.Fprintln(os.Stderr, featuregate.UnavailableMessage("--bunfig"))
+				os.Exit(1)
+			}
+			if err := runBunfigOnly(exec, cfg); err != nil {
+				log.Error("%v", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if cfg.YarnRCOnly {
+			if !featuregate.IsEnabled(featuregate.FeatureYarnConfigAudit) {
+				fmt.Fprintln(os.Stderr, featuregate.UnavailableMessage("--yarnrc"))
+				os.Exit(1)
+			}
+			if err := runYarnRCOnly(exec, cfg); err != nil {
+				log.Error("%v", err)
+				os.Exit(1)
+			}
+			return
+		}
 		// Community mode or auto-detect enterprise
 		switch {
 		case cfg.OutputFormatSet || cfg.HTMLOutputFile != "":
@@ -447,6 +491,58 @@ func runPipConfigOnly(exec executor.Executor, cfg *cli.Config) error {
 		return scanJSONEncoder(os.Stdout).Encode(audit)
 	}
 	output.PrettyPipConfig(os.Stdout, &audit, dev, cfg.ColorMode)
+	return nil
+}
+
+// runPnpmRCOnly executes only the pnpm detector and renders the verbose
+// pretty view (or JSON when --json is also passed).
+func runPnpmRCOnly(exec executor.Executor, cfg *cli.Config) error {
+	ctx := context.Background()
+	dev := device.Gather(ctx, exec)
+	loggedInUser, _ := exec.LoggedInUser()
+
+	searchDirs := resolveScanSearchDirs(exec, cfg.SearchDirs)
+	audit := configaudit.NewPnpmDetector(exec).WithSkipper(auditSkipper(exec, cfg)).Detect(ctx, searchDirs, loggedInUser)
+
+	if cfg.OutputFormat == "json" {
+		return scanJSONEncoder(os.Stdout).Encode(audit)
+	}
+	output.PrettyPnpm(os.Stdout, &audit, dev, cfg.ColorMode)
+	return nil
+}
+
+// runBunfigOnly executes only the bun detector and renders the verbose
+// pretty view (or JSON when --json is also passed).
+func runBunfigOnly(exec executor.Executor, cfg *cli.Config) error {
+	ctx := context.Background()
+	dev := device.Gather(ctx, exec)
+	loggedInUser, _ := exec.LoggedInUser()
+
+	searchDirs := resolveScanSearchDirs(exec, cfg.SearchDirs)
+	audit := configaudit.NewBunDetector(exec).WithSkipper(auditSkipper(exec, cfg)).Detect(ctx, searchDirs, loggedInUser)
+
+	if cfg.OutputFormat == "json" {
+		return scanJSONEncoder(os.Stdout).Encode(audit)
+	}
+	output.PrettyBun(os.Stdout, &audit, dev, cfg.ColorMode)
+	return nil
+}
+
+// runYarnRCOnly executes only the yarn detector (covering both .yarnrc and
+// .yarnrc.yml) and renders the verbose pretty view (or JSON when --json is
+// also passed).
+func runYarnRCOnly(exec executor.Executor, cfg *cli.Config) error {
+	ctx := context.Background()
+	dev := device.Gather(ctx, exec)
+	loggedInUser, _ := exec.LoggedInUser()
+
+	searchDirs := resolveScanSearchDirs(exec, cfg.SearchDirs)
+	audit := configaudit.NewYarnDetector(exec).WithSkipper(auditSkipper(exec, cfg)).Detect(ctx, searchDirs, loggedInUser)
+
+	if cfg.OutputFormat == "json" {
+		return scanJSONEncoder(os.Stdout).Encode(audit)
+	}
+	output.PrettyYarn(os.Stdout, &audit, dev, cfg.ColorMode)
 	return nil
 }
 

@@ -160,11 +160,22 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 
 	log.Debug("launchd install: plist=%q log_dir=%q interval=%ds user_home=%q is_root=%v", plistPath, logDir, intervalSeconds, userHome, exec.IsRoot())
 
-	// Load plist
-	_, _, exitCode, err := exec.Run(ctx, "launchctl", "load", plistPath)
-	log.Debug("launchctl load %q: exit_code=%d err=%v", plistPath, exitCode, err)
-	if err != nil || exitCode != 0 {
-		return fmt.Errorf("failed to load launchd configuration")
+	// Bootstrap plist into its launchd domain. Apple actively recommends
+	// `bootstrap`/`bootout` over the older `load`/`unload` verbs, which
+	// are on the path to deprecation. Root daemons live in the `system`
+	// domain; user LaunchAgents in `gui/<uid>`. Available since macOS
+	// 10.11, so every machine we target supports it.
+	domain := "system"
+	if !exec.IsRoot() {
+		domain = fmt.Sprintf("gui/%d", os.Getuid())
+	}
+	_, stderr, exitCode, err := exec.Run(ctx, "launchctl", "bootstrap", domain, plistPath)
+	log.Debug("launchctl bootstrap %q %q: exit_code=%d err=%v stderr=%q", domain, plistPath, exitCode, err, stderr)
+	if err != nil {
+		return fmt.Errorf("launchctl bootstrap failed: %w", err)
+	}
+	if exitCode != 0 {
+		return fmt.Errorf("launchctl bootstrap failed (exit code %d): %s", exitCode, strings.TrimSpace(stderr))
 	}
 
 	log.Progress("launchd configuration completed successfully")
@@ -194,12 +205,26 @@ func doUninstall(ctx context.Context, exec executor.Executor, log *progress.Logg
 		plistPath = agentPlistPath()
 	}
 
-	// Unload
+	// Bootout. `bootout` removes a service from its domain regardless of
+	// how it was originally added, so it works on plists previously
+	// `launchctl load`-ed by older agent versions during upgrade.
 	stdout, _, _, _ := exec.Run(ctx, "launchctl", "list")
 	if strings.Contains(stdout, label) {
-		_, _, exitCode, err := exec.Run(ctx, "launchctl", "unload", plistPath)
-		log.Debug("launchctl unload %q: exit_code=%d err=%v", plistPath, exitCode, err)
-		log.Progress("Unloaded launchd agent")
+		domain := "system"
+		if !exec.IsRoot() {
+			domain = fmt.Sprintf("gui/%d", os.Getuid())
+		}
+		target := domain + "/" + label
+		_, stderr, exitCode, err := exec.Run(ctx, "launchctl", "bootout", target)
+		log.Debug("launchctl bootout %q: exit_code=%d err=%v stderr=%q", target, exitCode, err, stderr)
+		switch {
+		case err != nil:
+			log.Warn("launchctl bootout failed: %v — the running service may persist until reboot; plist will still be removed", err)
+		case exitCode != 0:
+			log.Warn("launchctl bootout failed (exit code %d): %s — the running service may persist until reboot; plist will still be removed", exitCode, strings.TrimSpace(stderr))
+		default:
+			log.Progress("Unloaded launchd agent")
+		}
 	}
 
 	// Remove plist

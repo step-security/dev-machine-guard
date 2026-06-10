@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [1.12.0] - 2026-06-09
+
+### Added
+
+- **Malicious-file detection**: new rules-engine scanner that flags suspicious files as IOCs and wires the results into scan telemetry. The detector streams one file at a time to keep scan memory bounded regardless of repository size.
+- **pnpm configuration inventory**: scans now surface the contents of pnpm configuration.
+- **bun configuration inventory**: scans now surface `bunfig.toml` configuration.
+- **yarn configuration inventory**: scans now surface both yarn classic and yarn berry configuration.
+
+### Changed
+
+- **pnpm/bun/yarn audits enabled by default**: the agent now runs all three audits on every scan and emits `pnpm_audit`, `bun_audit`, and `yarn_audit` on the wire payload (gated via rc-config feature gates).
+- **npm and pip rc-config scanning enabled by default**.
+- **macOS service management**: the agent now uses `launchctl bootstrap`/`bootout` instead of the deprecated `load`/`unload`.
+
+### Fixed
+
+- **pnpm path resolution**: corrected pnpm path handling on both Linux and Windows.
+- **Package-manager resolution under launchd**: package managers are now resolved correctly under the LaunchAgent's stripped `PATH`.
+- **Shell quoting in `RunAsUser`**: command and argument quoting is now handled correctly when executing as the target user.
+- **Windows empty payloads**: empty payloads are handled gracefully when npm is not present.
+- **launchd failures surfaced**: `bootstrap`/`bootout` failures are now reported instead of silently swallowed.
+- **brew raw scan output**: raw scan output is now synthesized from the rich brew data.
+
 ## [1.11.7] - 2026-05-31
 
 ### Added
@@ -236,6 +260,7 @@ First open-source release. The scanning engine was previously an internal enterp
 - Execution log capture and base64 encoding
 - Instance locking to prevent concurrent runs
 
+[1.12.0]: https://github.com/step-security/dev-machine-guard/compare/v1.11.7...v1.12.0
 [1.11.7]: https://github.com/step-security/dev-machine-guard/compare/v1.11.6...v1.11.7
 [1.11.6]: https://github.com/step-security/dev-machine-guard/compare/v1.11.5...v1.11.6
 [1.11.5]: https://github.com/step-security/dev-machine-guard/compare/v1.11.4...v1.11.5

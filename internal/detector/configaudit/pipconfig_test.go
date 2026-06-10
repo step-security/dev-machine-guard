@@ -13,9 +13,9 @@ import (
 
 // fixedPipOwner is a deterministic ownerLookup hook so tests don't depend
 // on real syscalls or platform-specific user names.
-func fixedPipOwner() func(string) pipOwnerInfo {
-	return func(_ string) pipOwnerInfo {
-		return pipOwnerInfo{UID: 1000, GID: 1000, OwnerName: "tester", GroupName: "staff", OK: true}
+func fixedPipOwner() func(string) ownerInfo {
+	return func(_ string) ownerInfo {
+		return ownerInfo{UID: 1000, GID: 1000, OwnerName: "tester", GroupName: "staff", OK: true}
 	}
 }
 

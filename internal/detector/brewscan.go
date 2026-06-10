@@ -1,94 +1,57 @@
 package detector
 
 import (
-	"context"
 	"encoding/base64"
 	"strings"
-	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
-// BrewScanner performs enterprise-mode Homebrew scanning (raw output, base64 encoded).
+// BrewScanner produces a BrewScanResult for enterprise telemetry by synthesizing
+// the raw `brew list --versions` format from the rich package data we already have.
+//
+// We used to shell out to `brew list --formula|--cask --versions`, but on some hosts
+// `brew list --cask --versions` crashes inside Homebrew itself (e.g. nil in a cask's
+// depends_on triggers `undefined method 'to_sym' for nil` in cask_struct_generator.rb).
+// The rich path (`brew info --json=v2`) is unaffected, so we reuse its data here.
 type BrewScanner struct {
-	exec executor.Executor
-	log  *progress.Logger
+	log *progress.Logger
 }
 
-func NewBrewScanner(exec executor.Executor, log *progress.Logger) *BrewScanner {
-	return &BrewScanner{exec: exec, log: log}
+// NewBrewScanner keeps the (exec, log) signature for caller compatibility; exec is unused.
+func NewBrewScanner(_ executor.Executor, log *progress.Logger) *BrewScanner {
+	return &BrewScanner{log: log}
 }
 
-// ScanFormulae runs `brew list --formula --versions` and returns raw base64-encoded output.
-func (s *BrewScanner) ScanFormulae(ctx context.Context) (model.BrewScanResult, bool) {
-	if _, err := s.exec.LookPath("brew"); err != nil {
-		s.log.Progress("  brew not found in PATH for formulae scan")
-		return model.BrewScanResult{}, false
+// FormulaeResult builds a formulae scan result from rich package data.
+func (s *BrewScanner) FormulaeResult(pkgs []model.BrewPackage) model.BrewScanResult {
+	return s.synthesize("formulae", pkgs)
+}
+
+// CasksResult builds a casks scan result from rich package data.
+func (s *BrewScanner) CasksResult(pkgs []model.BrewPackage) model.BrewScanResult {
+	return s.synthesize("casks", pkgs)
+}
+
+func (s *BrewScanner) synthesize(scanType string, pkgs []model.BrewPackage) model.BrewScanResult {
+	var b strings.Builder
+	for _, p := range pkgs {
+		b.WriteString(p.Name)
+		b.WriteByte(' ')
+		b.WriteString(p.Version)
+		b.WriteByte('\n')
 	}
-
-	s.log.Progress("  Scanning Homebrew formulae...")
-	start := time.Now()
-	stdout, stderr, exitCode, _ := s.exec.RunWithTimeout(ctx, 60*time.Second, "brew", "list", "--formula", "--versions")
-	duration := time.Since(start).Milliseconds()
-
-	errMsg := ""
-	if exitCode != 0 {
-		errMsg = "brew list --formula --versions failed"
-		s.log.Warn("brew formulae scan failed (exit_code=%d): %s — results may be incomplete", exitCode, strings.TrimSpace(stderr))
-	}
-
-	lineCount := len(strings.Split(strings.TrimSpace(stdout), "\n"))
-	if strings.TrimSpace(stdout) == "" {
-		lineCount = 0
-	}
-	s.log.Progress("  Brew formulae scan complete: %d lines, exit_code=%d, duration=%dms", lineCount, exitCode, duration)
-	s.log.Debug("brew formulae scan: line_count=%d exit_code=%d duration=%dms stdout_bytes=%d", lineCount, exitCode, duration, len(stdout))
-
+	stdout := b.String()
+	s.log.Debug("brew %s scan synthesized from rich data: %d packages", scanType, len(pkgs))
 	return model.BrewScanResult{
-		ScanType:        "formulae",
+		ScanType:        scanType,
 		RawStdoutBase64: base64.StdEncoding.EncodeToString([]byte(stdout)),
-		RawStderrBase64: base64.StdEncoding.EncodeToString([]byte(stderr)),
-		Error:           errMsg,
-		ExitCode:        exitCode,
-		ScanDurationMs:  duration,
-		LineCount:       lineCount,
-	}, true
-}
-
-// ScanCasks runs `brew list --cask --versions` and returns raw base64-encoded output.
-func (s *BrewScanner) ScanCasks(ctx context.Context) (model.BrewScanResult, bool) {
-	if _, err := s.exec.LookPath("brew"); err != nil {
-		s.log.Progress("  brew not found in PATH for casks scan")
-		return model.BrewScanResult{}, false
+		RawStderrBase64: "",
+		Error:           "",
+		ExitCode:        0,
+		ScanDurationMs:  0,
+		LineCount:       len(pkgs),
 	}
-
-	s.log.Progress("  Scanning Homebrew casks...")
-	start := time.Now()
-	stdout, stderr, exitCode, _ := s.exec.RunWithTimeout(ctx, 60*time.Second, "brew", "list", "--cask", "--versions")
-	duration := time.Since(start).Milliseconds()
-
-	errMsg := ""
-	if exitCode != 0 {
-		errMsg = "brew list --cask --versions failed"
-		s.log.Warn("brew casks scan failed (exit_code=%d): %s — results may be incomplete", exitCode, strings.TrimSpace(stderr))
-	}
-
-	lineCount := len(strings.Split(strings.TrimSpace(stdout), "\n"))
-	if strings.TrimSpace(stdout) == "" {
-		lineCount = 0
-	}
-	s.log.Progress("  Brew casks scan complete: %d lines, exit_code=%d, duration=%dms", lineCount, exitCode, duration)
-	s.log.Debug("brew casks scan: line_count=%d exit_code=%d duration=%dms stdout_bytes=%d", lineCount, exitCode, duration, len(stdout))
-
-	return model.BrewScanResult{
-		ScanType:        "casks",
-		RawStdoutBase64: base64.StdEncoding.EncodeToString([]byte(stdout)),
-		RawStderrBase64: base64.StdEncoding.EncodeToString([]byte(stderr)),
-		Error:           errMsg,
-		ExitCode:        exitCode,
-		ScanDurationMs:  duration,
-		LineCount:       lineCount,
-	}, true
 }

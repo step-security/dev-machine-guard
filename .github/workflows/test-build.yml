@@ -1,4 +1,9 @@
 name: Test Build (Binaries & MSIs)
+# run-name embeds the dispatcher-supplied correlation_id so a caller (e.g. the
+# integration-test Intune E2E) can locate the exact run it triggered: a
+# workflow_dispatch run's head_sha is the ref HEAD, not commit_id, so the SHA
+# alone cannot identify it.
+run-name: Test Build ${{ inputs.commit_id }} ${{ inputs.correlation_id }}
 
 # Build test binaries and MSIs from an arbitrary commit, without cutting a
 # release tag or touching the upstream release pipeline. Artifacts are
@@ -14,6 +19,10 @@ on:
         type: string
       pr_id:
         description: "Optional PR number to comment on with the artifact location"
+        required: false
+        type: string
+      correlation_id:
+        description: "Opaque marker echoed into run-name so a dispatcher can correlate this run (e.g. the integration-test Intune E2E)"
         required: false
         type: string
 
@@ -205,11 +214,96 @@ jobs:
 
           Get-ChildItem dist -Filter "*.msi" | Format-Table Name, Length
 
+      # Pack the MSIs into .intunewin so the integration-test Intune E2E can test
+      # a per-commit package identical in shape to a release (just unsigned).
+      # Mirrors the pack in release.yml; no Sigstore signing / release upload here.
+      - name: Download IntuneWinAppUtil.exe (pinned)
+        shell: pwsh
+        run: |
+          # Microsoft/Microsoft-Win32-Content-Prep-Tool v1.8.7, commit-pinned raw
+          # URL + canonical SHA-256 (same pin as release.yml), Authenticode-checked
+          # in the next step.
+          $ErrorActionPreference = 'Stop'
+          $url    = 'https://raw.githubusercontent.com/microsoft/Microsoft-Win32-Content-Prep-Tool/1d6cfcbdf8c28edc596337031f74df951f38f718/IntuneWinAppUtil.exe'
+          $sha256 = 'c1ba45b5cb939e84af064bb7ff4b38fb3dfe33c8dc1078fd9b157672eae671f6'
+          $dst    = 'dist/tools/IntuneWinAppUtil.exe'
+          New-Item -ItemType Directory -Path (Split-Path $dst) -Force | Out-Null
+          Invoke-WebRequest -Uri $url -OutFile $dst -UseBasicParsing
+          $actual = (Get-FileHash -Path $dst -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $sha256) {
+            Write-Error "IntuneWinAppUtil.exe SHA-256 mismatch -- expected $sha256, got $actual"
+            exit 1
+          }
+          Write-Host "IntuneWinAppUtil.exe SHA-256 verified: $actual"
+
+      - name: Verify IntuneWinAppUtil.exe Microsoft Authenticode signature
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sig = Get-AuthenticodeSignature 'dist/tools/IntuneWinAppUtil.exe'
+          $subject = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { '<none>' }
+          Write-Host "IntuneWinAppUtil.exe: Status=$($sig.Status), Signer=$subject"
+          if ($sig.Status -ne 'Valid') {
+            Write-Error "IntuneWinAppUtil.exe signature status is $($sig.Status), expected Valid"
+            exit 1
+          }
+          if ($subject -notlike '*Microsoft Corporation*') {
+            Write-Error "IntuneWinAppUtil.exe not signed by Microsoft Corporation (subject: $subject)"
+            exit 1
+          }
+
+      - name: Pack .intunewin (x64 + arm64)
+        shell: pwsh
+        run: |
+          # IntuneWinAppUtil takes a SOURCE FOLDER (-c) and a SETUP FILE within it
+          # (-s); the setup file is install.cmd (not the MSI), with uninstall.cmd
+          # and the MSI staged alongside -- identical to release.yml so the package
+          # matches the real delivery path byte-for-byte (modulo signing).
+          $ErrorActionPreference = 'Stop'
+          $version = "${{ needs.build.outputs.version }}"
+          $tool    = 'dist/tools/IntuneWinAppUtil.exe'
+
+          foreach ($arch in @('x64', 'arm64')) {
+            $msiName = "stepsecurity-dev-machine-guard-$version-$arch.msi"
+            $stage   = "dist/intunewin-staging-$arch"
+            New-Item -ItemType Directory -Path $stage -Force | Out-Null
+            Copy-Item -Path "dist/$msiName"                          -Destination $stage -Force
+            Copy-Item -Path "packaging/windows/intune/install.cmd"   -Destination $stage -Force
+            Copy-Item -Path "packaging/windows/intune/uninstall.cmd" -Destination $stage -Force
+
+            & $tool -c $stage -s install.cmd -o dist -q
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "IntuneWinAppUtil.exe failed for $arch (exit $LASTEXITCODE)"
+              exit 1
+            }
+            Remove-Item -Path $stage -Recurse -Force
+
+            # IntuneWinAppUtil names the output after the setup file
+            # (install.intunewin); rename to the versioned, arch-tagged filename.
+            $produced = "dist/install.intunewin"
+            if (-not (Test-Path $produced)) {
+              Write-Error "Expected output not found: $produced"
+              exit 1
+            }
+            $final = "dist/stepsecurity-dev-machine-guard-$version-$arch.intunewin"
+            if (Test-Path $final) { Remove-Item -Path $final -Force }
+            Move-Item -Path $produced -Destination $final
+          }
+
+          Get-ChildItem dist -Filter "*.intunewin" | Format-Table Name, Length
+
       - name: Upload MSIs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-msis
           path: dist/*.msi
+          if-no-files-found: error
+
+      - name: Upload .intunewin
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-intunewin
+          path: dist/*.intunewin
           if-no-files-found: error
 
   comment-on-pr:

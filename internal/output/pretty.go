@@ -281,7 +281,92 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 		printPipAuditSummary(w, c, result.PipAudit)
 	}
 
+	// PNPM CONFIG AUDIT (compact summary; deep view via --pnpmrc)
+	if result.PnpmAudit != nil {
+		printPnpmAuditSummary(w, c, result.PnpmAudit)
+	}
+
+	// BUN CONFIG AUDIT (compact summary; deep view via --bunfig)
+	if result.BunAudit != nil {
+		printBunAuditSummary(w, c, result.BunAudit)
+	}
+
+	// YARN CONFIG AUDIT (compact summary; deep view via --yarnrc)
+	if result.YarnAudit != nil {
+		printYarnAuditSummary(w, c, result.YarnAudit)
+	}
+
 	return nil
+}
+
+//nolint:errcheck // terminal output
+func printYarnAuditSummary(w io.Writer, c *colors, a *model.YarnAudit) {
+	fmt.Fprintf(w, "  %s%sYARN CONFIG AUDIT%s\n", c.purple, c.bold, c.reset)
+	if a.Available {
+		flavor := a.Flavor
+		if flavor == "" {
+			flavor = "unknown"
+		}
+		fmt.Fprintf(w, "    %syarn:%s %s (%s) @ %s\n", c.dim, c.reset, a.YarnVersion, flavor, a.YarnPath)
+	} else {
+		fmt.Fprintf(w, "    %syarn:%s not found in PATH\n", c.dim, c.reset)
+	}
+	existing := 0
+	classic, berry := 0, 0
+	for _, f := range a.Files {
+		if f.Exists {
+			existing++
+		}
+		switch f.Flavor {
+		case "berry":
+			berry++
+		case "classic":
+			classic++
+		}
+	}
+	fmt.Fprintf(w, "    %sfiles:%s %d discovered (%d classic / %d berry), %d present  (+%d .npmrc side-channel)\n",
+		c.dim, c.reset, len(a.Files), classic, berry, existing, len(a.NPMRCFiles))
+	fmt.Fprintf(w, "    %srun --yarnrc for the deep view%s\n", c.dim, c.reset)
+	fmt.Fprintln(w)
+}
+
+//nolint:errcheck // terminal output
+func printBunAuditSummary(w io.Writer, c *colors, a *model.BunAudit) {
+	fmt.Fprintf(w, "  %s%sBUN CONFIG AUDIT%s\n", c.purple, c.bold, c.reset)
+	if a.Available {
+		fmt.Fprintf(w, "    %sbun:%s %s @ %s\n", c.dim, c.reset, a.BunVersion, a.BunPath)
+	} else {
+		fmt.Fprintf(w, "    %sbun:%s not found in PATH\n", c.dim, c.reset)
+	}
+	existing := 0
+	for _, f := range a.Files {
+		if f.Exists {
+			existing++
+		}
+	}
+	fmt.Fprintf(w, "    %sfiles:%s %d bunfig.toml discovered, %d present  (+%d .npmrc side-channel)\n",
+		c.dim, c.reset, len(a.Files), existing, len(a.NPMRCFiles))
+	fmt.Fprintf(w, "    %srun --bunfig for the deep view%s\n", c.dim, c.reset)
+	fmt.Fprintln(w)
+}
+
+//nolint:errcheck // terminal output
+func printPnpmAuditSummary(w io.Writer, c *colors, a *model.PnpmAudit) {
+	fmt.Fprintf(w, "  %s%sPNPM CONFIG AUDIT%s\n", c.purple, c.bold, c.reset)
+	if a.Available {
+		fmt.Fprintf(w, "    %spnpm:%s %s @ %s\n", c.dim, c.reset, a.PnpmVersion, a.PnpmPath)
+	} else {
+		fmt.Fprintf(w, "    %spnpm:%s not found in PATH\n", c.dim, c.reset)
+	}
+	existing := 0
+	for _, f := range a.Files {
+		if f.Exists {
+			existing++
+		}
+	}
+	fmt.Fprintf(w, "    %sfiles:%s %d discovered, %d present\n", c.dim, c.reset, len(a.Files), existing)
+	fmt.Fprintf(w, "    %srun --pnpmrc for the deep view%s\n", c.dim, c.reset)
+	fmt.Fprintln(w)
 }
 
 //nolint:errcheck // terminal output

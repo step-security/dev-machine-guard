@@ -77,28 +77,17 @@ type PipConfigDetector struct {
 
 	// Hooks for tests; default to platform-specific impls. Owner lookup
 	// uses syscall.Stat_t on Unix and is a no-op on Windows.
-	ownerLookup func(path string) pipOwnerInfo
+	ownerLookup func(path string) ownerInfo
 	gitTracked  func(ctx context.Context, path string) bool
 	inGitRepo   func(path string) bool
-}
-
-// pipOwnerInfo is the result of a Unix stat. OK=false on Windows or when
-// the file doesn't exist; the detector treats that as "owner unknown" and
-// leaves the model fields empty.
-type pipOwnerInfo struct {
-	UID       int
-	GID       int
-	OwnerName string
-	GroupName string
-	OK        bool
 }
 
 // NewPipConfigDetector wires platform-specific hooks; tests override.
 func NewPipConfigDetector(exec executor.Executor) *PipConfigDetector {
 	d := &PipConfigDetector{exec: exec}
-	d.ownerLookup = pipStatOwner
-	d.gitTracked = d.defaultGitTracked
-	d.inGitRepo = pipDefaultInGitRepo
+	d.ownerLookup = statOwner
+	d.gitTracked = func(ctx context.Context, p string) bool { return gitTrackedViaExec(ctx, exec, p) }
+	d.inGitRepo = defaultInGitRepo
 	return d
 }
 
@@ -579,32 +568,6 @@ func (d *PipConfigDetector) probeNetrc(loggedInUser *user.User) *model.PipNetrcS
 		out.Mode = fmt.Sprintf("%#o", info.Mode().Perm())
 	}
 	return out
-}
-
-// --- git helpers ------------------------------------------------------------
-
-func (d *PipConfigDetector) defaultGitTracked(ctx context.Context, path string) bool {
-	dir := filepath.Dir(path)
-	base := filepath.Base(path)
-	_, _, exit, err := d.exec.RunWithTimeout(ctx, 5*time.Second, "git", "-C", dir, "ls-files", "--error-unmatch", base)
-	return err == nil && exit == 0
-}
-
-// pipDefaultInGitRepo walks parent dirs looking for `.git` (directory or
-// file — git worktrees use a file). Stops at filesystem root.
-func pipDefaultInGitRepo(path string) bool {
-	dir := filepath.Dir(path)
-	for {
-		gitPath := filepath.Join(dir, ".git")
-		if _, err := os.Stat(gitPath); err == nil {
-			return true
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return false
-		}
-		dir = parent
-	}
 }
 
 // pipFsWalkEntries is here so the detector stays self-contained even if
