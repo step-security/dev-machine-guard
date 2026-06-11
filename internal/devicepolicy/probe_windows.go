@@ -1,6 +1,6 @@
 //go:build windows
 
-package devmdm
+package devicepolicy
 
 import (
 	"errors"

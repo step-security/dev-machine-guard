@@ -96,13 +96,13 @@ jobs:
           go-version-file: go.mod
       - run: make test
 
-  # devmdm has Windows-only code (the registry managed-policy probe) and
+  # devicepolicy has Windows-only code (the registry managed-policy probe) and
   # Windows-specific behavior (%APPDATA% settings-path resolution) whose tests
   # the macOS test job can only cross-compile, not run. This job executes the
   # package natively; scoped to it so the rest of the suite (which assumes a
   # POSIX host) is untouched.
-  test-windows-devmdm:
-    name: Test (windows devmdm)
+  test-windows-devicepolicy:
+    name: Test (windows devicepolicy)
     runs-on: windows-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -114,7 +114,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
-      - run: go test -race -count=1 ./internal/devmdm/
+      - run: go test -race -count=1 ./internal/devicepolicy/
 
   smoke:
     name: Smoke Tests

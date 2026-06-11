@@ -1,4 +1,4 @@
-package devmdm
+package devicepolicy
 
 import (
 	"bytes"
@@ -122,7 +122,7 @@ func (w *settingsWriter) load() (v hujson.Value, existed bool, err error) {
 		return v, false, nil
 	}
 	if err != nil {
-		return hujson.Value{}, false, fmt.Errorf("devmdm: read %s: %w", w.path, err)
+		return hujson.Value{}, false, fmt.Errorf("devicepolicy: read %s: %w", w.path, err)
 	}
 	if len(bytes.TrimSpace(b)) == 0 {
 		// An empty file is how VS Code-adjacent tooling often seeds settings;
@@ -132,10 +132,10 @@ func (w *settingsWriter) load() (v hujson.Value, existed bool, err error) {
 	}
 	v, perr := hujson.Parse(b)
 	if perr != nil {
-		return hujson.Value{}, true, fmt.Errorf("devmdm: %s is not valid JSONC, refusing to touch it: %w", w.path, perr)
+		return hujson.Value{}, true, fmt.Errorf("devicepolicy: %s is not valid JSONC, refusing to touch it: %w", w.path, perr)
 	}
 	if _, ok := v.Value.(*hujson.Object); !ok {
-		return hujson.Value{}, true, fmt.Errorf("devmdm: %s root is not a JSON object, refusing to touch it", w.path)
+		return hujson.Value{}, true, fmt.Errorf("devicepolicy: %s root is not a JSON object, refusing to touch it", w.path)
 	}
 	return v, true, nil
 }
@@ -149,7 +149,7 @@ func extractAllowedExtensions(v hujson.Value) (string, bool, error) {
 	std.Standardize()
 	m := map[string]json.RawMessage{}
 	if err := json.Unmarshal(std.Pack(), &m); err != nil {
-		return "", false, fmt.Errorf("devmdm: standardize settings: %w", err)
+		return "", false, fmt.Errorf("devicepolicy: standardize settings: %w", err)
 	}
 	raw, ok := m[allowedExtensionsSettingKey]
 	if !ok {
@@ -169,7 +169,7 @@ func extractAllowedExtensions(v hujson.Value) (string, bool, error) {
 func compactJSON(raw []byte) (string, error) {
 	var buf bytes.Buffer
 	if err := json.Compact(&buf, raw); err != nil {
-		return "", fmt.Errorf("devmdm: compact value: %w", err)
+		return "", fmt.Errorf("devicepolicy: compact value: %w", err)
 	}
 	return buf.String(), nil
 }
@@ -193,7 +193,7 @@ func (w *settingsWriter) Write(value string) (string, error) {
 		// The patch document embeds value verbatim; reject anything that is not
 		// a JSON object before it can corrupt the patch (defense in depth — the
 		// fetcher already enforces object shape).
-		return "", fmt.Errorf("devmdm: refusing to write non-object policy value to %s", w.path)
+		return "", fmt.Errorf("devicepolicy: refusing to write non-object policy value to %s", w.path)
 	}
 	v, _, err := w.load()
 	if err != nil {
@@ -203,7 +203,7 @@ func (w *settingsWriter) Write(value string) (string, error) {
 	// or '~', so it needs no JSON-Pointer escaping; the dot is literal.
 	patch := `[{"op":"add","path":"/` + allowedExtensionsSettingKey + `","value":` + value + `}]`
 	if err := v.Patch([]byte(patch)); err != nil {
-		return "", fmt.Errorf("devmdm: patch %s: %w", w.path, err)
+		return "", fmt.Errorf("devicepolicy: patch %s: %w", w.path, err)
 	}
 	if err := w.store(v); err != nil {
 		return "", err
@@ -233,7 +233,7 @@ func (w *settingsWriter) Clear() error {
 	}
 	patch := `[{"op":"remove","path":"/` + allowedExtensionsSettingKey + `"}]`
 	if err := v.Patch([]byte(patch)); err != nil {
-		return fmt.Errorf("devmdm: patch %s: %w", w.path, err)
+		return fmt.Errorf("devicepolicy: patch %s: %w", w.path, err)
 	}
 	return w.store(v)
 }
@@ -244,7 +244,7 @@ func (w *settingsWriter) Clear() error {
 func (w *settingsWriter) store(v hujson.Value) error {
 	mode := atomicfile.PickMode(w.path, settingsFileMode)
 	if _, err := atomicfile.WriteAtomic(w.path, v.Pack(), mode); err != nil {
-		return fmt.Errorf("devmdm: write %s: %w", w.path, err)
+		return fmt.Errorf("devicepolicy: write %s: %w", w.path, err)
 	}
 	return nil
 }

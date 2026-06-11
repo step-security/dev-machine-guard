@@ -1,4 +1,4 @@
-package devmdm
+package devicepolicy
 
 import "testing"
 

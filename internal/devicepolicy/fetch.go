@@ -1,4 +1,4 @@
-package devmdm
+package devicepolicy
 
 import (
 	"context"
@@ -96,13 +96,13 @@ func NewHTTPFetcher(cfg ingest.Config, h *http.Client) (*HTTPFetcher, bool) {
 //     array written verbatim could even read back "compliant").
 func (c *HTTPFetcher) Fetch(ctx context.Context, customerID, deviceID, category string) (EffectivePolicy, error) {
 	if c == nil {
-		return EffectivePolicy{}, errors.New("devmdm: nil fetcher")
+		return EffectivePolicy{}, errors.New("devicepolicy: nil fetcher")
 	}
 	if strings.TrimSpace(customerID) == "" {
-		return EffectivePolicy{}, errors.New("devmdm: empty customer_id")
+		return EffectivePolicy{}, errors.New("devicepolicy: empty customer_id")
 	}
 	if strings.TrimSpace(deviceID) == "" {
-		return EffectivePolicy{}, errors.New("devmdm: empty device_id")
+		return EffectivePolicy{}, errors.New("devicepolicy: empty device_id")
 	}
 	if strings.TrimSpace(category) == "" {
 		category = CategoryIDEExtension
@@ -115,7 +115,7 @@ func (c *HTTPFetcher) Fetch(ctx context.Context, customerID, deviceID, category 
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return EffectivePolicy{}, fmt.Errorf("devmdm: build request: %w", err)
+		return EffectivePolicy{}, fmt.Errorf("devicepolicy: build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Accept", "application/json")
@@ -123,23 +123,23 @@ func (c *HTTPFetcher) Fetch(ctx context.Context, customerID, deviceID, category 
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return EffectivePolicy{}, fmt.Errorf("devmdm: transport: %s", redact.String(err.Error()))
+		return EffectivePolicy{}, fmt.Errorf("devicepolicy: transport: %s", redact.String(err.Error()))
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
-		return EffectivePolicy{}, fmt.Errorf("devmdm: unexpected status %d: %s",
+		return EffectivePolicy{}, fmt.Errorf("devicepolicy: unexpected status %d: %s",
 			resp.StatusCode, redact.String(strings.TrimSpace(string(snippet))))
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil {
-		return EffectivePolicy{}, fmt.Errorf("devmdm: read body: %w", err)
+		return EffectivePolicy{}, fmt.Errorf("devicepolicy: read body: %w", err)
 	}
 	var env policyEnvelope
 	if err := json.Unmarshal(body, &env); err != nil {
-		return EffectivePolicy{}, fmt.Errorf("devmdm: decode body: %w", err)
+		return EffectivePolicy{}, fmt.Errorf("devicepolicy: decode body: %w", err)
 	}
 
 	ep := EffectivePolicy{
@@ -154,13 +154,13 @@ func (c *HTTPFetcher) Fetch(ctx context.Context, customerID, deviceID, category 
 	}
 	if !ep.Clear {
 		if len(ep.Policy) == 0 || ep.Hash == "" {
-			return EffectivePolicy{}, errors.New("devmdm: malformed policy: clear=false but policy or hash missing")
+			return EffectivePolicy{}, errors.New("devicepolicy: malformed policy: clear=false but policy or hash missing")
 		}
 		// The compiled policy is always a JSON object. Shape is checked here so a
 		// malformed payload no-ops at the reconciler; value-level validation stays
 		// backend-owned.
 		if !isJSONObject(ep.Policy) {
-			return EffectivePolicy{}, errors.New("devmdm: malformed policy: policy is not a JSON object")
+			return EffectivePolicy{}, errors.New("devicepolicy: malformed policy: policy is not a JSON object")
 		}
 	}
 	return ep, nil

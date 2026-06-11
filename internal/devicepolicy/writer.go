@@ -1,4 +1,4 @@
-package devmdm
+package devicepolicy
 
 // Writer reads, upserts, and removes the `extensions.allowed` key in the
 // user-scope VS Code settings.json. It is a thin primitive: it manages ONLY

@@ -1,4 +1,4 @@
-// Package devmdm implements the dev-machine-guard agent side of Developer MDM
+// Package devicepolicy implements the dev-machine-guard agent side of Developer MDM
 // on-device policy enforcement (PRD: "Dev Machine Guard Agent: IDE Extension
 // Enforcement"). It is a thin agent: each scheduled cycle it fetches the
 // backend-compiled policy and converges the `extensions.allowed` key in the
@@ -31,4 +31,4 @@
 //     on the existing developer-mdm-agent auth channel.
 //   - Reconciler (reconcile.go): orchestrates fetch → probe → idempotency →
 //     drift → ownership-safe write → verify → report, with malformed-→-no-op.
-package devmdm
+package devicepolicy

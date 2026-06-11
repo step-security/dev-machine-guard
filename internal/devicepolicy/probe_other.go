@@ -1,6 +1,6 @@
 //go:build !windows && !linux && !darwin
 
-package devmdm
+package devicepolicy
 
 // ProbeManagedPolicy: no known VS Code policy location on this OS. The
 // platform also has no settings writer (settingsPath returns ok=false), so

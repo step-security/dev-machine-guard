@@ -1,6 +1,6 @@
 //go:build darwin
 
-package devmdm
+package devicepolicy
 
 import "path/filepath"
 

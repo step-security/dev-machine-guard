@@ -1,6 +1,6 @@
 //go:build windows
 
-package devmdm
+package devicepolicy
 
 import (
 	"strings"
@@ -12,7 +12,7 @@ import (
 // testPolicyKeyPath is a disposable key under HKCU (no elevation needed) used
 // to exercise the same probe logic ProbeManagedPolicy runs against the real
 // HKLM/HKCU policy paths.
-const testPolicyKeyPath = `SOFTWARE\StepSecurityTest\DevMDMProbe`
+const testPolicyKeyPath = `SOFTWARE\StepSecurityTest\DevicePolicyProbe`
 
 func hkcuProbe(name, path string) registryProbe {
 	return registryProbe{root: registry.CURRENT_USER, name: name, path: path}

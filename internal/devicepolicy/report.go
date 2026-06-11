@@ -1,4 +1,4 @@
-package devmdm
+package devicepolicy
 
 import (
 	"bytes"
@@ -67,13 +67,13 @@ func NewHTTPReporter(cfg ingest.Config, h *http.Client) (*HTTPReporter, bool) {
 // pending. A non-2xx is returned as an error for the caller to log.
 func (c *HTTPReporter) Report(ctx context.Context, customerID, deviceID string, r ComplianceReport) error {
 	if c == nil {
-		return errors.New("devmdm: nil reporter")
+		return errors.New("devicepolicy: nil reporter")
 	}
 	if strings.TrimSpace(customerID) == "" {
-		return errors.New("devmdm: empty customer_id")
+		return errors.New("devicepolicy: empty customer_id")
 	}
 	if strings.TrimSpace(deviceID) == "" {
-		return errors.New("devmdm: empty device_id")
+		return errors.New("devicepolicy: empty device_id")
 	}
 	if r.Category == "" {
 		r.Category = CategoryIDEExtension
@@ -81,7 +81,7 @@ func (c *HTTPReporter) Report(ctx context.Context, customerID, deviceID string, 
 
 	body, err := json.Marshal(r)
 	if err != nil {
-		return fmt.Errorf("devmdm: marshal report: %w", err)
+		return fmt.Errorf("devicepolicy: marshal report: %w", err)
 	}
 
 	endpoint := c.endpoint +
@@ -91,7 +91,7 @@ func (c *HTTPReporter) Report(ctx context.Context, customerID, deviceID string, 
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("devmdm: build request: %w", err)
+		return fmt.Errorf("devicepolicy: build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -100,13 +100,13 @@ func (c *HTTPReporter) Report(ctx context.Context, customerID, deviceID string, 
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("devmdm: transport: %s", redact.String(err.Error()))
+		return fmt.Errorf("devicepolicy: transport: %s", redact.String(err.Error()))
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
-		return fmt.Errorf("devmdm: unexpected status %d: %s",
+		return fmt.Errorf("devicepolicy: unexpected status %d: %s",
 			resp.StatusCode, redact.String(strings.TrimSpace(string(snippet))))
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxBodyBytes))

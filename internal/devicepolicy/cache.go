@@ -1,4 +1,4 @@
-package devmdm
+package devicepolicy
 
 import (
 	"encoding/json"
@@ -10,7 +10,7 @@ import (
 // CacheFilename is the basename of the enforcement state file. It lives under
 // ~/.stepsecurity/ alongside config.json and hooks-state.json, and is distinct
 // from the AI-agent hook cache (this is a separate subsystem — no shared state).
-const CacheFilename = "developer-mdm-policy-state.json"
+const CacheFilename = "device-policy-state.json"
 
 // CacheSchemaVersion is the on-disk version of the state file. Bump only on a
 // breaking shape change.
@@ -143,4 +143,4 @@ type cacheError string
 
 func (e cacheError) Error() string { return string(e) }
 
-const errNoHomeDir = cacheError("devmdm: cannot resolve home directory")
+const errNoHomeDir = cacheError("devicepolicy: cannot resolve home directory")

@@ -1,4 +1,4 @@
-package devmdm
+package devicepolicy
 
 import (
 	"context"
@@ -89,18 +89,18 @@ func (r *Reconciler) probe() (bool, string) {
 //     verify + report (handleEnforce).
 func (r *Reconciler) Reconcile(ctx context.Context) error {
 	if r.Fetcher == nil {
-		return errors.New("devmdm: nil fetcher")
+		return errors.New("devicepolicy: nil fetcher")
 	}
 	cat := r.category()
 
 	ep, err := r.Fetcher.Fetch(ctx, r.CustomerID, r.DeviceID, cat)
 	if err != nil {
 		// Malformed/transient: do nothing. The on-disk policy (if any) stands.
-		return fmt.Errorf("devmdm: fetch: %w", err)
+		return fmt.Errorf("devicepolicy: fetch: %w", err)
 	}
 
 	if r.Writer == nil {
-		r.logf("devmdm: no settings path on this platform; skipping (category=%s)", cat)
+		r.logf("devicepolicy: no settings path on this platform; skipping (category=%s)", cat)
 		return nil
 	}
 
@@ -119,25 +119,25 @@ func (r *Reconciler) handleClear(cat string) error {
 	prev, _ := ReadAppliedState()
 	onDisk, present, err := r.Writer.Read()
 	if err != nil {
-		return fmt.Errorf("devmdm: clear: read %s: %w", r.Writer.Location(), err)
+		return fmt.Errorf("devicepolicy: clear: read %s: %w", r.Writer.Location(), err)
 	}
 
 	owns := present && prev.WrittenValue != "" && onDisk == prev.WrittenValue
 	switch {
 	case owns:
 		if err := r.Writer.Clear(); err != nil {
-			return fmt.Errorf("devmdm: clear %s: %w", r.Writer.Location(), err)
+			return fmt.Errorf("devicepolicy: clear %s: %w", r.Writer.Location(), err)
 		}
-		r.logf("devmdm: cleared agent-owned policy at %s", r.Writer.Location())
+		r.logf("devicepolicy: cleared agent-owned policy at %s", r.Writer.Location())
 	case present:
 		// A value the agent did not write — leave it to whoever set it.
-		r.logf("devmdm: clear requested but %s holds a value the agent did not write; leaving it", r.Writer.Location())
+		r.logf("devicepolicy: clear requested but %s holds a value the agent did not write; leaving it", r.Writer.Location())
 	}
 
 	// Drop our ownership record (only when we had one, to stay idempotent).
 	if prev.WrittenValue != "" || prev.AppliedHash != "" {
 		if err := r.persistState(AppliedState{Category: cat, FetchedAt: r.now()}); err != nil {
-			return fmt.Errorf("devmdm: clear: update state: %w", err)
+			return fmt.Errorf("devicepolicy: clear: update state: %w", err)
 		}
 	}
 	return nil
@@ -162,14 +162,14 @@ func (r *Reconciler) handleEnforce(ctx context.Context, cat string, ep Effective
 	if err != nil {
 		// Defensive: the fetcher already validated object shape, so this is a
 		// malformed-payload class failure → no-op, never write.
-		return fmt.Errorf("devmdm: enforce: compact policy: %w", err)
+		return fmt.Errorf("devicepolicy: enforce: compact policy: %w", err)
 	}
 
 	// 1. Managed-policy probe. A policy at the OS policy location outranks
 	// user settings inside VS Code — writing would be ineffective at best and
 	// fight the MDM at worst. Yield and report.
 	if managed, detail := r.probe(); managed {
-		r.logf("devmdm: managed policy present at %s → mdm_managed (yielding)", detail)
+		r.logf("devicepolicy: managed policy present at %s → mdm_managed (yielding)", detail)
 		return r.report(ctx, cat, StateMDMManaged, "")
 	}
 
@@ -181,13 +181,13 @@ func (r *Reconciler) handleEnforce(ctx context.Context, cat string, ep Effective
 		// This includes an unsalvageable settings.json (not valid JSONC), which
 		// the writer refuses to touch.
 		_ = r.report(ctx, cat, StateVerificationFailed, "")
-		return fmt.Errorf("devmdm: enforce: read %s: %w", r.Writer.Location(), err)
+		return fmt.Errorf("devicepolicy: enforce: read %s: %w", r.Writer.Location(), err)
 	}
 
 	// 3. Idempotency: the desired policy is already in place and unchanged.
 	// No write — but still report so the backend sees a fresh evaluation.
 	if present && onDisk == newValue && prev.AppliedHash == ep.Hash {
-		r.logf("devmdm: policy already applied (hash unchanged) — no write")
+		r.logf("devicepolicy: policy already applied (hash unchanged) — no write")
 		return r.report(ctx, cat, StateCompliant, ep.Hash)
 	}
 
@@ -197,7 +197,7 @@ func (r *Reconciler) handleEnforce(ctx context.Context, cat string, ep Effective
 	// backend surface that it happened.
 	drifted := hadPrev && prev.WrittenValue != "" && (!present || onDisk != prev.WrittenValue)
 	if drifted {
-		r.logf("devmdm: %s diverged from the recorded written value → re-applying (drift)", r.Writer.Location())
+		r.logf("devicepolicy: %s diverged from the recorded written value → re-applying (drift)", r.Writer.Location())
 	}
 
 	// 5. Preflight: prove the ownership store is writable BEFORE mutating the
@@ -210,14 +210,14 @@ func (r *Reconciler) handleEnforce(ctx context.Context, cat string, ep Effective
 	}
 	if perr := r.persistState(probe); perr != nil {
 		_ = r.report(ctx, cat, StateWriteFailed, "")
-		return fmt.Errorf("devmdm: enforce: ownership state not writable, refusing to write policy: %w", perr)
+		return fmt.Errorf("devicepolicy: enforce: ownership state not writable, refusing to write policy: %w", perr)
 	}
 
 	// 6. Merge-write + readback.
 	rb, werr := r.Writer.Write(newValue)
 	if werr != nil {
 		_ = r.report(ctx, cat, StateWriteFailed, "")
-		return fmt.Errorf("devmdm: enforce: write %s: %w", r.Writer.Location(), werr)
+		return fmt.Errorf("devicepolicy: enforce: write %s: %w", r.Writer.Location(), werr)
 	}
 	readbackMatch := rb == newValue
 
@@ -237,9 +237,9 @@ func (r *Reconciler) handleEnforce(ctx context.Context, cat string, ep Effective
 		// no unrecorded value is left behind, and report a failed write.
 		r.rollbackWrite(onDisk, present)
 		_ = r.report(ctx, cat, StateWriteFailed, "")
-		return fmt.Errorf("devmdm: enforce: update state: %w", err)
+		return fmt.Errorf("devicepolicy: enforce: update state: %w", err)
 	}
-	r.logf("devmdm: wrote policy to %s (readback_match=%v)", r.Writer.Location(), readbackMatch)
+	r.logf("devicepolicy: wrote policy to %s (readback_match=%v)", r.Writer.Location(), readbackMatch)
 
 	state := Verify(VerifyInput{WriteOK: true, ReadbackMatch: readbackMatch})
 	if drifted && state == StateCompliant {
@@ -272,12 +272,12 @@ func (r *Reconciler) rollbackWrite(prevOnDisk string, prevPresent bool) {
 		err = r.Writer.Clear()
 	}
 	if err != nil {
-		r.logf("devmdm: rollback at %s failed: %v", r.Writer.Location(), err)
+		r.logf("devicepolicy: rollback at %s failed: %v", r.Writer.Location(), err)
 	}
 }
 
 func (r *Reconciler) report(ctx context.Context, cat, state, appliedHash string) error {
-	r.logf("devmdm: reporting state=%s category=%s", state, cat)
+	r.logf("devicepolicy: reporting state=%s category=%s", state, cat)
 	if r.Reporter == nil {
 		return nil
 	}
@@ -289,7 +289,7 @@ func (r *Reconciler) report(ctx context.Context, cat, state, appliedHash string)
 		Platform:     r.Platform,
 	}
 	if err := r.Reporter.Report(ctx, r.CustomerID, r.DeviceID, rep); err != nil {
-		return fmt.Errorf("devmdm: report %s: %w", state, err)
+		return fmt.Errorf("devicepolicy: report %s: %w", state, err)
 	}
 	return nil
 }

@@ -19,7 +19,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
 	"github.com/step-security/dev-machine-guard/internal/device"
-	"github.com/step-security/dev-machine-guard/internal/devmdm"
+	"github.com/step-security/dev-machine-guard/internal/devicepolicy"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/featuregate"
 	"github.com/step-security/dev-machine-guard/internal/launchd"
@@ -642,11 +642,11 @@ func runHookStateReconcile(exec executor.Executor, log *progress.Logger) {
 	}
 }
 
-// devMDMEnforceTimeout caps the entire IDE-extension enforcement step (fetch +
+// devicePolicyEnforceTimeout caps the entire IDE-extension enforcement step (fetch +
 // managed-policy probe + settings.json write/readback + compliance report).
-// The two network calls are each bounded by devmdm.DefaultHTTPTimeout; the
+// The two network calls are each bounded by devicepolicy.DefaultHTTPTimeout; the
 // rest is local file/registry I/O.
-const devMDMEnforceTimeout = 30 * time.Second
+const devicePolicyEnforceTimeout = 30 * time.Second
 
 // runIDEExtensionEnforce fetches the device's effective IDE-extension policy
 // and converges the user-scope VS Code settings.json (extensions.allowed) to
@@ -662,7 +662,7 @@ func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
 		log.Debug("ide-extension enforce: skipped (feature gated)")
 		return
 	}
-	writer, ok := devmdm.NewWriter()
+	writer, ok := devicepolicy.NewWriter()
 	if !ok {
 		log.Debug("ide-extension enforce: skipped (no settings path on this platform)")
 		return
@@ -672,18 +672,18 @@ func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
 		log.Debug("ide-extension enforce: skipped (no enterprise config)")
 		return
 	}
-	fetcher, ok := devmdm.NewHTTPFetcher(cfg, nil)
+	fetcher, ok := devicepolicy.NewHTTPFetcher(cfg, nil)
 	if !ok {
 		log.Debug("ide-extension enforce: skipped (fetcher init refused config)")
 		return
 	}
-	reporter, ok := devmdm.NewHTTPReporter(cfg, nil)
+	reporter, ok := devicepolicy.NewHTTPReporter(cfg, nil)
 	if !ok {
 		log.Debug("ide-extension enforce: skipped (reporter init refused config)")
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), devMDMEnforceTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), devicePolicyEnforceTimeout)
 	defer cancel()
 
 	dev := device.Gather(ctx, exec)
@@ -692,18 +692,18 @@ func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
 		return
 	}
 
-	r := &devmdm.Reconciler{
+	r := &devicepolicy.Reconciler{
 		Fetcher:    fetcher,
 		Reporter:   reporter,
 		Writer:     writer,
 		CustomerID: cfg.CustomerID,
 		DeviceID:   dev.SerialNumber,
 		Platform:   dev.Platform,
-		// Probe defaults to devmdm.ProbeManagedPolicy (per-OS) when nil.
+		// Probe defaults to devicepolicy.ProbeManagedPolicy (per-OS) when nil.
 		Logf: func(format string, args ...any) { log.Debug(format, args...) },
 	}
 	if err := r.Reconcile(ctx); err != nil {
 		log.Warn("ide-extension enforce: %v", err)
-		aiagentscli.AppendError("devmdm", "enforce_failed", err.Error(), "")
+		aiagentscli.AppendError("devicepolicy", "enforce_failed", err.Error(), "")
 	}
 }

@@ -1,6 +1,6 @@
 //go:build linux
 
-package devmdm
+package devicepolicy
 
 // linuxPolicyFilePath is VS Code's managed-policy file on Linux, read by its
 // FilePolicyService. World-readable when an MDM/admin creates it, so the probe

@@ -1,4 +1,4 @@
-package devmdm
+package devicepolicy
 
 // Compliance states the agent may report. These mirror the agent-reportable
 // subset of agent-api's policies.State* enum byte-for-byte — the backend
