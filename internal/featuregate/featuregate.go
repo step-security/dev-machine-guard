@@ -17,18 +17,24 @@ import (
 type Feature string
 
 const (
-	FeatureAIAgentHooks   Feature = "ai-agent-hooks"
-	FeatureNPMRCAudit     Feature = "npmrc-audit"
-	FeaturePipConfigAudit Feature = "pipconfig-audit"
-	FeatureDevMDMPolicies Feature = "developer-mdm-policies"
+	FeatureAIAgentHooks    Feature = "ai-agent-hooks"
+	FeatureNPMRCAudit      Feature = "npmrc-audit"
+	FeaturePipConfigAudit  Feature = "pipconfig-audit"
+	FeaturePnpmConfigAudit Feature = "pnpm-config-audit"
+	FeatureBunConfigAudit  Feature = "bun-config-audit"
+	FeatureYarnConfigAudit Feature = "yarn-config-audit"
+	FeatureDevMDMPolicies  Feature = "developer-mdm-policies"
 )
 
 // enabled lists features safe to ship today. Uncomment a line once its
 // backend support has merged.
 var enabled = map[Feature]bool{
-	// FeatureAIAgentHooks:   true,
-	FeatureNPMRCAudit:     true,
-	FeaturePipConfigAudit: true,
+	// FeatureAIAgentHooks:    true,
+	FeatureNPMRCAudit:      true,
+	FeaturePipConfigAudit:  true,
+	FeaturePnpmConfigAudit: true,
+	FeatureBunConfigAudit:  true,
+	FeatureYarnConfigAudit: true,
 	// FeatureDevMDMPolicies stays gated until GA: the backend's
 	// MinEnforcementAgentVersion is still a placeholder (1.13.0) and the agent
 	// version floor has not been finalized. Enable via --override-gate /

@@ -28,6 +28,9 @@ type ScanResult struct {
 	FlatpakPackages   []SystemPackage `json:"flatpak_packages"`
 	NPMRCAudit        *NPMRCAudit     `json:"npmrc_audit,omitempty"`
 	PipAudit          *PipAudit       `json:"pip_audit,omitempty"`
+	PnpmAudit         *PnpmAudit      `json:"pnpm_audit,omitempty"`
+	BunAudit          *BunAudit       `json:"bun_audit,omitempty"`
+	YarnAudit         *YarnAudit      `json:"yarn_audit,omitempty"`
 	Summary           Summary         `json:"summary"`
 }
 
@@ -323,6 +326,119 @@ type NPMRCEnvVar struct {
 	ValueSHA256  string `json:"value_sha256,omitempty"`
 }
 
+// PnpmAudit reuses NPMRCFile/NPMRCEnvVar — pnpm reads the same .npmrc syntax
+// as npm. Only the effective view and env list diverge.
+type PnpmAudit struct {
+	Available      bool           `json:"pnpm_available"`
+	PnpmVersion    string         `json:"pnpm_version,omitempty"`
+	PnpmPath       string         `json:"pnpm_path,omitempty"`
+	Files          []NPMRCFile    `json:"files"`
+	Effective      *PnpmEffective `json:"effective,omitempty"`
+	Env            []NPMRCEnvVar  `json:"env"`
+	DiscoveryError string         `json:"discovery_error,omitempty"`
+}
+
+// PnpmEffective mirrors `pnpm config list --json`. SourceByKey is kept on
+// the struct for renderer parity with npm but is typically empty — pnpm
+// doesn't emit per-key source attribution.
+type PnpmEffective struct {
+	SourceByKey map[string]string `json:"source_by_key,omitempty"`
+	Config      map[string]any    `json:"config,omitempty"`
+	Error       string            `json:"error,omitempty"`
+}
+
+// BunAudit has no Effective field — bun has no `config list` equivalent.
+// Consumers render the union of parsed files. NPMRCFiles carries any .npmrc
+// bun would read for auth.
+type BunAudit struct {
+	Available      bool            `json:"bun_available"`
+	BunVersion     string          `json:"bun_version,omitempty"`
+	BunPath        string          `json:"bun_path,omitempty"`
+	Files          []BunConfigFile `json:"files"`
+	NPMRCFiles     []NPMRCFile     `json:"npmrc_files"`
+	Env            []NPMRCEnvVar   `json:"env"`
+	DiscoveryError string          `json:"discovery_error,omitempty"`
+}
+
+// BunConfigFile is a single bunfig.toml. Scope: user | user-xdg | project.
+type BunConfigFile struct {
+	Path        string       `json:"path"`
+	Scope       string       `json:"scope"`
+	Exists      bool         `json:"exists"`
+	Readable    bool         `json:"readable"`
+	SizeBytes   int64        `json:"size_bytes,omitempty"`
+	ModTimeUnix int64        `json:"mtime_unix,omitempty"`
+	Mode        string       `json:"mode,omitempty"`
+	OwnerUID    int          `json:"owner_uid,omitempty"`
+	OwnerName   string       `json:"owner_name,omitempty"`
+	GroupGID    int          `json:"group_gid,omitempty"`
+	GroupName   string       `json:"group_name,omitempty"`
+	SHA256      string       `json:"sha256,omitempty"`
+	SymlinkTo   string       `json:"symlink_target,omitempty"`
+	InGitRepo   bool         `json:"in_git_repo,omitempty"`
+	GitTracked  bool         `json:"git_tracked,omitempty"`
+	Sections    []BunSection `json:"sections,omitempty"`
+	ParseError  string       `json:"parse_error,omitempty"`
+}
+
+// BunSection groups NPMRCEntry by dotted section path (e.g. "install",
+// "install.scopes.@step-security"). Entry LineNum is always 0 — go-toml/v2
+// doesn't cheaply expose per-key positions.
+type BunSection struct {
+	Name    string       `json:"name"`
+	Entries []NPMRCEntry `json:"entries"`
+}
+
+// YarnAudit covers both classic (v1.x, .yarnrc) and berry (v2+, .yarnrc.yml).
+// Top-level Flavor reflects the binary's major; per-file Flavor reflects the
+// file's own syntax — the renderer flags mismatches.
+type YarnAudit struct {
+	Available      bool             `json:"yarn_available"`
+	YarnVersion    string           `json:"yarn_version,omitempty"`
+	YarnPath       string           `json:"yarn_path,omitempty"`
+	Flavor         string           `json:"flavor,omitempty"` // "classic" | "berry" | "unknown"
+	Files          []YarnConfigFile `json:"files"`
+	NPMRCFiles     []NPMRCFile      `json:"npmrc_files"` // auth side-channel
+	Env            []NPMRCEnvVar    `json:"env"`
+	DiscoveryError string           `json:"discovery_error,omitempty"`
+}
+
+// YarnConfigFile is a discovered .yarnrc (classic) or .yarnrc.yml (berry).
+type YarnConfigFile struct {
+	Path        string      `json:"path"`
+	Scope       string      `json:"scope"`  // "user" | "project"
+	Flavor      string      `json:"flavor"` // "classic" | "berry"
+	Exists      bool        `json:"exists"`
+	Readable    bool        `json:"readable"`
+	SizeBytes   int64       `json:"size_bytes,omitempty"`
+	ModTimeUnix int64       `json:"mtime_unix,omitempty"`
+	Mode        string      `json:"mode,omitempty"`
+	OwnerUID    int         `json:"owner_uid,omitempty"`
+	OwnerName   string      `json:"owner_name,omitempty"`
+	GroupGID    int         `json:"group_gid,omitempty"`
+	GroupName   string      `json:"group_name,omitempty"`
+	SHA256      string      `json:"sha256,omitempty"`
+	SymlinkTo   string      `json:"symlink_target,omitempty"`
+	InGitRepo   bool        `json:"in_git_repo,omitempty"`
+	GitTracked  bool        `json:"git_tracked,omitempty"`
+	Entries     []YarnEntry `json:"entries,omitempty"`
+	ParseError  string      `json:"parse_error,omitempty"`
+}
+
+// YarnEntry is a parsed key/value from either flavor. Berry nested maps
+// flatten to dotted keys (e.g. `npmScopes.@step-security.npmAuthToken`) so
+// the same slice carries both flavors.
+type YarnEntry struct {
+	Key          string   `json:"key"`
+	DisplayValue string   `json:"display_value"`
+	LineNum      int      `json:"line_num,omitempty"`
+	IsAuth       bool     `json:"is_auth,omitempty"`
+	IsEnvRef     bool     `json:"is_env_ref,omitempty"`
+	EnvRefVars   []string `json:"env_ref_vars,omitempty"`
+	ValueSHA256  string   `json:"value_sha256,omitempty"`
+	Quoted       bool     `json:"quoted,omitempty"`
+}
+
 // --- pip configuration audit -------------------------------------------------
 //
 // Mirrors NPMRCAudit but reflects pip-specific realities: real INI
@@ -427,4 +543,81 @@ type PipNetrcStatus struct {
 	Path   string `json:"path"`
 	Exists bool   `json:"exists"`
 	Mode   string `json:"mode,omitempty"` // empty on Windows
+}
+
+// --- Malicious-file detection (rule_scan) ---
+//
+// These types are the agent → backend wire contract for the malicious-file
+// detection engine (internal/detector/rules). They are emitted on the
+// telemetry Payload as the additive `rule_scan` field. The agent never sends
+// file content: a finding is a path, a whole-file hash, per-condition
+// booleans, and file metadata.
+
+// RuleScan is the top-level result of one malicious-file scan. It carries the
+// scan-level completeness flag, every rule the engine evaluated (even those
+// with zero matches), and the per-rule match results. ScanComplete is false
+// when a global file/time budget cut the walk short, which suppresses backend
+// auto-resolution for the whole run.
+type RuleScan struct {
+	ScanComplete   bool            `json:"scan_complete"`
+	EvaluatedRules []EvaluatedRule `json:"evaluated_rules"`
+	Results        []RuleResult    `json:"results"`
+}
+
+// EvaluatedRule records one rule the engine ran this scan, including rules
+// that matched nothing. Complete is false if the rule hit its per-rule match
+// cap (matches_truncated) or wasn't fully walked. RuleRevision is the opaque
+// revision echoed back for backend audit/drift detection.
+type EvaluatedRule struct {
+	RuleID       string `json:"rule_id"`
+	RuleRevision string `json:"rule_revision,omitempty"`
+	Complete     bool   `json:"complete"`
+}
+
+// RuleResult is one rule that matched at least one file. MatchesTruncated is
+// true when more than the per-rule cap (200) of files matched; the Files
+// slice is capped and the corresponding EvaluatedRule.Complete is false.
+type RuleResult struct {
+	RuleID           string          `json:"rule_id"`
+	RuleRevision     string          `json:"rule_revision,omitempty"`
+	MatchesTruncated bool            `json:"matches_truncated,omitempty"`
+	Files            []RuleFileMatch `json:"files"`
+}
+
+// RuleFileMatch is one candidate file reported for a rule. SizeExceeded is set
+// when the file was larger than the rule's size guard: it is reported but not
+// read, so FileSHA256 and Groups are empty. FileAttrs (Stat-only metadata) is
+// always present.
+type RuleFileMatch struct {
+	Path         string        `json:"path"`
+	MatchedGlob  string        `json:"matched_glob"`
+	FileSHA256   string        `json:"file_sha256,omitempty"`
+	SizeExceeded bool          `json:"size_exceeded,omitempty"`
+	Groups       []GroupResult `json:"groups,omitempty"`
+	FileAttrs    FileAttrs     `json:"file_attrs"`
+}
+
+// GroupResult reports one condition group. FullMatch is true when every
+// condition in the group matched (after applying negation).
+type GroupResult struct {
+	GroupID    string            `json:"group_id"`
+	FullMatch  bool              `json:"full_match"`
+	Conditions []ConditionResult `json:"conditions"`
+}
+
+// ConditionResult reports the boolean outcome of one condition. No matched
+// text is ever captured — only whether the condition matched.
+type ConditionResult struct {
+	ID      string `json:"id"`
+	Kind    string `json:"kind"` // "regex" | "sha256"
+	Matched bool   `json:"matched"`
+}
+
+// FileAttrs is file metadata only, never content. Times are unix seconds UTC,
+// 0 when unavailable on the platform.
+type FileAttrs struct {
+	SizeBytes  int64 `json:"size_bytes"`
+	ModifiedAt int64 `json:"modified_at"` // mtime
+	CreatedAt  int64 `json:"created_at"`  // birth time (best-effort)
+	ChangedAt  int64 `json:"changed_at"`  // ctime
 }

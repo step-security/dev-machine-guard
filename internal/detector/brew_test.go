@@ -2,9 +2,11 @@ package detector
 
 import (
 	"context"
+	"encoding/base64"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
@@ -76,56 +78,61 @@ func TestBrewDetector_ListCasks(t *testing.T) {
 	}
 }
 
-func TestBrewScanner_Formulae(t *testing.T) {
-	mock := executor.NewMock()
-	mock.SetPath("brew", "/opt/homebrew/bin/brew")
-	mock.SetCommand("curl 8.4.0\ngit 2.43.0\n", "", 0, "brew", "list", "--formula", "--versions")
-
-	log := newTestLogger()
-	scanner := NewBrewScanner(mock, log)
-	result, ok := scanner.ScanFormulae(context.Background())
-
-	if !ok {
-		t.Fatal("expected scan to succeed")
+func TestBrewScanner_FormulaeResult(t *testing.T) {
+	scanner := NewBrewScanner(executor.NewMock(), newTestLogger())
+	pkgs := []model.BrewPackage{
+		{Name: "curl", Version: "8.4.0"},
+		{Name: "git", Version: "2.43.0"},
 	}
+	result := scanner.FormulaeResult(pkgs)
+
 	if result.ScanType != "formulae" {
 		t.Errorf("expected scan type formulae, got %s", result.ScanType)
-	}
-	if result.RawStdoutBase64 == "" {
-		t.Error("expected non-empty base64 stdout")
 	}
 	if result.ExitCode != 0 {
 		t.Errorf("expected exit code 0, got %d", result.ExitCode)
 	}
+	if result.LineCount != 2 {
+		t.Errorf("expected line count 2, got %d", result.LineCount)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(result.RawStdoutBase64)
+	if err != nil {
+		t.Fatalf("base64 decode failed: %v", err)
+	}
+	want := "curl 8.4.0\ngit 2.43.0\n"
+	if string(decoded) != want {
+		t.Errorf("stdout mismatch: got %q, want %q", string(decoded), want)
+	}
 }
 
-func TestBrewScanner_Casks(t *testing.T) {
-	mock := executor.NewMock()
-	mock.SetPath("brew", "/opt/homebrew/bin/brew")
-	mock.SetCommand("firefox 120.0\ngoogle-chrome 120.0.6099.109\n", "", 0, "brew", "list", "--cask", "--versions")
-
-	log := newTestLogger()
-	scanner := NewBrewScanner(mock, log)
-	result, ok := scanner.ScanCasks(context.Background())
-
-	if !ok {
-		t.Fatal("expected scan to succeed")
+func TestBrewScanner_CasksResult(t *testing.T) {
+	scanner := NewBrewScanner(executor.NewMock(), newTestLogger())
+	pkgs := []model.BrewPackage{
+		{Name: "firefox", Version: "120.0"},
+		{Name: "google-chrome", Version: "120.0.6099.109"},
 	}
+	result := scanner.CasksResult(pkgs)
+
 	if result.ScanType != "casks" {
 		t.Errorf("expected scan type casks, got %s", result.ScanType)
+	}
+	if result.LineCount != 2 {
+		t.Errorf("expected line count 2, got %d", result.LineCount)
 	}
 	if result.RawStdoutBase64 == "" {
 		t.Error("expected non-empty base64 stdout")
 	}
 }
 
-func TestBrewScanner_NotInstalled(t *testing.T) {
-	mock := executor.NewMock()
-	log := newTestLogger()
-	scanner := NewBrewScanner(mock, log)
+func TestBrewScanner_EmptyInput(t *testing.T) {
+	scanner := NewBrewScanner(executor.NewMock(), newTestLogger())
+	result := scanner.FormulaeResult(nil)
 
-	_, ok := scanner.ScanFormulae(context.Background())
-	if ok {
-		t.Error("expected scan to fail when brew is not installed")
+	if result.LineCount != 0 {
+		t.Errorf("expected line count 0, got %d", result.LineCount)
+	}
+	decoded, _ := base64.StdEncoding.DecodeString(result.RawStdoutBase64)
+	if len(decoded) != 0 {
+		t.Errorf("expected empty stdout, got %q", string(decoded))
 	}
 }

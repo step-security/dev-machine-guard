@@ -39,6 +39,9 @@ type Config struct {
 	IncludeTCCProtected *bool
 	NPMRCOnly           bool     // --npmrc: run only the npmrc audit and render verbose pretty output
 	PipConfigOnly       bool     // --pipconfig: run only the pip config audit and render verbose pretty output
+	PnpmRCOnly          bool     // --pnpmrc: run only the pnpm config audit and render verbose pretty output
+	BunfigOnly          bool     // --bunfig: run only the bun config audit and render verbose pretty output
+	YarnRCOnly          bool     // --yarnrc: run only the yarn config audit (both flavors) and render verbose pretty output
 	SearchDirs          []string // defaults to ["$HOME"]
 
 	// HooksAgent is the --agent value on `hooks install` / `hooks uninstall`;
@@ -70,11 +73,39 @@ type Config struct {
 	// Internal — not advertised in --help. Equivalent env var:
 	// STEPSECURITY_OVERRIDE_GATE=1.
 	OverrideGate bool
+
+	// RulesFile makes the malicious-file detection engine load its RuleSet
+	// from a local JSON file instead of fetching it from the backend.
+	// Dev-only — not advertised in --help. Equivalent env var:
+	// STEPSECURITY_RULES_FILE=PATH. Lets the engine be exercised offline
+	// (rules live only in the backend, so an offline run would otherwise scan
+	// nothing). Zero production impact when unset.
+	RulesFile string
+
+	// TelemetryOutFile makes an enterprise run write the assembled telemetry
+	// Payload to a local JSON file and skip the S3 upload + run-status notify.
+	// Dev-only — not advertised in --help. Equivalent env var:
+	// STEPSECURITY_TELEMETRY_OUT=PATH. The dumped file is exactly what the
+	// backend's process-uploaded sees after gunzip, so it doubles as a backend
+	// ingestion fixture. Zero production impact when unset.
+	TelemetryOutFile string
 }
 
 // supportedHookAgents lists the agent names accepted by `hooks --agent <name>` and `_hook <agent> ...`.
 // Supported agents: claude-code and codex; the list grows as adapters are added.
 var supportedHookAgents = []string{"claude-code", "codex"}
+
+// boolCount returns how many of the booleans are true. Used to keep the
+// "*-only" mutual-exclusion checks readable when the set grows past two.
+func boolCount(bs ...bool) int {
+	n := 0
+	for _, b := range bs {
+		if b {
+			n++
+		}
+	}
+	return n
+}
 
 func isSupportedHookAgent(name string) bool {
 	return slices.Contains(supportedHookAgents, name)
@@ -163,6 +194,12 @@ func Parse(args []string) (*Config, error) {
 			cfg.NPMRCOnly = true
 		case arg == "--pipconfig":
 			cfg.PipConfigOnly = true
+		case arg == "--pnpmrc":
+			cfg.PnpmRCOnly = true
+		case arg == "--bunfig":
+			cfg.BunfigOnly = true
+		case arg == "--yarnrc":
+			cfg.YarnRCOnly = true
 		case strings.HasPrefix(arg, "--color="):
 			mode := strings.TrimPrefix(arg, "--color=")
 			if mode != "auto" && mode != "always" && mode != "never" {
@@ -232,6 +269,22 @@ func Parse(args []string) (*Config, error) {
 			cfg.Verbose = true
 		case arg == "--override-gate":
 			cfg.OverrideGate = true
+		case strings.HasPrefix(arg, "--rules-file="):
+			cfg.RulesFile = strings.TrimPrefix(arg, "--rules-file=")
+		case arg == "--rules-file":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--rules-file requires a file path argument")
+			}
+			cfg.RulesFile = args[i]
+		case strings.HasPrefix(arg, "--telemetry-out="):
+			cfg.TelemetryOutFile = strings.TrimPrefix(arg, "--telemetry-out=")
+		case arg == "--telemetry-out":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--telemetry-out requires a file path argument")
+			}
+			cfg.TelemetryOutFile = args[i]
 		case strings.HasPrefix(arg, "--log-level="):
 			level := strings.ToLower(strings.TrimPrefix(arg, "--log-level="))
 			switch level {
@@ -265,8 +318,18 @@ func Parse(args []string) (*Config, error) {
 		i++
 	}
 
-	if cfg.NPMRCOnly && cfg.PipConfigOnly {
-		return nil, fmt.Errorf("--npmrc and --pipconfig are mutually exclusive; pick one")
+	if onlyCount := boolCount(cfg.NPMRCOnly, cfg.PipConfigOnly, cfg.PnpmRCOnly, cfg.BunfigOnly, cfg.YarnRCOnly); onlyCount > 1 {
+		return nil, fmt.Errorf("--npmrc, --pipconfig, --pnpmrc, --bunfig, and --yarnrc are mutually exclusive; pick one")
+	}
+
+	// Env-var equivalents for the dev-only flags, so an installed
+	// launchd/systemd unit need not change to exercise the offline harness.
+	// An explicit flag wins over the env var.
+	if cfg.RulesFile == "" {
+		cfg.RulesFile = os.Getenv("STEPSECURITY_RULES_FILE")
+	}
+	if cfg.TelemetryOutFile == "" {
+		cfg.TelemetryOutFile = os.Getenv("STEPSECURITY_TELEMETRY_OUT")
 	}
 
 	// --install-dir= (explicit empty) disables file logging by routing
@@ -426,6 +489,9 @@ Options:
                                 include_tcc_protected: true.
   --npmrc                       Run ONLY the npm config audit (verbose pretty view; --json supported)
   --pipconfig                   Run ONLY the pip config audit (verbose pretty view; --json supported)
+  --pnpmrc                      Run ONLY the pnpm config audit (verbose pretty view; --json supported)
+  --bunfig                      Run ONLY the bun config audit (verbose pretty view; --json supported)
+  --yarnrc                      Run ONLY the yarn config audit covering both v1 (.yarnrc) and v2+ (.yarnrc.yml) (verbose pretty view; --json supported)
   --log-level=LEVEL      Log level: error | warn | info | debug (default: info)
   --install-dir=DIR      Base directory the agent puts ALL its files under
                          (logs, hook errors, binary placement via loader).
