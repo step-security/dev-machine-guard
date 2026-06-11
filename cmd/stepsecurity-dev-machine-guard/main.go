@@ -17,7 +17,6 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
 	"github.com/step-security/dev-machine-guard/internal/cli"
 	"github.com/step-security/dev-machine-guard/internal/config"
-	"github.com/step-security/dev-machine-guard/internal/detector"
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/devmdm"
@@ -548,18 +547,20 @@ func runHookStateReconcile(exec executor.Executor, log *progress.Logger) {
 }
 
 // devMDMEnforceTimeout caps the entire IDE-extension enforcement step (fetch +
-// VS Code detection + native-policy write/readback + compliance report).
-// Generous because VS Code detection may exec the editor binary; the two
-// network calls are each bounded by devmdm.DefaultHTTPTimeout.
+// managed-policy probe + settings.json write/readback + compliance report).
+// The two network calls are each bounded by devmdm.DefaultHTTPTimeout; the
+// rest is local file/registry I/O.
 const devMDMEnforceTimeout = 30 * time.Second
 
-// runIDEExtensionEnforce fetches the device's effective IDE-extension policy and
-// converges the OS-native VS Code managed policy to match (Windows registry /
-// Linux policy.json), then reports compliance — all on the existing scheduled
-// cycle and the existing agent auth channel. Gated behind FeatureDevMDMPolicies
-// and a silent no-op in community mode (enterprise config missing). macOS and
-// other platforms have no writer and no-op here (enforced via MDM export).
-// Failures are logged but never crash main.
+// runIDEExtensionEnforce fetches the device's effective IDE-extension policy
+// and converges the user-scope VS Code settings.json (extensions.allowed) to
+// match, then reports compliance — all on the existing scheduled cycle and the
+// existing agent auth channel. Windows, macOS, and Linux are all enforced this
+// way; a device whose VS Code is already governed by a real MDM policy
+// (registry / policy.json / managed preferences) is detected by the
+// reconciler's probe and reported mdm_managed instead. Gated behind
+// FeatureDevMDMPolicies and a silent no-op in community mode (enterprise
+// config missing). Failures are logged but never crash main.
 func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
 	if !featuregate.IsEnabled(featuregate.FeatureDevMDMPolicies) {
 		log.Debug("ide-extension enforce: skipped (feature gated)")
@@ -567,7 +568,7 @@ func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
 	}
 	writer, ok := devmdm.NewWriter()
 	if !ok {
-		log.Debug("ide-extension enforce: skipped (platform not agent-enforceable)")
+		log.Debug("ide-extension enforce: skipped (no settings path on this platform)")
 		return
 	}
 	cfg, ok := ingest.Snapshot()
@@ -602,29 +603,11 @@ func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
 		CustomerID: cfg.CustomerID,
 		DeviceID:   dev.SerialNumber,
 		Platform:   dev.Platform,
-		// Lazy detection: the reconciler calls this only on the enforce path (a
-		// non-clear policy), so a clear/unassigned device never pays the cost.
-		VSCodeVersion: func() string { return detectVSCodeVersion(ctx, exec) },
-		Logf:          func(format string, args ...any) { log.Debug(format, args...) },
+		// Probe defaults to devmdm.ProbeManagedPolicy (per-OS) when nil.
+		Logf: func(format string, args ...any) { log.Debug(format, args...) },
 	}
 	if err := r.Reconcile(ctx); err != nil {
 		log.Warn("ide-extension enforce: %v", err)
 		aiagentscli.AppendError("devmdm", "enforce_failed", err.Error(), "")
 	}
-}
-
-// detectVSCodeVersion returns the installed VS Code version, or "" when VS Code
-// is absent or its version can't be resolved (the verifier treats "" as
-// below-floor → vscode_unsupported). It reuses the existing IDE detector and
-// selects VS Code proper (IDEType "vscode").
-func detectVSCodeVersion(ctx context.Context, exec executor.Executor) string {
-	for _, ide := range detector.NewIDEDetector(exec).Detect(ctx) {
-		if ide.IDEType == "vscode" && ide.IsInstalled {
-			if ide.Version == "" || ide.Version == "unknown" {
-				return ""
-			}
-			return ide.Version
-		}
-	}
-	return ""
 }

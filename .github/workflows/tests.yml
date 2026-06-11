@@ -96,12 +96,13 @@ jobs:
           go-version-file: go.mod
       - run: make test
 
-  # The devmdm native-policy writer has Windows-only code (registry writer) and
-  # Windows-tagged tests that the macOS test job can only cross-compile, not
-  # run. This job executes them natively; scoped to the package so the rest of
-  # the suite (which assumes a POSIX host) is untouched.
+  # devmdm has Windows-only code (the registry managed-policy probe) and
+  # Windows-specific behavior (%APPDATA% settings-path resolution) whose tests
+  # the macOS test job can only cross-compile, not run. This job executes the
+  # package natively; scoped to it so the rest of the suite (which assumes a
+  # POSIX host) is untouched.
   test-windows-devmdm:
-    name: Test (windows native-policy writer)
+    name: Test (windows devmdm)
     runs-on: windows-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)

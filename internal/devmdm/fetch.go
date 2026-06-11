@@ -33,22 +33,23 @@ const maxBodyBytes = 256 * 1024
 // re-serializes (re-serialization could reorder keys and break the backend's
 // byte-exact applied==desired check).
 type EffectivePolicy struct {
-	Category         string
-	Clear            bool
-	Policy           json.RawMessage
-	Hash             string
-	MinVSCodeVersion string
-	GeneratedAt      string
+	Category    string
+	Clear       bool
+	Policy      json.RawMessage
+	Hash        string
+	GeneratedAt string
 }
 
-// policyEnvelope is the wire shape (must match agent-api EffectivePolicyResponse).
+// policyEnvelope is the wire shape (must match agent-api
+// EffectivePolicyResponse). Unknown fields are ignored, so a backend still
+// emitting legacy extras (e.g. the removed min_vscode_version) stays
+// compatible.
 type policyEnvelope struct {
-	Category         string          `json:"category"`
-	Clear            bool            `json:"clear"`
-	Policy           json.RawMessage `json:"policy,omitempty"`
-	Hash             string          `json:"hash,omitempty"`
-	MinVSCodeVersion string          `json:"min_vscode_version,omitempty"`
-	GeneratedAt      string          `json:"generated_at"`
+	Category    string          `json:"category"`
+	Clear       bool            `json:"clear"`
+	Policy      json.RawMessage `json:"policy,omitempty"`
+	Hash        string          `json:"hash,omitempty"`
+	GeneratedAt string          `json:"generated_at"`
 }
 
 // Fetcher returns the effective policy for one device + category.
@@ -142,12 +143,11 @@ func (c *HTTPFetcher) Fetch(ctx context.Context, customerID, deviceID, category 
 	}
 
 	ep := EffectivePolicy{
-		Category:         strings.TrimSpace(env.Category),
-		Clear:            env.Clear,
-		Policy:           env.Policy,
-		Hash:             strings.TrimSpace(env.Hash),
-		MinVSCodeVersion: strings.TrimSpace(env.MinVSCodeVersion),
-		GeneratedAt:      env.GeneratedAt,
+		Category:    strings.TrimSpace(env.Category),
+		Clear:       env.Clear,
+		Policy:      env.Policy,
+		Hash:        strings.TrimSpace(env.Hash),
+		GeneratedAt: env.GeneratedAt,
 	}
 	if ep.Category == "" {
 		ep.Category = category

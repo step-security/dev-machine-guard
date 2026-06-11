@@ -7,27 +7,30 @@ import (
 	"time"
 )
 
-// Reconciler converges the OS-native VS Code policy to the backend's effective
-// policy for one device, once per scheduled cycle. It is OS-agnostic: the
-// per-OS Writer, the policy Fetcher, the compliance Reporter, and VS Code
-// version detection are all injected, so the whole flow is fake-testable with
-// no real I/O.
+// Reconciler converges the user-scope VS Code settings.json to the backend's
+// effective policy for one device, once per scheduled cycle. It is OS-agnostic:
+// the settings Writer, the managed-policy Probe, the policy Fetcher, and the
+// compliance Reporter are all injected, so the whole flow is fake-testable
+// with no real I/O.
 type Reconciler struct {
 	Fetcher  Fetcher
 	Reporter Reporter
-	// Writer is the per-OS native-policy writer, or nil when the platform is not
-	// agent-enforceable (macOS / other). A nil Writer makes Reconcile a no-op.
+	// Writer is the settings.json writer, or nil when the platform has no
+	// resolvable settings path. A nil Writer makes Reconcile a no-op.
 	Writer Writer
 
 	CustomerID string
 	DeviceID   string
-	Platform   string // reported in compliance; e.g. "windows", "linux"
+	Platform   string // reported in compliance; e.g. "windows", "linux", "darwin"
 	Category   string // defaults to ide_extension
 
-	// VSCodeVersion returns the installed VS Code version (e.g. "1.96.2") or ""
-	// when VS Code is absent/undetectable. "" compares below every floor and
-	// yields vscode_unsupported.
-	VSCodeVersion func() string
+	// Probe reports whether a real MDM/admin-managed AllowedExtensions policy
+	// exists at this OS's policy location (registry / policy.json / managed
+	// preferences). Such a policy outranks user settings inside VS Code, so the
+	// agent yields (mdm_managed) instead of writing a value VS Code would
+	// ignore. nil → ProbeManagedPolicy (the per-OS implementation); tests
+	// inject a stub so results never depend on the host machine.
+	Probe func() (managed bool, detail string)
 
 	// Now and Logf are optional seams. Now defaults to time.Now().UTC; Logf to a
 	// no-op.
@@ -66,11 +69,11 @@ func (r *Reconciler) category() string {
 	return CategoryIDEExtension
 }
 
-func (r *Reconciler) vscodeVersion() string {
-	if r.VSCodeVersion == nil {
-		return ""
+func (r *Reconciler) probe() (bool, string) {
+	if r.Probe != nil {
+		return r.Probe()
 	}
-	return r.VSCodeVersion()
+	return ProbeManagedPolicy()
 }
 
 // Reconcile runs one enforcement cycle. It NEVER panics into the caller's hot
@@ -79,9 +82,11 @@ func (r *Reconciler) vscodeVersion() string {
 //   - fetch error (transport / non-200 / malformed) → NO-OP, error returned.
 //     Enforcement on disk is never wiped on a transient or malformed response.
 //   - platform not enforceable (nil Writer) → silent no-op.
-//   - clear result → clear ONLY the agent-owned policy; a foreign value is left
-//     untouched. No compliance report (an unassigned device is backend-derived).
-//   - policy result → ownership-checked write + readback + verify + report.
+//   - clear result → remove ONLY the agent-owned settings key; a value the
+//     agent has no record of writing is left untouched. No compliance report
+//     (an unassigned device is backend-derived).
+//   - policy result → probe → ownership/drift-checked write + readback +
+//     verify + report (handleEnforce).
 func (r *Reconciler) Reconcile(ctx context.Context) error {
 	if r.Fetcher == nil {
 		return errors.New("devmdm: nil fetcher")
@@ -95,9 +100,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	}
 
 	if r.Writer == nil {
-		// macOS / unsupported platform: the backend gates these to clear and
-		// delivers via MDM export. Nothing to do, nothing to report.
-		r.logf("devmdm: platform not agent-enforceable; skipping (category=%s)", cat)
+		r.logf("devmdm: no settings path on this platform; skipping (category=%s)", cat)
 		return nil
 	}
 
@@ -107,9 +110,11 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	return r.handleEnforce(ctx, cat, ep)
 }
 
-// handleClear removes the agent-owned policy on unassignment. It clears the
-// on-disk value ONLY when it still equals what the agent last wrote (ownership);
-// a foreign value (MDM/human) is left intact.
+// handleClear removes the agent-owned settings key on unassignment. It clears
+// the on-disk value ONLY when it still equals what the agent last wrote
+// (ownership); a value the agent has no record of writing — the user's own
+// extensions.allowed predates enforcement, or the record was lost — is left
+// intact.
 func (r *Reconciler) handleClear(cat string) error {
 	prev, _ := ReadAppliedState()
 	onDisk, present, err := r.Writer.Read()
@@ -125,8 +130,8 @@ func (r *Reconciler) handleClear(cat string) error {
 		}
 		r.logf("devmdm: cleared agent-owned policy at %s", r.Writer.Location())
 	case present:
-		// A value the agent does not own — leave it for the MDM/human that set it.
-		r.logf("devmdm: clear requested but %s holds a foreign value; leaving it", r.Writer.Location())
+		// A value the agent did not write — leave it to whoever set it.
+		r.logf("devmdm: clear requested but %s holds a value the agent did not write; leaving it", r.Writer.Location())
 	}
 
 	// Drop our ownership record (only when we had one, to stay idempotent).
@@ -138,114 +143,127 @@ func (r *Reconciler) handleClear(cat string) error {
 	return nil
 }
 
-// handleEnforce writes the compiled policy (ownership-safe), reads it back,
-// verifies, and reports. The decision order matches the PRD: version floor →
-// ownership → write/readback.
+// handleEnforce converges settings.json to the compiled policy and reports.
+// The ladder, in order:
+//
+//	probe (managed policy exists → mdm_managed, never write)
+//	→ read current value
+//	→ idempotency (hash unchanged ∧ on-disk converged → report, no write)
+//	→ preflight ownership-store writability
+//	→ drift detection (on-disk diverged from the recorded written value)
+//	→ merge-write + readback
+//	→ persist ownership on every successful write (rollback if that fails)
+//	→ Verify → report (drift upgrades a would-be compliant to drift_detected)
 func (r *Reconciler) handleEnforce(ctx context.Context, cat string, ep EffectivePolicy) error {
-	newValue := string(ep.Policy)
-	version := r.vscodeVersion()
-
-	// 1. Version floor. Below it (or VS Code absent/unknown), the policy can't be
-	// honored — report vscode_unsupported and do not touch the box.
-	if !versionAtLeast(version, ep.MinVSCodeVersion) {
-		state := Verify(VerifyInput{VSCodeVersion: version, MinVSCodeVersion: ep.MinVSCodeVersion})
-		r.logf("devmdm: vscode %q below floor %q → %s", version, ep.MinVSCodeVersion, state)
-		return r.report(ctx, cat, state, "")
-	}
-
-	// 2. Ownership. Read current value to decide whether we may write.
-	prev, hadPrev := ReadAppliedState()
-	onDisk, present, err := r.Writer.Read()
+	// The compiled policy compacted: the canonical comparison form for
+	// readback, idempotency, and ownership. (The backend's hash still travels
+	// verbatim; only the value bytes are normalized for comparison.)
+	newValue, err := compactJSON(ep.Policy)
 	if err != nil {
-		// Couldn't read to decide ownership/readback → verification_failed.
-		_ = r.report(ctx, cat, StateVerificationFailed, "")
-		return fmt.Errorf("devmdm: enforce: read %s: %w", r.Writer.Location(), err)
+		// Defensive: the fetcher already validated object shape, so this is a
+		// malformed-payload class failure → no-op, never write.
+		return fmt.Errorf("devmdm: enforce: compact policy: %w", err)
 	}
-	// A present value is foreign unless the agent has a record of writing
-	// exactly it. No record (prev.WrittenValue == "") means ANY present value —
-	// including one byte-equal to the desired policy, or a writer's
-	// "present but not a representable string" result (e.g. a wrong-typed
-	// registry value) — is MDM/human-owned: yield, never overwrite.
-	foreign := present && (prev.WrittenValue == "" || onDisk != prev.WrittenValue)
-	if foreign {
-		r.logf("devmdm: %s holds a foreign value → mdm_managed (yielding)", r.Writer.Location())
+
+	// 1. Managed-policy probe. A policy at the OS policy location outranks
+	// user settings inside VS Code — writing would be ineffective at best and
+	// fight the MDM at worst. Yield and report.
+	if managed, detail := r.probe(); managed {
+		r.logf("devmdm: managed policy present at %s → mdm_managed (yielding)", detail)
 		return r.report(ctx, cat, StateMDMManaged, "")
 	}
 
-	// 3. Write (unless already converged) + readback.
-	var writeOK, readbackMatch bool
-	switch {
-	case present && onDisk == newValue && prev.AppliedHash == ep.Hash:
-		// Idempotent: the desired policy is already in place and unchanged. No
-		// write — but still report so the backend sees a fresh evaluation.
-		writeOK, readbackMatch = true, true
-		r.logf("devmdm: policy already applied (hash unchanged) — no write")
-	default:
-		// Preflight: prove the ownership store is writable BEFORE mutating the
-		// policy location. An enforced value with no ownership record is orphaned
-		// — a later clear refuses to remove it and the agent misreports its own
-		// write as mdm_managed. Re-persisting the current state is a
-		// meaning-preserving writability probe.
-		probe := prev
-		if !hadPrev {
-			probe = AppliedState{Category: cat, FetchedAt: r.now()}
-		}
-		if perr := r.persistState(probe); perr != nil {
-			_ = r.report(ctx, cat, StateWriteFailed, "")
-			return fmt.Errorf("devmdm: enforce: ownership state not writable, refusing to write policy: %w", perr)
-		}
-
-		rb, werr := r.Writer.Write(newValue)
-		if werr != nil {
-			_ = r.report(ctx, cat, StateWriteFailed, "")
-			return fmt.Errorf("devmdm: enforce: write %s: %w", r.Writer.Location(), werr)
-		}
-		writeOK = true
-		readbackMatch = rb == newValue
-		// Ownership is recorded on EVERY successful write — it means "what the
-		// agent wrote", not "what it verified". On a readback mismatch (e.g. a
-		// transient race) the write may still have landed; without a record the
-		// next cycle would classify the agent's own value as foreign and stick
-		// at mdm_managed. Value-based ownership self-corrects: the record only
-		// takes effect when the on-disk value actually equals it.
-		if err := r.persistState(AppliedState{
-			Category:     cat,
-			AppliedHash:  ep.Hash,
-			WrittenValue: newValue,
-			FetchedAt:    r.now(),
-		}); err != nil {
-			// The write happened but ownership couldn't be recorded — undo it so
-			// no unrecorded value is left behind, and report a failed write.
-			r.rollbackWrite(onDisk, present)
-			_ = r.report(ctx, cat, StateWriteFailed, "")
-			return fmt.Errorf("devmdm: enforce: update state: %w", err)
-		}
-		r.logf("devmdm: wrote policy to %s (readback_match=%v)", r.Writer.Location(), readbackMatch)
+	// 2. Read the current settings value.
+	prev, hadPrev := ReadAppliedState()
+	onDisk, present, err := r.Writer.Read()
+	if err != nil {
+		// Couldn't read to decide idempotency/drift → verification_failed.
+		// This includes an unsalvageable settings.json (not valid JSONC), which
+		// the writer refuses to touch.
+		_ = r.report(ctx, cat, StateVerificationFailed, "")
+		return fmt.Errorf("devmdm: enforce: read %s: %w", r.Writer.Location(), err)
 	}
 
-	state := Verify(VerifyInput{
-		WriteOK:          writeOK,
-		ReadbackMatch:    readbackMatch,
-		VSCodeVersion:    version,
-		MinVSCodeVersion: ep.MinVSCodeVersion,
-	})
+	// 3. Idempotency: the desired policy is already in place and unchanged.
+	// No write — but still report so the backend sees a fresh evaluation.
+	if present && onDisk == newValue && prev.AppliedHash == ep.Hash {
+		r.logf("devmdm: policy already applied (hash unchanged) — no write")
+		return r.report(ctx, cat, StateCompliant, ep.Hash)
+	}
+
+	// 4. Drift: the agent wrote a value before, and what is on disk now is not
+	// it (edited or removed — typically the user hand-editing settings.json).
+	// Enforcement means converging it back; the distinct state lets the
+	// backend surface that it happened.
+	drifted := hadPrev && prev.WrittenValue != "" && (!present || onDisk != prev.WrittenValue)
+	if drifted {
+		r.logf("devmdm: %s diverged from the recorded written value → re-applying (drift)", r.Writer.Location())
+	}
+
+	// 5. Preflight: prove the ownership store is writable BEFORE mutating the
+	// settings file. An enforced value with no ownership record is orphaned —
+	// a later clear refuses to remove it. Re-persisting the current state is a
+	// meaning-preserving writability probe.
+	probe := prev
+	if !hadPrev {
+		probe = AppliedState{Category: cat, FetchedAt: r.now()}
+	}
+	if perr := r.persistState(probe); perr != nil {
+		_ = r.report(ctx, cat, StateWriteFailed, "")
+		return fmt.Errorf("devmdm: enforce: ownership state not writable, refusing to write policy: %w", perr)
+	}
+
+	// 6. Merge-write + readback.
+	rb, werr := r.Writer.Write(newValue)
+	if werr != nil {
+		_ = r.report(ctx, cat, StateWriteFailed, "")
+		return fmt.Errorf("devmdm: enforce: write %s: %w", r.Writer.Location(), werr)
+	}
+	readbackMatch := rb == newValue
+
+	// 7. Ownership is recorded on EVERY successful write — it means "what the
+	// agent wrote", not "what it verified". On a readback mismatch the write
+	// may still have landed; without a record the next cycle would classify
+	// the agent's own value as drift forever. Value-based ownership
+	// self-corrects: the record only takes effect when the on-disk value
+	// actually equals it.
+	if err := r.persistState(AppliedState{
+		Category:     cat,
+		AppliedHash:  ep.Hash,
+		WrittenValue: newValue,
+		FetchedAt:    r.now(),
+	}); err != nil {
+		// The write happened but ownership couldn't be recorded — undo it so
+		// no unrecorded value is left behind, and report a failed write.
+		r.rollbackWrite(onDisk, present)
+		_ = r.report(ctx, cat, StateWriteFailed, "")
+		return fmt.Errorf("devmdm: enforce: update state: %w", err)
+	}
+	r.logf("devmdm: wrote policy to %s (readback_match=%v)", r.Writer.Location(), readbackMatch)
+
+	state := Verify(VerifyInput{WriteOK: true, ReadbackMatch: readbackMatch})
+	if drifted && state == StateCompliant {
+		state = StateDriftDetected
+	}
 
 	// applied_hash is echoed only when we are confident the policy is applied
-	// (readback-confirmed). It is the backend's hash verbatim — never recomputed —
-	// so the backend's byte-exact applied==desired check gates `compliant`.
+	// (readback-confirmed) — compliant, or drift_detected (drift that was
+	// successfully re-applied). It is the backend's hash verbatim — never
+	// recomputed — so the backend's byte-exact applied==desired check gates
+	// `compliant`.
 	appliedHash := ""
-	if state == StateCompliant {
+	if state == StateCompliant || state == StateDriftDetected {
 		appliedHash = ep.Hash
 	}
 	return r.report(ctx, cat, state, appliedHash)
 }
 
-// rollbackWrite restores the policy location to its pre-cycle condition after
-// the post-write ownership persist failed. WriteAppliedState is atomic
+// rollbackWrite restores the settings key to its pre-cycle condition after the
+// post-write ownership persist failed. WriteAppliedState is atomic
 // (temp+rename), so the failed persist left the previous state file intact —
 // restoring the previous on-disk value keeps record and disk consistent.
-// Best-effort: a rollback failure is logged, and the orphaned value surfaces
-// as mdm_managed on the next cycle.
+// Best-effort: a rollback failure is logged, and the divergence surfaces as
+// drift on the next cycle.
 func (r *Reconciler) rollbackWrite(prevOnDisk string, prevPresent bool) {
 	var err error
 	if prevPresent {

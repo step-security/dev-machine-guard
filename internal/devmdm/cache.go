@@ -21,16 +21,17 @@ const (
 	cacheParentDirMode os.FileMode = 0o700
 )
 
-// AppliedState records what the agent last wrote to the OS-native policy
-// location. Two fields drive correctness:
+// AppliedState records what the agent last wrote to the user-scope VS Code
+// settings.json. Two fields drive correctness:
 //
 //   - AppliedHash is the backend's content hash, stored VERBATIM (never
 //     recomputed). Compared against the freshly-fetched hash for idempotency.
-//   - WrittenValue is the exact AllowedExtensions value the agent wrote. It is
-//     the basis for value-based ownership: on a clear, the agent removes the
-//     on-disk policy only if it still equals WrittenValue; a differing value is
-//     foreign (MDM/human) and is left untouched. (Known limitation, per PRD: a
-//     byte-identical MDM policy is indistinguishable — low harm.)
+//   - WrittenValue is the exact compacted extensions.allowed value the agent
+//     wrote. It drives value-based ownership and drift: on a clear, the agent
+//     removes the settings key only if the on-disk value still equals
+//     WrittenValue (a differing value — e.g. the user's own — is left
+//     untouched); on enforce, an on-disk value differing from WrittenValue is
+//     drift and is converged back.
 //
 // An empty AppliedState (zero value) means "the agent owns nothing on disk".
 type AppliedState struct {

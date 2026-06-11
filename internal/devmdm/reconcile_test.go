@@ -9,6 +9,15 @@ import (
 	"time"
 )
 
+// samplePolicy is the compacted compiled policy — the exact value the
+// reconciler writes and records (it compacts the fetched payload first).
+const samplePolicy = `{"github.copilot":true,"ms-python.python":"1.2.3"}`
+
+// samplePolicyWire is the same policy as the backend might format it on the
+// wire. The reconciler must normalize this to samplePolicy before comparing
+// or writing.
+const samplePolicyWire = "{\n  \"github.copilot\": true,\n  \"ms-python.python\": \"1.2.3\"\n}"
+
 // --- fakes -----------------------------------------------------------------
 
 type fakeFetcher struct {
@@ -64,7 +73,7 @@ func (w *fakeWriter) Clear() error {
 	return nil
 }
 
-func (w *fakeWriter) Location() string { return "fake://policy" }
+func (w *fakeWriter) Location() string { return "fake://settings.json" }
 
 // --- helpers ---------------------------------------------------------------
 
@@ -74,30 +83,32 @@ func withTempCache(t *testing.T) {
 	t.Cleanup(restore)
 }
 
-func newRec(t *testing.T, ep EffectivePolicy, fetchErr error, w *fakeWriter, version string) (*Reconciler, *fakeReporter) {
+// newRec builds a reconciler over fakes. The managed-policy probe is stubbed
+// to "not managed" so results never depend on the host machine; tests for the
+// mdm_managed path override r.Probe.
+func newRec(t *testing.T, ep EffectivePolicy, fetchErr error, w *fakeWriter) (*Reconciler, *fakeReporter) {
 	t.Helper()
 	withTempCache(t)
 	rep := &fakeReporter{}
 	r := &Reconciler{
-		Fetcher:       &fakeFetcher{ep: ep, err: fetchErr},
-		Reporter:      rep,
-		Writer:        w,
-		CustomerID:    "cust",
-		DeviceID:      "dev-1",
-		Platform:      "linux",
-		VSCodeVersion: func() string { return version },
-		Now:           func() time.Time { return time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC) },
+		Fetcher:    &fakeFetcher{ep: ep, err: fetchErr},
+		Reporter:   rep,
+		Writer:     w,
+		CustomerID: "cust",
+		DeviceID:   "dev-1",
+		Platform:   "linux",
+		Probe:      func() (bool, string) { return false, "" },
+		Now:        func() time.Time { return time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC) },
 	}
 	return r, rep
 }
 
 func policyEP(hash string) EffectivePolicy {
 	return EffectivePolicy{
-		Category:         CategoryIDEExtension,
-		Clear:            false,
-		Policy:           json.RawMessage(samplePolicy),
-		Hash:             hash,
-		MinVSCodeVersion: "1.96.0",
+		Category: CategoryIDEExtension,
+		Clear:    false,
+		Policy:   json.RawMessage(samplePolicyWire),
+		Hash:     hash,
 	}
 }
 
@@ -111,14 +122,15 @@ func lastReport(t *testing.T, rep *fakeReporter) ComplianceReport {
 
 // --- tests -----------------------------------------------------------------
 
-func TestEnforceWritesExactPolicyAndReportsCompliant(t *testing.T) {
+func TestEnforceWritesCompactedPolicyAndReportsCompliant(t *testing.T) {
 	w := &fakeWriter{}
-	r, rep := newRec(t, policyEP("sha256:H"), nil, w, "1.96.2")
+	r, rep := newRec(t, policyEP("sha256:H"), nil, w)
 	if err := r.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
+	// The wire payload is formatted; the written value must be its compaction.
 	if len(w.writes) != 1 || w.writes[0] != samplePolicy {
-		t.Fatalf("expected exact policy written once, got %v", w.writes)
+		t.Fatalf("expected compacted policy written once, got %v", w.writes)
 	}
 	got := lastReport(t, rep)
 	if got.State != StateCompliant {
@@ -146,7 +158,7 @@ func TestEnforceIdempotentSecondRunWritesNothing(t *testing.T) {
 	r := &Reconciler{
 		Fetcher: &fakeFetcher{ep: policyEP("sha256:H")}, Reporter: rep, Writer: w,
 		CustomerID: "c", DeviceID: "d", Platform: "linux",
-		VSCodeVersion: func() string { return "1.96.2" },
+		Probe: func() (bool, string) { return false, "" },
 	}
 	if err := r.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -154,8 +166,9 @@ func TestEnforceIdempotentSecondRunWritesNothing(t *testing.T) {
 	if len(w.writes) != 0 {
 		t.Fatalf("idempotent run must not write, got %v", w.writes)
 	}
-	if got := lastReport(t, rep); got.State != StateCompliant {
-		t.Fatalf("state = %q, want compliant", got.State)
+	got := lastReport(t, rep)
+	if got.State != StateCompliant || got.AppliedHash != "sha256:H" {
+		t.Fatalf("report = %+v, want compliant + echoed hash", got)
 	}
 }
 
@@ -169,7 +182,8 @@ func TestClearRemovesAgentOwnedPolicy(t *testing.T) {
 	r := &Reconciler{
 		Fetcher:  &fakeFetcher{ep: EffectivePolicy{Category: CategoryIDEExtension, Clear: true}},
 		Reporter: rep, Writer: w, CustomerID: "c", DeviceID: "d", Platform: "linux",
-		Now: func() time.Time { return time.Unix(0, 0).UTC() },
+		Probe: func() (bool, string) { return false, "" },
+		Now:   func() time.Time { return time.Unix(0, 0).UTC() },
 	}
 	if err := r.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -185,9 +199,10 @@ func TestClearRemovesAgentOwnedPolicy(t *testing.T) {
 	}
 }
 
-func TestClearLeavesForeignPolicy(t *testing.T) {
+func TestClearLeavesValueAgentDidNotWrite(t *testing.T) {
 	withTempCache(t)
-	// We recorded writing "mine", but on disk is "theirs" — an MDM/human changed it.
+	// We recorded writing "mine", but on disk is "theirs" — the user (or some
+	// other tool) changed it. Unassignment must not destroy their value.
 	if err := WriteAppliedState(AppliedState{Category: CategoryIDEExtension, WrittenValue: "mine"}); err != nil {
 		t.Fatal(err)
 	}
@@ -196,28 +211,32 @@ func TestClearLeavesForeignPolicy(t *testing.T) {
 	r := &Reconciler{
 		Fetcher:  &fakeFetcher{ep: EffectivePolicy{Category: CategoryIDEExtension, Clear: true}},
 		Reporter: rep, Writer: w, CustomerID: "c", DeviceID: "d", Platform: "linux",
-		Now: func() time.Time { return time.Unix(0, 0).UTC() },
+		Probe: func() (bool, string) { return false, "" },
+		Now:   func() time.Time { return time.Unix(0, 0).UTC() },
 	}
 	if err := r.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	if w.clears != 0 {
-		t.Fatalf("foreign policy must NOT be cleared, clears=%d", w.clears)
+		t.Fatalf("a value the agent did not write must NOT be cleared, clears=%d", w.clears)
 	}
 	if len(rep.reports) != 0 {
 		t.Fatalf("clear path reports nothing, got %+v", rep.reports)
 	}
 }
 
-func TestEnforceForeignValueReportsMDMManaged(t *testing.T) {
-	// Cache empty (we own nothing) but a value is on disk → foreign (MDM).
-	w := &fakeWriter{value: "mdm-pushed-value", present: true}
-	r, rep := newRec(t, policyEP("sha256:H"), nil, w, "1.96.2")
+func TestEnforceManagedPolicyProbeYieldsMDMManaged(t *testing.T) {
+	// A real MDM policy at the OS policy location outranks user settings inside
+	// VS Code: the agent yields without reading or writing settings.json.
+	w := &fakeWriter{}
+	r, rep := newRec(t, policyEP("sha256:H"), nil, w)
+	r.Probe = func() (bool, string) { return true, `HKLM\...\VSCode [AllowedExtensions]` }
 	if err := r.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
-	if len(w.writes) != 0 {
-		t.Fatalf("must not overwrite a foreign value, writes=%v", w.writes)
+	if w.reads != 0 || len(w.writes) != 0 || w.clears != 0 {
+		t.Fatalf("managed probe must short-circuit before any settings I/O: reads=%d writes=%v clears=%d",
+			w.reads, w.writes, w.clears)
 	}
 	got := lastReport(t, rep)
 	if got.State != StateMDMManaged {
@@ -228,28 +247,94 @@ func TestEnforceForeignValueReportsMDMManaged(t *testing.T) {
 	}
 }
 
-func TestEnforceBelowFloorReportsVSCodeUnsupported(t *testing.T) {
-	w := &fakeWriter{}
-	ep := policyEP("sha256:H")
-	ep.MinVSCodeVersion = "1.106.0" // Linux floor
-	r, rep := newRec(t, ep, nil, w, "1.96.2")
-	if err := r.Reconcile(context.Background()); err != nil {
-		t.Fatalf("Reconcile: %v", err)
+func TestEnforceOverwritesPreexistingUserValue(t *testing.T) {
+	// A pre-existing extensions.allowed in the USER's settings (no ownership
+	// record, no managed policy) is exactly what enforcement is for: the
+	// compiled policy replaces it. This is the old foreign-value yield
+	// inverted — settings.json is the enforcement surface now, and the real
+	// MDM case is handled by the probe.
+	cases := []struct {
+		name  string
+		value string
+	}{
+		{"user's own allow-list", `{"user.choice":true}`},
+		{"value byte-equal to desired policy", samplePolicy},
 	}
-	if len(w.writes) != 0 {
-		t.Fatalf("below-floor must not write, writes=%v", w.writes)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &fakeWriter{value: tc.value, present: true}
+			r, rep := newRec(t, policyEP("sha256:H"), nil, w)
+			if err := r.Reconcile(context.Background()); err != nil {
+				t.Fatalf("Reconcile: %v", err)
+			}
+			if len(w.writes) != 1 || w.writes[0] != samplePolicy {
+				t.Fatalf("expected the policy written once, got %v", w.writes)
+			}
+			got := lastReport(t, rep)
+			// No ownership record → this is first enforcement, not drift.
+			if got.State != StateCompliant || got.AppliedHash != "sha256:H" {
+				t.Fatalf("report = %+v, want compliant + echoed hash", got)
+			}
+		})
 	}
-	if w.reads != 0 {
-		t.Fatalf("below-floor short-circuits before ownership read, reads=%d", w.reads)
+}
+
+func TestEnforceDriftReappliesAndReportsDriftDetected(t *testing.T) {
+	// The agent wrote the policy before; the user edited or removed it. The
+	// reconciler converges it back and reports drift_detected (readback
+	// confirmed → applied_hash still echoed).
+	cases := []struct {
+		name    string
+		value   string
+		present bool
+	}{
+		{"key edited by user", `{"user.tampered":true}`, true},
+		{"key removed by user", "", false},
 	}
-	if got := lastReport(t, rep); got.State != StateVSCodeUnsupported {
-		t.Fatalf("state = %q, want vscode_unsupported", got.State)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempCache(t)
+			if err := WriteAppliedState(AppliedState{Category: CategoryIDEExtension, AppliedHash: "sha256:H", WrittenValue: samplePolicy}); err != nil {
+				t.Fatal(err)
+			}
+			w := &fakeWriter{value: tc.value, present: tc.present}
+			rep := &fakeReporter{}
+			r := &Reconciler{
+				Fetcher: &fakeFetcher{ep: policyEP("sha256:H")}, Reporter: rep, Writer: w,
+				CustomerID: "c", DeviceID: "d", Platform: "linux",
+				Probe: func() (bool, string) { return false, "" },
+				Now:   func() time.Time { return time.Unix(0, 0).UTC() },
+			}
+			if err := r.Reconcile(context.Background()); err != nil {
+				t.Fatalf("Reconcile: %v", err)
+			}
+			if len(w.writes) != 1 || w.writes[0] != samplePolicy {
+				t.Fatalf("drift must re-apply the policy, writes=%v", w.writes)
+			}
+			got := lastReport(t, rep)
+			if got.State != StateDriftDetected {
+				t.Fatalf("state = %q, want drift_detected", got.State)
+			}
+			if got.AppliedHash != "sha256:H" {
+				t.Fatalf("applied_hash = %q, want echoed hash (re-apply was readback-confirmed)", got.AppliedHash)
+			}
+			// Next cycle: converged, hash unchanged → plain compliant again.
+			if err := r.Reconcile(context.Background()); err != nil {
+				t.Fatalf("second Reconcile: %v", err)
+			}
+			if len(w.writes) != 1 {
+				t.Fatalf("second cycle must be idempotent, writes=%v", w.writes)
+			}
+			if rep.reports[1].State != StateCompliant {
+				t.Fatalf("second cycle state = %q, want compliant", rep.reports[1].State)
+			}
+		})
 	}
 }
 
 func TestEnforceWriteFailureReportsWriteFailed(t *testing.T) {
-	w := &fakeWriter{writeErr: errors.New("access denied")}
-	r, rep := newRec(t, policyEP("sha256:H"), nil, w, "1.96.2")
+	w := &fakeWriter{writeErr: errors.New("permission denied")}
+	r, rep := newRec(t, policyEP("sha256:H"), nil, w)
 	err := r.Reconcile(context.Background())
 	if err == nil {
 		t.Fatal("write failure should surface an error")
@@ -260,13 +345,17 @@ func TestEnforceWriteFailureReportsWriteFailed(t *testing.T) {
 }
 
 func TestEnforceReadbackMismatchReportsPolicyNotApplied(t *testing.T) {
-	w := &fakeWriter{readbackOverride: `{"*":true}`} // VS Code silently kept a different value
-	r, rep := newRec(t, policyEP("sha256:H"), nil, w, "1.96.2")
+	w := &fakeWriter{readbackOverride: `{"*":true}`} // write landed differently than intended
+	r, rep := newRec(t, policyEP("sha256:H"), nil, w)
 	if err := r.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
-	if got := lastReport(t, rep); got.State != StatePolicyNotApplied {
+	got := lastReport(t, rep)
+	if got.State != StatePolicyNotApplied {
 		t.Fatalf("state = %q, want policy_not_applied", got.State)
+	}
+	if got.AppliedHash != "" {
+		t.Fatalf("applied_hash must be empty without readback confirmation, got %q", got.AppliedHash)
 	}
 	// Ownership IS recorded even on a readback mismatch — it tracks what the
 	// agent wrote, not what it verified; next-cycle recovery depends on it
@@ -280,9 +369,9 @@ func TestEnforceReadbackMismatchRecoversNextCycle(t *testing.T) {
 	// Cycle 1: the write lands but readback transiently mismatches →
 	// policy_not_applied. Cycle 2: the on-disk value IS what we wrote; with
 	// ownership recorded the agent reclaims it and reports compliant — it must
-	// not classify its own write as foreign (stuck mdm_managed).
+	// not classify its own write as drift and churn rewrites forever.
 	w := &fakeWriter{readbackOverride: `{"*":true}`}
-	r, rep := newRec(t, policyEP("sha256:H"), nil, w, "1.96.2")
+	r, rep := newRec(t, policyEP("sha256:H"), nil, w)
 	if err := r.Reconcile(context.Background()); err != nil {
 		t.Fatalf("cycle 1: %v", err)
 	}
@@ -303,8 +392,10 @@ func TestEnforceReadbackMismatchRecoversNextCycle(t *testing.T) {
 }
 
 func TestEnforceReadErrorReportsVerificationFailed(t *testing.T) {
-	w := &fakeWriter{readErr: errors.New("registry locked")}
-	r, rep := newRec(t, policyEP("sha256:H"), nil, w, "1.96.2")
+	// Includes the unsalvageable-settings.json case: the writer refuses to
+	// parse it, the reconciler can't decide idempotency/drift.
+	w := &fakeWriter{readErr: errors.New("settings.json is not valid JSONC")}
+	r, rep := newRec(t, policyEP("sha256:H"), nil, w)
 	err := r.Reconcile(context.Background())
 	if err == nil {
 		t.Fatal("read error should surface")
@@ -316,13 +407,16 @@ func TestEnforceReadErrorReportsVerificationFailed(t *testing.T) {
 
 func TestMalformedFetchIsNoOp(t *testing.T) {
 	w := &fakeWriter{value: "existing", present: true}
-	r, rep := newRec(t, EffectivePolicy{}, errors.New("malformed"), w, "1.96.2")
+	r, rep := newRec(t, EffectivePolicy{}, errors.New("malformed"), w)
+	probed := false
+	r.Probe = func() (bool, string) { probed = true; return false, "" }
 	err := r.Reconcile(context.Background())
 	if err == nil {
 		t.Fatal("fetch error should surface")
 	}
-	if len(w.writes) != 0 || w.clears != 0 || w.reads != 0 {
-		t.Fatalf("malformed fetch must touch nothing: writes=%v clears=%d reads=%d", w.writes, w.clears, w.reads)
+	if len(w.writes) != 0 || w.clears != 0 || w.reads != 0 || probed {
+		t.Fatalf("malformed fetch must touch nothing: writes=%v clears=%d reads=%d probed=%v",
+			w.writes, w.clears, w.reads, probed)
 	}
 	if len(rep.reports) != 0 {
 		t.Fatalf("malformed fetch must not report, got %+v", rep.reports)
@@ -333,9 +427,9 @@ func TestNilWriterPlatformIsNoOp(t *testing.T) {
 	withTempCache(t)
 	rep := &fakeReporter{}
 	r := &Reconciler{
-		Fetcher:  &fakeFetcher{ep: policyEP("sha256:H")}, // backend would actually send clear for macOS
-		Reporter: rep, Writer: nil, CustomerID: "c", DeviceID: "d", Platform: "darwin",
-		VSCodeVersion: func() string { return "1.99.0" },
+		Fetcher:  &fakeFetcher{ep: policyEP("sha256:H")},
+		Reporter: rep, Writer: nil, CustomerID: "c", DeviceID: "d", Platform: "freebsd",
+		Probe: func() (bool, string) { return false, "" },
 	}
 	if err := r.Reconcile(context.Background()); err != nil {
 		t.Fatalf("nil-writer platform should no-op without error, got %v", err)
@@ -345,40 +439,13 @@ func TestNilWriterPlatformIsNoOp(t *testing.T) {
 	}
 }
 
-func TestEnforcePresentValueWithoutOwnershipRecordIsForeign(t *testing.T) {
-	// No ownership record + ANY present value → foreign, even when it is empty
-	// (a wrong-typed registry value can read back as "") or byte-equal to the
-	// desired policy (an MDM pushed the same thing). Never overwrite, never adopt.
-	cases := []struct {
-		name  string
-		value string
-	}{
-		{"empty value (wrong-typed registry data)", ""},
-		{"value equal to desired policy", samplePolicy},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			w := &fakeWriter{value: tc.value, present: true}
-			r, rep := newRec(t, policyEP("sha256:H"), nil, w, "1.96.2")
-			if err := r.Reconcile(context.Background()); err != nil {
-				t.Fatalf("Reconcile: %v", err)
-			}
-			if len(w.writes) != 0 || w.clears != 0 {
-				t.Fatalf("foreign value must not be touched: writes=%v clears=%d", w.writes, w.clears)
-			}
-			if got := lastReport(t, rep); got.State != StateMDMManaged {
-				t.Fatalf("state = %q, want mdm_managed", got.State)
-			}
-		})
-	}
-}
-
 func TestEnforceStateUnwritablePreflightWritesNothing(t *testing.T) {
 	// If the ownership store can't be persisted, the policy must never be
 	// written: an enforced value with no record would be orphaned (a later
-	// clear refuses it; the agent would misreport its own write as mdm_managed).
+	// clear refuses to remove it, and every cycle would misread it as drift
+	// of unknown origin).
 	w := &fakeWriter{}
-	r, rep := newRec(t, policyEP("sha256:H"), nil, w, "1.96.2")
+	r, rep := newRec(t, policyEP("sha256:H"), nil, w)
 	r.writeState = func(AppliedState) error { return errors.New("disk full") }
 	if err := r.Reconcile(context.Background()); err == nil {
 		t.Fatal("unwritable ownership store should surface an error")
@@ -393,10 +460,10 @@ func TestEnforceStateUnwritablePreflightWritesNothing(t *testing.T) {
 
 func TestEnforceStatePersistFailureRollsBackWrite(t *testing.T) {
 	// Preflight succeeds but the post-write persist fails: the agent undoes the
-	// just-written value (no prior owned value → clear) so it never leaves an
-	// enforced policy it has no ownership record for.
+	// just-written value (no prior value → remove the key) so it never leaves
+	// an enforced policy it has no ownership record for.
 	w := &fakeWriter{}
-	r, rep := newRec(t, policyEP("sha256:H"), nil, w, "1.96.2")
+	r, rep := newRec(t, policyEP("sha256:H"), nil, w)
 	calls := 0
 	r.writeState = func(AppliedState) error {
 		calls++
@@ -412,7 +479,7 @@ func TestEnforceStatePersistFailureRollsBackWrite(t *testing.T) {
 		t.Fatalf("writes = %v, want exactly one write of the policy", w.writes)
 	}
 	if w.clears != 1 || w.present {
-		t.Fatalf("rolled-back write should clear the location, clears=%d present=%v", w.clears, w.present)
+		t.Fatalf("rolled-back write should remove the key, clears=%d present=%v", w.clears, w.present)
 	}
 	if got := lastReport(t, rep); got.State != StateWriteFailed {
 		t.Fatalf("state = %q, want write_failed", got.State)
@@ -431,8 +498,8 @@ func TestEnforceStatePersistFailureRestoresPreviousOwnedValue(t *testing.T) {
 	r := &Reconciler{
 		Fetcher: &fakeFetcher{ep: policyEP("sha256:NEW")}, Reporter: rep, Writer: w,
 		CustomerID: "c", DeviceID: "d", Platform: "linux",
-		VSCodeVersion: func() string { return "1.96.2" },
-		Now:           func() time.Time { return time.Unix(0, 0).UTC() },
+		Probe: func() (bool, string) { return false, "" },
+		Now:   func() time.Time { return time.Unix(0, 0).UTC() },
 	}
 	r.writeState = func(s AppliedState) error {
 		if s.WrittenValue == samplePolicy {
@@ -456,7 +523,9 @@ func TestEnforceStatePersistFailureRestoresPreviousOwnedValue(t *testing.T) {
 
 func TestEnforcePolicyChangeRewrites(t *testing.T) {
 	withTempCache(t)
-	// We own "old"; the backend now sends a new policy with a new hash.
+	// We own "old-value" and it is still intact on disk; the backend now sends
+	// a new policy with a new hash. This is a policy CHANGE, not drift — the
+	// report is plain compliant.
 	if err := WriteAppliedState(AppliedState{Category: CategoryIDEExtension, AppliedHash: "sha256:OLD", WrittenValue: "old-value"}); err != nil {
 		t.Fatal(err)
 	}
@@ -465,8 +534,8 @@ func TestEnforcePolicyChangeRewrites(t *testing.T) {
 	r := &Reconciler{
 		Fetcher: &fakeFetcher{ep: policyEP("sha256:NEW")}, Reporter: rep, Writer: w,
 		CustomerID: "c", DeviceID: "d", Platform: "linux",
-		VSCodeVersion: func() string { return "1.96.2" },
-		Now:           func() time.Time { return time.Unix(0, 0).UTC() },
+		Probe: func() (bool, string) { return false, "" },
+		Now:   func() time.Time { return time.Unix(0, 0).UTC() },
 	}
 	if err := r.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)

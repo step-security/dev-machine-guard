@@ -36,6 +36,8 @@ func newFetchServer(t *testing.T, status int, body string) (*httptest.Server, *H
 }
 
 func TestFetchPolicy(t *testing.T) {
+	// min_vscode_version is no longer part of the contract; it stays in the
+	// fixture to prove a backend still emitting legacy fields is tolerated.
 	body := `{"category":"ide_extension","clear":false,` +
 		`"policy":{"*":false,"ms-python.python":true},` +
 		`"hash":"sha256:abc","min_vscode_version":"1.96.0","generated_at":"2026-06-08T00:00:00Z"}`
@@ -49,9 +51,6 @@ func TestFetchPolicy(t *testing.T) {
 	}
 	if ep.Hash != "sha256:abc" {
 		t.Fatalf("hash = %q", ep.Hash)
-	}
-	if ep.MinVSCodeVersion != "1.96.0" {
-		t.Fatalf("min_vscode_version = %q", ep.MinVSCodeVersion)
 	}
 	// Policy must round-trip as the canonical bytes the backend sent.
 	if got := string(ep.Policy); !strings.Contains(got, `"ms-python.python":true`) {
