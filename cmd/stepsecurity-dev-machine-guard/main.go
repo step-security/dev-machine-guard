@@ -655,10 +655,10 @@ const devicePolicyEnforceTimeout = 30 * time.Second
 // way; a device whose VS Code is already governed by a real MDM policy
 // (registry / policy.json / managed preferences) is detected by the
 // reconciler's probe and reported mdm_managed instead. Gated behind
-// FeatureDevMDMPolicies and a silent no-op in community mode (enterprise
+// FeatureDevicePolicy and a silent no-op in community mode (enterprise
 // config missing). Failures are logged but never crash main.
 func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
-	if !featuregate.IsEnabled(featuregate.FeatureDevMDMPolicies) {
+	if !featuregate.IsEnabled(featuregate.FeatureDevicePolicy) {
 		log.Debug("ide-extension enforce: skipped (feature gated)")
 		return
 	}
