@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/step-security/dev-machine-guard/internal/aiagents/atomicfile"
 )
 
 const samplePolicyObject = `{"github.copilot":true,"ms-python.python":"1.2.3"}`
@@ -117,6 +119,60 @@ func TestSettingsWriteReplacesExistingKeyOnly(t *testing.T) {
 	got, present, err := w.Read()
 	if err != nil || !present || got != samplePolicyObject {
 		t.Fatalf("Read = (%q, %v, %v), want (%q, true, nil)", got, present, err, samplePolicyObject)
+	}
+}
+
+// TestSettingsWriteLeavesRecoverableBackup pins the safety net for editing a
+// file the user owns: before overwriting settings.json the writer (through
+// atomicfile) drops a sibling `<path>.dmg-<stamp>.bak` holding the EXACT prior
+// bytes, so a botched write is always recoverable. A single write yields
+// exactly one backup; retention beyond that (the MaxBackups=3 cap and prune
+// ordering) is atomicfile's own concern — and can't be exercised through Write
+// here because the stamp has second granularity, so sub-second writes collide
+// on one filename. atomicfile_test.go covers the cap with an injectable clock.
+func TestSettingsWriteLeavesRecoverableBackup(t *testing.T) {
+	w, path := newTestSettingsWriter(t)
+	writeSettingsFixture(t, path, sampleSettings)
+
+	if _, err := w.Write(samplePolicyObject); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	backups, err := filepath.Glob(path + atomicfile.BackupPrefix + "*" + atomicfile.BackupExt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 1 {
+		t.Fatalf("want exactly 1 backup after one write, got %d: %v", len(backups), backups)
+	}
+	// The backup must be the pre-write file verbatim — the point is a usable
+	// rollback, not merely some file ending in .bak.
+	if got := readFileString(t, backups[0]); got != sampleSettings {
+		t.Fatalf("backup is not the original file:\nbackup:\n%s\n--- want:\n%s", got, sampleSettings)
+	}
+	// Sanity: the live file took the new key (we backed up the OLD content, and
+	// the write still landed).
+	if got, present, err := w.Read(); err != nil || !present || got != samplePolicyObject {
+		t.Fatalf("live file Read = (%q, %v, %v), want %q", got, present, err, samplePolicyObject)
+	}
+}
+
+// TestSettingsWriteCreatingFileMakesNoBackup is the boundary of the rule above:
+// a first-ever write (no settings.json yet) has nothing to preserve, so it must
+// NOT leave a phantom .bak. Locks the behavior so nobody later "fixes"
+// TakeBackup to error on a missing source.
+func TestSettingsWriteCreatingFileMakesNoBackup(t *testing.T) {
+	w, path := newTestSettingsWriter(t)
+
+	if _, err := w.Write(samplePolicyObject); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	backups, err := filepath.Glob(path + atomicfile.BackupPrefix + "*" + atomicfile.BackupExt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 0 {
+		t.Fatalf("first-write should make no backup, got %v", backups)
 	}
 }
 
