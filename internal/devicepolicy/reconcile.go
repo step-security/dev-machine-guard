@@ -37,16 +37,24 @@ type Reconciler struct {
 	Now  func() time.Time
 	Logf func(format string, args ...any)
 
-	// writeState is a test seam over WriteAppliedState (the ownership store).
-	// nil → the real implementation.
-	writeState func(AppliedState) error
+	// writeState and clearState are test seams over the ownership store
+	// (WriteAppliedState / ClearAppliedState). nil → the real implementation.
+	writeState func(category string, s AppliedCategoryState) error
+	clearState func(category string) error
 }
 
-func (r *Reconciler) persistState(s AppliedState) error {
+func (r *Reconciler) persistState(cat string, s AppliedCategoryState) error {
 	if r.writeState != nil {
-		return r.writeState(s)
+		return r.writeState(cat, s)
 	}
-	return WriteAppliedState(s)
+	return WriteAppliedState(cat, s)
+}
+
+func (r *Reconciler) dropState(cat string) error {
+	if r.clearState != nil {
+		return r.clearState(cat)
+	}
+	return ClearAppliedState(cat)
 }
 
 func (r *Reconciler) now() time.Time {
@@ -116,7 +124,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 // extensions.allowed predates enforcement, or the record was lost — is left
 // intact.
 func (r *Reconciler) handleClear(cat string) error {
-	prev, _ := ReadAppliedState()
+	prev, hadPrev := ReadAppliedState(cat)
 	onDisk, present, err := r.Writer.Read()
 	if err != nil {
 		return fmt.Errorf("devicepolicy: clear: read %s: %w", r.Writer.Location(), err)
@@ -134,9 +142,12 @@ func (r *Reconciler) handleClear(cat string) error {
 		r.logf("devicepolicy: clear requested but %s holds a value the agent did not write; leaving it", r.Writer.Location())
 	}
 
-	// Drop our ownership record (only when we had one, to stay idempotent).
-	if prev.WrittenValue != "" || prev.AppliedHash != "" {
-		if err := r.persistState(AppliedState{Category: cat, FetchedAt: r.now()}); err != nil {
+	// Drop our ownership record whenever we hold an entry for this category.
+	// Beyond the obvious case (we owned a value), this also reclaims an empty
+	// record a preflight may have left after its settings write later failed.
+	// An absent entry → no-op (idempotent).
+	if hadPrev {
+		if err := r.dropState(cat); err != nil {
 			return fmt.Errorf("devicepolicy: clear: update state: %w", err)
 		}
 	}
@@ -174,7 +185,7 @@ func (r *Reconciler) handleEnforce(ctx context.Context, cat string, ep Effective
 	}
 
 	// 2. Read the current settings value.
-	prev, hadPrev := ReadAppliedState()
+	prev, hadPrev := ReadAppliedState(cat)
 	onDisk, present, err := r.Writer.Read()
 	if err != nil {
 		// Couldn't read to decide idempotency/drift → verification_failed.
@@ -206,9 +217,9 @@ func (r *Reconciler) handleEnforce(ctx context.Context, cat string, ep Effective
 	// meaning-preserving writability probe.
 	probe := prev
 	if !hadPrev {
-		probe = AppliedState{Category: cat, FetchedAt: r.now()}
+		probe = AppliedCategoryState{FetchedAt: r.now()}
 	}
-	if perr := r.persistState(probe); perr != nil {
+	if perr := r.persistState(cat, probe); perr != nil {
 		_ = r.report(ctx, cat, StateWriteFailed, "")
 		return fmt.Errorf("devicepolicy: enforce: ownership state not writable, refusing to write policy: %w", perr)
 	}
@@ -227,8 +238,7 @@ func (r *Reconciler) handleEnforce(ctx context.Context, cat string, ep Effective
 	// the agent's own value as drift forever. Value-based ownership
 	// self-corrects: the record only takes effect when the on-disk value
 	// actually equals it.
-	if err := r.persistState(AppliedState{
-		Category:     cat,
+	if err := r.persistState(cat, AppliedCategoryState{
 		AppliedHash:  ep.Hash,
 		WrittenValue: newValue,
 		FetchedAt:    r.now(),
