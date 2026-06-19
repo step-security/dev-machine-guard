@@ -424,7 +424,7 @@ func TestNodeScanner_ScanProjects_DropsRecordsForMissingPM(t *testing.T) {
 	mock.SetFile(filepath.Join(dirB, "package-lock.json"), []byte{})
 
 	scanner := newTestScanner(mock)
-	results := scanner.ScanProjects(context.Background(), []string{`C:\Users\dev`})
+	results, _ := scanner.ScanProjects(context.Background(), []string{`C:\Users\dev`}, nil)
 
 	if len(results) != 0 {
 		t.Errorf("expected 0 telemetry records when PM not installed, got %d", len(results))

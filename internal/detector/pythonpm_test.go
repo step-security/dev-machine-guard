@@ -111,7 +111,7 @@ func TestPythonProjectDetector_CountProjects(t *testing.T) {
 		filepath.Join(dir, "project2", "venv", "bin", "pip"), "list", "--format", "json")
 
 	det := NewPythonProjectDetector(mock)
-	projects := det.ListProjects([]string{dir})
+	projects, _ := det.ListProjects([]string{dir}, nil)
 
 	if len(projects) != 2 {
 		t.Fatalf("expected 2 venv projects, got %d", len(projects))
@@ -137,7 +137,7 @@ func TestPythonProjectDetector_ArbitraryVenvName(t *testing.T) {
 		filepath.Join(dir, "proj", "myenv", "bin", "pip"), "list", "--format", "json")
 
 	det := NewPythonProjectDetector(mock)
-	projects := det.ListProjects([]string{dir})
+	projects, _ := det.ListProjects([]string{dir}, nil)
 
 	if len(projects) != 1 {
 		t.Fatalf("expected 1 project, got %d", len(projects))
@@ -169,7 +169,7 @@ func TestPythonProjectDetector_MultipleVenvsSameParent(t *testing.T) {
 		filepath.Join(dir, "proj", "venv-b", "bin", "pip"), "list", "--format", "json")
 
 	det := NewPythonProjectDetector(mock)
-	projects := det.ListProjects([]string{dir})
+	projects, _ := det.ListProjects([]string{dir}, nil)
 
 	if len(projects) != 2 {
 		t.Fatalf("expected 2 projects (one per venv), got %d", len(projects))
@@ -197,7 +197,7 @@ func TestPythonProjectDetector_LegacyVenvWithActivate(t *testing.T) {
 		filepath.Join(dir, "proj", "env", "bin", "pip"), "list", "--format", "json")
 
 	det := NewPythonProjectDetector(mock)
-	projects := det.ListProjects([]string{dir})
+	projects, _ := det.ListProjects([]string{dir}, nil)
 
 	if len(projects) != 1 {
 		t.Fatalf("expected 1 project, got %d", len(projects))
@@ -215,7 +215,7 @@ func TestPythonProjectDetector_NotAVenv(t *testing.T) {
 	mock.SetFile(filepath.Join(dir, "fake", "bin", "pip"), []byte(""))
 
 	det := NewPythonProjectDetector(mock)
-	projects := det.ListProjects([]string{dir})
+	projects, _ := det.ListProjects([]string{dir}, nil)
 
 	if len(projects) != 0 {
 		t.Fatalf("expected 0 projects, got %d", len(projects))
@@ -236,7 +236,7 @@ func TestPythonProjectDetector_WindowsLayout(t *testing.T) {
 		filepath.Join(dir, "proj", ".venv", "Scripts", "pip.exe"), "list", "--format", "json")
 
 	det := NewPythonProjectDetector(mock)
-	projects := det.ListProjects([]string{dir})
+	projects, _ := det.ListProjects([]string{dir}, nil)
 
 	if len(projects) != 1 {
 		t.Fatalf("expected 1 project, got %d", len(projects))
@@ -261,7 +261,7 @@ func TestPythonProjectDetector_VenvWithoutPip(t *testing.T) {
 	mock.SetFile(filepath.Join(dir, "proj", ".venv", "pyvenv.cfg"), []byte(""))
 
 	det := NewPythonProjectDetector(mock)
-	projects := det.ListProjects([]string{dir})
+	projects, _ := det.ListProjects([]string{dir}, nil)
 
 	if len(projects) != 1 {
 		t.Fatalf("expected 1 project (venv without pip), got %d", len(projects))

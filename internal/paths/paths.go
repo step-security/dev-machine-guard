@@ -140,3 +140,13 @@ func expandHome(s string) string {
 func LegacyHome() string {
 	return config.LegacyDir()
 }
+
+// ScanStateFile returns the absolute path to scan-state.json, or "" when
+// Home() is disabled. Callers must treat "" as "state tracking unavailable".
+func ScanStateFile() string {
+	home := Home()
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, "scan-state.json")
+}

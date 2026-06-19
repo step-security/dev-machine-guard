@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -34,25 +35,90 @@ func (d *PythonProjectDetector) WithSkipper(s *tcc.Skipper) *PythonProjectDetect
 
 // CountProjects counts Python projects with virtual environments.
 func (d *PythonProjectDetector) CountProjects(_ context.Context, searchDirs []string) int {
-	return len(d.ListProjects(searchDirs))
+	projects, _ := d.ListProjects(searchDirs, nil)
+	return len(projects)
+}
+
+// venvCandidate is one discovered virtual environment, captured before any
+// per-venv pip list is run so the discovered set can be reordered by state.
+type venvCandidate struct {
+	path    string
+	pipPath string
+	pm      string
+	modTime int64
 }
 
 // ListProjects returns Python projects that have a virtual environment,
 // along with the packages installed in each venv.
 //
-// Note: ProjectInfo.Path is the venv directory itself (not the project root,
-// unlike Node detection). This lets multiple venvs under the same parent
-// directory each surface as their own entry. The package_manager field is
-// still derived from marker files in the parent directory.
-func (d *PythonProjectDetector) ListProjects(searchDirs []string) []model.ProjectInfo {
-	var projects []model.ProjectInfo
+// Ordering: paths absent from knownLastVerified come first by mtime
+// descending; known paths follow by LastVerifiedAt ascending. Pass nil for
+// discovery-order behavior.
+//
+// ProjectInfo.Path is the venv directory itself (not the project root, unlike
+// node detection). Multiple venvs sharing a parent each surface as their own
+// entry. PackageManager is derived from marker files in the parent.
+//
+// The second return is every venv path discovered on disk (before the cap),
+// so callers can distinguish "missing from disk" from "dropped by the cap"
+// when comparing against prior state.
+func (d *PythonProjectDetector) ListProjects(searchDirs []string, knownLastVerified map[string]time.Time) (projects []model.ProjectInfo, discovered []string) {
+	var candidates []venvCandidate
 	for _, dir := range searchDirs {
-		projects = append(projects, d.listInDir(dir)...)
-		if len(projects) >= maxPythonProjects {
-			return projects[:maxPythonProjects]
+		candidates = append(candidates, d.discoverInDir(dir)...)
+	}
+
+	discovered = make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		discovered = append(discovered, c.path)
+	}
+
+	candidates = orderVenvs(candidates, knownLastVerified)
+
+	if len(candidates) > maxPythonProjects {
+		candidates = candidates[:maxPythonProjects]
+	}
+
+	ctx := context.Background()
+	projects = make([]model.ProjectInfo, 0, len(candidates))
+	for _, c := range candidates {
+		var pkgs []model.PackageDetail
+		if c.pipPath != "" {
+			pkgs = d.listVenvPackages(ctx, c.pipPath)
+		}
+		projects = append(projects, model.ProjectInfo{
+			Path:           c.path,
+			PackageManager: c.pm,
+			Packages:       pkgs,
+		})
+	}
+	return projects, discovered
+}
+
+// orderVenvs prioritises never-seen venvs (mtime desc) before known venvs
+// (LastVerifiedAt asc). A nil map (no state at all) preserves discovery order;
+// an empty map means state exists but has no Python entries yet, so every
+// candidate is unknown and still gets sorted by mtime desc.
+func orderVenvs(candidates []venvCandidate, knownLastVerified map[string]time.Time) []venvCandidate {
+	if knownLastVerified == nil {
+		return candidates
+	}
+	unknown := make([]venvCandidate, 0, len(candidates))
+	known := make([]venvCandidate, 0, len(candidates))
+	for _, c := range candidates {
+		if _, ok := knownLastVerified[c.path]; ok {
+			known = append(known, c)
+		} else {
+			unknown = append(unknown, c)
 		}
 	}
-	return projects
+	sort.Slice(unknown, func(i, j int) bool {
+		return unknown[i].modTime > unknown[j].modTime
+	})
+	sort.Slice(known, func(i, j int) bool {
+		return knownLastVerified[known[i].path].Before(knownLastVerified[known[j].path])
+	})
+	return append(unknown, known...)
 }
 
 // findPipInVenv returns the path to pip inside a venv-shaped dir, or "".
@@ -128,9 +194,11 @@ var pythonPMFromMarker = map[string]string{
 	"requirements.txt": "pip",
 }
 
-func (d *PythonProjectDetector) listInDir(dir string) []model.ProjectInfo {
-	ctx := context.Background()
-	var projects []model.ProjectInfo
+// discoverInDir walks `dir` and returns every venv it finds, without running
+// pip list. The two-phase split (discover → order → scan) lets the caller
+// reorder via state before any pip list is run.
+func (d *PythonProjectDetector) discoverInDir(dir string) []venvCandidate {
+	var found []venvCandidate
 	_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -153,26 +221,19 @@ func (d *PythonProjectDetector) listInDir(dir string) []model.ProjectInfo {
 			return nil
 		}
 
-		// Each venv is reported as its own entry (Path = venv folder), so
-		// multiple venvs sharing a parent are all surfaced. package_manager
-		// detection runs against the parent dir. Skip descending into the
-		// venv tree regardless of pip presence — site-packages can be huge.
-		pm := d.detectPM(filepath.Dir(path))
-		var pkgs []model.PackageDetail
-		if pipPath != "" {
-			pkgs = d.listVenvPackages(ctx, pipPath)
+		modTime := int64(0)
+		if info, infoErr := entry.Info(); infoErr == nil {
+			modTime = info.ModTime().Unix()
 		}
-		projects = append(projects, model.ProjectInfo{
-			Path:           path,
-			PackageManager: pm,
-			Packages:       pkgs,
+		found = append(found, venvCandidate{
+			path:    path,
+			pipPath: pipPath,
+			pm:      d.detectPM(filepath.Dir(path)),
+			modTime: modTime,
 		})
-		if len(projects) >= maxPythonProjects {
-			return filepath.SkipAll
-		}
 		return filepath.SkipDir
 	})
-	return projects
+	return found
 }
 
 // detectPM determines the package manager for a project directory based on lock/marker files.

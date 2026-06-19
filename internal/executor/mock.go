@@ -120,6 +120,22 @@ func (m *Mock) SetFileInfo(path string, info os.FileInfo) {
 	m.fileInfos[path] = info
 }
 
+// SetFileMtime registers a stat result for `path` with a custom mtime
+// (Unix seconds) AND marks the file as existing (FileExists returns true).
+// Useful for cache-invalidation tests that need to assert behavior across
+// mtime windows.
+func (m *Mock) SetFileMtime(path string, unixSec int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.fileInfos[path] = &mockFileInfo{
+		name:    filepath.Base(path),
+		modTime: time.Unix(unixSec, 0),
+	}
+	if _, ok := m.files[path]; !ok {
+		m.files[path] = []byte{}
+	}
+}
+
 func (m *Mock) SetPath(name, path string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -373,15 +389,16 @@ func cmdKey(name string, args ...string) string {
 }
 
 type mockFileInfo struct {
-	name string
-	size int64
-	dir  bool
+	name    string
+	size    int64
+	dir     bool
+	modTime time.Time
 }
 
 func (fi *mockFileInfo) Name() string       { return fi.name }
 func (fi *mockFileInfo) Size() int64        { return fi.size }
 func (fi *mockFileInfo) IsDir() bool        { return fi.dir }
-func (fi *mockFileInfo) ModTime() time.Time { return time.Time{} }
+func (fi *mockFileInfo) ModTime() time.Time { return fi.modTime }
 func (fi *mockFileInfo) Mode() os.FileMode  { return 0o644 }
 func (fi *mockFileInfo) Sys() any           { return nil }
 

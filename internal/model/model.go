@@ -122,6 +122,31 @@ type Summary struct {
 	FlatpakPackagesCount  int `json:"flatpak_packages_count"`
 }
 
+// UnchangedProjectRef tells the backend a project is unchanged since the
+// last successful upload. Backend bumps LastSeenAt on every package row
+// whose ProjectPaths contains Path.
+type UnchangedProjectRef struct {
+	Path                    string `json:"path"`
+	ScanOutputHash          string `json:"scan_output_hash"`
+	LastUploadedExecutionID string `json:"last_uploaded_execution_id,omitempty"`
+}
+
+// RemovedProjectRef tells the backend a project has disappeared from disk.
+// Backend drops Path from every matching row's ProjectPaths and bumps
+// RecordUpdatedAt but not LastSeenAt.
+type RemovedProjectRef struct {
+	Path                    string `json:"path"`
+	LastUploadedExecutionID string `json:"last_uploaded_execution_id,omitempty"`
+}
+
+// UnchangedGlobalRef tells the backend a PM's global package set is unchanged.
+// Keyed by PM name (globals are PM-scoped, not path-scoped).
+type UnchangedGlobalRef struct {
+	PackageManager          string `json:"package_manager"`
+	ScanOutputHash          string `json:"scan_output_hash"`
+	LastUploadedExecutionID string `json:"last_uploaded_execution_id,omitempty"`
+}
+
 // NodeScanResult holds raw scan output for enterprise telemetry.
 // Used for both global packages and per-project scans.
 type NodeScanResult struct {

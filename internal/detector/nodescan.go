@@ -9,8 +9,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/buildinfo"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
@@ -47,8 +49,11 @@ type NodeScanner struct {
 	// per project; this cache collapses that to one lookup per distinct
 	// PM. A scanner is created once per telemetry run (see
 	// internal/telemetry/telemetry.go), so the cache's effective scope
-	// matches a single scan even though the map isn't reset.
-	pmAvailability map[string]error
+	// matches a single scan even though the map isn't reset. Mutex-guarded
+	// because the worker pool in scanProjectsConcurrent reads/writes this
+	// map from multiple goroutines.
+	pmAvailability   map[string]error
+	pmAvailabilityMu sync.Mutex
 }
 
 func NewNodeScanner(exec executor.Executor, log *progress.Logger, loggedInUser string) *NodeScanner {
@@ -65,9 +70,13 @@ func NewNodeScanner(exec executor.Executor, log *progress.Logger, loggedInUser s
 // the per-project loop don't pay a LookPath per project on devices that
 // have hundreds of lockfiles for a PM that isn't installed.
 func (s *NodeScanner) binaryAvailable(ctx context.Context, name string) error {
+	s.pmAvailabilityMu.Lock()
 	if err, ok := s.pmAvailability[name]; ok {
+		s.pmAvailabilityMu.Unlock()
 		return err
 	}
+	s.pmAvailabilityMu.Unlock()
+
 	err := s.checkPath(ctx, name)
 	if err != nil {
 		// Logged once per PM (cache miss). "Not on PATH" is a normal
@@ -76,7 +85,9 @@ func (s *NodeScanner) binaryAvailable(ctx context.Context, name string) error {
 		// (send the Debug header) instead of an unexplained absence.
 		s.log.Debug("%s not found in PATH (delegated=%v) — projects using it will be skipped: %v", name, s.shouldRunAsUser(), err)
 	}
+	s.pmAvailabilityMu.Lock()
 	s.pmAvailability[name] = err
+	s.pmAvailabilityMu.Unlock()
 	return err
 }
 
@@ -388,10 +399,17 @@ type projectEntry struct {
 	modTime int64
 }
 
-// ScanProjects finds package.json files, sorts by most recently modified, then scans.
-// Respects the size limit (default 500MB, override via STEPSEC_MAX_NODE_SCAN_BYTES).
-func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []model.NodeScanResult {
-	// Phase 1: Discover all package.json files
+// ScanProjects finds package.json files and scans them within the size cap.
+//
+// Ordering: never-before-seen projects (paths absent from knownLastVerified)
+// come first, sorted by mtime descending. Already-known projects follow,
+// sorted by their LastVerifiedAt ascending so the stalest are re-checked
+// first. Pass a nil map for plain mtime-descending order.
+//
+// The second return is every project directory discovered on disk (before
+// the cap), so callers can distinguish "missing from disk" from "dropped by
+// the cap" when comparing against prior state.
+func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string, knownLastVerified map[string]time.Time) (results []model.NodeScanResult, discovered []string) {
 	var projects []projectEntry
 	for _, dir := range searchDirs {
 		s.log.Progress("  Searching in: %s", dir)
@@ -417,7 +435,6 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 			if isInsideNodeModules(projectDir) {
 				return nil
 			}
-			// Get modification time for sorting
 			modTime := int64(0)
 			if info, err := entry.Info(); err == nil {
 				modTime = info.ModTime().Unix()
@@ -429,60 +446,178 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string) []m
 
 	s.log.Debug("node project discovery: found %d package.json files across %d search dir(s)", len(projects), len(searchDirs))
 
-	// Phase 2: Sort by modification time descending (most recent first)
-	sort.Slice(projects, func(i, j int) bool {
-		return projects[i].modTime > projects[j].modTime
-	})
-
-	// Phase 3: Scan in order, respecting limits
-	maxBytes := getMaxProjectScanBytes()
-	var results []model.NodeScanResult
-	totalSize := int64(0)
-
-	totalProjects := len(projects)
-	if totalProjects > maxNodeProjects {
-		totalProjects = maxNodeProjects
+	discovered = make([]string, 0, len(projects))
+	for _, p := range projects {
+		discovered = append(discovered, p.dir)
 	}
-	for i, p := range projects {
-		if i >= maxNodeProjects {
-			s.log.Progress("  Reached maximum of %d projects, stopping search", maxNodeProjects)
-			s.log.Warn("Node project scan truncated at %d projects (total discovered: %d) — oldest projects were skipped", maxNodeProjects, len(projects))
-			break
-		}
-		if totalSize > maxBytes {
-			s.log.Warn("Reached data size limit (%d bytes collected, limit: %d bytes)", totalSize, maxBytes)
-			s.log.Warn("Skipping remaining projects (prioritized by most recently modified)")
-			break
-		}
 
-		// Per-project sub-progress for the heartbeat goroutine. Surfaces
-		// to console as "current_phase_detail: project 12 of 47" so a
-		// stuck scan is visibly so, not just opaque "node_scan in progress".
-		s.emitProgress(fmt.Sprintf("project %d of %d", i+1, totalProjects))
+	projects = orderScanProjects(projects, knownLastVerified)
 
-		s.log.Progress("  Found project: %s", p.dir)
-		pm := DetectProjectPM(s.exec, p.dir)
-		s.log.Progress("    Package manager: %s", pm)
+	if len(projects) > maxNodeProjects {
+		s.log.Warn("Node project scan truncated at %d projects (total discovered: %d) — lowest-priority projects were skipped", maxNodeProjects, len(projects))
+		projects = projects[:maxNodeProjects]
+	}
 
-		r, ok := s.scanProject(ctx, p.dir, pm)
-		if !ok {
-			// PM not installed on this device — not an error, just nothing
-			// to scan. Skip without emitting a telemetry record.
-			continue
-		}
+	results = s.scanProjectsConcurrent(ctx, projects)
+
+	maxBytes := getMaxProjectScanBytes()
+	totalSize := int64(0)
+	capped := make([]model.NodeScanResult, 0, len(results))
+	for _, r := range results {
 		resultSize := int64(len(r.RawStdoutBase64)) + int64(len(r.RawStderrBase64))
-
 		if totalSize+resultSize > maxBytes {
 			s.log.Warn("Reached data size limit (%d bytes collected, limit: %d bytes)", totalSize, maxBytes)
 			s.log.Warn("Skipping remaining projects (prioritized by most recently modified)")
 			break
 		}
-
 		totalSize += resultSize
-		results = append(results, r)
+		capped = append(capped, r)
 	}
 
+	return capped, discovered
+}
+
+// scanProjectsConcurrent returns one NodeScanResult per project in the input
+// order. Cache hits skip the PM CLI entirely; cache misses run through a
+// bounded worker pool. Successful fresh scans are written back to the cache.
+// Projects whose PM isn't installed on the device produce no result (skipped
+// in the returned slice to match the legacy contract).
+func (s *NodeScanner) scanProjectsConcurrent(ctx context.Context, projects []projectEntry) []model.NodeScanResult {
+	cachePath := scanCacheFile(s.exec)
+	cache := loadScanCache(cachePath)
+	bypassCache := s.exec.Getenv("STEPSEC_NODE_SCAN_CACHE_BYPASS") == "1"
+	nowUnix := time.Now().Unix()
+
+	type slot struct {
+		result    model.NodeScanResult
+		pm        string
+		populated bool
+		fromCache bool
+	}
+	slots := make([]slot, len(projects))
+	missIdx := make([]int, 0, len(projects))
+
+	for i, p := range projects {
+		s.emitProgress(fmt.Sprintf("project %d of %d", i+1, len(projects)))
+		pm := DetectProjectPM(s.exec, p.dir)
+		slots[i].pm = pm
+
+		entry, ok := cache.Projects[p.dir]
+		if ok && cacheValidFor(s.exec, entry, p.dir, pm, s.agentVersion(), bypassCache) {
+			s.log.Progress("  Cached: %s (%s)", p.dir, pm)
+			slots[i].result = entry.CachedResult
+			slots[i].populated = true
+			slots[i].fromCache = true
+			continue
+		}
+		missIdx = append(missIdx, i)
+	}
+
+	if len(missIdx) > 0 {
+		jobs := make(chan int, len(missIdx))
+		var wg sync.WaitGroup
+		workers := scanWorkerCount(s.exec)
+		for range workers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for idx := range jobs {
+					p := projects[idx]
+					pm := slots[idx].pm
+					s.log.Progress("  Scanning: %s (%s)", p.dir, pm)
+					r, ok := s.scanProject(ctx, p.dir, pm)
+					if !ok {
+						continue
+					}
+					slots[idx].result = r
+					slots[idx].populated = true
+				}
+			}()
+		}
+		for _, i := range missIdx {
+			jobs <- i
+		}
+		close(jobs)
+		wg.Wait()
+	}
+
+	results := make([]model.NodeScanResult, 0, len(slots))
+	for i, sl := range slots {
+		if !sl.populated {
+			continue
+		}
+		results = append(results, sl.result)
+		if !sl.fromCache && sl.result.ExitCode == 0 {
+			cache.Projects[projects[i].dir] = scanCacheEntry{
+				PackageManager:   sl.pm,
+				LastScanUnix:     nowUnix,
+				PackageJSONMtime: mtimeOr0(s.exec, filepath.Join(projects[i].dir, "package.json")),
+				LockfileMtime:    mtimeOr0(s.exec, lockfileFor(s.exec, projects[i].dir, sl.pm)),
+				NodeModulesMtime: mtimeOr0(s.exec, filepath.Join(projects[i].dir, "node_modules")),
+				AgentVersion:     s.agentVersion(),
+				CachedResult:     sl.result,
+			}
+		}
+	}
+
+	pruneCacheToDiscovered(cache, projects)
+	if err := cache.save(cachePath); err != nil {
+		s.log.Debug("node-scan-cache: save failed (%v) — next run will re-scan everything", err)
+	}
+
+	s.log.Progress("  Scanned %d projects (%d cache hits)", len(missIdx), len(slots)-len(missIdx))
 	return results
+}
+
+// pruneCacheToDiscovered drops cache entries for projects not present in the
+// current discovery pass. Bounds the cache file at the device's current
+// project set rather than growing unboundedly across runs.
+func pruneCacheToDiscovered(cache *scanCache, projects []projectEntry) {
+	keep := make(map[string]struct{}, len(projects))
+	for _, p := range projects {
+		keep[p.dir] = struct{}{}
+	}
+	for dir := range cache.Projects {
+		if _, ok := keep[dir]; !ok {
+			delete(cache.Projects, dir)
+		}
+	}
+}
+
+// agentVersion returns the running agent's version, used as a cache key
+// guard so post-upgrade runs always re-scan.
+func (s *NodeScanner) agentVersion() string {
+	return buildinfo.Version
+}
+
+// orderScanProjects sorts discovered projects so that paths absent from
+// knownLastVerified (never-seen projects) come first by mtime descending,
+// then known paths by LastVerifiedAt ascending (stalest first). A nil map
+// degrades to the legacy mtime-descending order.
+func orderScanProjects(projects []projectEntry, knownLastVerified map[string]time.Time) []projectEntry {
+	if len(knownLastVerified) == 0 {
+		sort.Slice(projects, func(i, j int) bool {
+			return projects[i].modTime > projects[j].modTime
+		})
+		return projects
+	}
+
+	unknown := make([]projectEntry, 0, len(projects))
+	known := make([]projectEntry, 0, len(projects))
+	for _, p := range projects {
+		if _, ok := knownLastVerified[p.dir]; ok {
+			known = append(known, p)
+		} else {
+			unknown = append(unknown, p)
+		}
+	}
+	sort.Slice(unknown, func(i, j int) bool {
+		return unknown[i].modTime > unknown[j].modTime
+	})
+	sort.Slice(known, func(i, j int) bool {
+		return knownLastVerified[known[i].dir].Before(knownLastVerified[known[j].dir])
+	})
+	return append(unknown, known...)
 }
 
 // scanProject runs the project's detected package manager in the project

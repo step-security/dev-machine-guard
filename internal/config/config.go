@@ -25,6 +25,11 @@ var (
 	HTMLOutputFile      string // "" means not set
 	LogLevel            string // "" means default (info); one of error/warn/info/debug
 	InstallDir          string // "" means default (~/.stepsecurity); non-empty makes the agent put all its files (logs, hook errors, future state) under this directory. Bootstrap config.json itself stays at the legacy location. Per-run opt-out is the CLI flag --install-dir=. Resolution: --install-dir flag > STEPSECURITY_HOME env > this field > default — see internal/paths.
+	// UseLegacyPackageScan, when true, disables the scan-state delta-upload
+	// optimization for npm and Python project scans — every run re-uploads
+	// the full snapshot as in pre-1.13 agents. Default false = optimized.
+	// Environment override: STEPSEC_DISABLE_SCAN_STATE=1 takes precedence.
+	UseLegacyPackageScan bool
 )
 
 // MaxExecutionDuration is the whole-process execution-watchdog limit
@@ -54,6 +59,7 @@ type ConfigFile struct {
 	LogLevel             string   `json:"log_level,omitempty"`
 	InstallDir           string   `json:"install_dir,omitempty"`
 	MaxExecutionDuration string   `json:"max_execution_duration,omitempty"`
+	UseLegacyPackageScan bool     `json:"use_legacy_package_scan,omitempty"`
 }
 
 // userConfigDir returns ~/.stepsecurity — the per-user config location.
@@ -185,6 +191,9 @@ func Load() {
 	}
 	if cfg.MaxExecutionDuration != "" && MaxExecutionDuration == "" {
 		MaxExecutionDuration = cfg.MaxExecutionDuration
+	}
+	if cfg.UseLegacyPackageScan {
+		UseLegacyPackageScan = true
 	}
 }
 
