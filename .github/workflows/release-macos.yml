@@ -1,0 +1,229 @@
+name: Release macOS (codesign, notarize, attest)
+
+# Codesign + notarize the macOS universal binary, then cosign-sign and attest
+# the final notarized bytes, and publish them to an existing draft release.
+#
+# This is intentionally a SEPARATE, dispatch-only workflow (not part of
+# release.yml) because Apple notarization can hang. Keeping it standalone means
+# you can re-run it as many times as needed without re-running the whole
+# release. release.yml uploads the unsigned `…-darwin_unnotarized` binary to the
+# draft release and deliberately does NOT cosign/attest it; this workflow takes
+# over from there.
+#
+# Order to release a version:
+#   1. Run "Release" (release.yml)            -> builds + drafts, uploads …-darwin_unnotarized
+#   2. Run this workflow with the release tag -> publishes the signed …-darwin
+#   (If notarization hangs, note the submission id printed here and use the
+#    "Check Notarization Status" workflow, then re-run this workflow.)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to sign the macOS binary for (e.g. v1.12.0)"
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  macos-sign-and-notarize:
+    name: Codesign & notarize macOS universal binary
+    runs-on: macos-latest
+    # The `release` environment gates access to the signing secrets and requires
+    # reviewers, matching the Windows signing job in release.yml.
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        # codesign/notarytool reach Apple endpoints (timestamp.apple.com,
+        # notary-api / appstoreconnect, ocsp/crl). Audit mode logs the full set
+        # before switching to block mode.
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Resolve version from tag
+        id: version
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag }}"
+          version="${tag#v}"
+          if [ -z "$version" ]; then
+            echo "::error::Could not derive version from tag '${tag}'"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Download darwin_unnotarized from draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "${{ inputs.tag }}" \
+            -R "${{ github.repository }}" \
+            -p "*-darwin_unnotarized" \
+            -D dist
+          ls -la dist/
+          bin="dist/stepsecurity-dev-machine-guard-${{ steps.version.outputs.version }}-darwin_unnotarized"
+          test -f "$bin" || { echo "::error::Expected $bin not found in release ${{ inputs.tag }}"; exit 1; }
+
+      - name: Import Developer ID certificate into a temporary keychain
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PWD="$(uuidgen)"
+          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+
+          security create-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          # Add the build keychain to the search list so codesign can find the
+          # identity, and authorize codesign to use the key without a UI prompt.
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PWD" "$KEYCHAIN"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+          # Surface the Developer ID certificate's expiration so we renew it
+          # before it lapses. Warn at 30 days; fail outright if already expired
+          # (codesign would fail anyway, but a clear message is more actionable).
+          echo "::group::Certificate expiration"
+          cert_pem="$RUNNER_TEMP/devid.pem"
+          security find-certificate -c "Developer ID Application" -p "$KEYCHAIN" > "$cert_pem"
+          subject="$(openssl x509 -in "$cert_pem" -noout -subject | sed 's/^subject= *//')"
+          not_after="$(openssl x509 -in "$cert_pem" -noout -enddate | cut -d= -f2)"
+          echo "Certificate: $subject"
+          echo "Expires:     $not_after"
+          echo "::notice title=Developer ID cert expiry::$subject expires $not_after"
+          if ! openssl x509 -in "$cert_pem" -noout -checkend 0; then
+            echo "::error title=Developer ID cert expired::Certificate expired on $not_after. Renew it before releasing."
+            exit 1
+          elif ! openssl x509 -in "$cert_pem" -noout -checkend $((30 * 24 * 3600)); then
+            echo "::warning title=Developer ID cert expiring soon::Certificate expires on $not_after (within 30 days). Plan renewal."
+          fi
+          echo "::endgroup::"
+
+      - name: Codesign, notarize, and verify
+        env:
+          MACOS_NOTARY_API_KEY_P8_BASE64: ${{ secrets.MACOS_NOTARY_API_KEY_P8_BASE64 }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          bin="dist/stepsecurity-dev-machine-guard-${version}-darwin_unnotarized"
+
+          echo "::group::Codesign"
+          # Pin the code-signing identifier with -i so the designated requirement
+          # stays "stepsecurity-dev-machine-guard" regardless of the on-disk
+          # filename. Without -i, codesign derives the identifier from the file
+          # name (e.g. stepsecurity-dev-machine-guard-VERSION-darwin_unnotarized),
+          # which changes every release and breaks MDM PPPC/TCC profiles that
+          # grant Full Disk Access by identifier.
+          codesign --sign "Developer ID Application: Step Security, Inc. (D63S9HLM4L)" \
+            --identifier stepsecurity-dev-machine-guard \
+            --options runtime --timestamp "$bin"
+          codesign --verify --deep --strict --verbose=2 "$bin"
+          # Confirm the embedded identifier is the stable one MDM profiles expect.
+          codesign -d -r- "$bin" 2>&1 | sed -n 's/^designated => //p'
+          echo "::endgroup::"
+
+          # App Store Connect API key credentials for notarytool.
+          key="$RUNNER_TEMP/AuthKey.p8"
+          echo "$MACOS_NOTARY_API_KEY_P8_BASE64" | base64 --decode > "$key"
+          creds=(--key "$key" --key-id "$MACOS_NOTARY_KEY_ID" --issuer "$MACOS_NOTARY_ISSUER_ID")
+
+          ditto -c -k --keepParent "$bin" "$RUNNER_TEMP/notarize.zip"
+
+          # Submit WITHOUT --wait first, so we always capture and print the
+          # submission id even if Apple is slow. The id is what the
+          # "Check Notarization Status" workflow needs to investigate a hang.
+          echo "::group::Submit to notary"
+          submit_json="$(xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            "${creds[@]}" --output-format json)"
+          echo "$submit_json"
+          echo "::endgroup::"
+
+          submission_id="$(echo "$submit_json" | jq -r '.id')"
+          if [ -z "$submission_id" ] || [ "$submission_id" = "null" ]; then
+            echo "::error::Could not parse notarization submission id"
+            exit 1
+          fi
+          echo "Notarization submission id: $submission_id"
+          echo "::notice title=Notarization submission id::$submission_id"
+
+          # Time-bound the wait to 5 minutes. On timeout, notarytool exits
+          # non-zero; we surface the id so the run can be re-driven without
+          # resubmitting (Apple keeps processing server-side).
+          echo "::group::Wait (timeout 5m)"
+          if ! xcrun notarytool wait "$submission_id" "${creds[@]}" --timeout 5m; then
+            echo "::error title=Notarization not complete::Submission $submission_id did not reach a terminal state within 5m. Run the 'Check Notarization Status' workflow with id '$submission_id'; once it shows 'Accepted', re-run this workflow."
+            xcrun notarytool info "$submission_id" "${creds[@]}" || true
+            exit 1
+          fi
+          echo "::endgroup::"
+
+          status="$(xcrun notarytool info "$submission_id" "${creds[@]}" --output-format json | jq -r '.status')"
+          echo "Notarization status: $status"
+          if [ "$status" != "Accepted" ]; then
+            echo "::error::Notarization status is '$status' (expected 'Accepted'). Fetching log:"
+            xcrun notarytool log "$submission_id" "${creds[@]}" || true
+            exit 1
+          fi
+
+          # Standalone binaries can't be stapled; Gatekeeper verifies the ticket
+          # online. spctl confirms the binary is accepted.
+          spctl -a -vvv -t install "$bin"
+
+          mv "$bin" "dist/stepsecurity-dev-machine-guard-${version}-darwin"
+          echo "Signed + notarized: dist/stepsecurity-dev-machine-guard-${version}-darwin"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign notarized binary with Sigstore
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          bin="dist/stepsecurity-dev-machine-guard-${version}-darwin"
+          bundle="dist/stepsecurity-dev-machine-guard-darwin.bundle"
+          for attempt in 1 2 3; do
+            if cosign sign-blob "$bin" --bundle "$bundle" --yes; then
+              break
+            fi
+            echo "::warning::Sign attempt $attempt failed for $bin, retrying in 10s..."
+            sleep 10
+          done
+          test -s "$bundle" || { echo "::error::cosign failed for $bin after 3 attempts"; exit 1; }
+
+      - name: Upload notarized binary and bundle to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          gh release upload "${{ inputs.tag }}" \
+            "dist/stepsecurity-dev-machine-guard-${version}-darwin" \
+            "dist/stepsecurity-dev-machine-guard-darwin.bundle" \
+            --clobber
+
+          # The unsigned binary should not remain on the release; best-effort
+          # cleanup so users only see the notarized artifact.
+          gh release delete-asset "${{ inputs.tag }}" \
+            "stepsecurity-dev-machine-guard-${version}-darwin_unnotarized" -y || true
+
+      - name: Attest darwin build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: dist/stepsecurity-dev-machine-guard-${{ steps.version.outputs.version }}-darwin

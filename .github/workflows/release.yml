@@ -96,7 +96,13 @@ jobs:
           # subdirs without renaming, only the upload uses the templated name).
           # The windows-sign-and-package job downloads them from the draft release,
           # so we don't need to locate them locally here.
-          DARWIN=$(find dist -type f -name '*darwin_unnotarized' | head -1)
+          #
+          # The darwin universal binary (…-darwin_unnotarized) is uploaded to the
+          # draft release by GoReleaser, but it is intentionally NOT cosign-signed
+          # or attested here: codesigning rewrites the bytes, so signing the
+          # unnotarized bytes would not match what users download. The separate
+          # release-macos.yml workflow codesigns + notarizes, then cosign-signs and
+          # attests the final notarized bytes. Run it after this workflow.
           LINUX_AMD64=$(find dist -type f -name 'stepsecurity-dev-machine-guard' -path '*linux_amd64*' | head -1)
           LINUX_ARM64=$(find dist -type f -name 'stepsecurity-dev-machine-guard' -path '*linux_arm64*' | head -1)
 
@@ -105,7 +111,7 @@ jobs:
           RPM_AMD64=$(find dist -type f -name '*-amd64.rpm' | head -1)
           RPM_ARM64=$(find dist -type f -name '*-arm64.rpm' | head -1)
 
-          for label in "darwin:${DARWIN}" "linux_amd64:${LINUX_AMD64}" "linux_arm64:${LINUX_ARM64}" "deb_amd64:${DEB_AMD64}" "deb_arm64:${DEB_ARM64}" "rpm_amd64:${RPM_AMD64}" "rpm_arm64:${RPM_ARM64}"; do
+          for label in "linux_amd64:${LINUX_AMD64}" "linux_arm64:${LINUX_ARM64}" "deb_amd64:${DEB_AMD64}" "deb_arm64:${DEB_ARM64}" "rpm_amd64:${RPM_AMD64}" "rpm_arm64:${RPM_ARM64}"; do
             name="${label%%:*}"
             path="${label#*:}"
             if [ -z "$path" ] || [ ! -f "$path" ]; then
@@ -115,7 +121,6 @@ jobs:
             fi
           done
 
-          echo "darwin=$DARWIN" >> "$GITHUB_OUTPUT"
           echo "linux_amd64=$LINUX_AMD64" >> "$GITHUB_OUTPUT"
           echo "linux_arm64=$LINUX_ARM64" >> "$GITHUB_OUTPUT"
           echo "deb_amd64=$DEB_AMD64" >> "$GITHUB_OUTPUT"
@@ -143,10 +148,10 @@ jobs:
           }
 
           # Windows .exes are signed in the windows-sign-and-package job after
-          # Authenticode signing, so the cosign bundles match the bytes users
-          # download from the published release.
-          sign_with_retry "${{ steps.binaries.outputs.darwin }}" \
-            "dist/stepsecurity-dev-machine-guard-darwin_unnotarized.bundle"
+          # Authenticode signing, and the darwin binary is signed in
+          # release-macos.yml after codesigning + notarization, so in both cases
+          # the cosign bundles match the bytes users download from the published
+          # release.
           sign_with_retry "${{ steps.binaries.outputs.linux_amd64 }}" \
             "dist/stepsecurity-dev-machine-guard-linux_amd64.bundle"
           sign_with_retry "${{ steps.binaries.outputs.linux_arm64 }}" \
@@ -164,9 +169,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Windows .exe bundles are uploaded by the windows-sign-and-package job.
+          # Windows .exe bundles are uploaded by the windows-sign-and-package job;
+          # the darwin bundle is uploaded by release-macos.yml.
           gh release upload "${{ steps.release.outputs.tag }}" \
-            dist/stepsecurity-dev-machine-guard-darwin_unnotarized.bundle \
             dist/stepsecurity-dev-machine-guard-linux_amd64.bundle \
             dist/stepsecurity-dev-machine-guard-linux_arm64.bundle \
             "${{ steps.binaries.outputs.deb_amd64 }}.bundle" \
@@ -177,11 +182,11 @@ jobs:
 
       - name: Attest build provenance
         # Windows .exe and MSI attestations are emitted by the
-        # windows-sign-and-package job after Authenticode signing.
+        # windows-sign-and-package job after Authenticode signing; the darwin
+        # attestation is emitted by release-macos.yml after notarization.
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
-            ${{ steps.binaries.outputs.darwin }}
             ${{ steps.binaries.outputs.linux_amd64 }}
             ${{ steps.binaries.outputs.linux_arm64 }}
             ${{ steps.binaries.outputs.deb_amd64 }}
