@@ -310,6 +310,17 @@ func main() {
 			return
 		}
 
+		// On macOS, launchd.Install already loaded the plist, and RunAtLoad=true
+		// runs the initial scan immediately under the user's GUI session. Don't
+		// also scan inline here — that would double-scan at install (two TCC
+		// rounds + two uploads), with the second run blocked on the singleton
+		// lock. Mirrors the Windows-SYSTEM path above; the launchd-triggered
+		// scan's output lands in agent.log.
+		if runtime.GOOS == "darwin" {
+			runHookStateReconcile(exec, log)
+			return
+		}
+
 		log.Progress("Sending initial telemetry...")
 		fmt.Println()
 		armExecutionWatchdog(telemetry.ExecutionDeadline(config.MaxExecutionDuration), log)

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/launchd"
 	"github.com/step-security/dev-machine-guard/internal/systemd"
 )
@@ -42,7 +43,7 @@ func TestFileExists(t *testing.T) {
 // real machine. The result is whatever the current dev box reports; we can
 // only assert the value is one of the two valid wire-format strings.
 func TestDetectInvocationMethod_HostMachine(t *testing.T) {
-	got := DetectInvocationMethod()
+	got := DetectInvocationMethod(executor.NewReal())
 	if got != InvocationInstall && got != InvocationOneTime {
 		t.Fatalf("DetectInvocationMethod returned %q, want %q or %q",
 			got, InvocationInstall, InvocationOneTime)
@@ -86,9 +87,14 @@ func TestDetectInvocationMethod_RespondsToFilesystem(t *testing.T) {
 		t.Fatalf("resolved path %q escaped tempHome %q — env sandbox is not effective", path, tempHome)
 	}
 
+	// Mock executor with no command stubs: the live job-state probe errors out
+	// → "inconclusive" → detection falls back to the footprint, which is what
+	// this test exercises.
+	mock := executor.NewMock()
+
 	// Fresh temp home — detector starts at one_time, flips to install when
 	// the marker appears, flips back when it's removed.
-	if got := DetectInvocationMethod(); got != InvocationOneTime {
+	if got := DetectInvocationMethod(mock); got != InvocationOneTime {
 		t.Fatalf("on clean temp home, detector returned %q, want %q",
 			got, InvocationOneTime)
 	}
@@ -102,7 +108,7 @@ func TestDetectInvocationMethod_RespondsToFilesystem(t *testing.T) {
 	// No explicit cleanup: everything lives under t.TempDir() and is
 	// removed by the testing framework when the test ends.
 
-	if got := DetectInvocationMethod(); got != InvocationInstall {
+	if got := DetectInvocationMethod(mock); got != InvocationInstall {
 		t.Fatalf("after creating %q, detector returned %q, want %q",
 			path, got, InvocationInstall)
 	}
@@ -113,8 +119,55 @@ func TestDetectInvocationMethod_RespondsToFilesystem(t *testing.T) {
 		t.Fatalf("remove fake artifact: %v", err)
 	}
 
-	if got := DetectInvocationMethod(); got != InvocationOneTime {
+	if got := DetectInvocationMethod(mock); got != InvocationOneTime {
 		t.Fatalf("after removing %q, detector returned %q, want %q",
 			path, got, InvocationOneTime)
+	}
+}
+
+// TestDetectInvocationMethod_RunningState covers the per-invocation logic on
+// macOS: with a scheduler footprint present, the live launchd job state decides
+// scheduler-triggered (PID running) vs manual (idle), and an inconclusive probe
+// stays "install" so a real scheduled run is never mislabeled. macOS-only
+// because schedulerJobIdle's probe command is platform-specific (keyed on the
+// test host's runtime.GOOS).
+func TestDetectInvocationMethod_RunningState(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("darwin-specific launchctl probe")
+	}
+
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
+
+	// Create the footprint so isSchedulerInstalled() reports installed.
+	plist := launchd.UserPlistPath()
+	if plist == "" || !strings.HasPrefix(plist, tempHome) {
+		t.Skipf("plist path %q not sandboxed under %q", plist, tempHome)
+	}
+	if err := os.MkdirAll(filepath.Dir(plist), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plist, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Job running (launchctl list shows a PID) → scheduler-triggered → install.
+	running := executor.NewMock()
+	running.SetCommand(`{ "PID" = 123; "Label" = "com.stepsecurity.agent"; };`, "", 0, "launchctl", "list", launchd.Label)
+	if got := DetectInvocationMethod(running); got != InvocationInstall {
+		t.Errorf("running job: got %q, want %q", got, InvocationInstall)
+	}
+
+	// Job idle (no PID) → manual run on an installed machine → one_time.
+	idle := executor.NewMock()
+	idle.SetCommand(`{ "Label" = "com.stepsecurity.agent"; "LastExitStatus" = 0; };`, "", 0, "launchctl", "list", launchd.Label)
+	if got := DetectInvocationMethod(idle); got != InvocationOneTime {
+		t.Errorf("idle job: got %q, want %q", got, InvocationOneTime)
+	}
+
+	// Inconclusive probe (unstubbed → error) → keep install, never mislabel.
+	if got := DetectInvocationMethod(executor.NewMock()); got != InvocationInstall {
+		t.Errorf("inconclusive probe: got %q, want %q", got, InvocationInstall)
 	}
 }

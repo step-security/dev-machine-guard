@@ -223,6 +223,10 @@ func RunConfigure() error {
 	existing.APIEndpoint = promptValue(reader, "API Endpoint", existing.APIEndpoint)
 	existing.APIKey = promptSecret(reader, "API Key", existing.APIKey)
 	existing.ScanFrequencyHours = promptValue(reader, "Scan Frequency (hours)", existing.ScanFrequencyHours)
+	// Whole-process execution watchdog. A Go duration string ("2h", "30m"),
+	// "off"/"0" to disable, or blank for the built-in 4h default. See
+	// telemetry.ExecutionDeadline.
+	existing.MaxExecutionDuration = promptValue(reader, "Max Execution Duration (e.g. 2h, 30m; 'off' to disable; blank = default 4h)", existing.MaxExecutionDuration)
 
 	// Search dirs
 	currentDirs := ""
@@ -304,6 +308,23 @@ func RunConfigure() error {
 		existing.EnablePythonScan = &v
 	default:
 		existing.EnablePythonScan = nil
+	}
+
+	// Include macOS TCC-protected dirs (Documents, Downloads, ~/Library/Mail,
+	// …). Default is to skip them so the agent never triggers permission
+	// prompts; opt in only after granting Full Disk Access (PPPC profile or
+	// System Settings). See docs/macos-tcc-permissions.md. Stored only when
+	// enabled — anything but "true" clears it back to the default skip.
+	currentTCC := "false"
+	if existing.IncludeTCCProtected != nil && *existing.IncludeTCCProtected {
+		currentTCC = "true"
+	}
+	tccInput := promptValue(reader, "Scan macOS TCC-protected dirs — Documents, Downloads, … (true/false)", currentTCC)
+	if strings.EqualFold(strings.TrimSpace(tccInput), "true") {
+		v := true
+		existing.IncludeTCCProtected = &v
+	} else {
+		existing.IncludeTCCProtected = nil
 	}
 
 	// Color mode
@@ -489,10 +510,12 @@ func ShowConfigure() {
 	fmt.Printf("  %-24s %s\n", "API Endpoint:", displayValue(cfg.APIEndpoint))
 	fmt.Printf("  %-24s %s\n", "API Key:", maskSecret(cfg.APIKey))
 	fmt.Printf("  %-24s %s\n", "Scan Frequency:", displayFrequency(cfg.ScanFrequencyHours))
+	fmt.Printf("  %-24s %s\n", "Max Execution Duration:", displayMaxExecution(cfg.MaxExecutionDuration))
 	fmt.Printf("  %-24s %s\n", "Search Directories:", displayDirs(cfg.SearchDirs))
 	fmt.Printf("  %-24s %s\n", "Enable NPM Scan:", displayBoolScan(cfg.EnableNPMScan))
 	fmt.Printf("  %-24s %s\n", "Enable Brew Scan:", displayBoolScan(cfg.EnableBrewScan))
 	fmt.Printf("  %-24s %s\n", "Enable Python Scan:", displayBoolScan(cfg.EnablePythonScan))
+	fmt.Printf("  %-24s %s\n", "Scan TCC-Protected Dirs:", displayTCC(cfg.IncludeTCCProtected))
 	fmt.Printf("  %-24s %s\n", "Color Mode:", displayColorMode(cfg.ColorMode))
 	fmt.Printf("  %-24s %s\n", "Output Format:", displayOutputFormat(cfg.OutputFormat))
 	if cfg.OutputFormat == "html" {
@@ -577,6 +600,30 @@ func displayInstallDir(v string) string {
 		return "~/.stepsecurity (default)"
 	}
 	return v
+}
+
+// displayMaxExecution renders the execution-watchdog setting. Empty falls back
+// to the built-in 4h default; "0"/"off" disables the watchdog; any other value
+// is a Go duration string echoed as-is (validated at run time by
+// telemetry.ExecutionDeadline).
+func displayMaxExecution(v string) string {
+	switch v {
+	case "":
+		return "4h (default)"
+	case "0", "off":
+		return "off (watchdog disabled)"
+	default:
+		return v
+	}
+}
+
+// displayTCC renders the macOS TCC opt-in. nil/false both mean the default
+// (skip TCC-protected dirs to avoid permission prompts); true means scan them.
+func displayTCC(v *bool) string {
+	if v != nil && *v {
+		return "true (scanning TCC-protected dirs)"
+	}
+	return "false (default — TCC-protected dirs skipped)"
 }
 
 func isPlaceholder(v string) bool {

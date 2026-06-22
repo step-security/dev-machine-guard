@@ -28,6 +28,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/schedinfo"
 	"github.com/step-security/dev-machine-guard/internal/state"
 	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
@@ -164,7 +165,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// Detect invocation method once at run start: "install" if the platform's
 	// scheduler footprint is on disk, else "one_time". Threaded into every
 	// run-status post and stamped on the final payload.
-	invocationMethod := DetectInvocationMethod()
+	invocationMethod := DetectInvocationMethod(exec)
 
 	// Phase tracker accumulates per-analysis-section completions so the
 	// backend can surface in-flight progress on the console. Reads from the
@@ -359,7 +360,28 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	}()
 	log.Progress("Lock acquired (PID: %d)", os.Getpid())
 
-	// Device info — first tracked phase. Completes before the "started"
+	// Scheduler info — first tracked phase. Gathers launchd/schtasks/systemd
+	// state (interval, last/next run, RunAtLoad, last exit, missed runs) for
+	// troubleshooting; see docs/launchd-troubleshooting.md. Best-effort —
+	// schedinfo.Gather uses short per-query timeouts and never errors. Like
+	// device_info it completes before the "started" post (so the first
+	// heartbeat includes it), but postPhase() is intentionally NOT called
+	// here: the backend has no run-status row to upsert into until that post,
+	// so this phase's completion ships in the first postPhase() below.
+	schedCtx, schedCancel := startPhase(ctx, tracker, "scheduler_info")
+	log.Progress("Gathering scheduler information...")
+	schedinfo.Log(schedinfo.Gather(schedCtx, exec), log)
+	// Authoritative trigger for this run (same value uploaded as invocation_method
+	// and shown as the Scheduled/Manual badge in the console) — logged here for
+	// at-a-glance triage in agent.log.
+	if invocationMethod == InvocationInstall {
+		log.Progress("  This run: scheduler-triggered (invocation_method=install)")
+	} else {
+		log.Progress("  This run: manual (invocation_method=one_time)")
+	}
+	endPhase(schedCtx, schedCancel, tracker, log, "scheduler_info")
+
+	// Device info — second tracked phase. Completes before the "started"
 	// post so the first heartbeat already includes it in phases_completed.
 	phaseCtx, phaseCancel := startPhase(ctx, tracker, "device_info")
 	log.Progress("Gathering device information...")

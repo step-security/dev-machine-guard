@@ -29,6 +29,11 @@ func TimerUnitPath() string {
 	return filepath.Join(homeDir, ".config", "systemd", "user", unitName+".timer")
 }
 
+// ServiceUnitName returns the systemd user service unit name (e.g. for
+// `systemctl --user is-active`). Exported so the telemetry invocation detector
+// can probe whether the timer-launched service is currently running.
+func ServiceUnitName() string { return unitName + ".service" }
+
 // Install configures a systemd user timer for periodic scanning.
 // If already installed, upgrades by removing and re-creating the units.
 //

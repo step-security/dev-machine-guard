@@ -38,6 +38,22 @@ const (
 // detector) can check for an installed footprint without re-deriving the path.
 const DaemonPlistPath = daemonPlistPath
 
+// Label is the launchd job label for the agent. Exported so other packages
+// (e.g. schedinfo) can address the job without re-deriving the constant.
+const Label = label
+
+// DomainTarget returns the launchd domain and the domain/label service target
+// for the current privilege level: the system domain for a root LaunchDaemon,
+// gui/<uid> for a per-user LaunchAgent. Single source of truth for the domain
+// math reused by Install/Uninstall and the scheduler-info collector.
+func DomainTarget(exec executor.Executor) (domain, target string) {
+	domain = "system"
+	if !exec.IsRoot() {
+		domain = fmt.Sprintf("gui/%d", os.Getuid())
+	}
+	return domain, domain + "/" + label
+}
+
 // UserPlistPath returns the per-user launchd plist path installed when the
 // agent runs without root. Empty when the home directory cannot be resolved.
 func UserPlistPath() string {
@@ -52,7 +68,12 @@ func agentPlistPath() string {
 	return homeDir + "/Library/LaunchAgents/com.stepsecurity.agent.plist"
 }
 
-// Install configures launchd for periodic scanning. If already installed, upgrades.
+// Install configures launchd for periodic scanning and loads the job
+// (upgrading in place if already installed). With RunAtLoad=true, loading the
+// job triggers the run immediately — so this load IS the initial scan and the
+// install command deliberately does NOT scan inline on macOS (see main.go).
+// Doing both would double-scan at install: once inline, once at load, with the
+// second blocked on the singleton lock.
 func Install(exec executor.Executor, log *progress.Logger) error {
 	ctx := context.Background()
 
@@ -160,15 +181,14 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 
 	log.Debug("launchd install: plist=%q log_dir=%q interval=%ds user_home=%q is_root=%v", plistPath, logDir, intervalSeconds, userHome, exec.IsRoot())
 
-	// Bootstrap plist into its launchd domain. Apple actively recommends
-	// `bootstrap`/`bootout` over the older `load`/`unload` verbs, which
-	// are on the path to deprecation. Root daemons live in the `system`
-	// domain; user LaunchAgents in `gui/<uid>`. Available since macOS
-	// 10.11, so every machine we target supports it.
-	domain := "system"
-	if !exec.IsRoot() {
-		domain = fmt.Sprintf("gui/%d", os.Getuid())
-	}
+	// Bootstrap the plist into its launchd domain. With RunAtLoad=true this
+	// runs the job immediately, so this load IS the initial scan — the install
+	// command does NOT scan inline on macOS (that would double-scan: once
+	// inline, once at load, the second blocked on the singleton lock). The scan
+	// runs under the user's GUI session and logs to agent.log. Apple recommends
+	// bootstrap/bootout over the deprecated load/unload verbs; root daemons live
+	// in the `system` domain, user LaunchAgents in `gui/<uid>` — see DomainTarget.
+	domain, _ := DomainTarget(exec)
 	_, stderr, exitCode, err := exec.Run(ctx, "launchctl", "bootstrap", domain, plistPath)
 	log.Debug("launchctl bootstrap %q %q: exit_code=%d err=%v stderr=%q", domain, plistPath, exitCode, err, stderr)
 	if err != nil {
@@ -181,8 +201,7 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	log.Progress("launchd configuration completed successfully")
 	log.Progress("  Plist: %s", plistPath)
 	log.Progress("  Logs: %s/agent.log", logDir)
-	log.Progress("Installation complete!")
-	log.Progress("The agent will now run automatically every %d hours", hours)
+	log.Progress("The agent will run now (via launchd) and then every %d hours, plus at login", hours)
 
 	return nil
 }
@@ -274,7 +293,7 @@ const plistTmpl = `<?xml version="1.0" encoding="UTF-8"?>
     <key>StartInterval</key>
     <integer>{{.IntervalSeconds}}</integer>
     <key>RunAtLoad</key>
-    <false/>{{if or .UserHome .StepSecurityHome}}
+    <true/>{{if or .UserHome .StepSecurityHome}}
     <key>EnvironmentVariables</key>
     <dict>{{if .UserHome}}
         <key>HOME</key>

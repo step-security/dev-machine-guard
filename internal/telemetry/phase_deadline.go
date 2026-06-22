@@ -25,6 +25,7 @@ import (
 // "Disabled" means no per-phase deadline; the parent scan deadline
 // (STEPSEC_MAX_SCAN_DURATION) and the whole-process watchdog still apply.
 var phaseBudgets = map[string]time.Duration{
+	"scheduler_info":      15 * time.Second,
 	"device_info":         30 * time.Second,
 	"ide_scan":            2 * time.Minute,
 	"extension_scan":      2 * time.Minute,
