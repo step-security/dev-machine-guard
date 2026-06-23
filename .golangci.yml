@@ -1,0 +1,23 @@
+# golangci-lint configuration.
+#
+# Historically this project ran golangci-lint v1 with no config file, relying on
+# its built-in default exclusions. Building the linter with Go 1.26 requires
+# golangci-lint v2 (see the lint job in .github/workflows/tests.yml), and v2
+# dropped those default exclusions. This config restores the previous effective
+# lint policy so the Go toolchain bump stays scoped and does not churn unrelated
+# code.
+version: "2"
+linters:
+  exclusions:
+    presets:
+      # Restores v1's default errcheck excludes for the standard
+      # error-returning calls that are conventionally ignored
+      # (Close/Flush/os.Remove/os.Setenv/os.Unsetenv/print*). This was the old
+      # built-in EXC0001 rule.
+      - std-error-handling
+    rules:
+      # QF (quickfix) style suggestions were not enforced under v1; keep them
+      # off to preserve the prior policy.
+      - linters:
+          - staticcheck
+        text: "QF1001|QF1002"

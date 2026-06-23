@@ -1,6 +1,6 @@
 module github.com/step-security/dev-machine-guard
 
-go 1.24
+go 1.26
 
 require golang.org/x/sys v0.33.0
 

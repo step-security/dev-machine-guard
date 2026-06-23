@@ -1,0 +1,70 @@
+name: Check Notarization Status
+
+# Inspect an Apple notary submission by id. Use this when release-macos.yml
+# reported that the 5-minute wait elapsed before notarization finished: grab the
+# submission id from that run's logs and pass it here to see the current status
+# and the full notary log (including any failure reasons). Once it reports
+# 'Accepted', re-run release-macos.yml to publish the signed binary.
+
+on:
+  workflow_dispatch:
+    inputs:
+      submission_id:
+        description: "Notary submission id (GUID printed by release-macos.yml)"
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  check:
+    name: Query notary submission
+    runs-on: macos-latest
+    # notarytool needs the same App Store Connect API key, which lives in the
+    # `release` environment.
+    environment: release
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Query submission status and log
+        env:
+          MACOS_NOTARY_API_KEY_P8_BASE64: ${{ secrets.MACOS_NOTARY_API_KEY_P8_BASE64 }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          submission_id="${{ inputs.submission_id }}"
+          key="$RUNNER_TEMP/AuthKey.p8"
+          echo "$MACOS_NOTARY_API_KEY_P8_BASE64" | base64 --decode > "$key"
+          creds=(--key "$key" --key-id "$MACOS_NOTARY_KEY_ID" --issuer "$MACOS_NOTARY_ISSUER_ID")
+
+          echo "::group::notarytool info"
+          info_json="$(xcrun notarytool info "$submission_id" "${creds[@]}" --output-format json)"
+          echo "$info_json"
+          echo "::endgroup::"
+
+          status="$(echo "$info_json" | jq -r '.status')"
+          echo "Status: $status"
+          echo "::notice title=Notarization status::$submission_id -> $status"
+
+          # The log endpoint is only populated once Apple has finished; ignore
+          # failures while a submission is still 'In Progress'.
+          echo "::group::notarytool log"
+          xcrun notarytool log "$submission_id" "${creds[@]}" || echo "Log not available yet (still in progress?)."
+          echo "::endgroup::"
+
+          case "$status" in
+            Accepted)
+              echo "Ready to publish. Re-run release-macos.yml for the release tag." ;;
+            "In Progress")
+              echo "::warning::Still in progress. Check again shortly." ;;
+            *)
+              echo "::error::Submission ended in status '$status'. See the log above for details."
+              exit 1 ;;
+          esac
