@@ -44,7 +44,7 @@ func readRegistryInstallInfo(_ context.Context, _ executor.Executor, appName str
 			}
 
 			displayName, _, _ := sk.GetStringValue("DisplayName")
-			if !strings.Contains(strings.ToLower(displayName), lowerAppName) {
+			if !strings.HasPrefix(strings.ToLower(displayName), lowerAppName) {
 				_ = sk.Close()
 				continue
 			}
