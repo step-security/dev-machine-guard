@@ -21,6 +21,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/featuregate"
+	"github.com/step-security/dev-machine-guard/internal/heartbeat"
 	"github.com/step-security/dev-machine-guard/internal/launchd"
 	"github.com/step-security/dev-machine-guard/internal/output"
 	"github.com/step-security/dev-machine-guard/internal/paths"
@@ -240,6 +241,10 @@ func main() {
 		config.ShowConfigure()
 
 	case "send-telemetry":
+		// Stamp the local heartbeat first — before the enterprise gate and
+		// the singleton lock inside telemetry.Run — so even runs that bail at
+		// the gate or die during startup leave an on-disk "I started" record.
+		writeHeartbeat("send-telemetry", log)
 		if !config.IsEnterpriseMode() {
 			log.Error("Enterprise configuration not found. Run '%s configure' or download the script from your StepSecurity dashboard.", os.Args[0])
 			os.Exit(1)
@@ -597,6 +602,17 @@ func findLegacyLeftovers(legacy string) []string {
 // state and reconciles local hook installation to match. Silent no-op
 // in community mode (enterprise config missing) — the existing scan
 // path stays unaffected. Failures are logged but never crash main.
+// writeHeartbeat stamps last-run.json with this run's start metadata. Wholly
+// best-effort: a write failure (read-only home, disabled install dir) is
+// logged at debug and never affects the run. The invocation method reuses the
+// scheduler-footprint detection telemetry already does, so the heartbeat
+// distinguishes a scheduled fire from a manual run.
+func writeHeartbeat(command string, log *progress.Logger) {
+	if err := heartbeat.Write(paths.HeartbeatFile(), command, telemetry.DetectInvocationMethod()); err != nil {
+		log.Debug("heartbeat: failed to write %s: %v", paths.HeartbeatFile(), err)
+	}
+}
+
 func runHookStateReconcile(exec executor.Executor, log *progress.Logger) {
 	if !featuregate.IsEnabled(featuregate.FeatureAIAgentHooks) {
 		log.Debug("hook-state reconcile: skipped (feature gated)")
