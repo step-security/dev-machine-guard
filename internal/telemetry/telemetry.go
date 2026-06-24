@@ -755,7 +755,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		log.Progress("  Found %d Python global package source(s)", len(pythonGlobalPkgs))
 
 		log.Progress("Searching for Python projects...")
-		pyProjectDetector := detector.NewPythonProjectDetector(exec).WithSkipper(tccSkipper)
+		pyProjectDetector := detector.NewPythonProjectDetector(exec).WithSkipper(tccSkipper).WithLogger(log)
 		var knownPython map[string]time.Time
 		if scanState != nil && !scanStateFullSync {
 			knownPython = make(map[string]time.Time, len(scanState.PythonProjects))

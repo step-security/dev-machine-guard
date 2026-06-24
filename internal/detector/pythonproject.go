@@ -11,6 +11,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/progress"
 	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
@@ -19,17 +20,28 @@ const maxPythonProjects = 1000
 // PythonProjectDetector scans for Python projects with virtual environments.
 type PythonProjectDetector struct {
 	exec    executor.Executor
+	log     *progress.Logger
 	skipper *tcc.Skipper
 }
 
 func NewPythonProjectDetector(exec executor.Executor) *PythonProjectDetector {
-	return &PythonProjectDetector{exec: exec}
+	return &PythonProjectDetector{exec: exec, log: progress.NewNoop()}
 }
 
 // WithSkipper attaches a TCC skipper so the walk skips macOS-protected
 // directories. A nil skipper is a no-op. Returns the detector for chaining.
 func (d *PythonProjectDetector) WithSkipper(s *tcc.Skipper) *PythonProjectDetector {
 	d.skipper = s
+	return d
+}
+
+// WithLogger attaches a progress logger so venv discovery and per-venv scans
+// surface in the agent log, on par with the Node project scanner. A nil logger
+// falls back to the no-op default. Returns the detector for chaining.
+func (d *PythonProjectDetector) WithLogger(log *progress.Logger) *PythonProjectDetector {
+	if log != nil {
+		d.log = log
+	}
 	return d
 }
 
@@ -65,8 +77,11 @@ type venvCandidate struct {
 func (d *PythonProjectDetector) ListProjects(searchDirs []string, knownLastVerified map[string]time.Time) (projects []model.ProjectInfo, discovered []string) {
 	var candidates []venvCandidate
 	for _, dir := range searchDirs {
+		d.log.Progress("  Searching in: %s", dir)
 		candidates = append(candidates, d.discoverInDir(dir)...)
 	}
+
+	d.log.Debug("python venv discovery: found %d venv(s) across %d search dir(s)", len(candidates), len(searchDirs))
 
 	discovered = make([]string, 0, len(candidates))
 	for _, c := range candidates {
@@ -76,6 +91,7 @@ func (d *PythonProjectDetector) ListProjects(searchDirs []string, knownLastVerif
 	candidates = orderVenvs(candidates, knownLastVerified)
 
 	if len(candidates) > maxPythonProjects {
+		d.log.Warn("Python project scan truncated at %d venvs (total discovered: %d) — lowest-priority venvs were skipped", maxPythonProjects, len(candidates))
 		candidates = candidates[:maxPythonProjects]
 	}
 
@@ -84,7 +100,13 @@ func (d *PythonProjectDetector) ListProjects(searchDirs []string, knownLastVerif
 	for _, c := range candidates {
 		var pkgs []model.PackageDetail
 		if c.pipPath != "" {
-			pkgs = d.listVenvPackages(ctx, c.pipPath)
+			d.log.Progress("  Scanning: %s (%s)", c.path, c.pm)
+			pkgs = d.listVenvPackages(ctx, c.path, c.pipPath)
+		} else {
+			// A valid venv (pyvenv.cfg present) created with --without-pip:
+			// there's nothing to list, but record that we saw it so the
+			// absence of packages is explained rather than silent.
+			d.log.Debug("python venv has no pip — skipping package list: %s (%s)", c.path, c.pm)
 		}
 		projects = append(projects, model.ProjectInfo{
 			Path:           c.path,
@@ -92,6 +114,8 @@ func (d *PythonProjectDetector) ListProjects(searchDirs []string, knownLastVerif
 			Packages:       pkgs,
 		})
 	}
+
+	d.log.Progress("  Scanned %d venvs", len(candidates))
 	return projects, discovered
 }
 
@@ -162,11 +186,16 @@ func (d *PythonProjectDetector) isVenvDir(path string) (pipPath string, isVenv b
 }
 
 // listVenvPackages runs pip list inside the venv and returns the packages.
-func (d *PythonProjectDetector) listVenvPackages(ctx context.Context, pipPath string) []model.PackageDetail {
-	stdout, _, _, err := d.exec.RunWithTimeout(ctx, 15*time.Second, pipPath, "list", "--format", "json")
-	if err != nil {
+// venvPath is used only for log context; pipPath is the binary actually run.
+func (d *PythonProjectDetector) listVenvPackages(ctx context.Context, venvPath, pipPath string) []model.PackageDetail {
+	start := time.Now()
+	stdout, _, exitCode, err := d.exec.RunWithTimeout(ctx, 15*time.Second, pipPath, "list", "--format", "json")
+	duration := time.Since(start).Milliseconds()
+	if errMsg := pmRunError("pip list", exitCode, err); errMsg != "" {
+		d.log.Warn("python venv scan failed: %s (venv=%s, exit=%d, %dms) — results may be incomplete", errMsg, venvPath, exitCode, duration)
 		return nil
 	}
+	d.log.Debug("python venv scan: venv=%s exit_code=%d stdout_bytes=%d duration=%dms", venvPath, exitCode, len(stdout), duration)
 	stdout = strings.TrimSpace(stdout)
 	if stdout == "" {
 		return nil
@@ -177,6 +206,7 @@ func (d *PythonProjectDetector) listVenvPackages(ctx context.Context, pipPath st
 	}
 	var entries []pipEntry
 	if err := json.Unmarshal([]byte(stdout), &entries); err != nil {
+		d.log.Warn("python venv scan: failed to parse pip list JSON (venv=%s): %v", venvPath, err)
 		return nil
 	}
 	pkgs := make([]model.PackageDetail, 0, len(entries))
