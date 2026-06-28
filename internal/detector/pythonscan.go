@@ -3,12 +3,14 @@ package detector
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 // PythonScanner performs enterprise-mode Python scanning (raw output, base64 encoded).
@@ -89,6 +91,46 @@ func (s *PythonScanner) ScanGlobalPackages(ctx context.Context) []model.PythonSc
 	}
 
 	return results
+}
+
+// ScanGlobalPackagesFromDisk inventories global / user site-packages by
+// reading install metadata on disk (no pip/conda/uv subprocess) and returns
+// the result in the same PythonScanResult shape as ScanGlobalPackages: the
+// package list is JSON-encoded ([{"name","version"},...]) into RawStdoutBase64
+// so the existing backend decoder needs no change. Returns nil when no global
+// site-packages roots exist on the host.
+func (s *PythonScanner) ScanGlobalPackagesFromDisk(skipper *tcc.Skipper) []model.PythonScanResult {
+	roots := PythonGlobalRoots(s.exec)
+	if len(roots) == 0 {
+		s.log.Debug("python global disk scan: no site-packages roots found")
+		return nil
+	}
+
+	s.emitProgress("scanning global site-packages")
+	s.log.Progress("  Scanning global Python site-packages on disk...")
+
+	start := time.Now()
+	dist := NewPythonDistDetector(s.exec).WithLogger(s.log).WithSkipper(skipper)
+	pkgs := dist.ScanRoots(roots)
+	duration := time.Since(start).Milliseconds()
+
+	type pipEntry struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
+	entries := make([]pipEntry, len(pkgs))
+	for i, p := range pkgs {
+		entries[i] = pipEntry{Name: p.Name, Version: p.Version}
+	}
+	raw, _ := json.Marshal(entries)
+	s.log.Debug("python global disk scan: roots=%d packages=%d duration=%dms", len(roots), len(pkgs), duration)
+
+	return []model.PythonScanResult{{
+		PackageManager:  "pip",
+		RawStdoutBase64: base64.StdEncoding.EncodeToString(raw),
+		ExitCode:        0,
+		ScanDurationMs:  duration,
+	}}
 }
 
 func (s *PythonScanner) getVersion(ctx context.Context, binary, versionCmd string) string {

@@ -29,6 +29,7 @@ type Config struct {
 	EnableNPMScan         *bool  // nil=auto, true/false=explicit
 	EnableBrewScan        *bool  // nil=auto, true/false=explicit
 	EnablePythonScan      *bool  // nil=auto, true/false=explicit
+	UseLegacyPythonScan   *bool  // nil=auto (disk scan); true=pip path, false=disk path
 	IncludeBundledPlugins bool   // --include-bundled-plugins: include bundled/platform plugins in output
 	// IncludeTCCProtected is tristate: nil or false = skip the macOS
 	// TCC-protected dirs (Documents, Downloads, ~/Library/Mail, ...)
@@ -182,6 +183,12 @@ func Parse(args []string) (*Config, error) {
 		case arg == "--disable-python-scan":
 			v := false
 			cfg.EnablePythonScan = &v
+		case arg == "--legacy-python-scan":
+			v := true
+			cfg.UseLegacyPythonScan = &v
+		case arg == "--disk-python-scan":
+			v := false
+			cfg.UseLegacyPythonScan = &v
 		case arg == "--include-bundled-plugins":
 			cfg.IncludeBundledPlugins = true
 		case arg == "--include-tcc-protected":

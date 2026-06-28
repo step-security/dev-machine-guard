@@ -7,6 +7,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
 	"github.com/step-security/dev-machine-guard/internal/cli"
+	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/detector"
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
 	"github.com/step-security/dev-machine-guard/internal/device"
@@ -209,12 +210,20 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 
 		log.StepStart("Listing Python packages")
 		start = time.Now()
-		pythonPackages = pyDetector.ListPackages(ctx)
+		if config.UseLegacyPythonScan {
+			pythonPackages = pyDetector.ListPackages(ctx)
+		} else {
+			pythonPackages = detector.NewPythonDistDetector(exec).WithSkipper(tccSkipper).WithLogger(log).ScanGlobalPackages()
+		}
 		log.StepDone(time.Since(start))
 
 		log.StepStart("Scanning Python projects")
 		start = time.Now()
 		pyProjectDetector := detector.NewPythonProjectDetector(exec).WithSkipper(tccSkipper).WithLogger(log)
+		if !config.UseLegacyPythonScan {
+			pyProjectDetector = pyProjectDetector.WithDiskScan(
+				detector.NewPythonDistDetector(exec).WithSkipper(tccSkipper).WithLogger(log))
+		}
 		pythonProjects, _ = pyProjectDetector.ListProjects(searchDirs, nil)
 		log.StepDone(time.Since(start))
 	} else {

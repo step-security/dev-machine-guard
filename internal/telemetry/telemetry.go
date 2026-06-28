@@ -751,11 +751,19 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		// "scanning uv") into the phase tracker so heartbeats surface where
 		// inside the python phase a slow pip3 list is stuck.
 		pyScanner.ProgressHook = func(detail string) { tracker.UpdateDetail(detail) }
-		pythonGlobalPkgs = pyScanner.ScanGlobalPackages(phaseCtx)
+		if config.UseLegacyPythonScan {
+			pythonGlobalPkgs = pyScanner.ScanGlobalPackages(phaseCtx)
+		} else {
+			pythonGlobalPkgs = pyScanner.ScanGlobalPackagesFromDisk(tccSkipper)
+		}
 		log.Progress("  Found %d Python global package source(s)", len(pythonGlobalPkgs))
 
 		log.Progress("Searching for Python projects...")
 		pyProjectDetector := detector.NewPythonProjectDetector(exec).WithSkipper(tccSkipper).WithLogger(log)
+		if !config.UseLegacyPythonScan {
+			pyProjectDetector = pyProjectDetector.WithDiskScan(
+				detector.NewPythonDistDetector(exec).WithSkipper(tccSkipper).WithLogger(log))
+		}
 		var knownPython map[string]time.Time
 		if scanState != nil && !scanStateFullSync {
 			knownPython = make(map[string]time.Time, len(scanState.PythonProjects))

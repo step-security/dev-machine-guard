@@ -34,6 +34,14 @@ var (
 	// STEPSEC_ENABLE_SCAN_STATE=1) to opt back in. STEPSEC_DISABLE_SCAN_STATE=1
 	// always forces legacy.
 	UseLegacyPackageScan = true
+
+	// UseLegacyPythonScan, when true, reverts Python package discovery to the
+	// command-based path (`pip list` per venv and `pip3`/`conda`/`uv list`
+	// for globals). Defaults to false: Python packages are read from on-disk
+	// install metadata (*.dist-info/METADATA, *.egg-info/PKG-INFO) with no
+	// package-manager subprocess. Set use_legacy_python_scan=true in
+	// config.json (or --legacy-python-scan) to opt back into the pip path.
+	UseLegacyPythonScan = false
 )
 
 // MaxExecutionDuration is the whole-process execution-watchdog limit
@@ -64,6 +72,7 @@ type ConfigFile struct {
 	InstallDir           string   `json:"install_dir,omitempty"`
 	MaxExecutionDuration string   `json:"max_execution_duration,omitempty"`
 	UseLegacyPackageScan *bool    `json:"use_legacy_package_scan,omitempty"`
+	UseLegacyPythonScan  *bool    `json:"use_legacy_python_scan,omitempty"`
 }
 
 // userConfigDir returns ~/.stepsecurity — the per-user config location.
@@ -198,6 +207,9 @@ func Load() {
 	}
 	if cfg.UseLegacyPackageScan != nil {
 		UseLegacyPackageScan = *cfg.UseLegacyPackageScan
+	}
+	if cfg.UseLegacyPythonScan != nil {
+		UseLegacyPythonScan = *cfg.UseLegacyPythonScan
 	}
 }
 
@@ -515,6 +527,7 @@ func ShowConfigure() {
 	fmt.Printf("  %-24s %s\n", "Enable NPM Scan:", displayBoolScan(cfg.EnableNPMScan))
 	fmt.Printf("  %-24s %s\n", "Enable Brew Scan:", displayBoolScan(cfg.EnableBrewScan))
 	fmt.Printf("  %-24s %s\n", "Enable Python Scan:", displayBoolScan(cfg.EnablePythonScan))
+	fmt.Printf("  %-24s %s\n", "Legacy Python Scan:", displayBoolScan(cfg.UseLegacyPythonScan))
 	fmt.Printf("  %-24s %s\n", "Scan TCC-Protected Dirs:", displayTCC(cfg.IncludeTCCProtected))
 	fmt.Printf("  %-24s %s\n", "Color Mode:", displayColorMode(cfg.ColorMode))
 	fmt.Printf("  %-24s %s\n", "Output Format:", displayOutputFormat(cfg.OutputFormat))
