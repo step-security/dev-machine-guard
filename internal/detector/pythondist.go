@@ -120,7 +120,7 @@ func (d *PythonDistDetector) ScanGlobalPackages() []model.PythonPackage {
 	details := d.ScanRoots(PythonGlobalRoots(d.exec))
 	out := make([]model.PythonPackage, len(details))
 	for i, p := range details {
-		out[i] = model.PythonPackage{Name: p.Name, Version: p.Version}
+		out[i] = model.PythonPackage(p)
 	}
 	return out
 }
