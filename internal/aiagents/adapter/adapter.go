@@ -81,7 +81,7 @@ type InstallResult struct {
 
 	// BackupFiles are pre-existing files Install copied aside before
 	// rewriting, named with the .dmg-<UTC stamp>.bak suffix from
-	// internal/aiagents/atomicfile.
+	// internal/atomicfile.
 	BackupFiles []string
 
 	// CreatedDirs are parent directories Install mkdir'd. Order is

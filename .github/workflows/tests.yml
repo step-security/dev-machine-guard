@@ -100,6 +100,26 @@ jobs:
           go-version-file: go.mod
       - run: make test
 
+  # devicepolicy has Windows-only code (the registry managed-policy probe) and
+  # Windows-specific behavior (%APPDATA% settings-path resolution) whose tests
+  # the macOS test job can only cross-compile, not run. This job executes the
+  # package natively; scoped to it so the rest of the suite (which assumes a
+  # POSIX host) is untouched.
+  test-windows-devicepolicy:
+    name: Test (windows devicepolicy)
+    runs-on: windows-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+      - run: go test -race -count=1 ./internal/devicepolicy/
+
   smoke:
     name: Smoke Tests
     runs-on: macos-latest

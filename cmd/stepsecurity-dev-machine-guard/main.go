@@ -19,6 +19,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
 	"github.com/step-security/dev-machine-guard/internal/device"
+	"github.com/step-security/dev-machine-guard/internal/devicepolicy"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/featuregate"
 	"github.com/step-security/dev-machine-guard/internal/heartbeat"
@@ -256,6 +257,7 @@ func main() {
 			os.Exit(1)
 		}
 		runHookStateReconcile(exec, log)
+		runIDEExtensionEnforce(exec, log)
 
 	case "install":
 		_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
@@ -354,6 +356,7 @@ func main() {
 			}
 		}
 		runHookStateReconcile(exec, log)
+		runIDEExtensionEnforce(exec, log)
 
 	case "uninstall":
 		_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
@@ -663,5 +666,71 @@ func runHookStateReconcile(exec executor.Executor, log *progress.Logger) {
 	if err := r.Reconcile(ctx); err != nil {
 		log.Warn("hook-state reconcile: %v", err)
 		aiagentscli.AppendError("reconcile", "reconcile_failed", err.Error(), "")
+	}
+}
+
+// devicePolicyEnforceTimeout caps the entire IDE-extension enforcement step (fetch +
+// managed-policy probe + settings.json write/readback + compliance report).
+// The two network calls are each bounded by devicepolicy.DefaultHTTPTimeout; the
+// rest is local file/registry I/O.
+const devicePolicyEnforceTimeout = 30 * time.Second
+
+// runIDEExtensionEnforce fetches the device's effective IDE-extension policy
+// and converges the user-scope VS Code settings.json (extensions.allowed) to
+// match, then reports compliance — all on the existing scheduled cycle and the
+// existing agent auth channel. Windows, macOS, and Linux are all enforced this
+// way; a device whose VS Code is already governed by a real MDM policy
+// (registry / policy.json / managed preferences) is detected by the
+// reconciler's probe and reported mdm_managed instead. Gated behind
+// FeatureDevicePolicy and a silent no-op in community mode (enterprise
+// config missing). Failures are logged but never crash main.
+func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
+	if !featuregate.IsEnabled(featuregate.FeatureDevicePolicy) {
+		log.Debug("ide-extension enforce: skipped (feature gated)")
+		return
+	}
+	writer, ok := devicepolicy.NewWriter()
+	if !ok {
+		log.Debug("ide-extension enforce: skipped (no settings path on this platform)")
+		return
+	}
+	cfg, ok := ingest.Snapshot()
+	if !ok {
+		log.Debug("ide-extension enforce: skipped (no enterprise config)")
+		return
+	}
+	fetcher, ok := devicepolicy.NewHTTPFetcher(cfg, nil)
+	if !ok {
+		log.Debug("ide-extension enforce: skipped (fetcher init refused config)")
+		return
+	}
+	reporter, ok := devicepolicy.NewHTTPReporter(cfg, nil)
+	if !ok {
+		log.Debug("ide-extension enforce: skipped (reporter init refused config)")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), devicePolicyEnforceTimeout)
+	defer cancel()
+
+	dev := device.Gather(ctx, exec)
+	if dev.SerialNumber == "" || dev.SerialNumber == "unknown" {
+		log.Warn("ide-extension enforce: device serial unresolved; skipping")
+		return
+	}
+
+	r := &devicepolicy.Reconciler{
+		Fetcher:    fetcher,
+		Reporter:   reporter,
+		Writer:     writer,
+		CustomerID: cfg.CustomerID,
+		DeviceID:   dev.SerialNumber,
+		Platform:   dev.Platform,
+		// Probe defaults to devicepolicy.ProbeManagedPolicy (per-OS) when nil.
+		Logf: func(format string, args ...any) { log.Debug(format, args...) },
+	}
+	if err := r.Reconcile(ctx); err != nil {
+		log.Warn("ide-extension enforce: %v", err)
+		aiagentscli.AppendError("devicepolicy", "enforce_failed", err.Error(), "")
 	}
 }

@@ -14,9 +14,9 @@ import (
 	"github.com/tidwall/pretty"
 	"github.com/tidwall/sjson"
 
-	"github.com/step-security/dev-machine-guard/internal/aiagents/atomicfile"
 	"github.com/step-security/dev-machine-guard/internal/aiagents/configedit"
 	"github.com/step-security/dev-machine-guard/internal/aiagents/event"
+	"github.com/step-security/dev-machine-guard/internal/atomicfile"
 )
 
 // settingsDoc holds raw bytes for ~/.claude/settings.json. orig is the

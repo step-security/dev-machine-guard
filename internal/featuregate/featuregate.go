@@ -23,6 +23,7 @@ const (
 	FeaturePnpmConfigAudit Feature = "pnpm-config-audit"
 	FeatureBunConfigAudit  Feature = "bun-config-audit"
 	FeatureYarnConfigAudit Feature = "yarn-config-audit"
+	FeatureDevicePolicy    Feature = "device-policy"
 )
 
 // enabled lists features safe to ship today. Uncomment a line once its
@@ -34,6 +35,11 @@ var enabled = map[Feature]bool{
 	FeaturePnpmConfigAudit: true,
 	FeatureBunConfigAudit:  true,
 	FeatureYarnConfigAudit: true,
+	// FeatureDevicePolicy stays gated until GA: the backend's
+	// MinEnforcementAgentVersion is still a placeholder (1.13.0) and the agent
+	// version floor has not been finalized. Enable via --override-gate /
+	// STEPSECURITY_OVERRIDE_GATE=1 for dogfooding.
+	// FeatureDevicePolicy: true,
 }
 
 var override bool
