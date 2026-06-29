@@ -65,7 +65,28 @@ func (d *PythonDistDetector) WithLogger(log *progress.Logger) *PythonDistDetecto
 // lib/python*/site-packages or Lib/site-packages). Replaces the per-venv
 // `pip list` call.
 func (d *PythonDistDetector) ScanVenv(venvPath string) []model.PackageDetail {
-	return d.ScanRoots([]string{venvPath})
+	return d.ScanRoots(venvSitePackages(venvPath))
+}
+
+// venvSitePackages returns the site-packages directories inside a venv —
+// lib/python*/site-packages (POSIX) and Lib/site-packages (Windows). Scanning
+// only these avoids walking bin/include/share, which never hold install
+// metadata. Falls back to the venv root if no site-packages dir is found, so
+// a non-standard layout is still scanned.
+func venvSitePackages(venvPath string) []string {
+	var roots []string
+	for _, pattern := range []string{
+		filepath.Join(venvPath, "lib", "python*", "site-packages"),
+		filepath.Join(venvPath, "Lib", "site-packages"),
+	} {
+		if matches, err := filepath.Glob(pattern); err == nil {
+			roots = append(roots, matches...)
+		}
+	}
+	if len(roots) == 0 {
+		return []string{venvPath}
+	}
+	return roots
 }
 
 // ScanRoots walks each root and returns every distinct package discovered via
@@ -154,8 +175,17 @@ func (d *PythonDistDetector) parseMetadataFile(path, base string) (name, version
 }
 
 // readBounded reads path through the executor and rejects files over the size
-// cap. The metadata header we parse is tiny; the cap only guards memory.
+// cap. The metadata header we parse is tiny; the cap only guards memory. The
+// size is checked via Stat *before* reading so a pathological file is never
+// pulled into memory, with the post-read length check kept as a race-safety
+// fallback (the file can grow between Stat and ReadFile).
 func (d *PythonDistDetector) readBounded(path string) ([]byte, error) {
+	if d.maxFileSize > 0 {
+		if info, err := d.exec.Stat(path); err == nil && info.Size() > d.maxFileSize {
+			d.log.Debug("python dist scan: %s exceeds %d bytes — skipping", path, d.maxFileSize)
+			return nil, fmt.Errorf("file %s exceeds max size %d", path, d.maxFileSize)
+		}
+	}
 	data, err := d.exec.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -246,7 +276,17 @@ func PythonGlobalRoots(exec executor.Executor) []string {
 		}
 	}
 
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
+	// Anchor per-user paths on the console (GUI) user, not the process user:
+	// the enterprise agent runs as root via launchd, where os.UserHomeDir
+	// resolves to /var/root and would miss the logged-in user's ~/.local,
+	// ~/.pyenv, pipx venvs, etc. (issue #63). Fall back to os.UserHomeDir.
+	home := executor.ResolveHome(exec)
+	if home == "" {
+		if h, err := os.UserHomeDir(); err == nil {
+			home = h
+		}
+	}
+	if home != "" {
 		addGlob(filepath.Join(home, ".local", "lib", "python*", "site-packages"))
 		add(filepath.Join(home, ".local", "share", "pipx", "venvs"))
 		addGlob(filepath.Join(home, ".pyenv", "versions", "*", "lib", "python*", "site-packages"))
@@ -257,7 +297,7 @@ func PythonGlobalRoots(exec executor.Executor) []string {
 		addGlob("/opt/homebrew/lib/python*/site-packages")
 		addGlob("/usr/local/lib/python*/site-packages")
 		addGlob("/Library/Frameworks/Python.framework/Versions/*/lib/python*/site-packages")
-		if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if home != "" {
 			addGlob(filepath.Join(home, "Library", "Python", "*", "lib", "python", "site-packages"))
 		}
 	case "linux":

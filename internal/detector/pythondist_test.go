@@ -54,6 +54,25 @@ func TestPythonDistDetector_ScanVenv_DistInfo(t *testing.T) {
 	}
 }
 
+// ScanVenv limits its walk to the venv's site-packages dirs, so metadata
+// stashed elsewhere in the tree (e.g. under bin/) is not reported.
+func TestPythonDistDetector_ScanVenv_ScopedToSitePackages(t *testing.T) {
+	dir := t.TempDir()
+	mock := executor.NewMock()
+	venv := filepath.Join(dir, ".venv")
+	sp := filepath.Join(venv, "lib", "python3.11", "site-packages")
+
+	mustWriteMeta(t, mock, filepath.Join(sp, "requests-2.31.0.dist-info", "METADATA"), sampleMetadata)
+	// A stray metadata file outside site-packages must be ignored.
+	mustWriteMeta(t, mock, filepath.Join(venv, "bin", "stray-1.0.0.dist-info", "METADATA"),
+		"Name: stray\nVersion: 1.0.0\n\nbody")
+
+	pkgs := NewPythonDistDetector(mock).ScanVenv(venv)
+	if len(pkgs) != 1 || pkgs[0].Name != "requests" {
+		t.Fatalf("expected only requests from site-packages, got %+v", pkgs)
+	}
+}
+
 func TestPythonDistDetector_EggInfoFallback(t *testing.T) {
 	dir := t.TempDir()
 	mock := executor.NewMock()
