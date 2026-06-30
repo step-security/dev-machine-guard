@@ -22,6 +22,9 @@ type PythonProjectDetector struct {
 	exec    executor.Executor
 	log     *progress.Logger
 	skipper *tcc.Skipper
+	// dist, when non-nil, makes per-venv package listing read install
+	// metadata from disk instead of running `pip list`.
+	dist *PythonDistDetector
 }
 
 func NewPythonProjectDetector(exec executor.Executor) *PythonProjectDetector {
@@ -42,6 +45,15 @@ func (d *PythonProjectDetector) WithLogger(log *progress.Logger) *PythonProjectD
 	if log != nil {
 		d.log = log
 	}
+	return d
+}
+
+// WithDiskScan switches per-venv package listing to read on-disk install
+// metadata (via the supplied PythonDistDetector) instead of running
+// `pip list`. A nil detector leaves the legacy pip path in place. Returns
+// the detector for chaining.
+func (d *PythonProjectDetector) WithDiskScan(dist *PythonDistDetector) *PythonProjectDetector {
+	d.dist = dist
 	return d
 }
 
@@ -99,10 +111,16 @@ func (d *PythonProjectDetector) ListProjects(searchDirs []string, knownLastVerif
 	projects = make([]model.ProjectInfo, 0, len(candidates))
 	for _, c := range candidates {
 		var pkgs []model.PackageDetail
-		if c.pipPath != "" {
+		switch {
+		case d.dist != nil:
+			// Disk mode: read install metadata from the venv's
+			// site-packages — works even for --without-pip venvs.
+			d.log.Progress("  Scanning: %s (%s)", c.path, c.pm)
+			pkgs = d.dist.ScanVenv(c.path)
+		case c.pipPath != "":
 			d.log.Progress("  Scanning: %s (%s)", c.path, c.pm)
 			pkgs = d.listVenvPackages(ctx, c.path, c.pipPath)
-		} else {
+		default:
 			// A valid venv (pyvenv.cfg present) created with --without-pip:
 			// there's nothing to list, but record that we saw it so the
 			// absence of packages is explained rather than silent.
