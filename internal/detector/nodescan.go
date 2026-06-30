@@ -54,6 +54,12 @@ type NodeScanner struct {
 	// map from multiple goroutines.
 	pmAvailability   map[string]error
 	pmAvailabilityMu sync.Mutex
+	// dist, when non-nil, makes both the per-project and global scans read
+	// packages from disk (lockfiles / node_modules) instead of invoking the
+	// package manager. Attached by the caller based on config.UseLegacyNodeScan.
+	// The cache, ordering, size cap, and concurrency around the scan are
+	// unchanged — only the per-project package source differs.
+	dist *NodeDistDetector
 }
 
 func NewNodeScanner(exec executor.Executor, log *progress.Logger, loggedInUser string) *NodeScanner {
@@ -63,6 +69,14 @@ func NewNodeScanner(exec executor.Executor, log *progress.Logger, loggedInUser s
 		loggedInUser:   loggedInUser,
 		pmAvailability: make(map[string]error),
 	}
+}
+
+// WithDiskScan switches package discovery to on-disk parsing via the supplied
+// detector (no `npm ls` / `yarn` / `pnpm` / `bun` subprocess). A nil detector
+// leaves the legacy command path in place. Returns the scanner for chaining.
+func (s *NodeScanner) WithDiskScan(dist *NodeDistDetector) *NodeScanner {
+	s.dist = dist
+	return s
 }
 
 // binaryAvailable returns the cached checkPath result for a package-manager
@@ -176,8 +190,14 @@ func (s *NodeScanner) checkPath(ctx context.Context, name string) error {
 	return err
 }
 
-// ScanGlobalPackages runs npm/yarn/pnpm list -g and returns raw base64-encoded results.
+// ScanGlobalPackages returns globally-installed packages, one NodeScanResult
+// per package manager. In disk mode it parses each PM's global node_modules;
+// otherwise it runs npm/yarn/pnpm list -g and returns raw base64 output.
 func (s *NodeScanner) ScanGlobalPackages(ctx context.Context) []model.NodeScanResult {
+	if s.dist != nil {
+		return s.scanGlobalPackagesFromDisk()
+	}
+
 	var results []model.NodeScanResult
 
 	s.emitProgress("global: npm")
@@ -635,6 +655,10 @@ func orderScanProjects(projects []projectEntry, knownLastVerified map[string]tim
 // DirExists checks per project and to keep the detected value consistent
 // with what the caller logged.
 func (s *NodeScanner) scanProject(ctx context.Context, projectDir, pm string) (model.NodeScanResult, bool) {
+	if s.dist != nil {
+		return s.scanProjectFromDisk(projectDir, pm)
+	}
+
 	var cmd string
 	var args []string
 	switch pm {
@@ -717,6 +741,58 @@ func (s *NodeScanner) scanProject(ctx context.Context, projectDir, pm string) (m
 		ExitCode:         exitCode,
 		ScanDurationMs:   duration,
 	}, true
+}
+
+// scanProjectFromDisk produces a project's NodeScanResult by parsing on-disk
+// lockfiles / node_modules instead of running the package manager. Unlike the
+// command path it does not require the PM binary to be installed, so a project
+// whose toolchain is absent is still inventoried. RawStdout/Stderr stay empty
+// (the backend reads Packages directly), and PMVersion is omitted — resolving
+// it would mean running the binary we are deliberately not invoking.
+func (s *NodeScanner) scanProjectFromDisk(projectDir, pm string) (model.NodeScanResult, bool) {
+	pkgs := s.dist.ScanProject(projectDir, pm)
+	return model.NodeScanResult{
+		ProjectPath:      projectDir,
+		PackageManager:   pm,
+		WorkingDirectory: projectDir,
+		Packages:         pkgs,
+		PackagesCount:    len(pkgs),
+		ExitCode:         0,
+	}, true
+}
+
+// scanGlobalPackagesFromDisk inventories globally-installed packages from each
+// package manager's global node_modules on disk, returning one NodeScanResult
+// per PM (the delta layer reconciles globals keyed by package manager). Roots
+// for the same PM are merged and de-duplicated. Returns nil when no global
+// roots exist on the host.
+func (s *NodeScanner) scanGlobalPackagesFromDisk() []model.NodeScanResult {
+	roots := NodeGlobalRoots(s.exec)
+	if len(roots) == 0 {
+		s.log.Debug("node global disk scan: no global node_modules roots found")
+		return nil
+	}
+	byPM := make(map[string][]model.NodePackage)
+	var order []string
+	for _, r := range roots {
+		s.emitProgress("global: " + r.pm)
+		if _, seen := byPM[r.pm]; !seen {
+			order = append(order, r.pm)
+		}
+		byPM[r.pm] = append(byPM[r.pm], s.dist.ScanGlobalModules(r.dir)...)
+	}
+	results := make([]model.NodeScanResult, 0, len(order))
+	for _, pm := range order {
+		pkgs := dedupSortPackages(byPM[pm])
+		s.log.Debug("node global disk scan: %s -> %d packages", pm, len(pkgs))
+		results = append(results, model.NodeScanResult{
+			PackageManager: pm,
+			Packages:       pkgs,
+			PackagesCount:  len(pkgs),
+			ExitCode:       0,
+		})
+	}
+	return results
 }
 
 func (s *NodeScanner) getVersion(ctx context.Context, binary, flag string) string {

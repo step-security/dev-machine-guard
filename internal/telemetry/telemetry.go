@@ -873,6 +873,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 		log.Progress("Scanning globally installed packages...")
 		nodeScanner := detector.NewNodeScanner(exec, log, loggedInUsername).WithSkipper(tccSkipper)
+		if !config.UseLegacyNodeScan {
+			nodeScanner = nodeScanner.WithDiskScan(
+				detector.NewNodeDistDetector(exec).WithSkipper(tccSkipper).WithLogger(log))
+		}
 		// Stream sub-progress so heartbeats show "project 12 of 47" /
 		// "global: yarn" during the long-running node phase. Both
 		// ScanGlobalPackages and ScanProjects share this hook.

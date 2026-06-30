@@ -81,6 +81,16 @@ func npmRecordsFromResults(results []model.NodeScanResult) []state.ScanRecord {
 		if r.ProjectPath == "" {
 			continue
 		}
+		// Disk-parse results carry structured Packages and an empty raw body;
+		// hash the parsed packages so the delta change-detector reflects the
+		// actual inventory (hashing an empty raw body would collapse every
+		// project to the same hash). The command path keeps hashing raw stdout.
+		if r.RawStdoutBase64 == "" {
+			out = append(out, state.ScanRecordFromValue(
+				r.ProjectPath, r.PackageManager, r.PMVersion, r.Packages, r.ExitCode,
+			))
+			continue
+		}
 		out = append(out, state.ScanRecordFromBase64(
 			r.ProjectPath, r.PackageManager, r.PMVersion, r.RawStdoutBase64, r.ExitCode,
 		))
@@ -111,7 +121,15 @@ func globalRecordsFromNode(results []model.NodeScanResult) []state.GlobalRecord 
 		if r.PackageManager == "" {
 			continue
 		}
-		hash, _ := state.CanonicalHashJSON(decodeBase64OrRaw(r.RawStdoutBase64))
+		var hash string
+		if r.RawStdoutBase64 == "" {
+			// Disk-parse globals: hash the parsed packages (see
+			// npmRecordsFromResults). ScanRecordFromValue gives the same
+			// canonical hash used everywhere else for structured values.
+			hash = state.ScanRecordFromValue("", r.PackageManager, "", r.Packages, r.ExitCode).Hash
+		} else {
+			hash, _ = state.CanonicalHashJSON(decodeBase64OrRaw(r.RawStdoutBase64))
+		}
 		out = append(out, state.GlobalRecord{PM: r.PackageManager, Hash: hash, ExitCode: r.ExitCode})
 	}
 	return out

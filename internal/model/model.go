@@ -147,18 +147,49 @@ type UnchangedGlobalRef struct {
 	LastUploadedExecutionID string `json:"last_uploaded_execution_id,omitempty"`
 }
 
-// NodeScanResult holds raw scan output for enterprise telemetry.
-// Used for both global packages and per-project scans.
+// NodeScanResult holds one project's (or one global root's) scan output for
+// enterprise telemetry. Used for both global packages and per-project scans.
+//
+// Two mutually-exclusive shapes flow through this struct depending on how the
+// scan was produced:
+//   - Legacy (command) path: RawStdoutBase64 carries the raw `npm ls`/`yarn`/
+//     `pnpm`/`bun` output; the backend parses it into packages on ingest.
+//   - Disk-parse path: Packages is populated directly and RawStdoutBase64 is
+//     left empty. The backend's ParseNodeProjects passes a project through
+//     untouched when RawStdoutBase64 == "", so pre-parsed packages reach
+//     storage with no backend change. Never set both: a non-empty
+//     RawStdoutBase64 makes the backend re-parse and overwrite Packages.
+//
+// JSON tags match agent-api's ddbmodels.NodeProject so the payload
+// deserializes server-side without a schema change.
 type NodeScanResult struct {
-	ProjectPath      string `json:"project_path"`
-	PackageManager   string `json:"package_manager"`
-	PMVersion        string `json:"package_manager_version"`
-	WorkingDirectory string `json:"working_directory"`
-	RawStdoutBase64  string `json:"raw_stdout_base64"`
-	RawStderrBase64  string `json:"raw_stderr_base64"`
-	Error            string `json:"error"`
-	ExitCode         int    `json:"exit_code"`
-	ScanDurationMs   int64  `json:"scan_duration_ms"`
+	ProjectPath      string        `json:"project_path"`
+	PackageManager   string        `json:"package_manager"`
+	PMVersion        string        `json:"package_manager_version"`
+	WorkingDirectory string        `json:"working_directory"`
+	RawStdoutBase64  string        `json:"raw_stdout_base64,omitempty"`
+	RawStderrBase64  string        `json:"raw_stderr_base64,omitempty"`
+	Packages         []NodePackage `json:"packages,omitempty"`
+	PackagesCount    int           `json:"packages_count"`
+	Error            string        `json:"error"`
+	ExitCode         int           `json:"exit_code"`
+	ScanDurationMs   int64         `json:"scan_duration_ms"`
+}
+
+// NodePackage is one installed Node package discovered by disk parsing.
+//
+// Fields are intentionally limited to what the backend persists today
+// (name, version, direct-vs-transitive) — see DeviceNPMPackageUsageInfo. The
+// agent-api NodePackage additionally declares InstallPath and Dependencies,
+// but both are parsed-then-discarded server-side and are omitted here on
+// purpose. JSON tags match ddbmodels.NodePackage.
+type NodePackage struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	// IsDirect marks a top-level dependency (declared in the project's
+	// package.json) versus a transitive one pulled in by another package.
+	// Derived from lockfile structure, not from running the package manager.
+	IsDirect bool `json:"is_direct,omitempty"`
 }
 
 // PackageDetail represents a single package name and version.

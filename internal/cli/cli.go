@@ -27,6 +27,7 @@ type Config struct {
 	InstallDir            string // --install-dir=DIR base install directory; all non-bootstrap files (logs, hook errors, binary placement) live under this dir. "" w/ InstallDirSet=true means "explicitly disabled" (no file logging).
 	InstallDirSet         bool   // true if --install-dir was passed (empty value = disable file logging for this run)
 	EnableNPMScan         *bool  // nil=auto, true/false=explicit
+	UseLegacyNodeScan     *bool  // nil=auto (disk scan); true=command path, false=disk path
 	EnableBrewScan        *bool  // nil=auto, true/false=explicit
 	EnablePythonScan      *bool  // nil=auto, true/false=explicit
 	IncludeBundledPlugins bool   // --include-bundled-plugins: include bundled/platform plugins in output
@@ -170,6 +171,12 @@ func Parse(args []string) (*Config, error) {
 		case arg == "--disable-npm-scan":
 			v := false
 			cfg.EnableNPMScan = &v
+		case arg == "--legacy-node-scan":
+			v := true
+			cfg.UseLegacyNodeScan = &v
+		case arg == "--disk-node-scan":
+			v := false
+			cfg.UseLegacyNodeScan = &v
 		case arg == "--enable-brew-scan":
 			v := true
 			cfg.EnableBrewScan = &v

@@ -34,6 +34,17 @@ var (
 	// STEPSEC_ENABLE_SCAN_STATE=1) to opt back in. STEPSEC_DISABLE_SCAN_STATE=1
 	// always forces legacy.
 	UseLegacyPackageScan = true
+
+	// UseLegacyNodeScan, when true, reverts Node.js package discovery to the
+	// command-based path (`npm ls` / `yarn list` / `pnpm ls` / `bun pm ls`,
+	// shipped as raw output for the backend to parse). Defaults to false: Node
+	// packages are read from on-disk lockfiles (and node_modules as a fallback)
+	// with no package-manager subprocess. Set use_legacy_node_scan=true in
+	// config.json (or --legacy-node-scan) to opt back into the command path.
+	//
+	// Independent of UseLegacyPackageScan above (which gates the delta-upload
+	// optimization, not the disk-vs-command source).
+	UseLegacyNodeScan = false
 )
 
 // MaxExecutionDuration is the whole-process execution-watchdog limit
@@ -64,6 +75,7 @@ type ConfigFile struct {
 	InstallDir           string   `json:"install_dir,omitempty"`
 	MaxExecutionDuration string   `json:"max_execution_duration,omitempty"`
 	UseLegacyPackageScan *bool    `json:"use_legacy_package_scan,omitempty"`
+	UseLegacyNodeScan    *bool    `json:"use_legacy_node_scan,omitempty"`
 }
 
 // userConfigDir returns ~/.stepsecurity — the per-user config location.
@@ -198,6 +210,9 @@ func Load() {
 	}
 	if cfg.UseLegacyPackageScan != nil {
 		UseLegacyPackageScan = *cfg.UseLegacyPackageScan
+	}
+	if cfg.UseLegacyNodeScan != nil {
+		UseLegacyNodeScan = *cfg.UseLegacyNodeScan
 	}
 }
 
@@ -513,6 +528,7 @@ func ShowConfigure() {
 	fmt.Printf("  %-24s %s\n", "Max Execution Duration:", displayMaxExecution(cfg.MaxExecutionDuration))
 	fmt.Printf("  %-24s %s\n", "Search Directories:", displayDirs(cfg.SearchDirs))
 	fmt.Printf("  %-24s %s\n", "Enable NPM Scan:", displayBoolScan(cfg.EnableNPMScan))
+	fmt.Printf("  %-24s %s\n", "Legacy Node Scan:", displayBoolScan(cfg.UseLegacyNodeScan))
 	fmt.Printf("  %-24s %s\n", "Enable Brew Scan:", displayBoolScan(cfg.EnableBrewScan))
 	fmt.Printf("  %-24s %s\n", "Enable Python Scan:", displayBoolScan(cfg.EnablePythonScan))
 	fmt.Printf("  %-24s %s\n", "Scan TCC-Protected Dirs:", displayTCC(cfg.IncludeTCCProtected))
