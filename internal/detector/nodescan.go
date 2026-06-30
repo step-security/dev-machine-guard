@@ -373,16 +373,18 @@ func (s *NodeScanner) scanPnpmGlobal(ctx context.Context) (model.NodeScanResult,
 	}, true
 }
 
-// defaultPnpmBinDir returns the default pnpm global bin directory for the current OS
-// based on environment variables.
+// defaultPnpmBinDir returns the default pnpm global bin directory for the current OS.
+// The user-home dirs are anchored on getHomeDir (the logged-in console user),
+// not $HOME — under a LaunchDaemon $HOME is /var/root, which would point the
+// fallback at root's home instead of the developer's.
 func defaultPnpmBinDir(exec executor.Executor) string {
 	switch exec.GOOS() {
 	case model.PlatformDarwin:
-		if home := exec.Getenv("HOME"); home != "" {
+		if home := getHomeDir(exec); home != "" {
 			return filepath.Join(home, "Library", "pnpm", "bin")
 		}
 	case model.PlatformLinux:
-		if home := exec.Getenv("HOME"); home != "" {
+		if home := getHomeDir(exec); home != "" {
 			return filepath.Join(home, ".local", "share", "pnpm", "bin")
 		}
 	case model.PlatformWindows:

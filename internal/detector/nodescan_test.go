@@ -222,7 +222,7 @@ func TestNodeScanner_ScanPnpmGlobal_Delegated(t *testing.T) {
 func TestNodeScanner_ScanPnpmGlobal_RootGFallback(t *testing.T) {
 	mock := executor.NewMock()
 	mock.SetGOOS("darwin")
-	mock.SetEnv("HOME", "/Users/foo")
+	mock.SetHomeDir("/Users/foo")
 	mock.SetPath("pnpm", "/opt/homebrew/bin/pnpm")
 	mock.SetCommand("11.1.2\n", "", 0, "pnpm", "--version")
 	// pnpm root -g errors on every attempt — both the plain first call AND
@@ -260,34 +260,29 @@ func TestNodeScanner_ScanPnpmGlobal_RootGFallback(t *testing.T) {
 // it emits names "<PNPM_HOME>/bin" as the dir that must be on PATH.
 func TestDefaultPnpmBinDir(t *testing.T) {
 	tests := []struct {
-		name string
-		goos string
-		envs map[string]string
-		want string
+		name    string
+		goos    string
+		homeDir string            // drives getHomeDir via the mock's CurrentUser
+		envs    map[string]string // LOCALAPPDATA on Windows
+		want    string
 	}{
 		{
-			name: "darwin with HOME → bin subdir",
-			goos: "darwin",
-			envs: map[string]string{"HOME": "/Users/foo"},
-			want: "/Users/foo/Library/pnpm/bin",
+			name:    "darwin → bin subdir under home",
+			goos:    "darwin",
+			homeDir: "/Users/foo",
+			want:    "/Users/foo/Library/pnpm/bin",
 		},
 		{
-			name: "darwin without HOME → empty",
-			goos: "darwin",
-			envs: map[string]string{},
-			want: "",
+			name:    "linux → bin subdir under home",
+			goos:    "linux",
+			homeDir: "/home/foo",
+			want:    "/home/foo/.local/share/pnpm/bin",
 		},
 		{
-			name: "linux with HOME → bin subdir",
-			goos: "linux",
-			envs: map[string]string{"HOME": "/home/foo"},
-			want: "/home/foo/.local/share/pnpm/bin",
-		},
-		{
-			name: "linux without HOME → empty",
-			goos: "linux",
-			envs: map[string]string{},
-			want: "",
+			name: "windows with LOCALAPPDATA → bin subdir",
+			goos: "windows",
+			envs: map[string]string{"LOCALAPPDATA": `C:\Users\foo\AppData\Local`},
+			want: filepath.Join(`C:\Users\foo\AppData\Local`, "pnpm", "bin"),
 		},
 		{
 			name: "windows without LOCALAPPDATA → empty",
@@ -296,16 +291,19 @@ func TestDefaultPnpmBinDir(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "unrecognized OS → empty",
-			goos: "freebsd",
-			envs: map[string]string{"HOME": "/home/foo"},
-			want: "",
+			name:    "unrecognized OS → empty",
+			goos:    "freebsd",
+			homeDir: "/home/foo",
+			want:    "",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := executor.NewMock()
 			mock.SetGOOS(tt.goos)
+			if tt.homeDir != "" {
+				mock.SetHomeDir(tt.homeDir)
+			}
 			for k, v := range tt.envs {
 				mock.SetEnv(k, v)
 			}

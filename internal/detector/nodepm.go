@@ -35,18 +35,40 @@ func (d *NodePMDetector) DetectManagers(ctx context.Context) []model.PkgManager 
 	var results []model.PkgManager
 
 	for _, pm := range packageManagers {
-		path, err := d.exec.LookPath(pm.Binary)
-		if err != nil {
+		// LookPath returns "" on error, so a failed lookup leaves path empty
+		// and triggers the default-path fallback below rather than dropping
+		// the manager outright.
+		path, _ := d.exec.LookPath(pm.Binary)
+
+		version := ""
+		if path != "" {
+			stdout, _, _, err := d.exec.RunWithTimeout(ctx, 10*time.Second, pm.Binary, pm.VersionCmd)
+			if err == nil {
+				version = strings.TrimSpace(stdout)
+			}
+		}
+
+		// Fallback: the binary wasn't on PATH, or it was but --version returned
+		// nothing — both happen under launchd's stripped PATH when the login
+		// shell sourcing doesn't surface the manager. Probe the OS-specific
+		// default install dirs and run the binary by absolute path.
+		if path == "" || version == "" {
+			fbPath, fbVersion := resolveNodePMFromDefaults(ctx, d.exec, pm.Binary, pm.VersionCmd)
+			if path == "" {
+				path = fbPath
+			}
+			if version == "" {
+				version = fbVersion
+			}
+		}
+
+		// Found nowhere we know to look — not installed on this device.
+		if path == "" {
 			continue
 		}
 
-		version := "unknown"
-		stdout, _, _, err := d.exec.RunWithTimeout(ctx, 10*time.Second, pm.Binary, pm.VersionCmd)
-		if err == nil {
-			v := strings.TrimSpace(stdout)
-			if v != "" {
-				version = v
-			}
+		if version == "" {
+			version = "unknown"
 		}
 
 		results = append(results, model.PkgManager{
