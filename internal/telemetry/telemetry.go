@@ -363,7 +363,16 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// Acquire lock
 	lk, err := lock.Acquire(exec)
 	if err != nil {
-		log.Debug("lock acquisition failed: %v", err)
+		// Lock acquisition failed — usually another instance already holds it,
+		// but it can also be a permission/IO error creating the lock file; the
+		// underlying err carries the specific cause (including the contention
+		// message when that's it). Surface at info level (not Debug) so it's
+		// visible in agent.log, and report the failed run right here — don't
+		// wait for the deferred handler — so the backend records the failure.
+		// reportFailedOnce is idempotent, so the deferred handler that also
+		// fires on the error return is a no-op.
+		log.Progress("Lock acquisition failed (PID %d): %v — exiting", os.Getpid(), err)
+		reportFailedOnce(fmt.Sprintf("lock acquisition failed: %v", err))
 		return fmt.Errorf("acquiring lock: %w", err)
 	}
 	log.Debug("lock acquired (pid=%d)", os.Getpid())
