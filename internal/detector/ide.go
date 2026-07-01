@@ -246,6 +246,10 @@ func (d *IDEDetector) Detect(ctx context.Context) []model.IDE {
 		}
 	}
 
+	// Classic Visual Studio (Windows-only): discovered via VS setup instance
+	// data, not a fixed install path, so it isn't part of ideDefinitions.
+	results = append(results, d.detectVisualStudio()...)
+
 	return results
 }
 

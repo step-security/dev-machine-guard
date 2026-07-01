@@ -52,6 +52,9 @@ func (d *ExtensionDetector) Detect(ctx context.Context, searchDirs []string, ide
 	// Eclipse plugins — use detected IDE install paths for accurate discovery
 	results = append(results, d.DetectEclipsePlugins(ctx, ides)...)
 
+	// Classic Visual Studio extensions (extension.vsixmanifest format, Windows-only)
+	results = append(results, d.DetectVisualStudioExtensions(ctx)...)
+
 	return results
 }
 
