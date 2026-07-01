@@ -107,7 +107,7 @@ self-censor**. macOS still enforces TCC: without a grant, reads in
 protected dirs will silently fail with `EACCES`. For the agent to
 actually see the contents, it needs Full Disk Access (FDA).
 
-Two paths to grant FDA:
+There are two ways to grant FDA.
 
 ### Option A — MDM-pushed PPPC profile (recommended for fleets)
 
@@ -120,19 +120,15 @@ This is the only way to grant FDA at scale without per-user clicks.
 
 #### Inputs you need
 
-- **The install path of the binary.** The loader installs at
-  `~/.stepsecurity/bin/stepsecurity-dev-machine-guard` — that's
-  per-user (`/Users/<username>/.stepsecurity/bin/...`). PPPC's
-  `Identifier` field always takes an absolute filesystem path when
-  `IdentifierType` is `path` (it has no `$HOME`/variable expansion),
-  so you either:
-  - scope a per-user profile that substitutes each user's home path,
-    using your MDM's per-user variables (Jamf's `$HOME`-substituting
-    profile payload variables, Kandji's user-context blueprints,
-    Intune's per-user assignment, etc.), or
-  - have the operator install the binary at a fixed system-wide path
-    (for example `/usr/local/bin/stepsecurity-dev-machine-guard`) so
-    the same profile applies to every user on the device.
+- **The install path of the binary.** By default the loader installs at
+  `~/.stepsecurity/bin/stepsecurity-dev-machine-guard`, which is
+  per-user. Because PPPC's `Identifier` field takes an absolute
+  filesystem path when `IdentifierType` is `path` (it has no
+  `$HOME`/variable expansion), set a **fixed system-wide install
+  directory** (under the loader's Advanced Configuration) so one profile
+  applies to every user on the device — for example
+  `/usr/local/stepsecurity`, which installs the binary at
+  `/usr/local/stepsecurity/bin/stepsecurity-dev-machine-guard`.
 
 - **The code requirement string** derived from the binary's signature.
   PPPC pairs the install path with this requirement so an impostor
@@ -145,7 +141,7 @@ This is the only way to grant FDA at scale without per-user clicks.
   You'll get a line like:
 
   ```
-  identifier "stepsecurity-dev-machine-guard" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "<TEAM_ID>"
+  identifier "stepsecurity-dev-machine-guard" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "D63S9HLM4L"
   ```
 
 #### PPPC profile XML
@@ -190,11 +186,11 @@ granting **SystemPolicyAllFiles** (Full Disk Access) to the agent:
                 <array>
                     <dict>
                         <key>Identifier</key>
-                        <string>/Users/REPLACE_USERNAME/.stepsecurity/bin/stepsecurity-dev-machine-guard</string>
+                        <string>REPLACE_INSTALL_DIR/bin/stepsecurity-dev-machine-guard</string>
                         <key>IdentifierType</key>
                         <string>path</string>
                         <key>CodeRequirement</key>
-                        <string>identifier "stepsecurity-dev-machine-guard" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "REPLACE_TEAM_ID"</string>
+                        <string>anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "D63S9HLM4L"</string>
                         <key>Allowed</key>
                         <true/>
                         <key>Comment</key>
@@ -211,16 +207,12 @@ granting **SystemPolicyAllFiles** (Full Disk Access) to the agent:
 Replace:
 - Both `REPLACE-WITH-UUIDGEN-OUTPUT` values with fresh UUIDs
   (`uuidgen` on macOS).
-- `REPLACE_USERNAME` with the target user's short username so the
-  `Identifier` resolves to the actual on-disk binary path. For
-  per-user MDM scoping, use your MDM's per-user variable instead of a
-  literal username (e.g., Jamf's `$USERNAME`, Kandji's user-context
-  variable). For a fixed system-wide install, replace the whole
-  `Identifier` value with the absolute path you chose
-  (e.g., `/usr/local/bin/stepsecurity-dev-machine-guard`).
-- `REPLACE_TEAM_ID` with the Apple Developer Team ID embedded in
-  the binary's code requirement (the trailing `subject.OU` field
-  from the `codesign -d -r-` output above).
+- `REPLACE_INSTALL_DIR` with the fixed system-wide install directory you
+  configured (for example `/usr/local/stepsecurity`), so the `Identifier`
+  resolves to `<install-dir>/bin/stepsecurity-dev-machine-guard`.
+
+The `CodeRequirement` is already pinned to StepSecurity's Apple Developer
+Team ID (`D63S9HLM4L`) — leave it as-is.
 
 #### Push the profile
 
@@ -288,11 +280,9 @@ If a popup appears after deploying the PPPC profile and setting
   string must match the binary's actual signing. Re-run `codesign -d
   -r-` against the deployed binary and update the profile.
 - **Binary path mismatch.** If `IdentifierType=path` is used, the
-  `Identifier` must match the absolute path of the binary on disk.
-  Different per-user install dirs can require deploying the profile
-  with a wildcard-friendly identifier (use the code requirement
-  alone, with `IdentifierType=bundleID`-style matching, or push the
-  profile per user).
+  `Identifier` must match the absolute path of the binary on disk. Set a
+  fixed system-wide install directory so a single path applies to every
+  device.
 - **TCC.db cache.** TCC caches decisions; after changing a profile,
   reset the relevant service:
 
