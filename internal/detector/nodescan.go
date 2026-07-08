@@ -796,7 +796,16 @@ func (s *NodeScanner) scanGlobalPackagesFromDisk() []model.NodeScanResult {
 		if _, seen := byPM[r.pm]; !seen {
 			order = append(order, r.pm)
 		}
-		byPM[r.pm] = append(byPM[r.pm], s.dist.ScanGlobalModules(r.dir)...)
+		pkgs := s.dist.ScanGlobalModules(r.dir)
+		if len(pkgs) == 0 {
+			// pnpm (and other store-based managers) symlink the global
+			// node_modules into a content-addressed store the walk can't
+			// traverse, so it comes back empty. The install dir (parent of
+			// node_modules) carries the lockfile + package.json with the full
+			// resolved graph — parse that instead, keyed on the root's PM.
+			pkgs = s.dist.ScanProject(filepath.Dir(r.dir), r.pm)
+		}
+		byPM[r.pm] = append(byPM[r.pm], pkgs...)
 	}
 	results := make([]model.NodeScanResult, 0, len(order))
 	for _, pm := range order {
