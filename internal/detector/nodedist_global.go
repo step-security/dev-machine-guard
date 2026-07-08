@@ -75,9 +75,22 @@ func NodeGlobalRoots(exec executor.Executor) []nodeGlobalRoot {
 		addGlob("pnpm", filepath.Join(pnpmHome, "global", "*", "*", "node_modules"))
 	}
 
-	// --- yarn classic: ~/.config/yarn/global/node_modules. ---
-	if home != "" {
-		add("yarn", filepath.Join(home, ".config", "yarn", "global", "node_modules"))
+	// --- yarn classic globals. Location differs by OS:
+	//   - POSIX:   ~/.config/yarn/global/node_modules
+	//   - Windows: %LOCALAPPDATA%\Yarn\Data\global\node_modules (yarn 1.x
+	//     `yarn global dir`); older builds used %LOCALAPPDATA%\Yarn\global.
+	// The POSIX path uses HOME/USERPROFILE, which never resolves the Windows
+	// yarn prefix, so yarn globals were invisible on Windows.
+	switch exec.GOOS() {
+	case model.PlatformWindows:
+		if localAppData := exec.Getenv("LOCALAPPDATA"); localAppData != "" {
+			add("yarn", filepath.Join(localAppData, "Yarn", "Data", "global", "node_modules"))
+			add("yarn", filepath.Join(localAppData, "Yarn", "global", "node_modules"))
+		}
+	default:
+		if home != "" {
+			add("yarn", filepath.Join(home, ".config", "yarn", "global", "node_modules"))
+		}
 	}
 
 	return roots
