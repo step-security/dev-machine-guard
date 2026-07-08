@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [1.13.0] - 2026-07-08
+
+### Added
+
+- **Device policy enforcement**: the agent now applies device policy profiles fetched from run-config, including OS-native enforcement of a VS Code extension allowlist. Policy identity is target-aware (category + target) and on-device state is keyed by category; state files written by a newer schema version are rejected.
+- **Classic Visual Studio detection**: scans now discover classic Visual Studio installs and their extensions.
+- **Disk-based package scanning**: npm packages are discovered by parsing lockfiles and Python packages by reading `dist-info` metadata on disk, so package inventory no longer depends solely on invoking the package manager.
+- **Run-on-login scheduling and scheduler diagnostics**: scans can be scheduled to run on login, Windows Task Scheduler history is enabled, and a new scheduler-info subsystem reports cross-platform scheduling state for troubleshooting.
+- **Last-run heartbeat**: a `last-run.json` heartbeat is written at the start of telemetry send, and this run's loader-script logs are included in telemetry.
+- **Scan-state delta upload protocol**: infrastructure to upload only package add/remove deltas between runs (opt-in; disabled by default).
+
+### Changed
+
+- **Legacy package scan remains the default**: the scan-state delta protocol is gated off by default; `use_legacy_package_scan` controls the legacy full-inventory path.
+- **schtasks frequencies of 24h+ now use a DAILY schedule** instead of a minute-interval trigger.
+- **Go toolchain bumped to 1.26.**
+- **Lock-acquisition contention** is now logged and reported at info level.
+
+### Fixed
+
+- **Node package-manager version resolution**: PM versions are resolved via default install paths, and `NodeScanner.pmAvailability` access is guarded by a mutex.
+- **Scan cap and delta gating**: disk-discovered packages now count toward the scan cap, and delta upload is gated on a resolved PM version.
+- **Lock failures** are no longer assumed to indicate contention.
+- **IDE policy under SYSTEM**: the installer no longer enforces IDE policy inline when running as SYSTEM.
+- **Device policy source**: policy is fetched from run-config; the removed effective-policy endpoint is no longer called.
+- **scan-state persistence**: scan-state is written to the `--telemetry-out` path when specified.
+
 ## [1.12.0] - 2026-06-09
 
 ### Added
@@ -260,6 +287,7 @@ First open-source release. The scanning engine was previously an internal enterp
 - Execution log capture and base64 encoding
 - Instance locking to prevent concurrent runs
 
+[1.13.0]: https://github.com/step-security/dev-machine-guard/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/step-security/dev-machine-guard/compare/v1.11.7...v1.12.0
 [1.11.7]: https://github.com/step-security/dev-machine-guard/compare/v1.11.6...v1.11.7
 [1.11.6]: https://github.com/step-security/dev-machine-guard/compare/v1.11.5...v1.11.6
