@@ -559,7 +559,7 @@ func TestLoadLock_OversizeSkipped(t *testing.T) {
 	m.SetFile(lp, make([]byte, maxJSONConfigBytes+1))
 
 	info := &model.AgentSkillScanInfo{}
-	entries := NewSkillsDetector(m).loadLock(lp, "", testHome+"/.agents/skills", info)
+	entries := NewSkillsDetector(m).loadLock(lp, testHome+"/.agents/skills", info)
 	if entries != nil {
 		t.Errorf("expected no entries from an oversized lock, got %d", len(entries))
 	}
@@ -653,6 +653,29 @@ func TestSortSkills_Tiebreaks(t *testing.T) {
 	}
 }
 
+// TestCollapseSymlinkShadows_CanonicalAndSources exercises the pure collapse:
+// three roots resolve to one physical dir (one real + two symlink shadows). The
+// real dir wins regardless of input order, and the shadows' sources become the
+// sorted, deduped symlink_sources.
+func TestCollapseSymlinkShadows_CanonicalAndSources(t *testing.T) {
+	const rd = "/phys/foo"
+	in := []discoveredSkill{
+		{rec: model.AgentSkill{Source: "cursor_user", SkillSlug: "foo", SkillDirPath: rd}, isSymlink: true, resolvedDir: rd},
+		{rec: model.AgentSkill{Source: "agents_user", SkillSlug: "foo", SkillDirPath: rd}, isSymlink: false, resolvedDir: rd},
+		{rec: model.AgentSkill{Source: "claude_user", SkillSlug: "foo", SkillDirPath: rd}, isSymlink: true, resolvedDir: rd},
+	}
+	out := collapseSymlinkShadows(in)
+	if len(out) != 1 {
+		t.Fatalf("want 1 collapsed record, got %d: %+v", len(out), out)
+	}
+	if out[0].Source != "agents_user" {
+		t.Errorf("canonical = %q, want agents_user (real dir wins over symlinks)", out[0].Source)
+	}
+	if !equalStrings(out[0].SymlinkSources, []string{"claude_user", "cursor_user"}) {
+		t.Errorf("symlink_sources = %v, want sorted [claude_user cursor_user]", out[0].SymlinkSources)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Detect integration tests
 // ---------------------------------------------------------------------------
@@ -677,8 +700,8 @@ func TestDetect_HappyPath(t *testing.T) {
 	if rec.Agent != "claude-code" || rec.Scope != "global" {
 		t.Errorf("agent=%q scope=%q", rec.Agent, rec.Scope)
 	}
-	if !rec.PresentOnDisk || !rec.HasFrontmatter || rec.FrontmatterError != "" {
-		t.Errorf("present=%v hasFM=%v err=%q", rec.PresentOnDisk, rec.HasFrontmatter, rec.FrontmatterError)
+	if !rec.HasFrontmatter || rec.FrontmatterError != "" {
+		t.Errorf("hasFM=%v err=%q", rec.HasFrontmatter, rec.FrontmatterError)
 	}
 	if rec.RootRelPath != "my-skill" {
 		t.Errorf("rootRelPath = %q", rec.RootRelPath)
@@ -854,7 +877,9 @@ func TestDetect_CaseVariantSkillMD(t *testing.T) {
 
 func TestDetect_SymlinkedSkill(t *testing.T) {
 	m, fs := newSkillsMock()
-	// A symlink under the root points to a skill dir elsewhere.
+	// A symlink under the root points to a skill dir elsewhere; nothing else
+	// resolves to that target, so it stays a single record (an all-symlink group
+	// of one) carrying the resolved target as skill_dir_path.
 	target := testHome + "/external/coolskill"
 	fs.addSkill(target, "SKILL.md", validFrontmatter("cool", "d"), nil)
 	fs.addSymlink(testHome+"/.claude/skills/linked", target)
@@ -865,11 +890,11 @@ func TestDetect_SymlinkedSkill(t *testing.T) {
 	if rec == nil {
 		t.Fatalf("symlinked skill not found; records=%+v", records)
 	}
-	if !rec.IsSymlink {
-		t.Error("expected IsSymlink=true")
-	}
 	if rec.SkillDirPath != target {
 		t.Errorf("SkillDirPath = %q, want resolved target %q", rec.SkillDirPath, target)
+	}
+	if len(rec.SymlinkSources) != 0 {
+		t.Errorf("a single-member group must carry no symlink_sources, got %v", rec.SymlinkSources)
 	}
 }
 
@@ -889,11 +914,12 @@ func TestDetect_DanglingSymlink(t *testing.T) {
 	}
 }
 
-// TestDetect_SkillsShSymlinkLayout is the headline case: skills.sh installs a
+// TestDetect_SkillsShSymlinkLayout is the headline v2 case: skills.sh installs a
 // real folder under ~/.agents/skills and symlinks it into ~/.claude/skills, and
-// records provenance in the global lock. Both roots surface the skill; both
-// records must be lock-enriched, hashed once (identical skill_md_hash), and only
-// the claude-side record flagged is_symlink.
+// records provenance in the global lock. Both roots surface the skill, but the
+// symlink-shadow collapse folds them to ONE record — the real ~/.agents dir is
+// canonical, the ~/.claude symlink root lands in symlink_sources — lock-enriched
+// and hashed once.
 func TestDetect_SkillsShSymlinkLayout(t *testing.T) {
 	m, fs := newSkillsMock()
 	real := testHome + "/.agents/skills/foo"
@@ -904,33 +930,187 @@ func TestDetect_SkillsShSymlinkLayout(t *testing.T) {
 	fs.commit()
 
 	records, info := NewSkillsDetector(m).Detect(context.Background(), nil)
-	if info.SkillsFound != 2 {
-		t.Fatalf("expected 2 records (agents_user + claude_user), got %d: %+v", info.SkillsFound, records)
+	if info.SkillsFound != 1 {
+		t.Fatalf("expected 1 collapsed record, got %d: %+v", info.SkillsFound, records)
+	}
+	// The real ~/.agents dir is canonical; the ~/.claude symlink is folded in.
+	if findSkill(records, "claude_user", "foo") != nil {
+		t.Error("claude_user shadow must collapse into the agents_user record, not be emitted")
 	}
 	agents := findSkill(records, "agents_user", "foo")
-	claude := findSkill(records, "claude_user", "foo")
-	if agents == nil || claude == nil {
-		t.Fatalf("missing record: agents=%v claude=%v", agents, claude)
+	if agents == nil {
+		t.Fatalf("agents_user record missing; records=%+v", records)
 	}
-	if agents.IsSymlink {
-		t.Error("real ~/.agents record must not be is_symlink")
+	if !equalStrings(agents.SymlinkSources, []string{"claude_user"}) {
+		t.Errorf("symlink_sources = %v, want [claude_user]", agents.SymlinkSources)
 	}
-	if !claude.IsSymlink {
-		t.Error("~/.claude symlink record must be is_symlink")
+	if agents.SkillMDHash == "" {
+		t.Error("expected non-empty skill_md_hash")
 	}
-	if agents.SkillMDHash == "" || agents.SkillMDHash != claude.SkillMDHash {
-		t.Errorf("skill_md_hash must match and be non-empty (computed once via resolved-path memo): %q vs %q", agents.SkillMDHash, claude.SkillMDHash)
-	}
-	for _, r := range []*model.AgentSkill{agents, claude} {
-		if r.ManagedBy != "skills.sh" {
-			t.Errorf("%s: ManagedBy = %q, want skills.sh", r.Source, r.ManagedBy)
-		}
-		if r.SourceSlug != "acme/foo" || r.UpstreamFolderHash != "tree123" {
-			t.Errorf("%s: provenance not applied: slug=%q upstream=%q", r.Source, r.SourceSlug, r.UpstreamFolderHash)
-		}
+	if agents.ManagedBy != "skills.sh" || agents.SourceSlug != "acme/foo" || agents.UpstreamFolderHash != "tree123" {
+		t.Errorf("provenance not applied: managed=%q slug=%q upstream=%q", agents.ManagedBy, agents.SourceSlug, agents.UpstreamFolderHash)
 	}
 	if info.LockFilesParsed != 1 {
 		t.Errorf("LockFilesParsed = %d, want 1", info.LockFilesParsed)
+	}
+}
+
+// TestDetect_CrossScopeSymlinkCollapse: a project root's skill dir is a symlink
+// to a GLOBAL physical skill. Grouping by resolved dir collapses it into the
+// global record, and the project source lands in symlink_sources — the physical
+// skill stays global, its project exposure recorded.
+func TestDetect_CrossScopeSymlinkCollapse(t *testing.T) {
+	m, fs := newSkillsMock()
+	proj := testHome + "/work/proj"
+	real := testHome + "/.agents/skills/shared-skill"
+	fs.addSkill(real, "SKILL.md", validFrontmatter("shared", "d"), nil)
+	// The project's .claude/skills/shared-skill is a symlink to the global dir.
+	fs.addSymlink(filepath.Join(proj, ".claude", "skills", "shared-skill"), real)
+	fs.addFile(testHome+"/.claude.json", `{"projects":{"`+proj+`":{}}}`)
+	fs.commit()
+
+	records, _ := NewSkillsDetector(m).Detect(context.Background(), nil)
+	agents := findSkill(records, "agents_user", "shared-skill")
+	if agents == nil {
+		t.Fatalf("global record missing; records=%+v", records)
+	}
+	if agents.Scope != "global" {
+		t.Errorf("physical skill must stay global, scope=%q", agents.Scope)
+	}
+	if !equalStrings(agents.SymlinkSources, []string{"claude_project"}) {
+		t.Errorf("symlink_sources = %v, want [claude_project]", agents.SymlinkSources)
+	}
+	if findSkill(records, "claude_project", "shared-skill") != nil {
+		t.Error("project symlink shadow must collapse, not be emitted")
+	}
+}
+
+// TestDetect_AllSymlinkGroupCollapses: the real skill lives OUTSIDE every scanned
+// root and two roots symlink to it. The group is all symlinks, so exactly one
+// record survives (deterministic canonical), the other root in symlink_sources.
+func TestDetect_AllSymlinkGroupCollapses(t *testing.T) {
+	m, fs := newSkillsMock()
+	external := testHome + "/somewhere/ext-skill"
+	fs.addSkill(external, "SKILL.md", validFrontmatter("ext", "d"), nil)
+	fs.addSymlink(testHome+"/.claude/skills/ext-skill", external)
+	fs.addSymlink(testHome+"/.cursor/skills/ext-skill", external)
+	fs.commit()
+
+	records, _ := NewSkillsDetector(m).Detect(context.Background(), nil)
+	var found []model.AgentSkill
+	for _, r := range records {
+		if r.SkillSlug == "ext-skill" {
+			found = append(found, r)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("all-symlink group must collapse to 1 record, got %d: %+v", len(found), found)
+	}
+	// Deterministic canonical: lexically-least source (claude_user < cursor_user).
+	if found[0].Source != "claude_user" {
+		t.Errorf("canonical source = %q, want claude_user (lexical tie-break)", found[0].Source)
+	}
+	if !equalStrings(found[0].SymlinkSources, []string{"cursor_user"}) {
+		t.Errorf("symlink_sources = %v, want [cursor_user]", found[0].SymlinkSources)
+	}
+}
+
+// TestDetect_SameSlugTwoScopesStaySeparate: a global skill and a project skill
+// share a slug but are different physical dirs → different collapse groups → two
+// records (version drift across scopes is signal, never merged).
+func TestDetect_SameSlugTwoScopesStaySeparate(t *testing.T) {
+	m, fs := newSkillsMock()
+	proj := testHome + "/work/proj"
+	fs.addSkill(testHome+"/.claude/skills/dup", "SKILL.md", validFrontmatter("dup", "global ver"), nil)
+	fs.addSkill(filepath.Join(proj, ".claude", "skills", "dup"), "SKILL.md", validFrontmatter("dup", "project ver"), nil)
+	fs.addFile(testHome+"/.claude.json", `{"projects":{"`+proj+`":{}}}`)
+	fs.commit()
+
+	records, _ := NewSkillsDetector(m).Detect(context.Background(), nil)
+	g := findSkill(records, "claude_user", "dup")
+	p := findSkill(records, "claude_project", "dup")
+	if g == nil || p == nil {
+		t.Fatalf("both records must survive; global=%v project=%v", g, p)
+	}
+	if g.SkillMDHash == p.SkillMDHash {
+		t.Error("different SKILL.md content must yield different hashes (distinct records)")
+	}
+	if len(g.SymlinkSources) != 0 || len(p.SymlinkSources) != 0 {
+		t.Errorf("distinct real dirs must not list each other as symlink_sources")
+	}
+}
+
+// TestDetect_NewAgentGlobalSources covers the Pi/Factory/Amp/Copilot global roots
+// (each its own new physical path, not a compat re-registration).
+func TestDetect_NewAgentGlobalSources(t *testing.T) {
+	cases := []struct{ dir, source, agent string }{
+		{testHome + "/.pi/agent/skills/pig", "pi_user", "pi"},
+		{testHome + "/.factory/skills/facg", "factory_user", "factory"},
+		{testHome + "/.config/agents/skills/ampg", "amp_user", "amp"},
+		{testHome + "/.copilot/skills/copg", "copilot_user", "copilot"},
+	}
+	m, fs := newSkillsMock()
+	for _, c := range cases {
+		fs.addSkill(c.dir, "SKILL.md", validFrontmatter(filepath.Base(c.dir), "d"), nil)
+	}
+	fs.commit()
+
+	records, _ := NewSkillsDetector(m).Detect(context.Background(), nil)
+	for _, c := range cases {
+		slug := filepath.Base(c.dir)
+		rec := findSkill(records, c.source, slug)
+		if rec == nil {
+			t.Errorf("%s skill %q not found; records=%+v", c.source, slug, records)
+			continue
+		}
+		if rec.Agent != c.agent || rec.Scope != "global" {
+			t.Errorf("%s: agent=%q scope=%q, want %s/global", c.source, rec.Agent, rec.Scope, c.agent)
+		}
+	}
+}
+
+// TestDetect_NewAgentProjectSources covers the Pi/Factory/GitHub project roots,
+// including Factory's SINGULAR .agent/skills (distinct from the shared .agents).
+func TestDetect_NewAgentProjectSources(t *testing.T) {
+	proj := testHome + "/work/proj"
+	cases := []struct{ rel, source, agent string }{
+		{".pi/skills/pip", "pi_project", "pi"},
+		{".factory/skills/facp", "factory_project", "factory"},
+		{".agent/skills/facap", "factory_agent_project", "factory"},
+		{".github/skills/ghp", "github_project", "copilot"},
+	}
+	m, fs := newSkillsMock()
+	for _, c := range cases {
+		fs.addSkill(filepath.Join(proj, filepath.FromSlash(c.rel)), "SKILL.md", validFrontmatter(filepath.Base(c.rel), "d"), nil)
+	}
+	fs.addFile(testHome+"/.claude.json", `{"projects":{"`+proj+`":{}}}`)
+	fs.commit()
+
+	records, _ := NewSkillsDetector(m).Detect(context.Background(), nil)
+	for _, c := range cases {
+		slug := filepath.Base(c.rel)
+		rec := findSkill(records, c.source, slug)
+		if rec == nil {
+			t.Errorf("%s skill %q not found; records=%+v", c.source, slug, records)
+			continue
+		}
+		if rec.Agent != c.agent || rec.Scope != "project" || rec.ProjectPath != proj {
+			t.Errorf("%s: agent=%q scope=%q proj=%q", c.source, rec.Agent, rec.Scope, rec.ProjectPath)
+		}
+	}
+}
+
+// TestDetect_NewAgentFormatsNotAdopted: only a SKILL.md dir is a skill. Factory's
+// skill.mdx and Pi's loose top-level .md are NOT adopted, even under the new roots.
+func TestDetect_NewAgentFormatsNotAdopted(t *testing.T) {
+	m, fs := newSkillsMock()
+	fs.addFile(testHome+"/.factory/skills/mdx-skill/skill.mdx", validFrontmatter("mdx", "d"))
+	fs.addFile(testHome+"/.pi/agent/skills/loose.md", validFrontmatter("loose", "d"))
+	fs.commit()
+
+	records, _ := NewSkillsDetector(m).Detect(context.Background(), nil)
+	if len(records) != 0 {
+		t.Errorf("skill.mdx / loose .md must not be detected, got %+v", records)
 	}
 }
 
@@ -972,15 +1152,12 @@ func TestDetect_LockV3(t *testing.T) {
 		t.Error("local on-disk path leaked into provenance")
 	}
 
-	ghost := findSkill(records, "skill_lock_only", "ghost-skill")
-	if ghost == nil {
-		t.Fatal("ghost-skill lock-only record missing")
-	}
-	if ghost.PresentOnDisk {
-		t.Error("lock-only record must have PresentOnDisk=false")
-	}
-	if ghost.Agent != "shared" || ghost.ManagedBy != "skills.sh" || ghost.SourceSlug != "acme/ghost" {
-		t.Errorf("ghost record fields: %+v", ghost)
+	// v2: a lock entry with no folder on disk is not an install — no record is
+	// synthesized for it, under any source.
+	for i := range records {
+		if records[i].SkillSlug == "ghost-skill" {
+			t.Errorf("ghost-skill (lock-only, no dir on disk) must be absent in v2, got %+v", records[i])
+		}
 	}
 }
 

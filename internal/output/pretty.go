@@ -133,8 +133,8 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 			if s.ManagedBy != "" {
 				tag = " [" + s.ManagedBy + "]"
 			}
-			if !s.PresentOnDisk {
-				tag += " [lock-only]"
+			if n := len(s.SymlinkSources); n > 0 {
+				tag += fmt.Sprintf(" [+%d linked]", n)
 			}
 			fmt.Fprintf(w, "    %-24s %s%-18s %-11s %s%s%s\n",
 				truncate(s.SkillName, 24), c.dim, truncate(s.Source, 18), truncate(s.Agent, 11), s.Scope, tag, c.reset)

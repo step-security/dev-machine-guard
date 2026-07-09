@@ -686,9 +686,11 @@ type FileAttrs struct {
 	ChangedAt  int64 `json:"changed_at"`  // ctime
 }
 
-// AgentSkill represents one discovered agent skill (a SKILL.md directory,
-// a skills.sh lock entry, or both joined). Never carries file content —
-// identity, provenance, hashes, and census counts only.
+// AgentSkill represents one discovered agent skill: a physical SKILL.md
+// directory, optionally enriched with skills.sh lock provenance. Symlink shadows
+// of the same physical dir are collapsed into one record (the linked roots
+// listed in SymlinkSources). Never carries file content — identity, provenance,
+// hashes, and census counts only.
 type AgentSkill struct {
 	// Identity
 	SkillSlug    string   `json:"skill_slug"`              // directory basename (or lock alias for lock-only)
@@ -707,20 +709,21 @@ type AgentSkill struct {
 	HasShellInjection      bool   `json:"has_shell_injection,omitempty"`     // body has !`cmd` / ```! load-time exec
 
 	// Attribution
-	Agent  string `json:"agent"`  // "claude-code" | "codex" | "opencode" | "cursor" | "shared"
-	Source string `json:"source"` // "claude_user"|"claude_project"|"claude_plugin"|"agents_user"|"agents_project"|
-	//                              // "codex_user"|"codex_system"|"codex_admin"|"opencode_user"|"opencode_project"|
-	//                              // "cursor_user"|"cursor_project"|"skill_lock_only"
+	Agent  string `json:"agent"`  // "claude-code"|"codex"|"opencode"|"cursor"|"pi"|"factory"|"amp"|"copilot"|"shared"
+	Source string `json:"source"` // atomic attribution key. "claude_user"|"claude_project"|"claude_plugin"|
+	//                              // "agents_user"|"agents_project"|"codex_user"|"codex_system"|"codex_admin"|
+	//                              // "opencode_user"|"opencode_project"|"cursor_user"|"cursor_project"|"pi_user"|
+	//                              // "pi_project"|"factory_user"|"factory_project"|"factory_agent_project"|
+	//                              // "amp_user"|"copilot_user"|"github_project"
 	Scope       string `json:"scope"`                  // "global" | "project" | "system"
 	ProjectPath string `json:"project_path,omitempty"` // project root for project scope
 	PluginName  string `json:"plugin_name,omitempty"`  // owning plugin (claude_plugin source or lock pluginName)
 
 	// Location
-	SkillDirPath  string `json:"skill_dir_path,omitempty"` // absolute, symlink-resolved target
-	RootRelPath   string `json:"root_rel_path,omitempty"`  // skill dir relative to its root, forward-slash ("frontend-design", "apps/web/frontend-design")
-	IsSymlink     bool   `json:"is_symlink,omitempty"`     // the entry at root_rel_path is a symlink (skill_dir_path = its target)
-	SkillMDPath   string `json:"skill_md_path,omitempty"`
-	PresentOnDisk bool   `json:"present_on_disk"` // false for skill_lock_only records
+	SkillDirPath   string   `json:"skill_dir_path,omitempty"` // absolute, symlink-resolved dir of the physical skill (the collapse group key)
+	RootRelPath    string   `json:"root_rel_path,omitempty"`  // skill dir relative to its root, forward-slash ("frontend-design", "apps/web/frontend-design")
+	SkillMDPath    string   `json:"skill_md_path,omitempty"`
+	SymlinkSources []string `json:"symlink_sources,omitempty"` // sorted, deduped source labels that symlink to this physical skill dir; every entry is a symlink by definition
 
 	// Content identity
 	SkillMDHash string `json:"skill_md_hash,omitempty"` // hex(sha256(SKILL.md)) — identity/drift key
@@ -741,7 +744,7 @@ type AgentSkill struct {
 	// skills.sh lock provenance (empty when unmanaged)
 	ManagedBy          string `json:"managed_by,omitempty"`  // "skills.sh" | ""
 	SourceSlug         string `json:"source_slug,omitempty"` // "vercel-labs/agent-skills" (alias only for sourceType=local)
-	SourceType         string `json:"source_type,omitempty"` // "github"|"mintlify"|"huggingface"|"local"
+	SourceType         string `json:"source_type,omitempty"` // "github"|"mintlify"|"huggingface"|"local"|"well-known"
 	SourceURL          string `json:"source_url,omitempty"`
 	Ref                string `json:"ref,omitempty"`                  // branch|tag|sha as recorded
 	SkillPath          string `json:"skill_path,omitempty"`           // subdir within upstream repo

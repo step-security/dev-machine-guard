@@ -88,6 +88,16 @@ type skillsRoot struct {
 	excludeName string // a direct child name to skip (codex .system carve-out)
 }
 
+// discoveredSkill is the internal working record for one enumerated skill dir. It
+// carries the collapse metadata — whether the root entry was a symlink and the
+// symlink-resolved dir that groups shadows of the same physical skill — alongside
+// the wire record. collapseSymlinkShadows projects it down to model.AgentSkill.
+type discoveredSkill struct {
+	rec         model.AgentSkill
+	isSymlink   bool   // the entry at its root was a symlink into rec.SkillDirPath
+	resolvedDir string // symlink-resolved skill dir — the collapse group key
+}
+
 // Detect discovers skills across all roots. extraProjectRoots are additional
 // project roots surfaced by the node/python scanners (may be nil); the detector
 // also self-discovers projects from ~/.claude.json. It never returns a hard
@@ -107,14 +117,17 @@ func (d *SkillsDetector) Detect(ctx context.Context, extraProjectRoots []string)
 	// means "no information" and would strand the device's skill state; a non-nil
 	// info (even with partial or zero records) means "scan ran". Record the panic
 	// and finalize whatever we gathered. Registered after `defer cancel()` so it
-	// runs first (LIFO), recovering before the context is torn down; `skills` is
-	// the named accumulator below, so partial discovery survives the unwind.
-	// Containing the panic here keeps a skills bug from failing the whole
-	// telemetry run via telemetry.Run. The recorded error also marks an
-	// early-panic "scan ran, 0 skills" result as partial rather than complete.
+	// runs first (LIFO), recovering before the context is torn down; the recovery
+	// re-collapses whatever `discovered` accumulated, so partial discovery
+	// survives the unwind. Containing the panic here keeps a skills bug from
+	// failing the whole telemetry run via telemetry.Run. The recorded error also
+	// marks an early-panic "scan ran, 0 skills" result as partial rather than
+	// complete.
+	var discovered []discoveredSkill
 	defer func() {
 		if r := recover(); r != nil {
 			d.addError(info, fmt.Sprintf("panic in skills detect: %v", r))
+			skills = collapseSymlinkShadows(discovered)
 			sortSkills(skills)
 			info.SkillsFound = len(skills)
 			info.DurationMs = time.Since(start).Milliseconds()
@@ -127,13 +140,13 @@ func (d *SkillsDetector) Detect(ctx context.Context, extraProjectRoots []string)
 
 	// Global + system roots.
 	for _, root := range d.resolveGlobalRoots(info) {
-		skills = append(skills, d.enumerateRoot(ctx, root, info, memo)...)
+		discovered = append(discovered, d.enumerateRoot(ctx, root, info, memo)...)
 	}
 
 	// Plugin roots: walk the two plugin subtrees for skills/ dirs and
 	// plugin.json-declared skill dirs.
 	for _, root := range d.walkPlugins(ctx, info) {
-		skills = append(skills, d.enumerateRoot(ctx, root, info, memo)...)
+		discovered = append(discovered, d.enumerateRoot(ctx, root, info, memo)...)
 	}
 
 	// Project roots: Claude Code registry ∪ node/python roots, deduped, capped,
@@ -142,13 +155,18 @@ func (d *SkillsDetector) Detect(ctx context.Context, extraProjectRoots []string)
 	info.ProjectsScanned = len(projects)
 	for _, proj := range projects {
 		for _, root := range d.resolveProjectRoots(proj, info) {
-			skills = append(skills, d.enumerateRoot(ctx, root, info, memo)...)
+			discovered = append(discovered, d.enumerateRoot(ctx, root, info, memo)...)
 		}
 	}
 
-	// Lock files: parse the global lock + each project lock, then join
-	// provenance onto folder records and synthesize lock-only records.
-	skills = d.applyLocks(skills, projects, info)
+	// Lock files: parse the global lock + each project lock and join skills.sh
+	// provenance onto matching on-disk records. A lock entry with no folder on
+	// disk is not an install and is dropped (no lock-only synthesis).
+	discovered = d.applyLocks(discovered, projects, info)
+
+	// Collapse symlink shadows: one record per physical skill dir, the linked
+	// roots recorded in symlink_sources.
+	skills = collapseSymlinkShadows(discovered)
 
 	// Deterministic ordering: (source, project_path, skill_slug).
 	sortSkills(skills)
@@ -207,6 +225,19 @@ func (d *SkillsDetector) resolveGlobalRoots(info *model.AgentSkillScanInfo) []sk
 	// cursor_user: ~/.cursor/skills.
 	add(filepath.Join(home, ".cursor", "skills"), "cursor_user", "cursor", "global", "")
 
+	// pi_user: ~/.pi/agent/skills (note the "agent" path segment).
+	add(filepath.Join(home, ".pi", "agent", "skills"), "pi_user", "pi", "global", "")
+
+	// factory_user: ~/.factory/skills.
+	add(filepath.Join(home, ".factory", "skills"), "factory_user", "factory", "global", "")
+
+	// amp_user: ~/.config/agents/skills (XDG global; a distinct path from
+	// agents_user's ~/.agents/skills).
+	add(filepath.Join(home, ".config", "agents", "skills"), "amp_user", "amp", "global", "")
+
+	// copilot_user: ~/.copilot/skills.
+	add(filepath.Join(home, ".copilot", "skills"), "copilot_user", "copilot", "global", "")
+
 	return roots
 }
 
@@ -229,6 +260,10 @@ func (d *SkillsDetector) resolveProjectRoots(project string, info *model.AgentSk
 	add([]string{".opencode", "skills"}, "opencode_project", "opencode")
 	add([]string{".opencode", "skill"}, "opencode_project", "opencode")
 	add([]string{".cursor", "skills"}, "cursor_project", "cursor")
+	add([]string{".pi", "skills"}, "pi_project", "pi")
+	add([]string{".factory", "skills"}, "factory_project", "factory")
+	add([]string{".agent", "skills"}, "factory_agent_project", "factory") // singular .agent — Factory legacy, distinct from .agents
+	add([]string{".github", "skills"}, "github_project", "copilot")       // only .github/skills, never the rest of .github
 	return roots
 }
 
@@ -279,8 +314,8 @@ func (d *SkillsDetector) discoverProjects(extra []string, info *model.AgentSkill
 // under one root: a directory directly containing a SKILL.md (case-sensitive)
 // is a skill (stop-at-skill), .git/node_modules are never descended, symlinked
 // skill dirs are resolved, and the 2000-dir / 500-skill caps trip truncation.
-func (d *SkillsDetector) enumerateRoot(ctx context.Context, root skillsRoot, info *model.AgentSkillScanInfo, memo map[string]*skillScan) []model.AgentSkill {
-	var records []model.AgentSkill
+func (d *SkillsDetector) enumerateRoot(ctx context.Context, root skillsRoot, info *model.AgentSkillScanInfo, memo map[string]*skillScan) []discoveredSkill {
+	var records []discoveredSkill
 	dirsVisited := 0
 	rootTruncated := false
 
@@ -361,11 +396,12 @@ func (d *SkillsDetector) enumerateRoot(ctx context.Context, root skillsRoot, inf
 }
 
 // handleSymlinkEntry resolves a symlinked directory entry; if its target is a
-// skill dir it is recorded with is_symlink=true (the skills.sh layout), the
-// root-relative path is the link location, and the resolved target is the skill
-// dir path. Symlinks are never descended through — cycles and ~/ escapes are
-// impossible.
-func (d *SkillsDetector) handleSymlinkEntry(ctx context.Context, records *[]model.AgentSkill, root skillsRoot, linkPath, rel string, info *model.AgentSkillScanInfo, memo map[string]*skillScan, rootTruncated *bool) {
+// skill dir it is recorded as a symlink shadow (the skills.sh layout) with the
+// root-relative path as the link location and the resolved target as the skill
+// dir path. The shadow is later folded into the physical skill's record by
+// collapseSymlinkShadows. Symlinks are never descended through — cycles and ~/
+// escapes are impossible.
+func (d *SkillsDetector) handleSymlinkEntry(ctx context.Context, records *[]discoveredSkill, root skillsRoot, linkPath, rel string, info *model.AgentSkillScanInfo, memo map[string]*skillScan, rootTruncated *bool) {
 	target, err := d.exec.EvalSymlinks(linkPath)
 	if err != nil || target == "" {
 		d.addError(info, fmt.Sprintf("dangling symlink %s: %v", linkPath, err))
@@ -388,11 +424,11 @@ func (d *SkillsDetector) handleSymlinkEntry(ctx context.Context, records *[]mode
 	}
 }
 
-// emitSkill builds one AgentSkill record for a discovered skill directory,
-// applying the per-root 500-skill cap. dir is the resolved skill directory
-// (the symlink target when isSymlink). Returns false when the per-root cap was
-// hit (caller should stop enumerating this root).
-func (d *SkillsDetector) emitSkill(ctx context.Context, records *[]model.AgentSkill, root skillsRoot, dir, rel, mdName string, isSymlink bool, info *model.AgentSkillScanInfo, memo map[string]*skillScan) bool {
+// emitSkill appends one discoveredSkill for a skill directory, applying the
+// per-root 500-skill cap. dir is the resolved skill directory (the symlink
+// target when isSymlink). Returns false when the per-root cap was hit (caller
+// should stop enumerating this root).
+func (d *SkillsDetector) emitSkill(ctx context.Context, records *[]discoveredSkill, root skillsRoot, dir, rel, mdName string, isSymlink bool, info *model.AgentSkillScanInfo, memo map[string]*skillScan) bool {
 	// Per-root cap. records is this root's own accumulator — enumerateRoot returns
 	// a fresh slice per call and every record it holds carries this root's source
 	// + project_path — so its length is exactly the count emitted for this root;
@@ -407,18 +443,16 @@ func (d *SkillsDetector) emitSkill(ctx context.Context, records *[]model.AgentSk
 	mdPath := filepath.Join(dir, mdName)
 
 	rec := model.AgentSkill{
-		SkillSlug:     slug,
-		SkillName:     slug,
-		Agent:         root.agent,
-		Source:        root.source,
-		Scope:         root.scope,
-		ProjectPath:   root.projectPath,
-		PluginName:    root.pluginName,
-		SkillDirPath:  dir,
-		RootRelPath:   rel,
-		IsSymlink:     isSymlink,
-		SkillMDPath:   mdPath,
-		PresentOnDisk: true,
+		SkillSlug:    slug,
+		SkillName:    slug,
+		Agent:        root.agent,
+		Source:       root.source,
+		Scope:        root.scope,
+		ProjectPath:  root.projectPath,
+		PluginName:   root.pluginName,
+		SkillDirPath: dir,
+		RootRelPath:  rel,
+		SkillMDPath:  mdPath,
 	}
 
 	// Frontmatter + skill_md_hash + stat-only census, all memoized per resolved
@@ -461,7 +495,7 @@ func (d *SkillsDetector) emitSkill(ctx context.Context, records *[]model.AgentSk
 	rec.HasPluginManifest = census.hasPluginManifest
 	rec.LastModified = census.lastModified
 
-	*records = append(*records, rec)
+	*records = append(*records, discoveredSkill{rec: rec, isSymlink: isSymlink, resolvedDir: resolvedDir})
 	return true
 }
 
@@ -514,6 +548,69 @@ func sortedEntryNames(entries []os.DirEntry) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// collapseSymlinkShadows folds every symlink shadow of a physical skill into one
+// record. skills.sh installs a skill once (e.g. ~/.agents/skills/foo) and
+// symlinks it into each agent's own root, so enumeration emits one discoveredSkill
+// per root, all resolving to the same physical dir. This groups by that resolved
+// dir, keeps a canonical record (the real directory, else a deterministic pick),
+// records the other roots' source labels in symlink_sources, and drops the
+// shadows. Deterministic and order-independent (the final sort fixes output
+// order regardless of map iteration).
+func collapseSymlinkShadows(discovered []discoveredSkill) []model.AgentSkill {
+	groups := map[string][]discoveredSkill{}
+	var order []string
+	for _, ds := range discovered {
+		if _, ok := groups[ds.resolvedDir]; !ok {
+			order = append(order, ds.resolvedDir)
+		}
+		groups[ds.resolvedDir] = append(groups[ds.resolvedDir], ds)
+	}
+
+	out := make([]model.AgentSkill, 0, len(groups))
+	for _, key := range order {
+		members := groups[key]
+		canon := 0
+		for i := 1; i < len(members); i++ {
+			if betterCanonical(members[i], members[canon]) {
+				canon = i
+			}
+		}
+		rec := members[canon].rec
+
+		// symlink_sources = the sorted, deduped source of every OTHER member —
+		// each is a root whose entry symlinks into this physical dir.
+		seen := map[string]bool{}
+		var srcs []string
+		for i, m := range members {
+			if i == canon || seen[m.rec.Source] {
+				continue
+			}
+			seen[m.rec.Source] = true
+			srcs = append(srcs, m.rec.Source)
+		}
+		if len(srcs) > 0 {
+			sort.Strings(srcs)
+			rec.SymlinkSources = srcs
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+// betterCanonical reports whether a should replace b as a collapse group's
+// canonical record: the real (non-symlink) directory wins, then a fixed
+// source/root order so the pick is stable when a group is all symlinks or two
+// real dirs resolve to one physical dir (e.g. a bind mount).
+func betterCanonical(a, b discoveredSkill) bool {
+	if a.isSymlink != b.isSymlink {
+		return !a.isSymlink // the real dir reached through its own root wins
+	}
+	if a.rec.Source != b.rec.Source {
+		return a.rec.Source < b.rec.Source
+	}
+	return a.rec.RootRelPath < b.rec.RootRelPath
 }
 
 // sortSkills orders records by (source, project_path, skill_slug) for

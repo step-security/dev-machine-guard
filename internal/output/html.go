@@ -262,8 +262,8 @@ const htmlTemplate = `<!DOCTYPE html>
   </div>
   <div class="section-body">
   <table>
-    <tr><th>Skill</th><th>Agent</th><th>Source</th><th>Scope</th><th>Managed By</th><th>On Disk</th></tr>
-    {{if .AgentSkills}}{{range .AgentSkills}}<tr><td>{{.SkillName}}</td><td>{{.Agent}}</td><td>{{.Source}}</td><td>{{.Scope}}</td><td>{{if .ManagedBy}}{{.ManagedBy}}{{else}}&mdash;{{end}}</td><td>{{if .PresentOnDisk}}yes{{else}}no{{end}}</td></tr>
+    <tr><th>Skill</th><th>Agent</th><th>Source</th><th>Scope</th><th>Managed By</th><th>Linked Into</th></tr>
+    {{if .AgentSkills}}{{range .AgentSkills}}<tr><td>{{.SkillName}}</td><td>{{.Agent}}</td><td>{{.Source}}</td><td>{{.Scope}}</td><td>{{if .ManagedBy}}{{.ManagedBy}}{{else}}&mdash;{{end}}</td><td>{{if .SymlinkSources}}{{range $i, $s := .SymlinkSources}}{{if $i}}, {{end}}{{$s}}{{end}}{{else}}&mdash;{{end}}</td></tr>
     {{end}}{{else}}<tr><td colspan="6" style="text-align:center;color:#8a94a6;">None detected</td></tr>{{end}}
   </table>
   </div>

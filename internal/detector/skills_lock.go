@@ -14,7 +14,7 @@ import (
 type lockEntry struct {
 	localName       string // the "skills" map key = canonical install folder name
 	source          string // owner/repo (github) or an on-disk path (local — never serialized)
-	sourceType      string // "github" | "mintlify" | "huggingface" | "local"
+	sourceType      string // "github" | "mintlify" | "huggingface" | "local" | "well-known"
 	sourceURL       string
 	ref             string
 	skillPath       string
@@ -23,7 +23,6 @@ type lockEntry struct {
 	updatedAt       string
 	pluginName      string
 	lockFilePath    string
-	projectPath     string // "" for the global lock
 	expectedDir     string // canonical install dir (installBase/localName)
 }
 
@@ -43,12 +42,12 @@ type lockSkillRaw struct {
 }
 
 // applyLocks parses the global and per-project skills.sh lock files and joins
-// them to the discovered folder records: matching folders are enriched with
-// provenance (comparing symlink-resolved paths on both sides, the key to making
-// the symlink layout work), and lock entries with no folder on
-// disk become lock-only records (present_on_disk=false, "configured but
-// deleted" drift).
-func (d *SkillsDetector) applyLocks(records []model.AgentSkill, projects []string, info *model.AgentSkillScanInfo) []model.AgentSkill {
+// them to the discovered on-disk records: a record whose symlink-resolved skill
+// dir matches a lock entry's expected install dir is enriched with provenance
+// (both sides compared as resolved paths, which is what makes the symlink layout
+// join correctly). A lock entry with no folder on disk is not an install and is
+// dropped — the inventory is on-disk skills only.
+func (d *SkillsDetector) applyLocks(discovered []discoveredSkill, projects []string, info *model.AgentSkillScanInfo) []discoveredSkill {
 	home := getHomeDir(d.exec)
 	var entries []lockEntry
 
@@ -60,46 +59,37 @@ func (d *SkillsDetector) applyLocks(records []model.AgentSkill, projects []strin
 		globalLocks = append(globalLocks, filepath.Join(xdg, "skills", ".skill-lock.json"))
 	}
 	for _, lp := range globalLocks {
-		entries = append(entries, d.loadLock(lp, "", agentsBase, info)...)
+		entries = append(entries, d.loadLock(lp, agentsBase, info)...)
 	}
 
 	// Per-project: <project>/skills-lock.json; install base <project>/.agents/skills.
 	for _, proj := range projects {
 		lp := filepath.Join(proj, "skills-lock.json")
-		entries = append(entries, d.loadLock(lp, proj, filepath.Join(proj, ".agents", "skills"), info)...)
+		entries = append(entries, d.loadLock(lp, filepath.Join(proj, ".agents", "skills"), info)...)
 	}
 
-	// Pre-resolve folder record dir paths once for the resolved-path join.
-	folderCount := len(records)
-	resolved := make([]string, folderCount)
-	for i := range folderCount {
-		resolved[i] = d.resolvePath(records[i].SkillDirPath)
-	}
-
+	// Join each lock entry onto every on-disk record whose resolved dir matches
+	// the entry's expected install dir. resolvedDir was computed at emit time, so
+	// this reuses it rather than re-resolving per entry.
 	for _, le := range entries {
 		want := d.resolvePath(le.expectedDir)
-		matched := false
-		for i := range folderCount {
-			if records[i].SkillDirPath == "" {
+		for i := range discovered {
+			if discovered[i].rec.SkillDirPath == "" {
 				continue
 			}
-			if resolved[i] == want {
-				enrichWithLock(&records[i], le)
-				matched = true
+			if discovered[i].resolvedDir == want {
+				enrichWithLock(&discovered[i].rec, le)
 			}
 		}
-		if !matched {
-			records = append(records, lockOnlyRecord(le))
-		}
 	}
-	return records
+	return discovered
 }
 
 // loadLock reads and leniently parses one lock file. A missing file yields no
 // entries and no error; a malformed file records a scan error and yields none.
 // Successfully parsed files (even with an empty skills map) count toward
 // LockFilesParsed.
-func (d *SkillsDetector) loadLock(lockPath, projectPath, installBase string, info *model.AgentSkillScanInfo) []lockEntry {
+func (d *SkillsDetector) loadLock(lockPath, installBase string, info *model.AgentSkillScanInfo) []lockEntry {
 	// Bound the read: a project lock lives in any of up to 200 repos the dev has
 	// opened, so its size is attacker-influenced. Stat-gate before slurping so a
 	// hostile multi-GB skills-lock.json cannot balloon RSS (the sibling node/python
@@ -113,7 +103,7 @@ func (d *SkillsDetector) loadLock(lockPath, projectPath, installBase string, inf
 	if err != nil || len(content) == 0 {
 		return nil // absent — not an error
 	}
-	entries, perr := parseLock(content, lockPath, projectPath, installBase)
+	entries, perr := parseLock(content, lockPath, installBase)
 	if perr != nil {
 		d.addError(info, fmt.Sprintf("parse lock %s: %v", lockPath, perr))
 		return nil
@@ -124,7 +114,7 @@ func (d *SkillsDetector) loadLock(lockPath, projectPath, installBase string, inf
 
 // parseLock decodes a lock envelope, keying only off the "skills" map and
 // iterating its keys sorted for deterministic output.
-func parseLock(content []byte, lockPath, projectPath, installBase string) ([]lockEntry, error) {
+func parseLock(content []byte, lockPath, installBase string) ([]lockEntry, error) {
 	var env struct {
 		Skills map[string]lockSkillRaw `json:"skills"`
 	}
@@ -152,7 +142,6 @@ func parseLock(content []byte, lockPath, projectPath, installBase string) ([]loc
 			updatedAt:       r.UpdatedAt,
 			pluginName:      r.PluginName,
 			lockFilePath:    lockPath,
-			projectPath:     projectPath,
 			expectedDir:     filepath.Join(installBase, n),
 		})
 	}
@@ -171,28 +160,6 @@ func enrichWithLock(rec *model.AgentSkill, le lockEntry) {
 		rec.PluginName = le.pluginName
 	}
 	rec.LockFilePath = le.lockFilePath
-}
-
-// lockOnlyRecord synthesizes a record for a lock entry with no folder on disk.
-func lockOnlyRecord(le lockEntry) model.AgentSkill {
-	scope := "global"
-	if le.projectPath != "" {
-		scope = "project"
-	}
-	rec := model.AgentSkill{
-		SkillSlug:     le.localName,
-		SkillName:     le.localName,
-		Agent:         "shared", // skills.sh is cross-agent
-		Source:        "skill_lock_only",
-		Scope:         scope,
-		ProjectPath:   le.projectPath,
-		PresentOnDisk: false,
-		ManagedBy:     "skills.sh",
-		PluginName:    le.pluginName,
-		LockFilePath:  le.lockFilePath,
-	}
-	applyProvenance(&rec, le)
-	return rec
 }
 
 // applyProvenance copies the lock's provenance fields onto a record, applying
