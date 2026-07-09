@@ -3,7 +3,7 @@
 // rewrite key order, drop comments (TOML), and renormalize whitespace.
 // configedit performs path-targeted edits backed by tidwall/gjson and
 // tidwall/sjson for JSON, plus a narrow regex+mask patcher for the
-// codex_hooks TOML feature flag.
+// Codex hooks TOML feature flag.
 //
 // Scope is intentionally narrow: only what the claudecode and codex
 // adapters need.
