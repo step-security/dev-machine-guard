@@ -76,6 +76,13 @@ jobs:
           # GoReleaser creates draft releases under an "untagged-*" slug,
           # so gh release upload by version tag returns 404. Look up the
           # actual tag GitHub assigned to the draft.
+          #
+          # The release list endpoint lags the write by a few seconds when
+          # the release is tied to a tag pushed earlier in this same job
+          # (GitHub hasn't finished indexing the tag yet) — querying
+          # immediately can return an empty list even though the release
+          # exists. Give it a moment before looking it up.
+          sleep 30
           release_tag=$(gh api "repos/${{ github.repository }}/releases" \
             --jq '[.[] | select(.draft and .tag_name == "${{ steps.version.outputs.tag }}")] | first | .tag_name')
           if [ -z "$release_tag" ] || [ "$release_tag" = "null" ]; then
