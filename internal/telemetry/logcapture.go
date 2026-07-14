@@ -1,11 +1,13 @@
 package telemetry
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
 	"sync"
+	"time"
 )
 
 // captureRingCapacity bounds the in-memory log buffer. Older bytes are
@@ -13,6 +15,20 @@ import (
 // stuck runs while still preserving enough recent context for diagnosis:
 // 1 MB ≈ several thousand lines of typical agent output.
 const captureRingCapacity = 1 << 20 // 1 MB
+
+// snapSentinel is an in-band marker drainPipe injects into the capture pipe
+// to force the reader goroutine to catch up before a snapshot reads the ring.
+// The reader strips it, so it never reaches the ring buffer or the real
+// stderr. The embedded NULs make it something normal agent log output never
+// emits, so the partial-match holdback in the reader effectively never fires
+// on real data.
+const snapSentinel = "\x00\x00__DMG_LOGCAPTURE_DRAIN__\x00\x00"
+
+// drainTimeout bounds how long SnapshotBase64 waits for the reader to drain.
+// A snapshot must never block the telemetry upload, so on the (unexpected)
+// event the marker isn't acknowledged we fall back to reading the ring as-is
+// — strictly no worse than the pre-drain behavior.
+const drainTimeout = 2 * time.Second
 
 // LogCapture captures all stderr output during telemetry execution into a
 // bounded ring buffer. The buffer's contents are exposed two ways:
@@ -43,6 +59,9 @@ type LogCapture struct {
 	pipeRead  *os.File
 	pipeWrite *os.File
 	done      chan struct{}
+
+	drainMu sync.Mutex    // serialises drainPipe so only one sentinel is in flight
+	drainCh chan struct{} // closed by the reader when it consumes the sentinel; guarded by mu
 }
 
 // ringBuffer is a fixed-capacity append-only byte sink. Once full, writes
@@ -129,25 +148,86 @@ func StartCapture() *LogCapture {
 	// Redirect stderr to the pipe
 	os.Stderr = w
 
-	// Tee: read from pipe, write to both original stderr and ring buffer
+	// Tee: read from pipe, write to both original stderr and ring buffer,
+	// while watching for drain sentinels (stripped, never emitted).
 	go func() {
 		defer close(lc.done)
+		sentinel := []byte(snapSentinel)
 		buf := make([]byte, 4096)
+		var pending []byte // holds a trailing partial-sentinel prefix across reads
 		for {
 			n, err := r.Read(buf)
 			if n > 0 {
-				lc.mu.Lock()
-				lc.ring.Write(buf[:n])
-				lc.mu.Unlock()
-				_, _ = lc.origErr.Write(buf[:n])
+				data := append(pending, buf[:n]...)
+				pending = nil
+				// Emit everything up to each sentinel and signal one drain
+				// per sentinel consumed. FIFO ordering guarantees that once
+				// the sentinel is consumed, all bytes written before it are
+				// already in the ring.
+				for {
+					idx := bytes.Index(data, sentinel)
+					if idx < 0 {
+						break
+					}
+					lc.writeOut(data[:idx])
+					data = data[idx+len(sentinel):]
+					lc.signalDrain()
+				}
+				// A sentinel may straddle a read boundary: hold back the
+				// longest suffix of data that is a prefix of the sentinel so
+				// we neither emit part of it nor miss the match next read.
+				keep := trailingSentinelPrefixLen(data, sentinel)
+				lc.writeOut(data[:len(data)-keep])
+				pending = append(pending, data[len(data)-keep:]...)
 			}
 			if err != nil {
+				lc.writeOut(pending)
 				break
 			}
 		}
 	}()
 
 	return lc
+}
+
+// writeOut appends p to the ring (under mu) and echoes it to the original
+// stderr. The terminal write stays outside the ring lock to match the
+// original tee's contention profile.
+func (lc *LogCapture) writeOut(p []byte) {
+	if len(p) == 0 {
+		return
+	}
+	lc.mu.Lock()
+	lc.ring.Write(p)
+	lc.mu.Unlock()
+	_, _ = lc.origErr.Write(p)
+}
+
+// signalDrain wakes the drainPipe caller waiting on the current sentinel.
+func (lc *LogCapture) signalDrain() {
+	lc.mu.Lock()
+	ch := lc.drainCh
+	lc.drainCh = nil
+	lc.mu.Unlock()
+	if ch != nil {
+		close(ch)
+	}
+}
+
+// trailingSentinelPrefixLen returns the length of the longest suffix of data
+// that is a (strict) prefix of sentinel — the bytes that might complete into
+// a sentinel on the next read and so must be held back.
+func trailingSentinelPrefixLen(data, sentinel []byte) int {
+	max := len(sentinel) - 1
+	if max > len(data) {
+		max = len(data)
+	}
+	for k := max; k > 0; k-- {
+		if bytes.HasSuffix(data, sentinel[:k]) {
+			return k
+		}
+	}
+	return 0
 }
 
 // Finalize stops capture and returns the base64-encoded output.
@@ -180,10 +260,53 @@ func (lc *LogCapture) Finalize() string {
 // while the capture keeps recording (e.g. through the upload that follows).
 // The real teardown — closing the pipe and restoring os.Stderr — stays in
 // Finalize, which the caller still defers. Safe to call during active capture.
+//
+// It first drains the capture pipe so lines written immediately before the
+// call (e.g. the config-audit progress lines emitted right before the payload
+// snapshot in telemetry.Run) are already in the ring. Without the drain, those
+// still-in-flight lines are dropped from the uploaded log — the console showed
+// runs truncating at whatever line preceded the snapshot.
 func (lc *LogCapture) SnapshotBase64() string {
+	lc.drainPipe()
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
 	return base64.StdEncoding.EncodeToString(lc.ringBytesLocked())
+}
+
+// drainPipe blocks until the reader goroutine has copied every byte written
+// to the capture pipe so far into the ring buffer. It works by injecting a
+// sentinel and waiting for the reader to consume it; the pipe's FIFO ordering
+// then guarantees all earlier bytes are already ringed. Best-effort: it
+// returns early (leaving the ring as-is) if capture has stopped, the marker
+// can't be written, or the reader doesn't acknowledge within drainTimeout.
+func (lc *LogCapture) drainPipe() {
+	lc.drainMu.Lock()
+	defer lc.drainMu.Unlock()
+
+	lc.mu.Lock()
+	w := lc.pipeWrite
+	if w == nil {
+		// Capture never started or already finalized; the ring is final and
+		// no reader is running to acknowledge a sentinel.
+		lc.mu.Unlock()
+		return
+	}
+	ch := make(chan struct{})
+	lc.drainCh = ch
+	lc.mu.Unlock()
+
+	if _, err := w.Write([]byte(snapSentinel)); err != nil {
+		lc.mu.Lock()
+		lc.drainCh = nil
+		lc.mu.Unlock()
+		return
+	}
+
+	select {
+	case <-ch:
+	case <-lc.done: // reader exited (e.g. a concurrent Finalize)
+	case <-time.After(drainTimeout):
+	}
 }
 
 // Tail returns the last n captured bytes as a fresh slice. Safe to call
