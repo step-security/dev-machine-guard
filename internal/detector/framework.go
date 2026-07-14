@@ -72,6 +72,14 @@ func (d *FrameworkDetector) Detect(ctx context.Context) []model.AITool {
 }
 
 func (d *FrameworkDetector) getVersion(ctx context.Context, binaryPath string) string {
+	// Static-first: read the npm package.json version when the binary is an
+	// npm-installed package, avoiding the macOS Gatekeeper malware prompt that
+	// launching a Node CLI can trigger — see versionFromPackageJSON. Most
+	// frameworks (ollama, local-ai) are standalone binaries and fall through.
+	if v := versionFromPackageJSON(d.exec, binaryPath); v != "" {
+		return v
+	}
+	// Fallback: standalone (non-npm) binaries have no package.json; exec them.
 	stdout, _, _, err := d.exec.RunWithTimeout(ctx, 10*time.Second, binaryPath, "--version")
 	if err != nil {
 		return "unknown"

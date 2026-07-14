@@ -233,3 +233,42 @@ func TestAgentDetector_Windows_ClaudeCowork(t *testing.T) {
 		t.Error("claude-cowork not found")
 	}
 }
+
+// TestAgentDetector_VersionFromPackageJSON asserts an npm-packaged agent's
+// version is read from package.json rather than by executing the binary — the
+// macOS Gatekeeper fix (see versionFromPackageJSON). The stubbed `--version`
+// output differs so a regression to the exec path would flip the assertion.
+func TestAgentDetector_VersionFromPackageJSON(t *testing.T) {
+	mock := executor.NewMock()
+	shim := "/usr/local/bin/openclaw"
+	target := "/usr/local/lib/node_modules/openclaw/bin/openclaw.js"
+	pkgRoot := "/usr/local/lib/node_modules/openclaw"
+	mock.SetPath("openclaw", shim)
+	mock.SetSymlink(shim, target)
+	mock.SetFile(pkgRoot+"/package.json", []byte(`{"name":"openclaw","version":"3.4.5"}`))
+	mock.SetCommand("0.0.0-exec-should-not-run\n", "", 0, shim, "--version")
+	mock.SetDir("/Users/testuser/.openclaw")
+	mock.SetDirEntries("/Users/testuser/.openclaw", []os.DirEntry{
+		executor.MockDirEntry("config.toml", false),
+	})
+
+	det := NewAgentDetector(mock)
+	results := det.Detect(context.Background(), []string{"/Users/testuser"})
+
+	var got *agentResult
+	for i, r := range results {
+		if r.Name == "openclaw" {
+			got = &agentResult{r}
+			_ = i
+		}
+	}
+	if got == nil {
+		t.Fatal("openclaw not found")
+	}
+	if got.Version != "3.4.5" {
+		t.Errorf("expected version 3.4.5 (read from package.json), got %s — exec fallback may have run", got.Version)
+	}
+	if got.InstallPath != pkgRoot {
+		t.Errorf("expected install_path %s (npm package root), got %s", pkgRoot, got.InstallPath)
+	}
+}

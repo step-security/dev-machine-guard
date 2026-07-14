@@ -125,6 +125,13 @@ func (d *AgentDetector) findConfigDir(spec agentSpec, homeDir string) string {
 }
 
 func (d *AgentDetector) getVersion(ctx context.Context, binaryPath string) string {
+	// Static-first: read the npm package.json version rather than executing the
+	// agent binary, which on macOS can trigger a Gatekeeper malware prompt when
+	// a Node CLI dlopen's a quarantined native addon — see versionFromPackageJSON.
+	if v := versionFromPackageJSON(d.exec, binaryPath); v != "" {
+		return v
+	}
+	// Fallback: standalone (non-npm) binaries have no package.json; exec them.
 	stdout, _, _, err := d.exec.RunWithTimeout(ctx, 10*time.Second, binaryPath, "--version")
 	if err != nil {
 		return "unknown"

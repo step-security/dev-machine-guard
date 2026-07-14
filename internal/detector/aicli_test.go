@@ -381,3 +381,81 @@ func TestAICLIDetector_FindsCursorAgentInLocalBin(t *testing.T) {
 		t.Error("cursor-agent not found via ~/.local/bin fallback")
 	}
 }
+
+// TestAICLIDetector_VersionFromPackageJSON asserts the detector reads the
+// version from the npm package.json when the binary resolves into a
+// node_modules tree, and does NOT fall back to executing the CLI. This is the
+// macOS Gatekeeper fix: launching a Node CLI can dlopen a quarantined native
+// addon and pop a malware prompt, so the static read must win. The stubbed
+// `--version` output is deliberately different so a regression that re-enables
+// the exec path would change the asserted version.
+func TestAICLIDetector_VersionFromPackageJSON(t *testing.T) {
+	mock := executor.NewMock()
+	shim := "/usr/local/bin/claude"
+	target := "/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
+	pkgRoot := "/usr/local/lib/node_modules/@anthropic-ai/claude-code"
+	mock.SetPath("claude", shim)
+	mock.SetSymlink(shim, target)
+	mock.SetFile(pkgRoot+"/package.json", []byte(`{"name":"@anthropic-ai/claude-code","version":"2.1.209"}`))
+	// If the exec fallback ever runs, the version would be this instead.
+	mock.SetCommand("0.0.0-exec-should-not-run\n", "", 0, shim, "--version")
+	mock.SetDir("/Users/testuser/.claude")
+
+	det := NewAICLIDetector(mock)
+	results := det.Detect(context.Background())
+
+	var got *model.AITool
+	for i, r := range results {
+		if r.Name == "claude-code" {
+			got = &results[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatal("claude-code not found")
+	}
+	if got.Version != "2.1.209" {
+		t.Errorf("expected version 2.1.209 (read from package.json), got %s — exec fallback may have run", got.Version)
+	}
+}
+
+// TestVersionFromPackageJSON exercises the shared helper directly across the
+// layouts the three AI-tool detectors feed it.
+func TestVersionFromPackageJSON(t *testing.T) {
+	shim := "/usr/local/bin/claude"
+	target := "/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
+	pkgRoot := "/usr/local/lib/node_modules/@anthropic-ai/claude-code"
+
+	t.Run("npm package with package.json", func(t *testing.T) {
+		mock := executor.NewMock()
+		mock.SetSymlink(shim, target)
+		mock.SetFile(pkgRoot+"/package.json", []byte(`{"version":"1.2.3"}`))
+		if v := versionFromPackageJSON(mock, shim); v != "1.2.3" {
+			t.Errorf("want 1.2.3, got %q", v)
+		}
+	})
+
+	t.Run("npm package without package.json falls through to empty", func(t *testing.T) {
+		mock := executor.NewMock()
+		mock.SetSymlink(shim, target)
+		// No package.json registered.
+		if v := versionFromPackageJSON(mock, shim); v != "" {
+			t.Errorf("want empty (caller should exec-fallback), got %q", v)
+		}
+	})
+
+	t.Run("standalone binary is empty", func(t *testing.T) {
+		mock := executor.NewMock()
+		// No symlink: EvalSymlinks returns the path unchanged; not under node_modules.
+		if v := versionFromPackageJSON(mock, "/usr/bin/ollama"); v != "" {
+			t.Errorf("want empty for non-npm binary, got %q", v)
+		}
+	})
+
+	t.Run("empty path is empty", func(t *testing.T) {
+		mock := executor.NewMock()
+		if v := versionFromPackageJSON(mock, ""); v != "" {
+			t.Errorf("want empty for empty path, got %q", v)
+		}
+	})
+}

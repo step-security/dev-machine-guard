@@ -160,20 +160,63 @@ func resolveInstallPath(exec executor.Executor, binaryPath string) string {
 	if binaryPath == "" {
 		return ""
 	}
-	resolved, err := exec.EvalSymlinks(binaryPath)
-	if err != nil || resolved == "" {
-		resolved = binaryPath
+	resolved := resolveRealPath(exec, binaryPath)
+	if pkgRoot := nodePackageRoot(exec, resolved); pkgRoot != "" {
+		return pkgRoot
 	}
-	if pkgRoot := nodeModulesPackageRoot(resolved); pkgRoot != "" {
+	return resolved
+}
+
+// resolveRealPath follows symlinks, returning the resolved real path — or the
+// original path unchanged when resolution fails or yields nothing.
+func resolveRealPath(exec executor.Executor, path string) string {
+	if resolved, err := exec.EvalSymlinks(path); err == nil && resolved != "" {
+		return resolved
+	}
+	return path
+}
+
+// nodePackageRoot returns the npm package root that owns resolvedPath (already
+// symlink-resolved), or "" when the path isn't inside a node_modules tree.
+// Handles both the Unix symlink layout (target lives under node_modules) and
+// the Windows shim layout (a `.cmd`/`.ps1`/`.bat` shim that references
+// node_modules in its body). Shared by resolveInstallPath (install location)
+// and versionFromPackageJSON (static version read).
+func nodePackageRoot(exec executor.Executor, resolvedPath string) string {
+	if pkgRoot := nodeModulesPackageRoot(resolvedPath); pkgRoot != "" {
 		return pkgRoot
 	}
 	// Windows: npm publishes a `.cmd` (and `.ps1`) shim instead of a symlink,
 	// so the resolved path points at the shim itself, not the package. Parse
 	// the shim to recover the node_modules package root.
-	if pkgRoot := npmShimPackageRoot(exec, resolved); pkgRoot != "" {
-		return pkgRoot
+	return npmShimPackageRoot(exec, resolvedPath)
+}
+
+// versionFromPackageJSON returns the version recorded in the npm package.json
+// of the package that owns binaryPath, or "" when the binary isn't an
+// npm-installed package (a standalone binary, symlink resolution that lands
+// outside node_modules, or no parseable package.json).
+//
+// Reading the version statically lets the AI-tool detectors avoid launching
+// the CLI. On macOS, executing a Node-based CLI boots Node, which dlopen's the
+// tool's native .node addons during module init — before argv is even parsed —
+// so a quarantined addon (e.g. merkle-tree-napi.darwin-arm64.node) makes
+// Gatekeeper pop an "Apple could not verify … is free of malware" prompt at
+// the end user. npm's "version" is a required, canonical package.json field
+// (semver), so this is authoritative rather than a heuristic. Mirrors the
+// static-first version resolution already used for IDEs in resolveDarwinVersion.
+func versionFromPackageJSON(exec executor.Executor, binaryPath string) string {
+	if binaryPath == "" {
+		return ""
 	}
-	return resolved
+	pkgRoot := nodePackageRoot(exec, resolveRealPath(exec, binaryPath))
+	if pkgRoot == "" {
+		return ""
+	}
+	if v := readJSONVersion(exec, filepath.Join(pkgRoot, "package.json")); v != "unknown" {
+		return v
+	}
+	return ""
 }
 
 // npmShimPackageRoot reads a Windows-style npm shim (`<bin>.cmd`,
@@ -290,6 +333,15 @@ func (d *AICLIDetector) findBinary(ctx context.Context, spec cliToolSpec, homeDi
 }
 
 func (d *AICLIDetector) getVersion(ctx context.Context, spec cliToolSpec, binaryPath string) string {
+	// Static-first: npm-packaged CLIs carry their version in package.json, so
+	// read it rather than executing the CLI. This avoids the macOS Gatekeeper
+	// malware prompt that launching a Node CLI can trigger — see
+	// versionFromPackageJSON.
+	if v := versionFromPackageJSON(d.exec, binaryPath); v != "" {
+		return v
+	}
+	// Fallback: standalone (non-npm) binaries have no package.json to read, so
+	// exec them for their version. These are typically notarized, so no prompt.
 	flag := "--version"
 	if spec.VersionFlag != "" {
 		flag = spec.VersionFlag
