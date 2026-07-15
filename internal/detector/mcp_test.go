@@ -16,7 +16,7 @@ func TestMCPDetector_FindsConfigs(t *testing.T) {
 	mock.SetFile("/Users/testuser/.cursor/mcp.json", []byte(`{"mcpServers":{}}`))
 
 	det := NewMCPDetector(mock)
-	results := det.Detect(context.Background(), "testuser", false)
+	results := det.Detect(context.Background(), "testuser", nil, false)
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 configs, got %d", len(results))
@@ -32,7 +32,7 @@ func TestMCPDetector_FindsConfigs(t *testing.T) {
 func TestMCPDetector_NoConfigs(t *testing.T) {
 	mock := executor.NewMock()
 	det := NewMCPDetector(mock)
-	results := det.Detect(context.Background(), "testuser", false)
+	results := det.Detect(context.Background(), "testuser", nil, false)
 
 	if len(results) != 0 {
 		t.Errorf("expected 0 configs, got %d", len(results))
@@ -75,7 +75,7 @@ func TestMCPDetector_Enterprise(t *testing.T) {
 		[]byte(`{"mcpServers":{"server1":{"command":"node","args":["server.js"],"env":{"SECRET":"key"}}}}`))
 
 	det := NewMCPDetector(mock)
-	results := det.DetectEnterprise(context.Background())
+	results := det.DetectEnterprise(context.Background(), nil)
 
 	if len(results) != 1 {
 		t.Fatalf("expected 1 enterprise config, got %d", len(results))
@@ -110,7 +110,7 @@ func TestMCPDetector_Enterprise_NonJSON_OmitsContent(t *testing.T) {
 		[]byte("api_key: sk-secret-12345\nmodel: gpt-4\n"))
 
 	det := NewMCPDetector(mock)
-	results := det.DetectEnterprise(context.Background())
+	results := det.DetectEnterprise(context.Background(), nil)
 
 	if len(results) != 1 {
 		t.Fatalf("expected 1 enterprise config, got %d", len(results))
@@ -129,7 +129,7 @@ func TestMCPDetector_Enterprise_InvalidJSON_OmitsContent(t *testing.T) {
 		[]byte(`{invalid json with "env":{"API_KEY":"sk-secret"}}`))
 
 	det := NewMCPDetector(mock)
-	results := det.DetectEnterprise(context.Background())
+	results := det.DetectEnterprise(context.Background(), nil)
 
 	if len(results) != 1 {
 		t.Fatalf("expected 1 enterprise config, got %d", len(results))
@@ -145,7 +145,7 @@ func TestMCPDetector_Enterprise_NoMCPServers_OmitsContent(t *testing.T) {
 		[]byte(`{"theme":"dark","api_key":"sk-secret-12345"}`))
 
 	det := NewMCPDetector(mock)
-	results := det.DetectEnterprise(context.Background())
+	results := det.DetectEnterprise(context.Background(), nil)
 
 	if len(results) != 1 {
 		t.Fatalf("expected 1 enterprise config, got %d", len(results))
@@ -310,7 +310,7 @@ func TestMCPDetector_DiscoverProjectMCPConfigs(t *testing.T) {
 		[]byte(`{"mcpServers":{"linear":{"url":"https://mcp.linear.app/mcp"}}}`))
 
 	det := NewMCPDetector(mock)
-	results := det.DetectEnterprise(context.Background())
+	results := det.DetectEnterprise(context.Background(), nil)
 
 	// Should find: claude.json (global) + 2 project-level .mcp.json
 	projectMCPCount := 0
@@ -357,7 +357,7 @@ func TestMCPDetector_Windows_FindsConfigs(t *testing.T) {
 	mock.SetFile(claudeConfigPath, []byte(`{"mcpServers":{}}`))
 
 	det := NewMCPDetector(mock)
-	results := det.Detect(context.Background(), "testuser", false)
+	results := det.Detect(context.Background(), "testuser", nil, false)
 
 	if len(results) != 1 {
 		t.Fatalf("expected 1 config, got %d", len(results))

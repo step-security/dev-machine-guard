@@ -75,8 +75,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	// Collect MCP configurations
 	log.StepStart("Collecting MCP configurations")
 	start = time.Now()
-	mcpDetector := detector.NewMCPDetector(exec)
-	mcpConfigs := mcpDetector.Detect(ctx, dev.UserIdentity, false)
+	mcpDetector := detector.NewMCPDetector(exec).WithSkipper(tccSkipper)
+	mcpConfigs := mcpDetector.Detect(ctx, dev.UserIdentity, searchDirs, false)
 	log.StepDone(time.Since(start))
 
 	// Collect IDE extensions
