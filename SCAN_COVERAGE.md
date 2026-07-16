@@ -162,19 +162,33 @@ Homebrew scanning detects installed formulae and casks with rich metadata. Enabl
 
 ## Python Package Scanning (Optional)
 
-Python scanning detects package managers, globally installed packages, and project virtual environments. Enable with `--enable-python-scan`.
+Python scanning detects installed packages and project virtual environments. Enable with `--enable-python-scan`. **No Python interpreter or package manager is executed** — packages are read from on-disk install metadata (`*.dist-info/METADATA` and `*.egg-info/PKG-INFO`, per PEP 376/627), so scanning never triggers a macOS install prompt. (The pre-1.13 command-based path is still available via `--legacy-python-scan` / `use_legacy_python_scan`.)
 
-| Package Manager | Version Detection        | Global Packages              |
-|-----------------|--------------------------|------------------------------|
-| python3         | `python3 --version`      | —                            |
-| pip3            | `pip3 --version`         | `pip3 list --format json`    |
-| poetry          | `poetry --version`       | —                            |
-| pipenv          | `pipenv --version`       | —                            |
-| uv              | `uv --version`           | `uv pip list --format json`  |
-| conda           | `conda --version`        | `conda list --json`          |
-| rye             | `rye --version`          | —                            |
+### Global / system packages
 
-**Project detection:** Discovers `pyproject.toml`, `setup.py`, and `requirements.txt` patterns in search directories.
+Discovered by walking a bounded set of Python **install trees** and recognizing package metadata anywhere beneath them. This is **independent of `search_dirs`**:
+
+- **Frameworks (macOS):** Command Line Tools, Xcode, and python.org (`/Library/Frameworks/Python*.framework/…`). The `/usr/bin/python3` wrapper does not resolve into these, so they are found structurally.
+- **Homebrew:** `/opt/homebrew/lib/python*`, `/opt/homebrew/Cellar/python*`.
+- **System:** `/usr/local/lib/python*`; Linux `/usr/lib/python*`, `/usr/lib64/python*`.
+- **Version managers:** pyenv, asdf, uv, rye, conda/mamba (base + named envs), pipx.
+- **User site:** `~/.local/lib/python*`, and `~/Library/Python/*` on macOS.
+
+### Project virtual environments
+
+Discovered by scanning the **search directories** for virtual environments (`pyvenv.cfg`) and reading each venv's installed metadata. The default search directory is the user's **`$HOME`**; override with `--search-dirs` or the `search_dirs` config key.
+
+### Coverage and limitations
+
+**Covered by default:** global installs in the trees above (regardless of `search_dirs`), and project venvs anywhere under `$HOME` that is not TCC-protected.
+
+**Not covered by default:**
+
+- **TCC-protected user directories** — the project/venv walk skips `~/Documents`, `~/Desktop`, `~/Downloads`, and `~/Library` to avoid macOS permission prompts. (The macOS global user-site `~/Library/Python/*` is the exception: it is scanned as its own explicit global root, so global user-site packages are still covered.) A **project virtual environment** kept under one of these directories is missed unless `include_tcc_protected: true` is set **and** the agent has Full Disk Access (see [macos-tcc-permissions.md](docs/macos-tcc-permissions.md)).
+- **Locations outside `$HOME`** — e.g. `/opt`, `/srv`, `/data`, `/Users/Shared`, or a separate repos volume. Add them via `search_dirs`.
+- **Global interpreters at non-standard prefixes** not under any tree listed above. Add the prefix (or a parent) via `search_dirs`.
+
+The set of global install roots scanned is logged once per scan at info level (full paths at debug), so field logs show exactly where the agent looked.
 
 ## System Package Scanning (Linux)
 

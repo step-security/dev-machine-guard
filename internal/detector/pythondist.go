@@ -26,10 +26,14 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
-// maxMetadataFileSize bounds a single METADATA / PKG-INFO read. The header
-// block we care about is tiny; the cap only guards against pathological
-// description payloads.
-const maxMetadataFileSize = 1 << 20 // 1 MiB
+// maxMetadataFileSize bounds a single METADATA / PKG-INFO read. We only need
+// the RFC-822 header block (Name/Version, in the first few KB), but the whole
+// file is read through the executor before parsing, so this cap only guards
+// against pathological files. It was 1 MiB, which silently dropped installed
+// packages whose METADATA embeds a large README/changelog in its description;
+// raised to 32 MiB so realistic packages are never dropped while still
+// bounding memory. (A future refinement is to stream only the header.)
+const maxMetadataFileSize = 32 << 20 // 32 MiB
 
 // PythonDistDetector discovers installed Python packages from install
 // metadata on disk, with no package-manager subprocess.
@@ -138,7 +142,7 @@ func (d *PythonDistDetector) ScanRoots(roots []string) []model.PackageDetail {
 // ScanGlobalPackages walks the host's global / user site-packages roots and
 // returns the installed packages, replacing the `pip3 list` global scan.
 func (d *PythonDistDetector) ScanGlobalPackages() []model.PythonPackage {
-	details := d.ScanRoots(PythonGlobalRoots(d.exec))
+	details := d.ScanRoots(GlobalPythonRoots(d.exec, d.log))
 	out := make([]model.PythonPackage, len(details))
 	for i, p := range details {
 		out[i] = model.PythonPackage(p)
