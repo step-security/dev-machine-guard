@@ -100,7 +100,7 @@ func (s *PythonScanner) ScanGlobalPackages(ctx context.Context) []model.PythonSc
 // so the existing backend decoder needs no change. Returns nil when no global
 // site-packages roots exist on the host.
 func (s *PythonScanner) ScanGlobalPackagesFromDisk(skipper *tcc.Skipper) []model.PythonScanResult {
-	roots := PythonGlobalRoots(s.exec)
+	roots := GlobalPythonRoots(s.exec, s.log)
 	if len(roots) == 0 {
 		s.log.Debug("python global disk scan: no site-packages roots found")
 		return nil
