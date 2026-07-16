@@ -176,7 +176,7 @@ Discovered by scanning the **search directories** for virtual environments (`pyv
 
 **Not covered by default:**
 
-- **TCC-protected user directories** — `~/Documents`, `~/Desktop`, `~/Downloads`, and `~/Library` are skipped to avoid macOS permission prompts. Projects kept there are missed unless `include_tcc_protected: true` is set **and** the agent has Full Disk Access (see [macos-tcc-permissions.md](docs/macos-tcc-permissions.md)).
+- **TCC-protected user directories** — the project/venv walk skips `~/Documents`, `~/Desktop`, `~/Downloads`, and `~/Library` to avoid macOS permission prompts. (The macOS global user-site `~/Library/Python/*` is the exception: it is scanned as its own explicit global root, so global user-site packages are still covered.) A **project virtual environment** kept under one of these directories is missed unless `include_tcc_protected: true` is set **and** the agent has Full Disk Access (see [macos-tcc-permissions.md](docs/macos-tcc-permissions.md)).
 - **Locations outside `$HOME`** — e.g. `/opt`, `/srv`, `/data`, `/Users/Shared`, or a separate repos volume. Add them via `search_dirs`.
 - **Global interpreters at non-standard prefixes** not under any tree listed above. Add the prefix (or a parent) via `search_dirs`.
 

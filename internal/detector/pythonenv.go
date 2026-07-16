@@ -12,12 +12,14 @@
 // macOS install-prompt / TCC behavior the disk-based scan exists to avoid. The
 // walk itself is kept out of TCC-protected trees by the tcc.Skipper that
 // ScanRoots already applies.
+//
+// All filesystem access and the home directory go through the executor so the
+// discovery is user-aware (a root-run launchd scan resolves the console user's
+// home, not /var/root) and mockable in tests.
 package detector
 
 import (
-	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
@@ -29,10 +31,14 @@ import (
 // walk-and-recognize. Each pattern is scoped to a python version/framework tree
 // (not a bare home or a whole Homebrew/Frameworks dir) so the walk stays
 // bounded while still recognizing dist-info wherever it sits inside the tree.
-func pythonInstallTreeGlobs() []string {
+//
+// The home directory is resolved via executor.ResolveHome so a root-run scan
+// (enterprise launchd) anchors on the logged-in user's home rather than
+// /var/root, which is where the user's version-manager installs actually live.
+func pythonInstallTreeGlobs(exec executor.Executor) []string {
 	var pats []string
 
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
+	if home := executor.ResolveHome(exec); home != "" {
 		j := func(p ...string) string { return filepath.Join(append([]string{home}, p...)...) }
 		pats = append(pats,
 			// Version managers / user installs (one tree per version/env).
@@ -54,7 +60,7 @@ func pythonInstallTreeGlobs() []string {
 		)
 	}
 
-	switch runtime.GOOS {
+	switch exec.GOOS() {
 	case "darwin":
 		pats = append(pats,
 			// Framework pythons. The wrapper /usr/bin/python3 does not resolve
@@ -80,21 +86,21 @@ func pythonInstallTreeGlobs() []string {
 // DiscoverPythonInstallRoots expands pythonInstallTreeGlobs and returns the
 // existing directories to walk, symlink-resolved, deduplicated, and with any
 // root nested under another dropped. No interpreter is executed.
-func DiscoverPythonInstallRoots(log *progress.Logger) []string {
+func DiscoverPythonInstallRoots(exec executor.Executor, log *progress.Logger) []string {
 	if log == nil {
 		log = progress.NewNoop()
 	}
-	out := existingDirs(expandGlobs(pythonInstallTreeGlobs()))
+	out := existingDirs(exec, expandGlobs(exec, pythonInstallTreeGlobs(exec)))
 	log.Debug("python discovery: %d install tree(s) to walk", len(out))
 	return out
 }
 
 // expandGlobs expands each glob pattern into its matches (patterns that match
 // nothing contribute nothing).
-func expandGlobs(patterns []string) []string {
+func expandGlobs(exec executor.Executor, patterns []string) []string {
 	var out []string
 	for _, pat := range patterns {
-		if m, err := filepath.Glob(pat); err == nil {
+		if m, err := exec.Glob(pat); err == nil {
 			out = append(out, m...)
 		}
 	}
@@ -104,15 +110,15 @@ func expandGlobs(patterns []string) []string {
 // existingDirs keeps only paths that exist and are directories, resolving
 // symlinks (so framework "Versions/Current" collapses onto the concrete
 // version), deduplicating, and dropping subsumed (nested) roots.
-func existingDirs(paths []string) []string {
+func existingDirs(exec executor.Executor, paths []string) []string {
 	seen := make(map[string]struct{})
 	var dirs []string
 	for _, p := range paths {
-		resolved, err := filepath.EvalSymlinks(p)
+		resolved, err := exec.EvalSymlinks(p)
 		if err != nil {
 			continue // absent
 		}
-		if fi, serr := os.Stat(resolved); serr != nil || !fi.IsDir() {
+		if fi, serr := exec.Stat(resolved); serr != nil || !fi.IsDir() {
 			continue
 		}
 		if _, dup := seen[resolved]; dup {
@@ -156,8 +162,8 @@ func GlobalPythonRoots(exec executor.Executor, log *progress.Logger) []string {
 	}
 	var all []string
 	all = append(all, PythonGlobalRoots(exec)...)
-	all = append(all, DiscoverPythonInstallRoots(log)...)
-	roots := existingDirs(all)
+	all = append(all, DiscoverPythonInstallRoots(exec, log)...)
+	roots := existingDirs(exec, all)
 
 	// Coverage diagnostic: one concise info line per scan (a count, so it is
 	// not noisy across a fleet), and the full list of scanned roots at debug.

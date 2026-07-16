@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/step-security/dev-machine-guard/internal/executor"
 )
 
 // TestExistingDirs verifies existence filtering, symlink resolution + dedupe,
@@ -24,7 +26,7 @@ func TestExistingDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := existingDirs([]string{
+	got := existingDirs(executor.NewReal(), []string{
 		tree,
 		sp,                                   // subsumed by tree
 		filepath.Join(root, "py", "Current"), // symlink -> tree
