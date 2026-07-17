@@ -14,10 +14,16 @@ func newTestLogger() *progress.Logger {
 	return progress.NewNoop()
 }
 
+func stubBrewGitVersion(mock *executor.Mock, repo, revision, version string) {
+	mock.SetFile(repo+"/.git/HEAD", []byte("ref: refs/heads/stable\n"))
+	mock.SetFile(repo+"/.git/refs/heads/stable", []byte(revision+"\n"))
+	mock.SetFile(repo+"/.git/describe-cache/"+revision, []byte(version+"\n"))
+}
+
 func TestBrewDetector_Found(t *testing.T) {
 	mock := executor.NewMock()
 	mock.SetPath("brew", "/opt/homebrew/bin/brew")
-	mock.SetCommand("Homebrew 4.3.5\nHomebrew/homebrew-core (git revision abc123)\n", "", 0, "brew", "--version")
+	stubBrewGitVersion(mock, "/opt/homebrew", "abc123", "4.3.5")
 
 	det := NewBrewDetector(mock)
 	result := det.DetectBrew(context.Background())
@@ -33,6 +39,76 @@ func TestBrewDetector_Found(t *testing.T) {
 	}
 	if result.Path != "/opt/homebrew/bin/brew" {
 		t.Errorf("expected path /opt/homebrew/bin/brew, got %s", result.Path)
+	}
+}
+
+func TestBrewDetector_FoundAtStandardPathOutsidePATH(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetFile("/opt/homebrew/bin/brew", []byte{})
+	stubBrewGitVersion(mock, "/opt/homebrew", "abc123", "4.3.5")
+
+	det := NewBrewDetector(mock)
+	result := det.DetectBrew(context.Background())
+
+	if result == nil {
+		t.Fatal("expected brew to be detected")
+	}
+	if result.Version != "4.3.5" {
+		t.Errorf("expected version 4.3.5, got %s", result.Version)
+	}
+	if result.Path != "/opt/homebrew/bin/brew" {
+		t.Errorf("expected path /opt/homebrew/bin/brew, got %s", result.Path)
+	}
+}
+
+func TestBrewDetector_FoundAtHomebrewRepositoryLayout(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetFile("/usr/local/bin/brew", []byte{})
+	stubBrewGitVersion(mock, "/usr/local/Homebrew", "abc123", "4.3.5")
+
+	det := NewBrewDetector(mock)
+	result := det.DetectBrew(context.Background())
+
+	if result == nil {
+		t.Fatal("expected brew to be detected")
+	}
+	if result.Version != "4.3.5" {
+		t.Errorf("expected version 4.3.5, got %s", result.Version)
+	}
+	if result.Path != "/usr/local/bin/brew" {
+		t.Errorf("expected path /usr/local/bin/brew, got %s", result.Path)
+	}
+}
+
+func TestBrewDetector_VersionFromPackedTag(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetFile("/opt/homebrew/bin/brew", []byte{})
+	mock.SetFile("/opt/homebrew/.git/HEAD", []byte("ref: refs/heads/stable\n"))
+	mock.SetFile("/opt/homebrew/.git/packed-refs", []byte("abc123 refs/heads/stable\nabc123 refs/tags/4.3.5\n"))
+
+	det := NewBrewDetector(mock)
+	result := det.DetectBrew(context.Background())
+
+	if result == nil {
+		t.Fatal("expected brew to be detected")
+	}
+	if result.Version != "4.3.5" {
+		t.Errorf("expected version 4.3.5, got %s", result.Version)
+	}
+}
+
+func TestBrewDetector_UnknownVersionWhenGitMetadataUnavailable(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetFile("/opt/homebrew/bin/brew", []byte{})
+
+	det := NewBrewDetector(mock)
+	result := det.DetectBrew(context.Background())
+
+	if result == nil {
+		t.Fatal("expected brew to be detected")
+	}
+	if result.Version != "unknown" {
+		t.Errorf("expected unknown version, got %s", result.Version)
 	}
 }
 
@@ -58,6 +134,22 @@ func TestBrewDetector_ListFormulae(t *testing.T) {
 		t.Fatalf("expected 4 formulae, got %d", len(formulae))
 	}
 	if formulae[0].Name != "ca-certificates" || formulae[0].Version != "2024.2.2" {
+		t.Errorf("unexpected first formula: %+v", formulae[0])
+	}
+}
+
+func TestBrewDetector_ListFormulaeAtStandardPathOutsidePATH(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetFile("/opt/homebrew/bin/brew", []byte{})
+	mock.SetCommand("curl 8.4.0\ngit 2.43.0\n", "", 0, "/opt/homebrew/bin/brew", "list", "--formula", "--versions")
+
+	det := NewBrewDetector(mock)
+	formulae := det.ListFormulae(context.Background())
+
+	if len(formulae) != 2 {
+		t.Fatalf("expected 2 formulae, got %d", len(formulae))
+	}
+	if formulae[0].Name != "curl" || formulae[0].Version != "8.4.0" {
 		t.Errorf("unexpected first formula: %+v", formulae[0])
 	}
 }

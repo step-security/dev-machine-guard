@@ -3,12 +3,28 @@ package detector
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
+
+var brewExecutableCandidates = []string{
+	"/opt/homebrew/bin/brew",
+	"/usr/local/bin/brew",
+	"/home/linuxbrew/.linuxbrew/bin/brew",
+}
+
+type brewExecutable struct {
+	path    string
+	command string
+}
+
+var brewVersionTagPattern = regexp.MustCompile(`^\d+\.\d+\.\d+(?:[-_A-Za-z0-9.]*)?$`)
 
 // BrewDetector detects Homebrew installation and packages.
 type BrewDetector struct {
@@ -22,30 +38,25 @@ func NewBrewDetector(exec executor.Executor) *BrewDetector {
 // DetectBrew checks if Homebrew is installed and returns its version info.
 // Returns nil if Homebrew is not found.
 func (d *BrewDetector) DetectBrew(ctx context.Context) *model.PkgManager {
-	path, err := d.exec.LookPath("brew")
+	brew, err := resolveBrewExecutable(d.exec)
 	if err != nil {
 		return nil
 	}
 
-	version := "unknown"
-	stdout, _, _, err := d.exec.RunWithTimeout(ctx, 10*time.Second, "brew", "--version")
-	if err == nil {
-		// "brew --version" outputs "Homebrew 4.3.5\n..."
-		if line := firstLine(stdout); line != "" {
-			version = strings.TrimPrefix(line, "Homebrew ")
-		}
-	}
-
 	return &model.PkgManager{
 		Name:    "homebrew",
-		Version: version,
-		Path:    path,
+		Version: readBrewVersion(d.exec, brew.path),
+		Path:    brew.path,
 	}
 }
 
 // ListFormulae returns installed Homebrew formulae with versions.
 func (d *BrewDetector) ListFormulae(ctx context.Context) []model.BrewPackage {
-	stdout, _, _, err := d.exec.RunWithTimeout(ctx, 30*time.Second, "brew", "list", "--formula", "--versions")
+	brew, err := resolveBrewExecutable(d.exec)
+	if err != nil {
+		return nil
+	}
+	stdout, _, _, err := d.exec.RunWithTimeout(ctx, 30*time.Second, brew.command, "list", "--formula", "--versions")
 	if err != nil {
 		return nil
 	}
@@ -54,7 +65,11 @@ func (d *BrewDetector) ListFormulae(ctx context.Context) []model.BrewPackage {
 
 // ListCasks returns installed Homebrew casks with versions.
 func (d *BrewDetector) ListCasks(ctx context.Context) []model.BrewPackage {
-	stdout, _, _, err := d.exec.RunWithTimeout(ctx, 30*time.Second, "brew", "list", "--cask", "--versions")
+	brew, err := resolveBrewExecutable(d.exec)
+	if err != nil {
+		return nil
+	}
+	stdout, _, _, err := d.exec.RunWithTimeout(ctx, 30*time.Second, brew.command, "list", "--cask", "--versions")
 	if err != nil {
 		return nil
 	}
@@ -98,9 +113,14 @@ func parseBrewList(stdout string) []model.BrewPackage {
 // Falls back gracefully: if JSON command fails, reads receipts only.
 // If receipts fail, falls back to basic `brew list --versions`.
 func (d *BrewDetector) ListFormulaeRich(ctx context.Context) []model.BrewPackage {
+	brew, err := resolveBrewExecutable(d.exec)
+	if err != nil {
+		return nil
+	}
+
 	// Try brew info --json=v2 first (gets everything in one shot)
 	stdout, _, exitCode, err := d.exec.RunWithTimeout(ctx, 60*time.Second,
-		"brew", "info", "--json=v2", "--installed", "--formula")
+		brew.command, "info", "--json=v2", "--installed", "--formula")
 	if err == nil && exitCode == 0 {
 		pkgs, parseErr := parseBrewInfoJSON(stdout, "formula")
 		if parseErr == nil && len(pkgs) > 0 {
@@ -122,8 +142,13 @@ func (d *BrewDetector) ListFormulaeRich(ctx context.Context) []model.BrewPackage
 // ListCasksRich returns installed casks with metadata.
 // Same strategy as ListFormulaeRich.
 func (d *BrewDetector) ListCasksRich(ctx context.Context) []model.BrewPackage {
+	brew, err := resolveBrewExecutable(d.exec)
+	if err != nil {
+		return nil
+	}
+
 	stdout, _, exitCode, err := d.exec.RunWithTimeout(ctx, 60*time.Second,
-		"brew", "info", "--json=v2", "--installed", "--cask")
+		brew.command, "info", "--json=v2", "--installed", "--cask")
 	if err == nil && exitCode == 0 {
 		pkgs, parseErr := parseBrewInfoJSON(stdout, "cask")
 		if parseErr == nil && len(pkgs) > 0 {
@@ -202,6 +227,163 @@ func (d *BrewDetector) brewPrefix() string {
 	for _, p := range []string{"/opt/homebrew", "/usr/local", "/home/linuxbrew/.linuxbrew"} {
 		if d.exec.DirExists(p+"/Cellar") || d.exec.DirExists(p+"/Caskroom") {
 			return p
+		}
+	}
+	return ""
+}
+
+func resolveBrewExecutable(exec executor.Executor) (brewExecutable, error) {
+	if path, err := exec.LookPath("brew"); err == nil {
+		return brewExecutable{path: path, command: "brew"}, nil
+	}
+	for _, path := range brewExecutableCandidates {
+		if exec.FileExists(path) {
+			return brewExecutable{path: path, command: path}, nil
+		}
+	}
+	return brewExecutable{}, fmt.Errorf("brew not found in PATH or standard locations")
+}
+
+func readBrewVersion(exec executor.Executor, brewPath string) string {
+	for _, repo := range brewRepositoryCandidates(exec, brewPath) {
+		if version := readBrewVersionFromRepository(exec, repo); version != "" {
+			return version
+		}
+	}
+	return "unknown"
+}
+
+func brewRepositoryCandidates(exec executor.Executor, brewPath string) []string {
+	var candidates []string
+	add := func(path string) {
+		path = filepath.Clean(path)
+		if path == "." || path == "/" {
+			return
+		}
+		for _, existing := range candidates {
+			if existing == path {
+				return
+			}
+		}
+		candidates = append(candidates, path)
+	}
+	addFromBrewPath := func(path string) {
+		if path == "" {
+			return
+		}
+		binParent := filepath.Clean(filepath.Join(filepath.Dir(path), ".."))
+		add(binParent)
+		add(filepath.Join(binParent, "Homebrew"))
+	}
+
+	addFromBrewPath(brewPath)
+	if resolved, err := exec.EvalSymlinks(brewPath); err == nil {
+		addFromBrewPath(resolved)
+	}
+	for _, prefix := range []string{"/opt/homebrew", "/usr/local", "/home/linuxbrew/.linuxbrew"} {
+		add(prefix)
+		add(filepath.Join(prefix, "Homebrew"))
+	}
+	return candidates
+}
+
+func readBrewVersionFromRepository(exec executor.Executor, repo string) string {
+	gitDir := filepath.Join(repo, ".git")
+	if data, err := exec.ReadFile(gitDir); err == nil {
+		if parsed, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:"); ok {
+			gitDir = strings.TrimSpace(parsed)
+			if !filepath.IsAbs(gitDir) {
+				gitDir = filepath.Clean(filepath.Join(repo, gitDir))
+			}
+		}
+	}
+
+	revision := readGitRevision(exec, gitDir)
+	if revision == "" {
+		return ""
+	}
+
+	if data, err := exec.ReadFile(filepath.Join(gitDir, "describe-cache", revision)); err == nil {
+		version := strings.TrimSpace(string(data))
+		if version != "" && !strings.Contains(version, "-dirty") {
+			return version
+		}
+	}
+
+	return readExactTagForRevision(exec, gitDir, revision)
+}
+
+func readGitRevision(exec executor.Executor, gitDir string) string {
+	data, err := exec.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if err != nil {
+		return ""
+	}
+	head := strings.TrimSpace(string(data))
+	if head == "" {
+		return ""
+	}
+	ref, ok := strings.CutPrefix(head, "ref: ")
+	if !ok {
+		return head
+	}
+	ref = strings.TrimSpace(ref)
+	if data, err := exec.ReadFile(filepath.Join(gitDir, filepath.FromSlash(ref))); err == nil {
+		return strings.TrimSpace(string(data))
+	}
+	return readPackedRef(exec, gitDir, ref)
+}
+
+func readExactTagForRevision(exec executor.Executor, gitDir, revision string) string {
+	data, err := exec.ReadFile(filepath.Join(gitDir, "packed-refs"))
+	if err != nil {
+		return ""
+	}
+
+	var annotatedTag string
+	for _, rawLine := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if peeled, ok := strings.CutPrefix(line, "^"); ok {
+			if peeled == revision && brewVersionTagPattern.MatchString(annotatedTag) {
+				return annotatedTag
+			}
+			annotatedTag = ""
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			annotatedTag = ""
+			continue
+		}
+		tag, ok := strings.CutPrefix(fields[1], "refs/tags/")
+		if !ok {
+			annotatedTag = ""
+			continue
+		}
+		if fields[0] == revision && brewVersionTagPattern.MatchString(tag) {
+			return tag
+		}
+		annotatedTag = tag
+	}
+	return ""
+}
+
+func readPackedRef(exec executor.Executor, gitDir, ref string) string {
+	data, err := exec.ReadFile(filepath.Join(gitDir, "packed-refs"))
+	if err != nil {
+		return ""
+	}
+	for _, rawLine := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[1] == ref {
+			return fields[0]
 		}
 	}
 	return ""
