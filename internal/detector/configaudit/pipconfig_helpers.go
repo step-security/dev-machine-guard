@@ -51,34 +51,54 @@ func urlIsHTTP(s string) bool {
 // embedded URL credentials reduced to `user:****@host` form. Non-URL
 // inputs (and URLs without credentials) are returned unchanged.
 //
-// We avoid url.URL.String() for the rewritten URL because it
-// percent-encodes the asterisks back to %2A. Since we already validated
-// the structure via net/url, we can splice the original string between
-// the scheme and the `@` and recompose the credential portion ourselves.
+// We work directly on the string (not url.URL.String()) because the latter
+// percent-encodes the asterisks back to %2A. Credentials live in the URL
+// authority — everything between `://` and the first `/`, `?`, or `#` — and
+// the userinfo is everything up to the *last* `@` in that authority. A
+// well-formed URL has at most one unencoded `@`, so when a user-typed value
+// concatenates several `user:pass@host` runs (e.g. a mangled index-url), the
+// only real host is what follows the final `@`; everything before it is
+// credential material and gets masked whole. Splitting on the first `@`
+// instead would preserve the trailing runs — including a live token — in the
+// "safe" output, which is exactly the leak this guards against.
 func redactCredsInValue(s string) string {
-	u, has := urlHasEmbeddedCreds(s)
-	if !has {
+	if !looksLikeURL(s) {
 		return s
 	}
 	trimmed := strings.TrimSpace(s)
-	// Find the `://` and the `@` that terminates userinfo. A URL with
-	// userinfo always has the form "scheme://userinfo@host[/path]".
 	schemeIdx := strings.Index(trimmed, "://")
 	if schemeIdx < 0 {
 		return s
 	}
+	prefix := trimmed[:schemeIdx+3] // includes "://"
 	rest := trimmed[schemeIdx+3:]
-	atIdx := strings.IndexByte(rest, '@')
-	if atIdx < 0 {
-		return s
+
+	// The authority ends at the first path/query/fragment delimiter; an `@`
+	// past that point belongs to the path or query, not to userinfo.
+	authEnd := strings.IndexAny(rest, "/?#")
+	if authEnd < 0 {
+		authEnd = len(rest)
 	}
-	prefix := trimmed[:schemeIdx+3]
-	tail := rest[atIdx:] // includes the '@'
-	username := u.User.Username()
-	if _, hasPassword := u.User.Password(); hasPassword {
-		return prefix + username + ":****" + tail
+	authority := rest[:authEnd]
+	after := rest[authEnd:] // path/query/fragment, possibly empty
+
+	lastAt := strings.LastIndexByte(authority, '@')
+	if lastAt < 0 {
+		return s // no embedded credentials
 	}
-	return prefix + "****" + tail
+	userinfo := authority[:lastAt]
+	host := authority[lastAt+1:]
+
+	// Preserve the username only when the userinfo is a single, well-formed
+	// `user:pass` pair. Any extra `@` means we can't safely tell which run is
+	// the username, so mask the whole thing.
+	masked := "****"
+	if !strings.ContainsRune(userinfo, '@') {
+		if colon := strings.IndexByte(userinfo, ':'); colon >= 0 {
+			masked = userinfo[:colon] + ":****"
+		}
+	}
+	return prefix + masked + "@" + host + after
 }
 
 // hashCredential returns a stable short identifier for a credential value

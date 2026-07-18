@@ -127,6 +127,16 @@ func TestRedactCredsInValue(t *testing.T) {
 		{"https://alice" + at + "internal.example.com/simple", "https://****" + at + "internal.example.com/simple"},
 		{"https://alice:secret" + at + "internal.example.com/simple", "https://alice:****" + at + "internal.example.com/simple"},
 		{"http://__token__:pypi-AgEI..." + at + "upload.pypi.org/", "http://__token__:****" + at + "upload.pypi.org/"},
+		// Malformed value with several user:pass@host runs concatenated
+		// before the real host (a real customer had this shape in a pip
+		// index-url, with a live Azure DevOps PAT as the last segment). The
+		// userinfo is everything up to the *last* @, and because it contains
+		// extra @s we can't safely pick out a username, so the whole run is
+		// masked — no segment survives into the output.
+		{"https://user" + at + "corp.com:pass1" + at + "corp.com:TOKENabc123" + at + "corp.pkgs.visualstudio.com/_packaging/feed/pypi/simple/",
+			"https://****" + at + "corp.pkgs.visualstudio.com/_packaging/feed/pypi/simple/"},
+		// An @ in the path or query is not userinfo and must be left alone.
+		{"https://pypi.org/simple?contact=me" + at + "corp.com", "https://pypi.org/simple?contact=me" + at + "corp.com"},
 		{"not-a-url", "not-a-url"},
 	}
 	for _, c := range cases {
@@ -134,6 +144,24 @@ func TestRedactCredsInValue(t *testing.T) {
 		if got != c.want {
 			t.Errorf("redactCredsInValue(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// TestRedactCredsInValue_MultiAtNoLeak is a focused regression guard for the
+// credential leak where a malformed multi-@ authority left every segment after
+// the first @ verbatim in the "safe" output. No credential run may appear
+// anywhere in the redacted string.
+func TestRedactCredsInValue_MultiAtNoLeak(t *testing.T) {
+	const at = "@"
+	in := "https://user" + at + "corp.com:pass1" + at + "corp.com:TOKENabc123" + at + "corp.pkgs.visualstudio.com/_packaging/feed/pypi/simple/"
+	got := redactCredsInValue(in)
+	for _, secret := range []string{"pass1", "TOKENabc123"} {
+		if strings.Contains(got, secret) {
+			t.Errorf("redacted value leaks %q: got %q", secret, got)
+		}
+	}
+	if !strings.HasPrefix(got, "https://****"+at+"corp.pkgs.visualstudio.com/") {
+		t.Errorf("real host not preserved after redaction: got %q", got)
 	}
 }
 
