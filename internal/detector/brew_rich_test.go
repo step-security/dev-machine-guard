@@ -182,7 +182,7 @@ func TestBrewDetector_ListFormulaeRich_JSONPath(t *testing.T) {
 		],
 		"casks": []
 	}`
-	mock.SetCommand(jsonData, "", 0, "brew", "info", "--json=v2", "--installed", "--formula")
+	mock.SetCommand(jsonData, "", 0, "/opt/homebrew/bin/brew", "info", "--json=v2", "--installed", "--formula")
 
 	det := NewBrewDetector(mock)
 	pkgs := det.ListFormulaeRich(context.Background())
@@ -206,10 +206,10 @@ func TestBrewDetector_ListFormulaeRich_FallbackToReceipts(t *testing.T) {
 	mock.SetPath("brew", "/opt/homebrew/bin/brew")
 
 	// Make the JSON command fail so it falls back
-	mock.SetCommand("", "error", 1, "brew", "info", "--json=v2", "--installed", "--formula")
+	mock.SetCommand("", "error", 1, "/opt/homebrew/bin/brew", "info", "--json=v2", "--installed", "--formula")
 
 	// Basic list output for fallback
-	mock.SetCommand("curl 8.4.0\ngit 2.43.0\n", "", 0, "brew", "list", "--formula", "--versions")
+	mock.SetCommand("curl 8.4.0\ngit 2.43.0\n", "", 0, "/opt/homebrew/bin/brew", "list", "--formula", "--versions")
 
 	// Set up Cellar directory and receipts
 	mock.SetDir("/opt/homebrew/Cellar")
@@ -274,7 +274,7 @@ func TestBrewDetector_ListCasksRich_JSONPath(t *testing.T) {
 			}
 		]
 	}`
-	mock.SetCommand(jsonData, "", 0, "brew", "info", "--json=v2", "--installed", "--cask")
+	mock.SetCommand(jsonData, "", 0, "/opt/homebrew/bin/brew", "info", "--json=v2", "--installed", "--cask")
 
 	det := NewBrewDetector(mock)
 	pkgs := det.ListCasksRich(context.Background())
@@ -298,10 +298,10 @@ func TestBrewDetector_ListCasksRich_FallbackToReceipts(t *testing.T) {
 	mock.SetPath("brew", "/opt/homebrew/bin/brew")
 
 	// JSON command fails
-	mock.SetCommand("", "error", 1, "brew", "info", "--json=v2", "--installed", "--cask")
+	mock.SetCommand("", "error", 1, "/opt/homebrew/bin/brew", "info", "--json=v2", "--installed", "--cask")
 
 	// Basic list output
-	mock.SetCommand("firefox 120.0\n", "", 0, "brew", "list", "--cask", "--versions")
+	mock.SetCommand("firefox 120.0\n", "", 0, "/opt/homebrew/bin/brew", "list", "--cask", "--versions")
 
 	// Caskroom directory and receipt
 	mock.SetDir("/opt/homebrew/Caskroom")

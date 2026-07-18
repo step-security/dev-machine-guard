@@ -234,7 +234,7 @@ func (d *BrewDetector) brewPrefix() string {
 
 func resolveBrewExecutable(exec executor.Executor) (brewExecutable, error) {
 	if path, err := exec.LookPath("brew"); err == nil {
-		return brewExecutable{path: path, command: "brew"}, nil
+		return brewExecutable{path: path, command: path}, nil
 	}
 	for _, path := range brewExecutableCandidates {
 		if exec.FileExists(path) {
@@ -306,7 +306,15 @@ func readBrewVersionFromRepository(exec executor.Executor, repo string) string {
 	if data, err := exec.ReadFile(filepath.Join(gitDir, "describe-cache", revision)); err == nil {
 		version := strings.TrimSpace(string(data))
 		if version != "" && !strings.Contains(version, "-dirty") {
-			return version
+			// describe-cache may be a bare tag ("4.3.5") or a commits-past-tag
+			// describe ("4.3.5-17-g<sha>"); keep the base tag so non-semver
+			// noise never leaks into PkgManager.Version.
+			if base, _, ok := strings.Cut(version, "-"); ok {
+				version = base
+			}
+			if brewVersionTagPattern.MatchString(version) {
+				return version
+			}
 		}
 	}
 

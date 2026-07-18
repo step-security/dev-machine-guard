@@ -125,7 +125,7 @@ func TestBrewDetector_NotFound(t *testing.T) {
 func TestBrewDetector_ListFormulae(t *testing.T) {
 	mock := executor.NewMock()
 	mock.SetPath("brew", "/opt/homebrew/bin/brew")
-	mock.SetCommand("ca-certificates 2024.2.2\ncurl 8.4.0\ngit 2.43.0\nopenssl@3 3.2.0\n", "", 0, "brew", "list", "--formula", "--versions")
+	mock.SetCommand("ca-certificates 2024.2.2\ncurl 8.4.0\ngit 2.43.0\nopenssl@3 3.2.0\n", "", 0, "/opt/homebrew/bin/brew", "list", "--formula", "--versions")
 
 	det := NewBrewDetector(mock)
 	formulae := det.ListFormulae(context.Background())
@@ -157,7 +157,7 @@ func TestBrewDetector_ListFormulaeAtStandardPathOutsidePATH(t *testing.T) {
 func TestBrewDetector_ListCasks(t *testing.T) {
 	mock := executor.NewMock()
 	mock.SetPath("brew", "/opt/homebrew/bin/brew")
-	mock.SetCommand("firefox 120.0\ngoogle-chrome 120.0.6099.109\nvisual-studio-code 1.85.0\n", "", 0, "brew", "list", "--cask", "--versions")
+	mock.SetCommand("firefox 120.0\ngoogle-chrome 120.0.6099.109\nvisual-studio-code 1.85.0\n", "", 0, "/opt/homebrew/bin/brew", "list", "--cask", "--versions")
 
 	det := NewBrewDetector(mock)
 	casks := det.ListCasks(context.Background())
