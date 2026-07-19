@@ -772,14 +772,9 @@ func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
 // failed, so an emergency unassignment/offboarding directive is never blocked by
 // a telemetry outage. A device whose npm config is already governed by the MDM
 // remediation script is detected by the writer's content-aware probe and reported
-// mdm_managed instead. Gated behind FeaturePackageConfigPolicy (independent of the
-// IDE-extension gate); a silent no-op when enterprise config is missing. Failures
+// mdm_managed instead. A silent no-op when enterprise config is missing. Failures
 // are logged but never crash main.
 func runPackageConfigEnforce(exec executor.Executor, log *progress.Logger) {
-	if !featuregate.IsEnabled(featuregate.FeaturePackageConfigPolicy) {
-		log.Debug("package-config enforce: skipped (feature gated)")
-		return
-	}
 	cfg, ok := ingest.Snapshot()
 	if !ok {
 		log.Debug("package-config enforce: skipped (no enterprise config)")
