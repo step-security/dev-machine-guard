@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -35,13 +36,17 @@ func TestFileStateStoreRoundTrip(t *testing.T) {
 	if !ok || got.AppliedHash != want.AppliedHash || got.WrittenValue != want.WrittenValue || !got.FetchedAt.Equal(want.FetchedAt) {
 		t.Fatalf("Read = %+v ok=%v, want %+v", got, ok, want)
 	}
-	// The file is created 0600 (not group/other-accessible).
-	info, err := os.Stat(s.path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != cacheFileMode {
-		t.Fatalf("file mode = %o, want %o", info.Mode().Perm(), cacheFileMode)
+	// The file is created 0600 (not group/other-accessible). POSIX-only: Windows
+	// has no permission bits, so Chmod can't set 0600 and Stat reports 0666 for any
+	// writable file.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(s.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != cacheFileMode {
+			t.Fatalf("file mode = %o, want %o", info.Mode().Perm(), cacheFileMode)
+		}
 	}
 	if err := s.Drop(CategoryPackageConfig, TargetNPM); err != nil {
 		t.Fatalf("Drop: %v", err)
