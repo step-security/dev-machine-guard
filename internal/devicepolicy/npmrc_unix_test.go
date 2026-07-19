@@ -3,7 +3,6 @@
 package devicepolicy
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -380,73 +379,6 @@ func TestProbeExpected_OnDisk(t *testing.T) { // edge 8 + metadata gate
 	}
 }
 
-func TestAcquireReconcileLock_LifecycleAndContention(t *testing.T) {
-	home := t.TempDir()
-	w1 := newDiskWriter(t, home)
-
-	lock, err := w1.AcquireReconcileLock()
-	if err != nil {
-		t.Fatalf("first acquire: %v", err)
-	}
-
-	// The lock file and its directory chain now exist, 0600 file under a 0700 dir.
-	lockDir := filepath.Join(home, ".stepsecurity", "locks")
-	lockPath := filepath.Join(lockDir, "package_config-npm.lock")
-	if fi, err := os.Stat(lockPath); err != nil {
-		t.Fatalf("lock file not created: %v", err)
-	} else if fi.Mode().Perm() != 0o600 {
-		t.Fatalf("lock file mode = %v, want 0600", fi.Mode().Perm())
-	}
-	if di, err := os.Stat(lockDir); err != nil {
-		t.Fatalf("lock dir not created: %v", err)
-	} else if di.Mode().Perm() != 0o700 {
-		t.Fatalf("lock dir mode = %v, want 0700", di.Mode().Perm())
-	}
-
-	// A second, independent open of the same file observes contention (flock
-	// treats the two file descriptions independently even within one process).
-	w2 := newDiskWriter(t, home)
-	if _, err := w2.AcquireReconcileLock(); !errors.Is(err, ErrLockHeld) {
-		t.Fatalf("second acquire while held: want ErrLockHeld, got %v", err)
-	}
-
-	// Releasing closes the fd but must NEVER unlink the file — a recreate would
-	// let two processes lock different inodes under one path and both proceed.
-	if err := lock.Close(); err != nil {
-		t.Fatalf("release: %v", err)
-	}
-	if _, err := os.Stat(lockPath); err != nil {
-		t.Fatalf("lock file must survive release (never unlinked): %v", err)
-	}
-
-	// After release the lock is re-acquirable on the same inode.
-	lock2, err := w2.AcquireReconcileLock()
-	if err != nil {
-		t.Fatalf("re-acquire after release: %v", err)
-	}
-	if err := lock2.Close(); err != nil {
-		t.Fatalf("release 2: %v", err)
-	}
-}
-
-func TestAcquireReconcileLock_PreexistingStepsecurityDir(t *testing.T) {
-	// The common case: ~/.stepsecurity already exists (config.json lives there).
-	// Mkdir returns ErrExist and the lock still acquires; the pre-existing dir is
-	// left untouched.
-	home := t.TempDir()
-	if err := os.Mkdir(filepath.Join(home, ".stepsecurity"), 0o700); err != nil {
-		t.Fatalf("seed .stepsecurity: %v", err)
-	}
-	w := newDiskWriter(t, home)
-	lock, err := w.AcquireReconcileLock()
-	if err != nil {
-		t.Fatalf("acquire with pre-existing .stepsecurity: %v", err)
-	}
-	if err := lock.Close(); err != nil {
-		t.Fatalf("release: %v", err)
-	}
-}
-
 func TestBackup_ModeAndRotation(t *testing.T) { // edge 28 + rotation cap
 	home := t.TempDir()
 	if err := os.WriteFile(npmrcPath(home), []byte("registry=seed\n"), 0o600); err != nil {
@@ -601,40 +533,5 @@ func TestRestoreSnapshot_ConsumedAfterUse(t *testing.T) {
 	}
 	if err := w.RestoreSnapshot(); err == nil {
 		t.Fatal("second RestoreSnapshot must error — the snapshot is consumed after one use")
-	}
-}
-
-func TestAcquireReconcileLock_SymlinkedLockPathRejected(t *testing.T) {
-	// A user who pre-plants the lock path as an in-home symlink must not get the
-	// (possibly root) daemon to open-and-chown the pointed-at file. openLockFile
-	// Lstat-rejects a symlink at the lock path rather than following it.
-	home := t.TempDir()
-	locks := filepath.Join(home, ".stepsecurity", "locks")
-	if err := os.MkdirAll(locks, 0o700); err != nil {
-		t.Fatalf("mkdir locks: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "target"), []byte("secret\n"), 0o600); err != nil {
-		t.Fatalf("seed target: %v", err)
-	}
-	// Relative, in-home target so os.Root would otherwise follow it.
-	if err := os.Symlink(filepath.Join("..", "..", "target"), filepath.Join(locks, "package_config-npm.lock")); err != nil {
-		t.Fatalf("plant symlink: %v", err)
-	}
-	w := newDiskWriter(t, home)
-	if _, err := w.AcquireReconcileLock(); !isTargetUnusable(err) {
-		t.Fatalf("symlinked lock path: want ErrTargetUnusable, got %v", err)
-	}
-}
-
-func TestAcquireReconcileLock_FreshDirNotCreatorOwnedRejected(t *testing.T) {
-	// The dir-chown path binds the created inode by requiring it be owned by our own
-	// euid — proof the daemon created it, and that an attacker did not rmdir+swap in
-	// their own directory after the Mkdir (they cannot forge a root-owned one). A
-	// handle reporting a foreign owner is refused rather than chowned to the user.
-	home := t.TempDir()
-	w := newDiskWriter(t, home)
-	w.owners = fakeOwner{uid: uint32(os.Geteuid()) + 1, enforced: true} // never our euid
-	if _, err := w.AcquireReconcileLock(); !isTargetUnusable(err) {
-		t.Fatalf("fresh dir with a foreign owner: want ErrTargetUnusable, got %v", err)
 	}
 }

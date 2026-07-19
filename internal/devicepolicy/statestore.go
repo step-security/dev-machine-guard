@@ -27,12 +27,10 @@ type StateStore interface {
 
 // packageConfigStateBasename is the state-file basename for the package_config
 // category. It is DELIBERATELY separate from CacheFilename (the shared IDE
-// state): the shared file's read-modify-write is guarded only by an in-process
-// mutex — its own comment says a cross-process lock "would be needed before
-// categories are reconciled concurrently" — and only package reconciliation
-// takes that lock. Sharing one file could let an IDE reconcile in another
-// process silently drop the package record (or vice versa); separate files make
-// the lost update structurally impossible.
+// state): neither store takes a cross-process lock, so the only thing that keeps
+// a package reconcile in one process from silently dropping a concurrent IDE
+// reconcile's record in another (or vice versa) is that they never share a file.
+// Separate files make that lost update structurally impossible.
 const packageConfigStateBasename = "package-config-state"
 
 // NewStateStoreFor builds the package_config ownership store for a resolved
@@ -97,8 +95,11 @@ func rootMachineStateDir(u *user.User) (dir, uid string, ok bool) {
 // carries the same schema-versioned category→target→record shape and the same
 // atomic-replace (temp + fsync + rename) + future-schema-refusal discipline as
 // the shared cache.go store — only the path differs, and the file belongs to
-// this category alone. A process-local mutex serializes its read-modify-write;
-// the cross-process lock (main.go) covers separate processes.
+// this category alone. A process-local mutex serializes its read-modify-write
+// within a process; across processes there is no lock — the atomic temp+rename
+// keeps the file from tearing, and a concurrent overlap is eventually consistent
+// (identical records while the policy is stable; a transient stale record only
+// during a policy transition, reconverged on the next cycle).
 type fileStateStore struct {
 	dir  string
 	path string

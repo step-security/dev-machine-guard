@@ -199,7 +199,7 @@ func NewNPMRCWriter(exec executor.Executor) (*NPMRCWriter, error) {
 		uid, uerr := strconv.Atoi(u.Uid)
 		gid, gerr := strconv.Atoi(u.Gid)
 		if uerr != nil || gerr != nil {
-			root.Close()
+			_ = root.Close()
 			return nil, fmt.Errorf("npmrc: target user %q has non-numeric uid/gid", u.Username)
 		}
 		w.uid, w.gid = uid, gid
@@ -260,7 +260,7 @@ type resolvedTarget struct {
 
 func (rt *resolvedTarget) close() {
 	if rt != nil && rt.child != nil {
-		rt.child.Close()
+		_ = rt.child.Close()
 	}
 }
 
@@ -462,7 +462,7 @@ func (w *NPMRCWriter) checkOwner(f *os.File, rt *resolvedTarget) error {
 	if !enforced {
 		return nil
 	}
-	if uid == uint32(w.uid) {
+	if uid == uint32(w.uid) { // #nosec G115 -- w.uid is strconv.Atoi of a POSIX uid (os/user), always non-negative and within uint32
 		return nil
 	}
 	return fmt.Errorf("npmrc: leaf %q owned by uid %d, not target user: %w", rt.base, uid, ErrTargetUnusable)
@@ -707,20 +707,20 @@ func (w *NPMRCWriter) commit(rt *resolvedTarget, data []byte, mode os.FileMode) 
 	}()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return commitOutcome{}, fmt.Errorf("npmrc: write temp: %w", err)
 	}
 	if err := w.applyMetadata(tmp, mode); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return commitOutcome{}, err
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return commitOutcome{}, fmt.Errorf("npmrc: fsync temp: %w", err)
 	}
 	tmpInfo, err := tmp.Stat()
 	if err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return commitOutcome{}, fmt.Errorf("npmrc: stat temp: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
@@ -825,12 +825,12 @@ func (w *NPMRCWriter) backup(rt *resolvedTarget, data []byte) error {
 		return err
 	}
 	if _, err := f.Write(data); err != nil {
-		f.Close()
+		_ = f.Close()
 		_ = rt.child.Remove(name)
 		return fmt.Errorf("npmrc: write backup: %w", err)
 	}
 	if err := w.applyMetadata(f, npmrcFileMode); err != nil {
-		f.Close()
+		_ = f.Close()
 		_ = rt.child.Remove(name)
 		return err
 	}

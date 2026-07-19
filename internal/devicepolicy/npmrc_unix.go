@@ -23,21 +23,6 @@ func nonblockOpenFlag() int { return syscall.O_NONBLOCK }
 // so the operation cannot be redirected through a swapped symlink.
 func chownHandle(f *os.File, uid, gid int) error { return f.Chown(uid, gid) }
 
-// tryExclusiveLock attempts a non-blocking exclusive advisory lock (flock) on an
-// open file. acquired=true when this fd now holds it; acquired=false with a nil
-// error means another process holds it (contention); a non-nil error is an
-// infrastructure failure. The lock releases when the fd is closed.
-func tryExclusiveLock(f *os.File) (acquired bool, err error) {
-	e := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-	if e == nil {
-		return true, nil
-	}
-	if errors.Is(e, syscall.EWOULDBLOCK) {
-		return false, nil
-	}
-	return false, e
-}
-
 // interactiveSessionOK is the Windows-only session guard. On Unix the console
 // user was already resolved by the executor, so there is nothing further to
 // gate here.

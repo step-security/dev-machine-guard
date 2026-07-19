@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -839,27 +838,19 @@ func runPackageConfigEnforce(exec executor.Executor, log *progress.Logger) {
 		defer w.Close()
 		w.SetLogf(func(format string, args ...any) { log.Debug(format, args...) })
 
-		// Serialize concurrent convergence of this ~/.npmrc across processes and
-		// privilege modes. Held by another process → skip this cycle entirely, no
-		// report (the holder is converging and will report). A lock INFRASTRUCTURE
-		// failure is not contention: fall through with the writer seams unset and
-		// the error handed to the reconciler, so enforce surfaces write_failed while
-		// clear/absent stay silent — the unavailable-writer rules.
-		lock, lerr := w.AcquireReconcileLock()
-		switch {
-		case lerr == nil:
-			defer lock.Close()
-			r.Writer = w
-			r.Converged = w.Converged
-			r.ProbeExpected = w.ProbeExpected
-			r.RestoreSnapshot = w.RestoreSnapshot
-			r.State = devicepolicy.NewStateStoreFor(w.TargetUser())
-		case errors.Is(lerr, devicepolicy.ErrLockHeld):
-			log.Debug("package-config enforce: another process holds the reconciliation lock; skipping this cycle")
-			return
-		default:
-			r.WriterInitErr = lerr
-		}
+		// Concurrent convergence of this ~/.npmrc is not serialized across
+		// processes. Every write is an atomic temp+rename, so an overlapping
+		// cycle never sees a torn file. While the policy is stable both cycles
+		// render identical bytes; only a policy transition (a key rotation, or an
+		// enforce racing a clear) that interleaves with a concurrent cycle can
+		// briefly leave the superseded value, reconverged next cycle — eventual
+		// consistency, the same model the VS Code settings.json lane relies on.
+		// The telemetry singleton lock already serializes the preceding scan phase.
+		r.Writer = w
+		r.Converged = w.Converged
+		r.ProbeExpected = w.ProbeExpected
+		r.RestoreSnapshot = w.RestoreSnapshot
+		r.State = devicepolicy.NewStateStoreFor(w.TargetUser())
 	}
 
 	if err := r.Reconcile(ctx); err != nil {

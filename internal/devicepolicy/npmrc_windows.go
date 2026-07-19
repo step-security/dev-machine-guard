@@ -21,27 +21,6 @@ func nonblockOpenFlag() int { return 0 }
 // chownHandle is a no-op on Windows (ACL ownership model).
 func chownHandle(f *os.File, uid, gid int) error { return nil }
 
-// tryExclusiveLock attempts a non-blocking exclusive lock (LockFileEx with
-// LOCKFILE_FAIL_IMMEDIATELY) on an open file — there is no flock on Windows.
-// acquired=true when this handle now holds it; acquired=false with a nil error
-// means another process holds it; a non-nil error is an infrastructure failure.
-// The lock releases when the handle is closed.
-func tryExclusiveLock(f *os.File) (acquired bool, err error) {
-	ol := new(windows.Overlapped)
-	e := windows.LockFileEx(
-		windows.Handle(f.Fd()),
-		windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY,
-		0, 1, 0, ol,
-	)
-	if e == nil {
-		return true, nil
-	}
-	if errors.Is(e, windows.ERROR_LOCK_VIOLATION) {
-		return false, nil
-	}
-	return false, e
-}
-
 func newOwnerReader() ownerReader { return windowsOwnerReader{} }
 
 // windowsOwnerReader reports enforced=false so the writer skips every ownership
