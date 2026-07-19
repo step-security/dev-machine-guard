@@ -199,6 +199,16 @@ func (c *HTTPFetcher) Fetch(ctx context.Context, customerID, deviceID, category,
 		Hash:        strings.TrimSpace(p.Hash),
 		GeneratedAt: p.GeneratedAt,
 	}
+	// Reject a response scoped to a different category/target than requested
+	// (backend bug, proxy/cache mixup). Acting on it could enforce — or worse,
+	// clear — the wrong pair. An empty field is not a mismatch; it defaults to
+	// the requested value just below.
+	if ep.Category != "" && ep.Category != category {
+		return EffectivePolicy{}, fmt.Errorf("devicepolicy: response category %q does not match requested %q", ep.Category, category)
+	}
+	if ep.Target != "" && ep.Target != target {
+		return EffectivePolicy{}, fmt.Errorf("devicepolicy: response target %q does not match requested %q", ep.Target, target)
+	}
 	if ep.Category == "" {
 		ep.Category = category
 	}

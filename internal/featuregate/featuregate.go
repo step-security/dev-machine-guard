@@ -25,19 +25,25 @@ const (
 	FeatureYarnConfigAudit Feature = "yarn-config-audit"
 	FeatureDevicePolicy    Feature = "device-policy"
 	FeatureAgentSkillsScan Feature = "agent-skills-scan"
+	// FeaturePackageConfigPolicy gates the package_config#npm enforcement lane
+	// (the managed ~/.npmrc secure-registry block). It is separate from
+	// FeatureDevicePolicy so the npm lane can be toggled independently of the
+	// IDE-extension lane even though both ride the device-policy machinery.
+	FeaturePackageConfigPolicy Feature = "package-config-policy"
 )
 
 // enabled lists features safe to ship today. Uncomment a line once its
 // backend support has merged.
 var enabled = map[Feature]bool{
 	// FeatureAIAgentHooks:    true,
-	FeatureNPMRCAudit:      true,
-	FeaturePipConfigAudit:  true,
-	FeaturePnpmConfigAudit: true,
-	FeatureBunConfigAudit:  true,
-	FeatureYarnConfigAudit: true,
-	FeatureDevicePolicy:    true,
-	FeatureAgentSkillsScan: true,
+	FeatureNPMRCAudit:          true,
+	FeaturePipConfigAudit:      true,
+	FeaturePnpmConfigAudit:     true,
+	FeatureBunConfigAudit:      true,
+	FeatureYarnConfigAudit:     true,
+	FeatureDevicePolicy:        true,
+	FeatureAgentSkillsScan:     true,
+	FeaturePackageConfigPolicy: true,
 }
 
 var override bool
