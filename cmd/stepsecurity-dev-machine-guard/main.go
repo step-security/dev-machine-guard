@@ -262,8 +262,13 @@ func main() {
 			os.Exit(1)
 		}
 		armExecutionWatchdog(telemetry.ExecutionDeadline(config.MaxExecutionDuration), log)
-		if err := telemetry.Run(exec, log, cfg); err != nil {
-			log.Error("%v", err)
+		telemetryErr := telemetry.Run(exec, log, cfg)
+		// Package-config enforcement runs on every cycle, even one where telemetry
+		// failed, so an emergency unassignment/offboarding directive is never
+		// blocked by a telemetry outage — hence before the error-exit below.
+		runPackageConfigEnforce(exec, log)
+		if telemetryErr != nil {
+			log.Error("%v", telemetryErr)
 			os.Exit(1)
 		}
 		runHookStateReconcile(exec, log)
@@ -349,6 +354,16 @@ func main() {
 			if err := systemd.StartTimer(exec, log); err != nil {
 				log.Warn("timer start failed (%v) — scheduled scans will resume after the next user-systemd reload", err)
 			}
+		}
+
+		// Package-config enforcement runs even if the initial telemetry failed
+		// (before the error-exit below). Skipped on Windows at install time: an
+		// elevated installer resolves the ADMINISTRATOR's home, not the developer's,
+		// so let the first scheduled /ru INTERACTIVE firing do the first enforcement
+		// (macOS root installs resolve the console user; Linux installs are user
+		// mode, and the Windows-SYSTEM / macOS paths already returned above).
+		if runtime.GOOS != model.PlatformWindows {
+			runPackageConfigEnforce(exec, log)
 		}
 
 		if telemetryErr != nil {
@@ -475,8 +490,12 @@ func main() {
 		case config.IsEnterpriseMode():
 			log.Debug("dispatch: enterprise telemetry (auto-detected)")
 			armExecutionWatchdog(telemetry.ExecutionDeadline(config.MaxExecutionDuration), log)
-			if err := telemetry.Run(exec, log, cfg); err != nil {
-				log.Error("%v", err)
+			telemetryErr := telemetry.Run(exec, log, cfg)
+			// Package-config enforcement runs on every enterprise cycle — including a
+			// manually invoked one, and even when telemetry failed.
+			runPackageConfigEnforce(exec, log)
+			if telemetryErr != nil {
+				log.Error("%v", telemetryErr)
 				os.Exit(1)
 			}
 		default:
@@ -741,6 +760,96 @@ func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
 	}
 	if err := r.Reconcile(ctx); err != nil {
 		log.Warn("ide-extension enforce: %v", err)
+		aiagentscli.AppendError("devicepolicy", "enforce_failed", err.Error(), "")
+	}
+}
+
+// runPackageConfigEnforce fetches the device's effective package-config policy
+// (the npm secure-registry directive) and converges the managed block in the
+// console user's ~/.npmrc to match, then reports compliance — on the same
+// scheduled cycle and agent auth channel as the IDE-extension enforcement above.
+// It runs on every telemetry cycle, INCLUDING cycles where telemetry itself
+// failed, so an emergency unassignment/offboarding directive is never blocked by
+// a telemetry outage. A device whose npm config is already governed by the MDM
+// remediation script is detected by the writer's content-aware probe and reported
+// mdm_managed instead. A silent no-op when enterprise config is missing. Failures
+// are logged but never crash main.
+func runPackageConfigEnforce(exec executor.Executor, log *progress.Logger) {
+	cfg, ok := ingest.Snapshot()
+	if !ok {
+		log.Debug("package-config enforce: skipped (no enterprise config)")
+		return
+	}
+	fetcher, ok := devicepolicy.NewHTTPFetcher(cfg, nil)
+	if !ok {
+		log.Debug("package-config enforce: skipped (fetcher init refused config)")
+		return
+	}
+	reporter, ok := devicepolicy.NewHTTPReporter(cfg, nil)
+	if !ok {
+		log.Debug("package-config enforce: skipped (reporter init refused config)")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), devicePolicyEnforceTimeout)
+	defer cancel()
+
+	dev := device.Gather(ctx, exec)
+	if dev.SerialNumber == "" || dev.SerialNumber == "unknown" {
+		log.Warn("package-config enforce: device serial unresolved; skipping")
+		return
+	}
+	serial := dev.SerialNumber
+
+	r := &devicepolicy.Reconciler{
+		Fetcher:    fetcher,
+		Reporter:   reporter,
+		CustomerID: cfg.CustomerID,
+		DeviceID:   serial,
+		Platform:   dev.Platform,
+		Category:   devicepolicy.CategoryPackageConfig,
+		Target:     devicepolicy.TargetNPM,
+		// Render derives the two managed ~/.npmrc content lines from the policy and
+		// this device's serial. It fully validates the policy and is pure, so it is
+		// wired even when the writer below could not be constructed.
+		Render: func(policy json.RawMessage) (string, error) {
+			return devicepolicy.RenderNPMRCBlock(policy, serial)
+		},
+		OwnsByMarker: true,
+		Logf:         func(format string, args ...any) { log.Debug(format, args...) },
+	}
+
+	// The writer resolves the console user and opens a directory fd over their
+	// home. When it cannot (no enforceable target user, or an infrastructure
+	// failure) leave the writer seams nil and hand the reconciler the init error:
+	// it classifies AFTER the fetch (absent → silent, clear → retain all state,
+	// enforce → policy_not_applied for no-target else write_failed). Binding
+	// w.Converged / w.ProbeExpected before this nil check would capture method
+	// values on a nil receiver, and the deferred Close would panic.
+	w, werr := devicepolicy.NewNPMRCWriter(exec)
+	if werr != nil {
+		r.WriterInitErr = werr
+	} else {
+		defer w.Close()
+		w.SetLogf(func(format string, args ...any) { log.Debug(format, args...) })
+
+		// Concurrent convergence of this ~/.npmrc is not serialized across
+		// processes. Every write is an atomic temp+rename, so an overlapping
+		// cycle never sees a torn file. While the policy is stable both cycles
+		// render identical bytes; only a policy transition (a key rotation, or an
+		// enforce racing a clear) that interleaves with a concurrent cycle can
+		// briefly leave the superseded value, reconverged next cycle — eventual
+		// consistency, the same model the VS Code settings.json lane relies on.
+		// The telemetry singleton lock already serializes the preceding scan phase.
+		r.Writer = w
+		r.Converged = w.Converged
+		r.ProbeExpected = w.ProbeExpected
+		r.RestoreSnapshot = w.RestoreSnapshot
+		r.State = devicepolicy.NewStateStoreFor(w.TargetUser())
+	}
+
+	if err := r.Reconcile(ctx); err != nil {
+		log.Warn("package-config enforce: %v", err)
 		aiagentscli.AppendError("devicepolicy", "enforce_failed", err.Error(), "")
 	}
 }

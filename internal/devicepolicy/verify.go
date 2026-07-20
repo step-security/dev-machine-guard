@@ -29,6 +29,17 @@ const CategoryIDEExtension = "ide_extension"
 // report.
 const TargetVSCode = "vscode"
 
+// CategoryPackageConfig / TargetNPM identify the second policy category: the
+// managed StepSecurity secure-registry block inside the console user's ~/.npmrc
+// (see npmrc.go). They mirror agent-api's package_config / npm identifiers and,
+// like the IDE pair, are passed as ?category=/?target= on the run-config fetch
+// and echoed in the compliance report. The Verify() states are shared verbatim;
+// this category adds no new state.
+const (
+	CategoryPackageConfig = "package_config"
+	TargetNPM             = "npm"
+)
+
 // VerifyInput is the result set the verifier reasons over. It is intentionally
 // pure data: the writer performs the I/O (write + readback), so Verify itself
 // touches nothing.

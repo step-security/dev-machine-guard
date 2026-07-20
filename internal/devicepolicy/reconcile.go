@@ -2,6 +2,7 @@ package devicepolicy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -33,6 +34,62 @@ type Reconciler struct {
 	// inject a stub so results never depend on the host machine.
 	Probe func() (managed bool, detail string)
 
+	// The seams below adapt the ladder to a target whose ownership and
+	// convergence model differs from the single-JSON-key settings.json writer
+	// (concretely the ~/.npmrc block writer, npmrc.go). EVERY seam nil/false
+	// reproduces the settings.json behavior byte-for-byte — the IDE wiring sets
+	// none of them, so its path is unchanged.
+
+	// Converged, when set, REPLACES the generic body-equality idempotency test
+	// (present && on-disk == desired) with a target-specific full-state check —
+	// e.g. the ~/.npmrc writer also verifies its block is effective (nothing
+	// overrides it below) and carries sane metadata (0600, owned by the target
+	// user). Body equality alone is a hole there: a `registry=` line appended
+	// below an unchanged block leaves the body equal but defeats precedence.
+	Converged func(expected string) (bool, error)
+
+	// Render, when set, derives the value to write/compare from the raw policy —
+	// e.g. rendering the two ~/.npmrc content lines from the npm policy object
+	// and the device serial. nil → the value is the compacted policy JSON
+	// (settings.json). A render failure is a malformed backend payload and is
+	// reported as policy_not_applied.
+	Render func(policy json.RawMessage) (string, error)
+
+	// ProbeExpected, when set, REPLACES Probe for this cycle and receives the
+	// rendered value so a content-aware probe can decide whether the MDM lane has
+	// achieved the SAME desired state (the ~/.npmrc file is user-writable, so a
+	// bare marker is not proof). nil → Probe.
+	ProbeExpected func(expected string) (managed bool, detail string)
+
+	// RestoreSnapshot, when set, is the rollback used after a post-write ownership
+	// persist fails: the writer reverts its whole-file transformation from a
+	// snapshot and its RESULT is classified — restore succeeded → write_failed
+	// (the enforce write was undone), restore failed/aborted → verification_failed
+	// (on-disk state now unknown). nil → the generic best-effort re-write of the
+	// previous value (always write_failed), which suits a single settings key.
+	RestoreSnapshot func() error
+
+	// OwnsByMarker switches handleClear from value-based ownership (clear only
+	// when on-disk still equals the recorded written value) to marker-based:
+	// always call Writer.Clear() and drop the state record unconditionally. It
+	// suits a writer whose Clear is intrinsically scoped to its own markers, so a
+	// lost/drifted/empty record must not strand a token-bearing block on disk.
+	OwnsByMarker bool
+
+	// WriterInitErr carries a writer-construction failure (Writer is then nil).
+	// The reconciler classifies it AFTER the fetch: absent policy → silent no-op,
+	// clear → retain all state (no target to act against), enforce →
+	// policy_not_applied for ErrNoTargetUser else write_failed. nil with a nil
+	// Writer is the ordinary unsupported-platform silent no-op.
+	WriterInitErr error
+
+	// State, when set, is the ownership store this cycle reads and writes through,
+	// replacing the package-level shared-file functions. The npm category uses
+	// its own per-mode/per-user store so its record can never share the IDE
+	// file's unlocked read-modify-write. nil → the shared package-level store
+	// (settings.json), byte-identical to before.
+	State StateStore
+
 	// Now and Logf are optional seams. Now defaults to time.Now().UTC; Logf to a
 	// no-op.
 	Now  func() time.Time
@@ -40,11 +97,26 @@ type Reconciler struct {
 
 	// writeState and clearState are test seams over the ownership store
 	// (WriteAppliedState / ClearAppliedState). nil → the real implementation.
+	// They apply only to the shared store (State == nil).
 	writeState func(category, target string, s AppliedTargetState) error
 	clearState func(category, target string) error
 }
 
+// readState / persistState / dropState route through the injected StateStore
+// when one is set, and otherwise fall back to the shared package-level store
+// (with the writeState/clearState test seams) exactly as before — so the IDE
+// wiring, which sets no State, is unchanged.
+func (r *Reconciler) readState(cat, tgt string) (AppliedTargetState, bool) {
+	if r.State != nil {
+		return r.State.Read(cat, tgt)
+	}
+	return ReadAppliedState(cat, tgt)
+}
+
 func (r *Reconciler) persistState(cat, tgt string, s AppliedTargetState) error {
+	if r.State != nil {
+		return r.State.Write(cat, tgt, s)
+	}
 	if r.writeState != nil {
 		return r.writeState(cat, tgt, s)
 	}
@@ -52,10 +124,88 @@ func (r *Reconciler) persistState(cat, tgt string, s AppliedTargetState) error {
 }
 
 func (r *Reconciler) dropState(cat, tgt string) error {
+	if r.State != nil {
+		return r.State.Drop(cat, tgt)
+	}
 	if r.clearState != nil {
 		return r.clearState(cat, tgt)
 	}
 	return ClearAppliedState(cat, tgt)
+}
+
+// renderValue produces the value to write/compare: the rendered block via the
+// Render seam, or the compacted policy JSON for settings.json.
+func (r *Reconciler) renderValue(policy json.RawMessage) (string, error) {
+	if r.Render != nil {
+		return r.Render(policy)
+	}
+	return compactJSON(policy)
+}
+
+// converged answers "is the desired value already fully in place?". With the
+// Converged seam it delegates to the writer's full-state check; otherwise it is
+// the generic body-equality test over the already-read on-disk value.
+func (r *Reconciler) converged(expected, onDisk string, present bool) (bool, error) {
+	if r.Converged != nil {
+		return r.Converged(expected)
+	}
+	return present && onDisk == expected, nil
+}
+
+// probeExpected reports whether a managed policy already governs this target.
+// The content-aware ProbeExpected seam (needs the rendered value) wins; else the
+// legacy content-blind Probe.
+func (r *Reconciler) probeExpected(expected string) (bool, string) {
+	if r.ProbeExpected != nil {
+		return r.ProbeExpected(expected)
+	}
+	return r.probe()
+}
+
+// rollback undoes the just-committed write after the post-write ownership
+// persist failed, and returns the compliance state the outcome warrants.
+//
+// With the RestoreSnapshot seam, the writer performs a whole-file transactional
+// restore whose success is meaningful: restore succeeded → write_failed (the
+// enforce write was cleanly undone); restore failed/aborted (e.g. the resolved
+// path moved between write and rollback) → verification_failed (on-disk state is
+// now unknown). Without the seam it falls back to the generic best-effort
+// re-write of the previous value, which always yields write_failed — correct for
+// a single settings key and byte-identical for the IDE path.
+func (r *Reconciler) rollback(prevOnDisk string, prevPresent bool) (state string, err error) {
+	if r.RestoreSnapshot != nil {
+		if rerr := r.RestoreSnapshot(); rerr != nil {
+			return StateVerificationFailed, rerr
+		}
+		return StateWriteFailed, nil
+	}
+	r.rollbackWrite(prevOnDisk, prevPresent)
+	return StateWriteFailed, nil
+}
+
+// classifyReadError maps a Writer read/convergence error to a compliance state.
+// A structural refusal (the target cannot be enforced at all — wraps
+// ErrTargetUnusable) is a write-class fact; everything else (permission denied,
+// transient I/O) stays verification_failed. The IDE writer never wraps the
+// sentinel, so this always returns verification_failed for it.
+func classifyReadError(err error) string {
+	if errors.Is(err, ErrTargetUnusable) {
+		return StateWriteFailed
+	}
+	return StateVerificationFailed
+}
+
+// classifyWriteError maps a Writer.Write / Writer.Clear failure to a compliance
+// state. A write that errored is write_failed by default — the value did not take
+// effect. The one exception is a writer that landed new bytes it could neither
+// verify NOR roll back (ErrWriteUnverified): on-disk state is then indeterminate,
+// which is verification_failed, not a clean write failure. The IDE writer never
+// returns that sentinel, so this is always write_failed for it.
+func classifyWriteError(err error) string {
+	if errors.Is(err, ErrWriteUnverified) {
+		return StateVerificationFailed
+	}
+	return StateWriteFailed
 }
 
 func (r *Reconciler) now() time.Time {
@@ -97,13 +247,18 @@ func (r *Reconciler) probe() (bool, string) {
 //
 //   - fetch error (transport / non-200 / malformed) → NO-OP, error returned.
 //     Enforcement on disk is never wiped on a transient or malformed response.
-//   - platform not enforceable (nil Writer) → silent no-op.
+//   - platform not enforceable (nil Writer, nil WriterInitErr) → silent no-op.
+//   - writer could not be constructed (nil Writer, WriterInitErr set) →
+//     classified AFTER the fetch by what run-config asked for: absent → silent;
+//     clear → no-op retaining ALL state (no resolved target to act against);
+//     enforce → policy_not_applied (ErrNoTargetUser) or write_failed (other).
 //   - absent policy (run-config carried no `policy` directive for this
 //     category/target) → silent no-op; the on-disk value and ownership record
 //     stand. This is NOT a clear — removal happens only on an explicit clear.
-//   - clear result → remove ONLY the agent-owned settings key; a value the
-//     agent has no record of writing is left untouched. No compliance report
-//     (an unassigned device is backend-derived).
+//   - clear result → remove ONLY the agent-owned value; a value the agent has no
+//     record of writing is left untouched (value-based ownership) or the block
+//     is removed and the record dropped (marker-based ownership, OwnsByMarker).
+//     No compliance report (an unassigned device is backend-derived).
 //   - policy result → probe → ownership/drift-checked write + readback +
 //     verify + report (handleEnforce).
 func (r *Reconciler) Reconcile(ctx context.Context) error {
@@ -120,8 +275,15 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	}
 
 	if r.Writer == nil {
-		r.logf("devicepolicy: no settings path on this platform; skipping (category=%s target=%s)", cat, tgt)
-		return nil
+		// No usable writer. Two shapes: an unsupported platform (no init error →
+		// the long-standing silent skip) or a construction failure (init error →
+		// classified against the fetched directive, since reporting before the
+		// fetch would fire even when run-config would have said "no policy").
+		if r.WriterInitErr == nil {
+			r.logf("devicepolicy: no settings path on this platform; skipping (category=%s target=%s)", cat, tgt)
+			return nil
+		}
+		return r.handleNoWriter(ctx, cat, tgt, ep)
 	}
 
 	if !ep.present() {
@@ -138,13 +300,53 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	return r.handleEnforce(ctx, cat, tgt, ep)
 }
 
-// handleClear removes the agent-owned settings key on unassignment. It clears
-// the on-disk value ONLY when it still equals what the agent last wrote
-// (ownership); a value the agent has no record of writing — the user's own
-// extensions.allowed predates enforcement, or the record was lost — is left
-// intact.
+// handleNoWriter classifies a cycle whose writer could not be constructed
+// (WriterInitErr set, Writer nil). It never touches disk or state — there is no
+// resolved target user to act against — and decides purely from the fetched
+// directive:
+//
+//   - absent policy → silent no-op (nothing to enforce, nothing to clear);
+//   - clear → no-op that RETAINS every state record. With ErrNoTargetUser there
+//     is no uid to even select a per-user record, and dropping records blindly
+//     would erase the bookkeeping that other users still carry a token-bearing
+//     block pending cleanup. The backend re-sends clear each cycle, so cleanup
+//     happens when a writer is next constructible (a real user is present);
+//   - enforce → report why nothing was applied: policy_not_applied when this
+//     machine state simply has no enforceable target user (ErrNoTargetUser),
+//     write_failed for any other construction failure (home unresolvable/
+//     unopenable — an infrastructure problem worth surfacing louder).
+func (r *Reconciler) handleNoWriter(ctx context.Context, cat, tgt string, ep EffectivePolicy) error {
+	if !ep.present() {
+		r.logf("devicepolicy: no enforceable target user and run-config carried no policy for %s/%s; nothing to do", cat, tgt)
+		return nil
+	}
+	if ep.Clear {
+		r.logf("devicepolicy: clear requested for %s/%s but no enforceable target user; retaining all state (cleared when a user is present)", cat, tgt)
+		return nil
+	}
+	state := StateWriteFailed
+	if errors.Is(r.WriterInitErr, ErrNoTargetUser) {
+		state = StatePolicyNotApplied
+	}
+	_ = r.report(ctx, cat, tgt, state, "")
+	return fmt.Errorf("devicepolicy: enforce %s/%s: no usable writer: %w", cat, tgt, r.WriterInitErr)
+}
+
+// handleClear removes the agent-owned value on unassignment. Two ownership
+// models, selected by OwnsByMarker:
+//
+//   - value-based (default, settings.json): clear the on-disk value ONLY when it
+//     still equals what the agent last wrote; a value the agent has no record of
+//     writing — the user's own extensions.allowed predates enforcement, or the
+//     record was lost — is left intact, and the state record is dropped only
+//     when one existed.
+//   - marker-based (OwnsByMarker, ~/.npmrc): handleClearByMarker.
 func (r *Reconciler) handleClear(cat, tgt string) error {
-	prev, hadPrev := ReadAppliedState(cat, tgt)
+	if r.OwnsByMarker {
+		return r.handleClearByMarker(cat, tgt)
+	}
+
+	prev, hadPrev := r.readState(cat, tgt)
 	onDisk, present, err := r.Writer.Read()
 	if err != nil {
 		return fmt.Errorf("devicepolicy: clear: read %s: %w", r.Writer.Location(), err)
@@ -174,6 +376,26 @@ func (r *Reconciler) handleClear(cat, tgt string) error {
 	return nil
 }
 
+// handleClearByMarker removes the managed block regardless of recorded state.
+// Ownership is intrinsic to the writer's own markers — its Clear only ever
+// removes content between OUR markers and un-prefixes OUR commented lines, never
+// anything else — so a value-equality gate is both unnecessary and unsafe here:
+// lost or corrupt state, a drifted block, or an empty marker shell would
+// otherwise strand a token-bearing block on disk forever after unassignment.
+// Clear is called unconditionally (a no-op when there is no block) and the state
+// record is dropped UNCONDITIONALLY afterward — a store read that failed or lied
+// (no record found) must not leave an orphan behind; Drop is idempotent.
+func (r *Reconciler) handleClearByMarker(cat, tgt string) error {
+	if err := r.Writer.Clear(); err != nil {
+		return fmt.Errorf("devicepolicy: clear %s: %w", r.Writer.Location(), err)
+	}
+	r.logf("devicepolicy: cleared managed block at %s", r.Writer.Location())
+	if err := r.dropState(cat, tgt); err != nil {
+		return fmt.Errorf("devicepolicy: clear: update state: %w", err)
+	}
+	return nil
+}
+
 // handleEnforce converges settings.json to the compiled policy and reports.
 // The ladder, in order:
 //
@@ -186,39 +408,79 @@ func (r *Reconciler) handleClear(cat, tgt string) error {
 //	→ persist ownership on every successful write (rollback if that fails)
 //	→ Verify → report (drift upgrades a would-be compliant to drift_detected)
 func (r *Reconciler) handleEnforce(ctx context.Context, cat, tgt string, ep EffectivePolicy) error {
-	// The compiled policy compacted: the canonical comparison form for
-	// readback, idempotency, and ownership. (The backend's hash still travels
-	// verbatim; only the value bytes are normalized for comparison.)
-	newValue, err := compactJSON(ep.Policy)
+	// The value to enforce: the rendered block (Render seam) or the compacted
+	// policy JSON. Computed FIRST because the content-aware probe below needs it.
+	// (The backend's hash still travels verbatim; only the value bytes are
+	// normalized for comparison.)
+	newValue, err := r.renderValue(ep.Policy)
 	if err != nil {
-		// Defensive: the fetcher already validated object shape, so this is a
-		// malformed-payload class failure → no-op, never write.
+		if r.Render != nil {
+			// A malformed backend payload the renderer rejected: nothing was
+			// applied and nothing will be. Make it visible rather than a silent
+			// no-op. (The default compactJSON path only fails on bytes the fetcher
+			// already rejected as a non-object, so it keeps its silent return.)
+			_ = r.report(ctx, cat, tgt, StatePolicyNotApplied, "")
+			return fmt.Errorf("devicepolicy: enforce: render policy: %w", err)
+		}
 		return fmt.Errorf("devicepolicy: enforce: compact policy: %w", err)
 	}
 
-	// 1. Managed-policy probe. A policy at the OS policy location outranks
-	// user settings inside VS Code — writing would be ineffective at best and
-	// fight the MDM at worst. Yield and report.
-	if managed, detail := r.probe(); managed {
+	// 1. Managed-policy probe. A real managed policy outranks the value the agent
+	// would write — writing would be ineffective at best and fight the MDM at
+	// worst. Yield and report.
+	if managed, detail := r.probeExpected(newValue); managed {
 		r.logf("devicepolicy: managed policy present at %s → mdm_managed (yielding)", detail)
 		return r.report(ctx, cat, tgt, StateMDMManaged, "")
 	}
 
-	// 2. Read the current settings value.
-	prev, hadPrev := ReadAppliedState(cat, tgt)
+	// 2. Read the current value.
+	prev, hadPrev := r.readState(cat, tgt)
 	onDisk, present, err := r.Writer.Read()
 	if err != nil {
-		// Couldn't read to decide idempotency/drift → verification_failed.
-		// This includes an unsalvageable settings.json (not valid JSONC), which
-		// the writer refuses to touch.
-		_ = r.report(ctx, cat, tgt, StateVerificationFailed, "")
+		// Couldn't read to decide idempotency/drift. A structural refusal (the
+		// target cannot be enforced) is write_failed; a plain unreadable/unparseable
+		// file is verification_failed. classifyReadError always returns the latter
+		// for the IDE writer, which never wraps ErrTargetUnusable.
+		state := classifyReadError(err)
+		_ = r.report(ctx, cat, tgt, state, "")
 		return fmt.Errorf("devicepolicy: enforce: read %s: %w", r.Writer.Location(), err)
 	}
 
-	// 3. Idempotency: the desired policy is already in place and unchanged.
-	// No write — but still report so the backend sees a fresh evaluation.
-	if present && onDisk == newValue && prev.AppliedHash == ep.Hash {
+	// 3. Idempotency: the desired value is already fully in place and the hash is
+	// unchanged. No write — but still report so the backend sees a fresh
+	// evaluation. The convergence test is the writer's when the Converged seam is
+	// set (it also checks effectiveness and metadata), else plain body equality.
+	converged, cerr := r.converged(newValue, onDisk, present)
+	if cerr != nil {
+		// Converged runs its own secure read; a structural refusal there is the
+		// same write-class fact as an initial read refusal.
+		state := classifyReadError(cerr)
+		_ = r.report(ctx, cat, tgt, state, "")
+		return fmt.Errorf("devicepolicy: enforce: convergence check %s: %w", r.Writer.Location(), cerr)
+	}
+	if converged && prev.AppliedHash == ep.Hash {
 		r.logf("devicepolicy: policy already applied (hash unchanged) — no write")
+		return r.report(ctx, cat, tgt, StateCompliant, ep.Hash)
+	}
+
+	// The full-state convergence seam (npm) proves the exact desired block is on
+	// disk, effective, and correctly owned — a strictly stronger fact than body
+	// equality — yet THIS cycle's store does not carry this hash. That happens when
+	// the other privilege mode applied it and recorded in its own per-mode store,
+	// or our record is stale. Adopt the on-disk state into this store rather than
+	// churn a redundant rewrite or misreport it as drift, and report compliant.
+	// Best-effort: the block is already applied, so a store hiccup only defers the
+	// record one cycle. Gated on the Converged seam so the settings.json path
+	// (body equality, shared store) is byte-identical to before.
+	if converged && r.Converged != nil {
+		if perr := r.persistState(cat, tgt, AppliedTargetState{
+			AppliedHash:  ep.Hash,
+			WrittenValue: newValue,
+			FetchedAt:    r.now(),
+		}); perr != nil {
+			r.logf("devicepolicy: could not adopt already-converged state at %s: %v", r.Writer.Location(), perr)
+		}
+		r.logf("devicepolicy: %s already holds the desired block (adopted) — no write", r.Writer.Location())
 		return r.report(ctx, cat, tgt, StateCompliant, ep.Hash)
 	}
 
@@ -247,7 +509,9 @@ func (r *Reconciler) handleEnforce(ctx context.Context, cat, tgt string, ep Effe
 	// 6. Merge-write + readback.
 	rb, werr := r.Writer.Write(newValue)
 	if werr != nil {
-		_ = r.report(ctx, cat, tgt, StateWriteFailed, "")
+		// write_failed by default; verification_failed only when the writer landed
+		// bytes it could neither verify nor roll back (on-disk state indeterminate).
+		_ = r.report(ctx, cat, tgt, classifyWriteError(werr), "")
 		return fmt.Errorf("devicepolicy: enforce: write %s: %w", r.Writer.Location(), werr)
 	}
 	readbackMatch := rb == newValue
@@ -263,10 +527,14 @@ func (r *Reconciler) handleEnforce(ctx context.Context, cat, tgt string, ep Effe
 		WrittenValue: newValue,
 		FetchedAt:    r.now(),
 	}); err != nil {
-		// The write happened but ownership couldn't be recorded — undo it so
-		// no unrecorded value is left behind, and report a failed write.
-		r.rollbackWrite(onDisk, present)
-		_ = r.report(ctx, cat, tgt, StateWriteFailed, "")
+		// The write happened but ownership couldn't be recorded — undo it so no
+		// unrecorded value is left behind. The rollback outcome decides the state:
+		// cleanly undone → write_failed; restore failed/aborted → verification_failed.
+		state, rbErr := r.rollback(onDisk, present)
+		if rbErr != nil {
+			r.logf("devicepolicy: rollback at %s failed: %v", r.Writer.Location(), rbErr)
+		}
+		_ = r.report(ctx, cat, tgt, state, "")
 		return fmt.Errorf("devicepolicy: enforce: update state: %w", err)
 	}
 	r.logf("devicepolicy: wrote policy to %s (readback_match=%v)", r.Writer.Location(), readbackMatch)
