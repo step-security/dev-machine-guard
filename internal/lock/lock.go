@@ -57,3 +57,26 @@ func (l *Lock) Release() {
 		_ = os.Remove(l.path)
 	}
 }
+
+// Holder peeks at the lock without acquiring or mutating it: it reports the
+// recorded PID and whether that process is alive. (0, false) means no live
+// holder — absent file, unparsable content, or a stale PID. The run gate uses
+// this to back off QUIETLY when a scan is already running (hourly MDM
+// wakeups overlapping a 1-2h scan), instead of reaching Acquire's contention
+// path, which reports a failed run to the backend. TOCTOU is fine here:
+// Acquire's O_CREATE|O_EXCL remains the authoritative guard for the race
+// window, and a racer just keeps today's behavior.
+func Holder() (pid int, alive bool) {
+	data, err := os.ReadFile(lockFilePath)
+	if err != nil {
+		return 0, false
+	}
+	pid, err = strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	if !isProcessAlive(pid) {
+		return 0, false
+	}
+	return pid, true
+}

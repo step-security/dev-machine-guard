@@ -76,6 +76,14 @@ type Config struct {
 	// STEPSECURITY_OVERRIDE_GATE=1.
 	OverrideGate bool
 
+	// ForceScan bypasses the server-driven run gate for this invocation: the
+	// scan proceeds even when the backend's run-directive says "skip". The
+	// documented debug/support escape — manual runs are otherwise gated
+	// exactly like scheduler-fired ones (an MDM-launched run detects as
+	// one_time too, so invocation method deliberately can't exempt manual
+	// use). Equivalent env var: STEPSEC_FORCE_SCAN=1.
+	ForceScan bool
+
 	// RulesFile makes the malicious-file detection engine load its RuleSet
 	// from a local JSON file instead of fetching it from the backend.
 	// Dev-only — not advertised in --help. Equivalent env var:
@@ -283,6 +291,8 @@ func Parse(args []string) (*Config, error) {
 			cfg.Verbose = true
 		case arg == "--override-gate":
 			cfg.OverrideGate = true
+		case arg == "--force-scan":
+			cfg.ForceScan = true
 		case strings.HasPrefix(arg, "--rules-file="):
 			cfg.RulesFile = strings.TrimPrefix(arg, "--rules-file=")
 		case arg == "--rules-file":
