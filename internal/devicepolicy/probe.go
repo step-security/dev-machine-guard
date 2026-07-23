@@ -3,6 +3,7 @@ package devicepolicy
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 )
 
@@ -73,4 +74,55 @@ func fileMentionsKey(path, key string) bool {
 		return false
 	}
 	return bytes.Contains(b, []byte(key))
+}
+
+// buildObserved converts OS-managed policy values keyed by policy name (the
+// inner text each per-OS reader unwrapped) into the observed bag keyed by VS
+// Code setting id. AllowedExtensions is a stringified JSON object, parsed back
+// to an object; the gallery URL is wrapped as a JSON string. A malformed value
+// is an error, not a silent omission. present is true when at least one key was
+// observed.
+func buildObserved(raw map[string]string) (present bool, observed map[string]json.RawMessage, err error) {
+	observed = make(map[string]json.RawMessage, len(raw))
+	if s, ok := raw[allowedExtensionsName]; ok {
+		v, err := parseAllowedExtensionsValue(s)
+		if err != nil {
+			return false, nil, err
+		}
+		observed[allowedExtensionsSettingKey] = v
+	}
+	if s, ok := raw[galleryServiceURLName]; ok {
+		v, err := galleryURLValue(s)
+		if err != nil {
+			return false, nil, err
+		}
+		observed[galleryServiceURLSettingKey] = v
+	}
+	return len(observed) > 0, observed, nil
+}
+
+// parseAllowedExtensionsValue parses the AllowedExtensions inner JSON text into
+// compacted extensions.allowed object bytes. It must be a JSON object; anything
+// else is a malformed value and errors.
+func parseAllowedExtensionsValue(s string) (json.RawMessage, error) {
+	raw := json.RawMessage(s)
+	if !json.Valid(raw) {
+		return nil, fmt.Errorf("devicepolicy: %s is not valid JSON", allowedExtensionsName)
+	}
+	if !isJSONObject(raw) {
+		return nil, fmt.Errorf("devicepolicy: %s is not a JSON object", allowedExtensionsName)
+	}
+	c, err := compactJSON(raw)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(c), nil
+}
+
+func galleryURLValue(s string) (json.RawMessage, error) {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return nil, fmt.Errorf("devicepolicy: encode %s: %w", galleryServiceURLName, err)
+	}
+	return json.RawMessage(b), nil
 }

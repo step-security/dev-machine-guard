@@ -345,3 +345,82 @@ func TestReportDefaultsCategory(t *testing.T) {
 		t.Fatalf("category should default to %q, got %q", CategoryIDEExtension, gotCategory)
 	}
 }
+
+func TestFetchLiftsEnforcement(t *testing.T) {
+	cases := []struct {
+		name  string
+		field string // spliced into the policy sub-object (empty → omitted)
+		want  string
+	}{
+		{"mdm", `"enforcement":"mdm",`, "mdm"},
+		{"dmg", `"enforcement":"dmg",`, "dmg"},
+		{"absent (older backend)", ``, ""},
+		{"whitespace trimmed", `"enforcement":"  mdm  ",`, "mdm"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := `{"policy":{"category":"ide_extension","target":"vscode","clear":false,` + tc.field +
+				`"policy":{"extensions.allowed":{"*":false}},"hash":"sha256:e","generated_at":"2026-07-23T00:00:00Z"}}`
+			_, f := newFetchServer(t, 200, body)
+			ep, err := f.Fetch(context.Background(), "cust", "dev-1", CategoryIDEExtension, TargetVSCode)
+			if err != nil {
+				t.Fatalf("Fetch: %v", err)
+			}
+			if ep.Enforcement != tc.want {
+				t.Fatalf("enforcement = %q, want %q", ep.Enforcement, tc.want)
+			}
+		})
+	}
+}
+
+func TestReportSerializesObservedAndEvaluatedEnforcement(t *testing.T) {
+	var body ComplianceReport
+	var raw map[string]json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &body)
+		_ = json.Unmarshal(b, &raw)
+		w.WriteHeader(200)
+	}))
+	t.Cleanup(srv.Close)
+	rep, _ := NewHTTPReporter(ingest.Config{APIEndpoint: srv.URL, APIKey: "k"}, srv.Client())
+
+	observed := json.RawMessage(`{"extensions.allowed":{"*":false},"extensions.gallery.serviceUrl":"https://mkt.example/api/v1"}`)
+	if err := rep.Report(context.Background(), "cust", "dev-1", ComplianceReport{
+		Category: CategoryIDEExtension, State: StateMDMManaged, Observed: observed, EvaluatedEnforcement: "mdm",
+	}); err != nil {
+		t.Fatalf("Report: %v", err)
+	}
+	if body.EvaluatedEnforcement != "mdm" {
+		t.Fatalf("evaluated_enforcement = %q, want mdm", body.EvaluatedEnforcement)
+	}
+	if string(body.Observed) != string(observed) {
+		t.Fatalf("observed = %s, want %s", body.Observed, observed)
+	}
+	if _, ok := raw["observed"]; !ok {
+		t.Fatal(`wire body missing "observed" key`)
+	}
+	if _, ok := raw["evaluated_enforcement"]; !ok {
+		t.Fatal(`wire body missing "evaluated_enforcement" key`)
+	}
+}
+
+func TestReportOmitsEmptyMDMFields(t *testing.T) {
+	var raw map[string]json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &raw)
+		w.WriteHeader(200)
+	}))
+	t.Cleanup(srv.Close)
+	rep, _ := NewHTTPReporter(ingest.Config{APIEndpoint: srv.URL, APIKey: "k"}, srv.Client())
+	if err := rep.Report(context.Background(), "cust", "dev-1", ComplianceReport{State: StateCompliant}); err != nil {
+		t.Fatalf("Report: %v", err)
+	}
+	if _, ok := raw["observed"]; ok {
+		t.Fatal(`empty observed must be omitted from the wire`)
+	}
+	if _, ok := raw["evaluated_enforcement"]; ok {
+		t.Fatal(`empty evaluated_enforcement must be omitted from the wire`)
+	}
+}

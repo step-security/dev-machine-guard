@@ -1219,3 +1219,200 @@ func TestEnforceManagedRealWriterArbitraryThirdKey(t *testing.T) {
 		t.Fatalf("ownership = %+v ok=%v, want all three keys owned", st, ok)
 	}
 }
+
+// --- MDM verify-only path (ep.Enforcement=="mdm") --------------------------
+
+func mdmEP(hash string) EffectivePolicy {
+	ep := policyEP(hash)
+	ep.Enforcement = enforcementMDM
+	return ep
+}
+
+// sampleObserved is a parsed observed bag as ProbeManagedContent would return.
+func sampleObserved() map[string]json.RawMessage {
+	return map[string]json.RawMessage{
+		allowedExtensionsSettingKey: json.RawMessage(`{"*":false,"ms-python.python":"stable"}`),
+		galleryServiceURLSettingKey: json.RawMessage(`"https://mkt.example/api/v1"`),
+	}
+}
+
+func TestReconcileMDMReportsManagedWithObserved(t *testing.T) {
+	w := &fakeWriter{}
+	r, rep := newRec(t, mdmEP("sha256:H"), nil, w)
+	r.ProbeContent = func() (bool, map[string]json.RawMessage, error) { return true, sampleObserved(), nil }
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	got := lastReport(t, rep)
+	if got.State != StateMDMManaged {
+		t.Fatalf("state = %q, want mdm_managed", got.State)
+	}
+	if got.AppliedHash != "" {
+		t.Fatalf("applied_hash must be EMPTY in MDM mode, got %q", got.AppliedHash)
+	}
+	if got.EvaluatedEnforcement != enforcementMDM {
+		t.Fatalf("evaluated_enforcement = %q, want mdm", got.EvaluatedEnforcement)
+	}
+	want := `{"extensions.allowed":{"*":false,"ms-python.python":"stable"},"extensions.gallery.serviceUrl":"https://mkt.example/api/v1"}`
+	if string(got.Observed) != want {
+		t.Fatalf("observed = %s, want %s", got.Observed, want)
+	}
+	// MDM owns nothing on disk: never write / clear / read the settings writer.
+	if len(w.writes) != 0 || w.clears != 0 || w.reads != 0 {
+		t.Fatalf("MDM must not touch settings.json: writes=%v clears=%d reads=%d", w.writes, w.clears, w.reads)
+	}
+	// And it records no ownership.
+	if _, ok := ReadAppliedState(CategoryIDEExtension, TargetVSCode); ok {
+		t.Fatal("MDM mode must not record ownership state")
+	}
+}
+
+func TestReconcileMDMPolicyNotApplied(t *testing.T) {
+	w := &fakeWriter{}
+	r, rep := newRec(t, mdmEP("sha256:H"), nil, w)
+	r.ProbeContent = func() (bool, map[string]json.RawMessage, error) { return false, nil, nil }
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	got := lastReport(t, rep)
+	if got.State != StatePolicyNotApplied {
+		t.Fatalf("state = %q, want policy_not_applied", got.State)
+	}
+	if len(got.Observed) != 0 {
+		t.Fatalf("observed must be omitted when not applied, got %s", got.Observed)
+	}
+	if got.AppliedHash != "" || got.EvaluatedEnforcement != enforcementMDM {
+		t.Fatalf("report = %+v", got)
+	}
+	if len(w.writes) != 0 || w.clears != 0 {
+		t.Fatal("must not touch settings.json")
+	}
+}
+
+func TestReconcileMDMProbeErrorVerificationFailed(t *testing.T) {
+	w := &fakeWriter{}
+	r, rep := newRec(t, mdmEP("sha256:H"), nil, w)
+	r.ProbeContent = func() (bool, map[string]json.RawMessage, error) {
+		return false, nil, errors.New("policy.json present but unreadable")
+	}
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	got := lastReport(t, rep)
+	if got.State != StateVerificationFailed {
+		t.Fatalf("state = %q, want verification_failed", got.State)
+	}
+	if len(got.Observed) != 0 {
+		t.Fatalf("observed must be omitted on probe error, got %s", got.Observed)
+	}
+	if len(w.writes) != 0 || w.clears != 0 {
+		t.Fatal("must not write on probe error")
+	}
+}
+
+func TestReconcileMDMRunsWithNilWriter(t *testing.T) {
+	// MDM verification runs before the nil-Writer check, so a platform with no
+	// settings path still probes and reports.
+	withTempCache(t)
+	rep := &fakeReporter{}
+	r := &Reconciler{
+		Fetcher:      &fakeFetcher{ep: mdmEP("sha256:H")},
+		Reporter:     rep,
+		Writer:       nil, // untyped nil interface
+		CustomerID:   "c",
+		DeviceID:     "d",
+		Platform:     "darwin",
+		ProbeContent: func() (bool, map[string]json.RawMessage, error) { return true, sampleObserved(), nil },
+	}
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if got := lastReport(t, rep); got.State != StateMDMManaged {
+		t.Fatalf("nil-writer MDM: state = %q, want mdm_managed", got.State)
+	}
+}
+
+func TestReconcileMDMClearIsNoOp(t *testing.T) {
+	// enforcement=mdm + clear=true → defensive no-op: no report, no probe, no
+	// writer touch.
+	w := &fakeWriter{present: true, value: "x"}
+	ep := EffectivePolicy{Category: CategoryIDEExtension, Clear: true, Enforcement: enforcementMDM}
+	r, rep := newRec(t, ep, nil, w)
+	probed := false
+	r.ProbeContent = func() (bool, map[string]json.RawMessage, error) { probed = true; return false, nil, nil }
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(rep.reports) != 0 {
+		t.Fatalf("MDM clear must not report, got %+v", rep.reports)
+	}
+	if probed {
+		t.Fatal("MDM clear must not probe")
+	}
+	if w.clears != 0 || len(w.writes) != 0 {
+		t.Fatalf("MDM clear must not touch the writer: clears=%d writes=%v", w.clears, w.writes)
+	}
+}
+
+func TestReconcileUnknownEnforcementFallsToDMG(t *testing.T) {
+	// An unrecognized channel fails safe to the DMG write path (never skip
+	// enforcement) and still echoes the raw channel.
+	w := &fakeWriter{}
+	ep := policyEP("sha256:H")
+	ep.Enforcement = "future-mode"
+	r, rep := newRec(t, ep, nil, w)
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(w.writes) != 1 || w.writes[0] != samplePolicy {
+		t.Fatalf("unknown enforcement must run the DMG write path, writes=%v", w.writes)
+	}
+	got := lastReport(t, rep)
+	if got.State != StateCompliant {
+		t.Fatalf("state = %q, want compliant", got.State)
+	}
+	if got.EvaluatedEnforcement != "future-mode" {
+		t.Fatalf("evaluated_enforcement = %q, want the echoed channel", got.EvaluatedEnforcement)
+	}
+}
+
+func TestReconcileEnforcementRoutingIsCaseInsensitive(t *testing.T) {
+	// A case/space variant of a known channel routes like the canonical one and
+	// reports canonically: "  MDM  " reaches the verify-only path (no settings
+	// write), not the DMG writer, and echoes "mdm" so it matches the backend gate.
+	w := &fakeWriter{}
+	ep := policyEP("sha256:H")
+	ep.Enforcement = "  MDM  "
+	r, rep := newRec(t, ep, nil, w)
+	r.ProbeContent = func() (bool, map[string]json.RawMessage, error) { return false, nil, nil }
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(w.writes) != 0 || w.clears != 0 {
+		t.Fatalf("verify-only must not touch the writer: writes=%v clears=%d", w.writes, w.clears)
+	}
+	got := lastReport(t, rep)
+	if got.State != StatePolicyNotApplied {
+		t.Fatalf("state = %q, want policy_not_applied", got.State)
+	}
+	if got.EvaluatedEnforcement != enforcementMDM {
+		t.Fatalf("evaluated_enforcement = %q, want canonical %q", got.EvaluatedEnforcement, enforcementMDM)
+	}
+}
+
+func TestReconcileDMGEchoesEvaluatedEnforcement(t *testing.T) {
+	// An explicit dmg channel runs the DMG path and every report echoes "dmg".
+	w := &fakeWriter{}
+	ep := policyEP("sha256:H")
+	ep.Enforcement = enforcementDMG
+	r, rep := newRec(t, ep, nil, w)
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(w.writes) != 1 {
+		t.Fatalf("dmg must write, got %v", w.writes)
+	}
+	if got := lastReport(t, rep); got.EvaluatedEnforcement != enforcementDMG {
+		t.Fatalf("evaluated_enforcement = %q, want dmg", got.EvaluatedEnforcement)
+	}
+}

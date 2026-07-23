@@ -1,6 +1,7 @@
 package devicepolicy
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -91,5 +92,75 @@ func TestProbeHelpersDetectEitherPolicyName(t *testing.T) {
 	// managedPolicyNames covers both, allowlist first (reporting preference).
 	if names := managedPolicyNames(); len(names) != 2 || names[0] != allowedExtensionsName || names[1] != galleryServiceURLName {
 		t.Fatalf("managedPolicyNames = %v", names)
+	}
+}
+
+// TestBuildObserved covers the shared policy-name → setting-id translation the
+// per-OS content probes funnel through, including malformed values as errors.
+func TestBuildObserved(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     map[string]string
+		present bool
+		want    string // marshaled observed (map keys sort); "" when !present
+		wantErr bool
+	}{
+		{
+			name:    "allowlist only",
+			raw:     map[string]string{allowedExtensionsName: `{"*":false,"ms-python.python":"stable"}`},
+			present: true,
+			want:    `{"extensions.allowed":{"*":false,"ms-python.python":"stable"}}`,
+		},
+		{
+			name:    "allowlist whitespace normalized",
+			raw:     map[string]string{allowedExtensionsName: "{ \"*\" : false }"},
+			present: true,
+			want:    `{"extensions.allowed":{"*":false}}`,
+		},
+		{
+			name:    "gallery only wrapped as JSON string",
+			raw:     map[string]string{galleryServiceURLName: "https://mkt.example/api/v1"},
+			present: true,
+			want:    `{"extensions.gallery.serviceUrl":"https://mkt.example/api/v1"}`,
+		},
+		{
+			name: "both",
+			raw: map[string]string{
+				allowedExtensionsName: `{"*":false}`,
+				galleryServiceURLName: "https://mkt.example/api/v1",
+			},
+			present: true,
+			want:    `{"extensions.allowed":{"*":false},"extensions.gallery.serviceUrl":"https://mkt.example/api/v1"}`,
+		},
+		{name: "neither", raw: map[string]string{}, present: false},
+		{name: "allowlist is an array not an object", raw: map[string]string{allowedExtensionsName: `["a","b"]`}, wantErr: true},
+		{name: "allowlist is not valid JSON", raw: map[string]string{allowedExtensionsName: `{oops`}, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			present, observed, err := buildObserved(tc.raw)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("want error, got observed=%v", observed)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("buildObserved: %v", err)
+			}
+			if present != tc.present {
+				t.Fatalf("present = %v, want %v", present, tc.present)
+			}
+			if !tc.present {
+				return
+			}
+			got, err := json.Marshal(observed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tc.want {
+				t.Fatalf("observed = %s, want %s", got, tc.want)
+			}
+		})
 	}
 }

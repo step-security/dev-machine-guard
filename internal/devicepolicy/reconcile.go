@@ -6,7 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
+)
+
+// enforcementDMG and enforcementMDM are the enforcement channels carried in
+// ep.Enforcement. DMG (or empty) is the write-and-verify path; MDM is
+// verify-only — the agent probes the OS-managed policy and reports what it
+// observed, and never writes, patches, or clears settings.json.
+const (
+	enforcementDMG = "dmg"
+	enforcementMDM = "mdm"
 )
 
 // Reconciler converges the user-scope VS Code settings.json to the backend's
@@ -35,6 +45,11 @@ type Reconciler struct {
 	// inject a stub so results never depend on the host machine.
 	Probe func() (managed bool, detail string)
 
+	// ProbeContent reads the OS-managed VS Code policy values (keyed by setting
+	// id) for the verify-only path. nil → ProbeManagedContent (the per-OS
+	// implementation); tests inject a stub. The DMG path never calls it.
+	ProbeContent func() (present bool, observed map[string]json.RawMessage, err error)
+
 	// Now and Logf are optional seams. Now defaults to time.Now().UTC; Logf to a
 	// no-op.
 	Now  func() time.Time
@@ -44,6 +59,11 @@ type Reconciler struct {
 	// (WriteAppliedState / ClearAppliedState). nil → the real implementation.
 	writeState func(category, target string, s AppliedTargetState) error
 	clearState func(category, target string) error
+
+	// enforcement is the normalized channel the current cycle ran (lower-cased,
+	// trimmed ep.Enforcement), stamped onto every report as EvaluatedEnforcement
+	// so it matches the backend's exact-match gate. Per-cycle scratch.
+	enforcement string
 }
 
 func (r *Reconciler) persistState(cat, tgt string, s AppliedTargetState) error {
@@ -94,11 +114,22 @@ func (r *Reconciler) probe() (bool, string) {
 	return ProbeManagedPolicy()
 }
 
+func (r *Reconciler) probeContent() (bool, map[string]json.RawMessage, error) {
+	if r.ProbeContent != nil {
+		return r.ProbeContent()
+	}
+	return ProbeManagedContent()
+}
+
 // Reconcile runs one enforcement cycle. It NEVER panics into the caller's hot
 // path; failures are returned for logging. The contract:
 //
 //   - fetch error (transport / non-200 / malformed) → NO-OP, error returned.
 //     Enforcement on disk is never wiped on a transient or malformed response.
+//   - MDM enforcement (ep.Enforcement=="mdm") → verify-only: probe the OS-managed
+//     policy and report what was observed; never writes or clears settings.json.
+//     Checked right after fetch, before the gates below, so it runs even with a
+//     nil Writer or a clear directive.
 //   - platform not enforceable (nil Writer) → silent no-op.
 //   - absent policy (run-config carried no `policy` directive for this
 //     category/target) → silent no-op; the on-disk value and ownership record
@@ -120,6 +151,20 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 		// Malformed/transient: do nothing. The on-disk policy (if any) stands.
 		return fmt.Errorf("devicepolicy: fetch: %w", err)
 	}
+	// Normalize once for routing AND reporting: the backend gates on an exact
+	// "mdm"/"dmg", so EvaluatedEnforcement must carry the canonical value, not
+	// whatever casing/spacing arrived.
+	r.enforcement = strings.ToLower(strings.TrimSpace(ep.Enforcement))
+
+	// MDM is verify-only and owns nothing on disk, so it routes before the
+	// Writer/clear checks below.
+	switch r.enforcement {
+	case enforcementMDM:
+		return r.verifyMDM(ctx, cat, tgt, ep)
+	case enforcementDMG, "":
+	default:
+		r.logf("devicepolicy: unknown enforcement %q; running DMG path", ep.Enforcement)
+	}
 
 	if r.Writer == nil {
 		r.logf("devicepolicy: no settings path on this platform; skipping (category=%s target=%s)", cat, tgt)
@@ -138,6 +183,42 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 		return r.handleClear(cat, tgt)
 	}
 	return r.handleEnforce(ctx, cat, tgt, ep)
+}
+
+// verifyMDM is the verify-only path: it never opens settings.json (an external
+// MDM owns the VS Code policy), probes the OS-managed policy, and reports what
+// it saw. It does not compare observed against ep.Policy or decide drift — the
+// backend does that on read — and applied_hash is always empty.
+func (r *Reconciler) verifyMDM(ctx context.Context, cat, tgt string, ep EffectivePolicy) error {
+	if ep.Clear || !ep.present() {
+		r.logf("devicepolicy: mdm enforcement with no active policy for %s/%s; nothing to verify", cat, tgt)
+		return nil
+	}
+
+	present, observed, err := r.probeContent()
+	if err != nil {
+		r.logf("devicepolicy: mdm content probe failed: %v → verification_failed", err)
+		return r.sendReport(ctx, ComplianceReport{Category: cat, Target: tgt, State: StateVerificationFailed})
+	}
+
+	if !present {
+		r.logf("devicepolicy: mdm enforcement but no managed VS Code policy present → policy_not_applied")
+		return r.sendReport(ctx, ComplianceReport{Category: cat, Target: tgt, State: StatePolicyNotApplied})
+	}
+
+	raw, err := json.Marshal(observed)
+	if err != nil {
+		// observed is built from our own parsers; a marshal failure is not expected.
+		r.logf("devicepolicy: mdm marshal observed failed: %v → verification_failed", err)
+		return r.sendReport(ctx, ComplianceReport{Category: cat, Target: tgt, State: StateVerificationFailed})
+	}
+	r.logf("devicepolicy: mdm managed policy present → mdm_managed (%d observed key(s))", len(observed))
+	return r.sendReport(ctx, ComplianceReport{
+		Category: cat,
+		Target:   tgt,
+		State:    StateMDMManaged,
+		Observed: raw,
+	})
 }
 
 // handleClear removes the agent-owned settings on unassignment, then drops the
@@ -614,21 +695,29 @@ func (r *Reconciler) rollbackWrite(prevOnDisk string, prevPresent bool) {
 	}
 }
 
+// report submits a write-path compliance report.
 func (r *Reconciler) report(ctx context.Context, cat, tgt, state, appliedHash string) error {
-	r.logf("devicepolicy: reporting state=%s category=%s target=%s", state, cat, tgt)
+	return r.sendReport(ctx, ComplianceReport{
+		Category:    cat,
+		Target:      tgt,
+		State:       state,
+		AppliedHash: appliedHash,
+	})
+}
+
+// sendReport stamps the shared fields (agent version, platform,
+// EvaluatedEnforcement) and submits. Callers fill Category/Target/State and the
+// lane-specific field: AppliedHash for the write path, Observed for MDM.
+func (r *Reconciler) sendReport(ctx context.Context, rep ComplianceReport) error {
+	rep.AgentVersion = AgentVersion()
+	rep.Platform = r.Platform
+	rep.EvaluatedEnforcement = r.enforcement
+	r.logf("devicepolicy: reporting state=%s category=%s target=%s", rep.State, rep.Category, rep.Target)
 	if r.Reporter == nil {
 		return nil
 	}
-	rep := ComplianceReport{
-		Category:     cat,
-		Target:       tgt,
-		State:        state,
-		AppliedHash:  appliedHash,
-		AgentVersion: AgentVersion(),
-		Platform:     r.Platform,
-	}
 	if err := r.Reporter.Report(ctx, r.CustomerID, r.DeviceID, rep); err != nil {
-		return fmt.Errorf("devicepolicy: report %s: %w", state, err)
+		return fmt.Errorf("devicepolicy: report %s: %w", rep.State, err)
 	}
 	return nil
 }

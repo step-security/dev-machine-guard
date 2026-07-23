@@ -46,9 +46,10 @@ const maxRunConfigBytes = 4 << 20
 // (re-serialization could reorder keys and break the backend's byte-exact
 // applied==desired check). extensions.allowed is always present; other keys
 // appear only when the policy sets them. Policy identity is (Category, Target);
-// Target defaults to vscode for ide_extension. A zero EffectivePolicy
-// (present()==false) means run-config carried no directive for this
-// category/target → reconciler no-op.
+// Target defaults to vscode for ide_extension. Enforcement selects the channel:
+// "mdm" is verify-only (probe and report, no settings write), "dmg" or "" is the
+// write-and-verify path. A zero EffectivePolicy (present()==false) means
+// run-config carried no directive for this category/target → reconciler no-op.
 type EffectivePolicy struct {
 	Category    string
 	Target      string
@@ -56,6 +57,7 @@ type EffectivePolicy struct {
 	Policy      map[string]json.RawMessage
 	Hash        string
 	GeneratedAt string
+	Enforcement string
 }
 
 // present reports whether the backend expressed a policy directive for this
@@ -76,6 +78,7 @@ type policyEnvelope struct {
 	Policy      map[string]json.RawMessage `json:"policy,omitempty"`
 	Hash        string                     `json:"hash,omitempty"`
 	GeneratedAt string                     `json:"generated_at"`
+	Enforcement string                     `json:"enforcement,omitempty"` // "dmg" | "mdm" | ""
 }
 
 // Fetcher returns the effective policy for one device + category + target.
@@ -201,6 +204,7 @@ func (c *HTTPFetcher) Fetch(ctx context.Context, customerID, deviceID, category,
 		Policy:      p.Policy,
 		Hash:        strings.TrimSpace(p.Hash),
 		GeneratedAt: p.GeneratedAt,
+		Enforcement: strings.TrimSpace(p.Enforcement),
 	}
 	if ep.Category == "" {
 		ep.Category = category
@@ -250,14 +254,21 @@ func isJSONObject(raw json.RawMessage) bool {
 // computed on-device. It is the agent-side mirror of agent-api's
 // complianceReport. AppliedHash is the backend's hash echoed verbatim — never
 // recomputed locally — so the backend's byte-exact applied==desired check
-// (which gates the `compliant` verdict) can succeed.
+// (which gates the `compliant` verdict) can succeed. In verify-only (mdm) mode
+// AppliedHash is empty and Observed instead carries the OS-managed policy the
+// agent read, keyed by VS Code setting id (the same keys as the desired policy)
+// so the backend can diff like-for-like and decide drift — the agent does not
+// judge match. EvaluatedEnforcement echoes the channel the cycle ran ("", "dmg"
+// or "mdm"). Observed and EvaluatedEnforcement are omitted when empty.
 type ComplianceReport struct {
-	Category     string `json:"category"`
-	Target       string `json:"target"`
-	State        string `json:"state"`
-	AppliedHash  string `json:"applied_hash"`
-	AgentVersion string `json:"agent_version"`
-	Platform     string `json:"platform"`
+	Category             string          `json:"category"`
+	Target               string          `json:"target"`
+	State                string          `json:"state"`
+	AppliedHash          string          `json:"applied_hash"`
+	AgentVersion         string          `json:"agent_version"`
+	Platform             string          `json:"platform"`
+	Observed             json.RawMessage `json:"observed,omitempty"`
+	EvaluatedEnforcement string          `json:"evaluated_enforcement,omitempty"`
 }
 
 // Reporter submits a compliance report for one device.
