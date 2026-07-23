@@ -29,6 +29,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 	"github.com/step-security/dev-machine-guard/internal/progress/filelog"
+	"github.com/step-security/dev-machine-guard/internal/rungate"
 	"github.com/step-security/dev-machine-guard/internal/scan"
 	"github.com/step-security/dev-machine-guard/internal/schtasks"
 	"github.com/step-security/dev-machine-guard/internal/systemd"
@@ -261,6 +262,14 @@ func main() {
 			log.Error("Enterprise configuration not found. Run '%s configure' or download the script from your StepSecurity dashboard.", os.Args[0])
 			os.Exit(1)
 		}
+		// Server-driven run gate: exit 0 quietly when the backend says this
+		// invocation isn't due (or another instance is mid-scan). Sits before
+		// the watchdog and telemetry.Run so a skipped wakeup posts no beacon,
+		// creates no run-status row, and also skips the post-run hook
+		// reconcile + policy enforce below. Bypass: --force-scan.
+		if gateSkipsRun(exec, log, cfg) {
+			return
+		}
 		armExecutionWatchdog(telemetry.ExecutionDeadline(config.MaxExecutionDuration), log)
 		if err := telemetry.Run(exec, log, cfg); err != nil {
 			log.Error("%v", err)
@@ -334,10 +343,18 @@ func main() {
 			return
 		}
 
-		log.Progress("Sending initial telemetry...")
-		fmt.Println()
-		armExecutionWatchdog(telemetry.ExecutionDeadline(config.MaxExecutionDuration), log)
-		telemetryErr := telemetry.Run(exec, log, cfg)
+		// Run gate on the inline install scan too. A fresh install is
+		// unregistered (or long stale) so the backend answers "full" and
+		// nothing changes; the skip only fires when a re-install lands on a
+		// freshly-scanned device — where skipping the inline scan is exactly
+		// right. The scheduler setup above already happened either way.
+		var telemetryErr error
+		if !gateSkipsRun(exec, log, cfg) {
+			log.Progress("Sending initial telemetry...")
+			fmt.Println()
+			armExecutionWatchdog(telemetry.ExecutionDeadline(config.MaxExecutionDuration), log)
+			telemetryErr = telemetry.Run(exec, log, cfg)
+		}
 
 		// On Linux, systemd.Install enabled the timer but did not start it.
 		// Start it now that the inline scan above has released the singleton
@@ -474,6 +491,9 @@ func main() {
 			}
 		case config.IsEnterpriseMode():
 			log.Debug("dispatch: enterprise telemetry (auto-detected)")
+			if gateSkipsRun(exec, log, cfg) {
+				return
+			}
 			armExecutionWatchdog(telemetry.ExecutionDeadline(config.MaxExecutionDuration), log)
 			if err := telemetry.Run(exec, log, cfg); err != nil {
 				log.Error("%v", err)
@@ -627,6 +647,25 @@ func findLegacyLeftovers(legacy string) []string {
 // state and reconciles local hook installation to match. Silent no-op
 // in community mode (enterprise config missing) — the existing scan
 // path stays unaffected. Failures are logged but never crash main.
+// gateSkipsRun consults the server-driven run gate. True means this
+// invocation must exit 0 without scanning — the backend says the device isn't
+// due yet, or another instance is already mid-scan. One Progress line is the
+// skip's entire footprint: no beacon, no run-status row, no phases. Every
+// gate failure returns false (fail-open), so this can never suppress a scan
+// on error.
+func gateSkipsRun(exec executor.Executor, log *progress.Logger, cfg *cli.Config) bool {
+	res := rungate.Evaluate(context.Background(), exec, log, cfg.ForceScan)
+	if !res.Skip {
+		return false
+	}
+	if res.Detail != "" {
+		log.Progress("Run gate: skipping this run (%s) — %s", res.Reason, res.Detail)
+	} else {
+		log.Progress("Run gate: skipping this run (%s)", res.Reason)
+	}
+	return true
+}
+
 // writeHeartbeat stamps last-run.json with this run's start metadata. Wholly
 // best-effort: a write failure (read-only home, disabled install dir) is
 // logged at debug and never affects the run. The invocation method reuses the

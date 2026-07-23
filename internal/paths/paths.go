@@ -161,3 +161,15 @@ func HeartbeatFile() string {
 	}
 	return filepath.Join(home, "last-run.json")
 }
+
+// RunGateStateFile returns the absolute path to run-gate-state.json (the run
+// gate's cached directive + last-full-run stamp), or "" when Home() is
+// disabled. Callers must treat "" as "gating state unavailable" and fail open
+// (same contract as ScanStateFile).
+func RunGateStateFile() string {
+	home := Home()
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, "run-gate-state.json")
+}

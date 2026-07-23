@@ -30,6 +30,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/rungate"
 	"github.com/step-security/dev-machine-guard/internal/schedinfo"
 	"github.com/step-security/dev-machine-guard/internal/state"
 	"github.com/step-security/dev-machine-guard/internal/tcc"
@@ -1156,6 +1157,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 				log.Debug("scan-state: saved %s (telemetry-out mode)", scanStatePath)
 			}
 		}
+		// Same rationale for the run-gate stamp: the dev harness should show
+		// the same second-invocation gating behavior as a real upload.
+		if err := rungate.StampLastFullRun(time.Now()); err != nil {
+			log.Debug("run-gate: could not stamp last full run: %v", err)
+		}
 		return nil
 	}
 
@@ -1187,6 +1193,12 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		} else {
 			log.Debug("scan-state: saved %s", scanStatePath)
 		}
+	}
+
+	// Record the completed full run for the run gate. Best-effort by
+	// contract: a missing stamp only means the next gated invocation runs.
+	if err := rungate.StampLastFullRun(time.Now()); err != nil {
+		log.Debug("run-gate: could not stamp last full run: %v", err)
 	}
 
 	fmt.Fprintln(os.Stderr)

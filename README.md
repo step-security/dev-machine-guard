@@ -164,6 +164,7 @@ stepsecurity-dev-machine-guard [COMMAND] [OPTIONS]
 | `--include-bundled-plugins`  | Include bundled/platform IDE plugins in output                |
 | `--log-level=LEVEL`          | Log level: `error` \| `warn` \| `info` \| `debug`             |
 | `--verbose`                  | Shortcut for `--log-level=debug`                              |
+| `--force-scan`               | Bypass the server-driven run gate and scan now (enterprise)   |
 | `--color=WHEN`               | Color mode: `auto` \| `always` \| `never` (default: `auto`)   |
 | `-v`, `--version`            | Show version                                                  |
 | `-h`, `--help`               | Show help                                                     |
@@ -213,6 +214,10 @@ count=$(./stepsecurity-dev-machine-guard --json | jq '.summary.mcp_configs_count
 
 # Enterprise: one-time telemetry upload
 ./stepsecurity-dev-machine-guard send-telemetry
+
+# Enterprise: scan even when the dashboard-managed scan cadence says "not due"
+# (equivalent env var: STEPSEC_FORCE_SCAN=1; disable gating: STEPSEC_DISABLE_RUN_GATE=1)
+./stepsecurity-dev-machine-guard send-telemetry --force-scan
 
 # Enterprise: remove scheduled scanning
 ./stepsecurity-dev-machine-guard uninstall

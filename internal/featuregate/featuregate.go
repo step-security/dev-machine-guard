@@ -25,6 +25,11 @@ const (
 	FeatureYarnConfigAudit Feature = "yarn-config-audit"
 	FeatureDevicePolicy    Feature = "device-policy"
 	FeatureAgentSkillsScan Feature = "agent-skills-scan"
+	// FeatureRunGate: server-driven run gating — on every invocation the
+	// agent asks the backend's run-directive endpoint whether a full scan is
+	// due and exits quietly when it isn't. Fail-open by design; a tenant
+	// without execution_config configured is never gated even when enabled.
+	FeatureRunGate Feature = "run-gate"
 )
 
 // enabled lists features safe to ship today. Uncomment a line once its
@@ -38,6 +43,7 @@ var enabled = map[Feature]bool{
 	FeatureYarnConfigAudit: true,
 	FeatureDevicePolicy:    true,
 	FeatureAgentSkillsScan: true,
+	// FeatureRunGate:      true, // flip in the release PR once the backend run-directive endpoint is deployed
 }
 
 var override bool

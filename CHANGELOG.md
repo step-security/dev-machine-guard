@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [Unreleased]
+
+### Added
+
+- **Server-driven scan cadence (run gating)**: on every invocation the agent asks the backend's new `run-directive` endpoint whether a full scan is due and exits quietly when it isn't — no run-status row, no phases, one log line. The scan frequency now lives in the StepSecurity dashboard (per tenant, minutes granularity, with a temporary override that auto-reverts at a set time and a per-device "re-scan now" request), so fleets deployed via an external MDM (e.g. JAMF's hourly cadence) get their real cadence from the backend with no MDM scheduling changes. Fully opt-in and backward compatible: tenants without a configured cadence — and agents on the feature gate's off setting — scan on every invocation exactly as before, and any check-in failure fails open to a scan (with a cached-interval fallback so offline machines don't scan every wakeup). An invocation that lands while another scan is running now backs off quietly instead of reporting a failed run. Bypass for debugging: `--force-scan` / `STEPSEC_FORCE_SCAN=1`; kill switch: `STEPSEC_DISABLE_RUN_GATE=1`.
+
 ## [1.14.0] - 2026-07-17
 
 ### Added

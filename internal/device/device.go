@@ -37,6 +37,23 @@ func Gather(ctx context.Context, exec executor.Executor) model.Device {
 	}
 }
 
+// SerialNumber resolves just the hardware serial (the device_id used by every
+// backend API), skipping the rest of Gather. The run gate calls this before
+// the device_info phase — and before any network beacon — so it must stay
+// self-contained and tolerate every failure by returning "unknown" (the same
+// contract as the per-OS getters). Callers cache the result on disk; only a
+// device's first gated invocation pays the probe (ioreg on macOS).
+func SerialNumber(ctx context.Context, exec executor.Executor) string {
+	switch exec.GOOS() {
+	case model.PlatformWindows:
+		return getSerialNumberWindows(ctx, exec)
+	case model.PlatformDarwin:
+		return getSerialNumber(ctx, exec)
+	default: // linux and other unix
+		return getSerialNumberLinux(ctx, exec)
+	}
+}
+
 // getSerialNumberWindows and getOSVersionWindows are implemented in
 // device_windows.go (native API) and device_other.go (stub).
 
