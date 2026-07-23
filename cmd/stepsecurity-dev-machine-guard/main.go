@@ -701,8 +701,10 @@ func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
 	}
 	writer, ok := devicepolicy.NewWriter()
 	if !ok {
-		log.Debug("ide-extension enforce: skipped (no settings path on this platform)")
-		return
+		// No user-scope settings path (no home / %APPDATA%). The write path
+		// no-ops on a nil Writer, but verify-only (MDM) mode owns nothing on
+		// disk and must still probe and report — so continue, don't return.
+		log.Debug("ide-extension enforce: no settings path; verify-only still runs if assigned")
 	}
 	cfg, ok := ingest.Snapshot()
 	if !ok {

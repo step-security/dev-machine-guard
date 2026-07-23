@@ -406,3 +406,227 @@ func TestSettingsPathPerOS(t *testing.T) {
 		}
 	}
 }
+
+// --- managed multi-key API -------------------------------------------------
+
+// TestApplyManagedAllowlistOnlyMatchesWriteBytes pins that a managed write of
+// only the allowlist produces settings.json bytes identical to the single-key
+// Write, so the allowlist path is unchanged in effect.
+func TestApplyManagedAllowlistOnlyMatchesWriteBytes(t *testing.T) {
+	w1, p1 := newTestSettingsWriter(t)
+	writeSettingsFixture(t, p1, sampleSettings)
+	if _, err := w1.Write(samplePolicyObject); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	w2, p2 := newTestSettingsWriter(t)
+	writeSettingsFixture(t, p2, sampleSettings)
+	if _, err := w2.ApplyManaged([]settingOp{{Key: allowedExtensionsSettingKey, Set: true, Value: json.RawMessage(samplePolicyObject)}}); err != nil {
+		t.Fatalf("ApplyManaged: %v", err)
+	}
+
+	if b1, b2 := readFileString(t, p1), readFileString(t, p2); b1 != b2 {
+		t.Fatalf("ApplyManaged(allowlist-only) bytes differ from Write:\n--- Write:\n%s\n--- ApplyManaged:\n%s", b1, b2)
+	}
+}
+
+func TestApplyManagedWritesBothKeysPreservingFile(t *testing.T) {
+	w, path := newTestSettingsWriter(t)
+	writeSettingsFixture(t, path, sampleSettings)
+	rb, err := w.ApplyManaged([]settingOp{
+		{Key: allowedExtensionsSettingKey, Set: true, Value: json.RawMessage(samplePolicyObject)},
+		{Key: galleryServiceURLSettingKey, Set: true, Value: json.RawMessage(galleryRaw(galURLA))},
+	})
+	if err != nil {
+		t.Fatalf("ApplyManaged: %v", err)
+	}
+	if al := rb[allowedExtensionsSettingKey]; !al.Present || al.Raw != samplePolicyObject {
+		t.Fatalf("allowlist readback = %+v", al)
+	}
+	if gal := rb[galleryServiceURLSettingKey]; !gal.Present || gal.Raw != galleryRaw(galURLA) {
+		t.Fatalf("gallery readback = %+v", gal)
+	}
+	assertFragmentsPreserved(t, readFileString(t, path))
+	// Confirm on-disk persistence of both keys (fresh read).
+	got, err := w.ReadManaged([]string{allowedExtensionsSettingKey, galleryServiceURLSettingKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[allowedExtensionsSettingKey].Raw != samplePolicyObject || got[galleryServiceURLSettingKey].Raw != galleryRaw(galURLA) {
+		t.Fatalf("on-disk keys = %+v", got)
+	}
+}
+
+func TestApplyManagedRemoveGalleryToleratesAbsence(t *testing.T) {
+	w, path := newTestSettingsWriter(t)
+	writeSettingsFixture(t, path, sampleSettings)
+	if _, err := w.ApplyManaged([]settingOp{
+		{Key: allowedExtensionsSettingKey, Set: true, Value: json.RawMessage(samplePolicyObject)},
+		{Key: galleryServiceURLSettingKey, Set: true, Value: json.RawMessage(galleryRaw(galURLA))},
+	}); err != nil {
+		t.Fatalf("ApplyManaged set: %v", err)
+	}
+	if _, err := w.ApplyManaged([]settingOp{{Key: galleryServiceURLSettingKey, Remove: true}}); err != nil {
+		t.Fatalf("ApplyManaged remove: %v", err)
+	}
+	got, _ := w.ReadManaged([]string{allowedExtensionsSettingKey, galleryServiceURLSettingKey})
+	if got[galleryServiceURLSettingKey].Present {
+		t.Fatal("gallery must be removed")
+	}
+	if !got[allowedExtensionsSettingKey].Present {
+		t.Fatal("allowlist must remain")
+	}
+	// Removing an already-absent key is a no-op: no error, no rewrite.
+	before := readFileString(t, path)
+	if _, err := w.ApplyManaged([]settingOp{{Key: galleryServiceURLSettingKey, Remove: true}}); err != nil {
+		t.Fatalf("ApplyManaged remove-absent: %v", err)
+	}
+	if after := readFileString(t, path); after != before {
+		t.Fatalf("remove of an absent key rewrote the file:\n--- before:\n%s\n--- after:\n%s", before, after)
+	}
+}
+
+func TestApplyManagedLeavesUnmentionedKeys(t *testing.T) {
+	// A foreign gallery value already on disk; a write mentioning ONLY the
+	// allowlist must leave it (and every other key/comment) untouched.
+	w, path := newTestSettingsWriter(t)
+	fixture := strings.Replace(sampleSettings,
+		"\t// telemetry opt-out",
+		"\t\"extensions.gallery.serviceUrl\": \"https://foreign.example/api/v1\",\n\n\t// telemetry opt-out", 1)
+	writeSettingsFixture(t, path, fixture)
+	if _, err := w.ApplyManaged([]settingOp{{Key: allowedExtensionsSettingKey, Set: true, Value: json.RawMessage(samplePolicyObject)}}); err != nil {
+		t.Fatalf("ApplyManaged: %v", err)
+	}
+	got, _ := w.ReadManaged([]string{allowedExtensionsSettingKey, galleryServiceURLSettingKey})
+	if got[allowedExtensionsSettingKey].Raw != samplePolicyObject {
+		t.Fatalf("allowlist = %+v", got[allowedExtensionsSettingKey])
+	}
+	if got[galleryServiceURLSettingKey].Raw != `"https://foreign.example/api/v1"` {
+		t.Fatalf("foreign gallery value must be preserved untouched, got %+v", got[galleryServiceURLSettingKey])
+	}
+	assertFragmentsPreserved(t, readFileString(t, path))
+}
+
+func TestReadManagedPresenceFlags(t *testing.T) {
+	w, path := newTestSettingsWriter(t)
+	// Missing file: all absent.
+	got, err := w.ReadManaged([]string{allowedExtensionsSettingKey, galleryServiceURLSettingKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[allowedExtensionsSettingKey].Present || got[galleryServiceURLSettingKey].Present {
+		t.Fatalf("missing file → all absent, got %+v", got)
+	}
+	// A present-but-empty-string value is distinct from absent.
+	writeSettingsFixture(t, path, `{"extensions.gallery.serviceUrl": ""}`)
+	got, err = w.ReadManaged([]string{allowedExtensionsSettingKey, galleryServiceURLSettingKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[allowedExtensionsSettingKey].Present {
+		t.Fatalf("allowlist must be absent, got %+v", got[allowedExtensionsSettingKey])
+	}
+	if gv := got[galleryServiceURLSettingKey]; !gv.Present || gv.Raw != `""` {
+		t.Fatalf("gallery must be present-empty (Raw==%q), got %+v", `""`, gv)
+	}
+}
+
+func TestRestoreManagedRoundTrip(t *testing.T) {
+	w, path := newTestSettingsWriter(t)
+	writeSettingsFixture(t, path, sampleSettings)
+	// Snapshot: allowlist present, gallery absent.
+	if _, err := w.ApplyManaged([]settingOp{{Key: allowedExtensionsSettingKey, Set: true, Value: json.RawMessage(samplePolicyObject)}}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := w.ReadManaged([]string{allowedExtensionsSettingKey, galleryServiceURLSettingKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Mutate away: change allowlist, add gallery.
+	if _, err := w.ApplyManaged([]settingOp{
+		{Key: allowedExtensionsSettingKey, Set: true, Value: json.RawMessage(`{"changed":true}`)},
+		{Key: galleryServiceURLSettingKey, Set: true, Value: json.RawMessage(galleryRaw(galURLA))},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Restore → back to the snapshot exactly.
+	if err := w.RestoreManaged(snapshot); err != nil {
+		t.Fatalf("RestoreManaged: %v", err)
+	}
+	got, err := w.ReadManaged([]string{allowedExtensionsSettingKey, galleryServiceURLSettingKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[allowedExtensionsSettingKey] != snapshot[allowedExtensionsSettingKey] {
+		t.Fatalf("allowlist not restored: got %+v want %+v", got[allowedExtensionsSettingKey], snapshot[allowedExtensionsSettingKey])
+	}
+	if got[galleryServiceURLSettingKey].Present {
+		t.Fatalf("gallery should be restored to absent, got %+v", got[galleryServiceURLSettingKey])
+	}
+}
+
+func TestManagedMethodsRefuseUnsalvageableFile(t *testing.T) {
+	const broken = `{"editor.fontSize": 14, <<<garbage`
+	w, path := newTestSettingsWriter(t)
+	writeSettingsFixture(t, path, broken)
+	if _, err := w.ReadManaged([]string{allowedExtensionsSettingKey}); err == nil {
+		t.Fatal("ReadManaged on unparseable file: want error")
+	}
+	if _, err := w.ApplyManaged([]settingOp{{Key: allowedExtensionsSettingKey, Set: true, Value: json.RawMessage(samplePolicyObject)}}); err == nil {
+		t.Fatal("ApplyManaged on unparseable file: want error")
+	}
+	if got := readFileString(t, path); got != broken {
+		t.Fatalf("unparseable file was modified:\n%s", got)
+	}
+
+	const arrayRoot = `[1,2,3]`
+	writeSettingsFixture(t, path, arrayRoot)
+	if _, err := w.ApplyManaged([]settingOp{{Key: allowedExtensionsSettingKey, Set: true, Value: json.RawMessage(samplePolicyObject)}}); err == nil {
+		t.Fatal("ApplyManaged on non-object root: want error")
+	}
+	if got := readFileString(t, path); got != arrayRoot {
+		t.Fatalf("non-object file was modified:\n%s", got)
+	}
+}
+
+func TestApplyManagedRejectsInvalidJSONValue(t *testing.T) {
+	w, path := newTestSettingsWriter(t)
+	writeSettingsFixture(t, path, sampleSettings)
+	if _, err := w.ApplyManaged([]settingOp{{Key: galleryServiceURLSettingKey, Set: true, Value: json.RawMessage(`not json`)}}); err == nil {
+		t.Fatal("ApplyManaged with invalid JSON value: want error")
+	}
+	if got := readFileString(t, path); got != sampleSettings {
+		t.Fatalf("rejected value modified the file:\n%s", got)
+	}
+}
+
+// TestGalleryValueRoundTrips pins the ownership invariant on the value path the
+// reconciler now uses: the gallery URL arrives as a JSON string in the settings
+// map, is compacted (compactSettings), written, and recorded as owned — and that
+// value must equal what a write→read round-trip returns, or ownership /
+// convergence would churn forever. Includes a URL with &, =, <, > — the
+// HTML-escaping edge (canonical JSON must not HTML-escape; json.Compact and the
+// JSONC writer both preserve the literal token byte-for-byte).
+func TestGalleryValueRoundTrips(t *testing.T) {
+	for _, wire := range []string{
+		`"https://mkt.example/api/v1"`,
+		`"https://mkt.example/api/v1?tenant=acme&mode=strict"`,
+		`"https://mkt.example/p/<odd>"`,
+	} {
+		w, _ := newTestSettingsWriter(t)
+		gv, err := compactJSON([]byte(wire))
+		if err != nil {
+			t.Fatalf("compactJSON(%s): %v", wire, err)
+		}
+		if _, err := w.ApplyManaged([]settingOp{{Key: galleryServiceURLSettingKey, Set: true, Value: json.RawMessage(gv)}}); err != nil {
+			t.Fatalf("ApplyManaged(%s): %v", wire, err)
+		}
+		got, err := w.ReadManaged([]string{galleryServiceURLSettingKey})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sv := got[galleryServiceURLSettingKey]; !sv.Present || sv.Raw != gv {
+			t.Fatalf("wire %s: readback Raw=%q, want %q (owned value must equal readback)", wire, sv.Raw, gv)
+		}
+	}
+}

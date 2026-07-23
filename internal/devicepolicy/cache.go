@@ -32,7 +32,7 @@ const (
 //	  "categories": {
 //	    "ide_extension": {
 //	      "targets": {
-//	        "vscode": { "applied_hash": …, "written_value": …, "fetched_at": … }
+//	        "vscode": { "applied_hash": …, "written_settings": …, "fetched_at": … }
 //	      }
 //	    }
 //	  }
@@ -50,24 +50,28 @@ type AppliedCategoryState struct {
 	Targets map[string]AppliedTargetState `json:"targets"`
 }
 
-// AppliedTargetState records what the agent last wrote to the user-scope VS
-// Code settings.json for one (category, target). Two fields drive correctness:
+// AppliedTargetState records what the agent last wrote to the user-scope
+// settings for one (category, target). Value-based ownership drives both drift
+// and clear: a key is converged or removed only while its on-disk value still
+// equals what the agent recorded writing (a differing value — e.g. the user's
+// own — is left untouched).
 //
 //   - AppliedHash is the backend's content hash, stored VERBATIM (never
 //     recomputed). Compared against the freshly-fetched hash for idempotency.
-//   - WrittenValue is the exact compacted extensions.allowed value the agent
-//     wrote. It drives value-based ownership and drift: on a clear, the agent
-//     removes the settings key only if the on-disk value still equals
-//     WrittenValue (a differing value — e.g. the user's own — is left
-//     untouched); on enforce, an on-disk value differing from WrittenValue is
-//     drift and is converged back.
+//   - WrittenSettings holds ownership for the managed multi-key path: setting id
+//     → the exact compacted value the agent wrote, for every managed key (the VS
+//     Code allowlist and the gallery service URL). A key absent from the map is
+//     one the agent does not own.
+//   - WrittenValue holds ownership for the single-key path (the npm writer, which
+//     owns one opaque value). The managed multi-key path does not use it.
 //
 // A zero-value entry means "the agent owns nothing on disk" for that
 // category/target.
 type AppliedTargetState struct {
-	AppliedHash  string    `json:"applied_hash"`
-	WrittenValue string    `json:"written_value"`
-	FetchedAt    time.Time `json:"fetched_at"`
+	AppliedHash     string            `json:"applied_hash"`
+	WrittenValue    string            `json:"written_value,omitempty"`
+	WrittenSettings map[string]string `json:"written_settings,omitempty"`
+	FetchedAt       time.Time         `json:"fetched_at"`
 }
 
 // cacheMu serializes the read-modify-write of the shared state file so two

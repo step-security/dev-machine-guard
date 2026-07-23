@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 
 	"github.com/tailscale/hujson"
 
@@ -51,6 +53,46 @@ type Writer interface {
 	Location() string
 }
 
+// settingOp is a requested mutation of ONE managed settings.json key. Exactly
+// one of Set / Remove is chosen by the caller; neither set (the zero value)
+// means "preserve" — leave whatever is on disk, the ownership-safe default that
+// never deletes a value the agent did not write. Remove is ownership-gated by
+// the caller (reconcile), not here.
+type settingOp struct {
+	Key    string          // e.g. allowedExtensionsSettingKey, galleryServiceURLSettingKey
+	Set    bool            // set Key to Value
+	Value  json.RawMessage // already-encoded, compacted JSON value (when Set)
+	Remove bool            // remove Key
+}
+
+// settingValue is a key's on-disk state. Present distinguishes an absent key
+// from a present-but-empty one (needed for convergence + readback); Raw is the
+// compacted encoded value (empty when absent).
+type settingValue struct {
+	Present bool
+	Raw     string
+}
+
+// managedSettingsWriter is implemented by settingsWriter. The reconciler
+// type-asserts for it; a Writer without it keeps the single-key Write/Read/Clear
+// path. Each method acts on one atomic file write over a set of keyed ops.
+type managedSettingsWriter interface {
+	// ReadManaged returns each requested key's on-disk value + presence in one
+	// file read. An unparseable / non-object settings.json is an error (the
+	// never-clobber contract), exactly as Read.
+	ReadManaged(keys []string) (map[string]settingValue, error)
+	// ApplyManaged performs ONE atomic load→patch→store over the ops (Set →
+	// add, Remove → remove-if-present, preserve → skipped), then reads back and
+	// returns every op key's resulting value + presence. All requested mutations
+	// land or none do. When no op mutates anything (all preserve, or every
+	// Remove targets an absent key) it performs no write at all.
+	ApplyManaged(ops []settingOp) (map[string]settingValue, error)
+	// RestoreManaged restores each key in the snapshot to its recorded state
+	// (Present → set to Raw, absent → remove) in one atomic write. Used by
+	// enforce's post-write rollback.
+	RestoreManaged(snapshot map[string]settingValue) error
+}
+
 // allowedExtensionsSettingKey is the `extensions.allowed` SETTING ID — the key
 // VS Code reads from settings.json. This is deliberately NOT the registered
 // policy name "AllowedExtensions" (allowedExtensionsName): policy locations
@@ -58,6 +100,14 @@ type Writer interface {
 // probed read-only (probe_*.go); the settings file is keyed by setting id and
 // is the surface the agent writes.
 const allowedExtensionsSettingKey = "extensions.allowed"
+
+// galleryServiceURLSettingKey is the `extensions.gallery.serviceUrl` SETTING ID
+// — the (hidden, application-scope) key VS Code reads from settings.json to
+// repoint the extension marketplace. Like allowedExtensionsSettingKey it is
+// deliberately NOT the registered policy name "ExtensionGalleryServiceUrl"
+// (galleryServiceURLName), which the read-only probes look for at OS policy
+// locations; this is the setting id the agent writes.
+const galleryServiceURLSettingKey = "extensions.gallery.serviceUrl"
 
 // settingsFileMode is the fallback mode for a settings.json the agent creates.
 // An existing file keeps its current mode (atomicfile.PickMode); 0600 for a
@@ -177,18 +227,24 @@ func (w *settingsWriter) load() (v hujson.Value, existed bool, err error) {
 	return v, true, nil
 }
 
-// extract returns the compacted current value of the extensions.allowed key
-// from a parsed tree, or ok=false when the key is absent. Compaction
-// normalizes whitespace (and any comments inside the value, which Standardize
-// strips) so values compare canonically regardless of on-disk formatting.
+// extractAllowedExtensions returns the compacted current value of the
+// extensions.allowed key, or ok=false when it is absent.
 func extractAllowedExtensions(v hujson.Value) (string, bool, error) {
+	return extractKey(v, allowedExtensionsSettingKey)
+}
+
+// extractKey returns the compacted current value of one top-level settings key
+// from a parsed tree, or ok=false when the key is absent. Compaction normalizes
+// whitespace (and any comments inside the value, which Standardize strips) so
+// values compare canonically regardless of on-disk formatting.
+func extractKey(v hujson.Value, key string) (string, bool, error) {
 	std := v.Clone()
 	std.Standardize()
 	m := map[string]json.RawMessage{}
 	if err := json.Unmarshal(std.Pack(), &m); err != nil {
 		return "", false, fmt.Errorf("devicepolicy: standardize settings: %w", err)
 	}
-	raw, ok := m[allowedExtensionsSettingKey]
+	raw, ok := m[key]
 	if !ok {
 		return "", false, nil
 	}
@@ -284,4 +340,118 @@ func (w *settingsWriter) store(v hujson.Value) error {
 		return fmt.Errorf("devicepolicy: write %s: %w", w.path, err)
 	}
 	return nil
+}
+
+// ReadManaged returns each requested key's compacted value + presence in one
+// file read. An absent/blank file yields all-absent; an unparseable or
+// non-object file is an error (the never-clobber contract), same as Read.
+func (w *settingsWriter) ReadManaged(keys []string) (map[string]settingValue, error) {
+	v, existed, err := w.load()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]settingValue, len(keys))
+	if !existed {
+		for _, k := range keys {
+			out[k] = settingValue{}
+		}
+		return out, nil
+	}
+	// Standardize + unmarshal once, then look up every key (cheaper than
+	// extractKey per key, and identical in result).
+	std := v.Clone()
+	std.Standardize()
+	m := map[string]json.RawMessage{}
+	if err := json.Unmarshal(std.Pack(), &m); err != nil {
+		return nil, fmt.Errorf("devicepolicy: standardize settings: %w", err)
+	}
+	for _, k := range keys {
+		raw, ok := m[k]
+		if !ok {
+			out[k] = settingValue{}
+			continue
+		}
+		s, err := compactJSON(raw)
+		if err != nil {
+			return nil, err
+		}
+		out[k] = settingValue{Present: true, Raw: s}
+	}
+	return out, nil
+}
+
+// ApplyManaged builds one RFC-6902 patch from ops — Set → add (upsert), Remove
+// → remove (pre-checked so an absent key is skipped, not an error), preserve →
+// nothing — and applies it in a single atomic load→patch→store. An empty patch
+// writes nothing, so a remove-absent or preserve-only call leaves the file
+// untouched. Returns a readback of every op's key.
+func (w *settingsWriter) ApplyManaged(ops []settingOp) (map[string]settingValue, error) {
+	v, _, err := w.load()
+	if err != nil {
+		return nil, err
+	}
+	patchOps := make([]string, 0, len(ops))
+	for _, op := range ops {
+		switch {
+		case op.Set:
+			// The patch document embeds the value verbatim; reject anything that
+			// is not valid JSON before it can corrupt the patch (defense in depth
+			// — the caller passes already-compacted, validated values). Object
+			// shape is NOT required: a managed value may be a JSON string (the
+			// gallery URL) as well as an object (the allowlist).
+			if !json.Valid(op.Value) {
+				return nil, fmt.Errorf("devicepolicy: refusing to write invalid JSON value for %q to %s", op.Key, w.path)
+			}
+			// op.Key is a dotted setting id with no '/' or '~', so it needs no
+			// JSON-Pointer escaping; the dot is literal.
+			patchOps = append(patchOps, `{"op":"add","path":"/`+op.Key+`","value":`+string(op.Value)+`}`)
+		case op.Remove:
+			// RFC 6902 "remove" errors on an absent member; pre-check presence so
+			// a Remove of a key that is not there is simply skipped.
+			_, present, perr := extractKey(v, op.Key)
+			if perr != nil {
+				return nil, perr
+			}
+			if present {
+				patchOps = append(patchOps, `{"op":"remove","path":"/`+op.Key+`"}`)
+			}
+		}
+	}
+	if len(patchOps) > 0 {
+		patch := "[" + strings.Join(patchOps, ",") + "]"
+		if err := v.Patch([]byte(patch)); err != nil {
+			return nil, fmt.Errorf("devicepolicy: patch %s: %w", w.path, err)
+		}
+		if err := w.store(v); err != nil {
+			return nil, err
+		}
+	}
+	keys := make([]string, len(ops))
+	for i, op := range ops {
+		keys[i] = op.Key
+	}
+	return w.ReadManaged(keys)
+}
+
+// RestoreManaged restores each key in the snapshot to its recorded state in one
+// atomic write: a Present key is set back to its Raw value, an absent key is
+// removed. Keys are applied in sorted order so the output is deterministic.
+// Used by enforce's post-write rollback to undo a multi-key write atomically.
+func (w *settingsWriter) RestoreManaged(snapshot map[string]settingValue) error {
+	keys := make([]string, 0, len(snapshot))
+	for k := range snapshot {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	ops := make([]settingOp, 0, len(keys))
+	for _, k := range keys {
+		sv := snapshot[k]
+		if sv.Present {
+			ops = append(ops, settingOp{Key: k, Set: true, Value: json.RawMessage(sv.Raw)})
+		} else {
+			ops = append(ops, settingOp{Key: k, Remove: true})
+		}
+	}
+	_, err := w.ApplyManaged(ops)
+	return err
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -356,5 +357,55 @@ func TestOldCategoryShapeReadsAsOwnsNothing(t *testing.T) {
 	defer restore()
 	if _, ok := ReadAppliedState(CategoryIDEExtension, TargetVSCode); ok {
 		t.Fatal("pre-target category-only file should read as owns-nothing (no migration)")
+	}
+}
+
+func TestAppliedTargetWrittenSettingsRoundTrip(t *testing.T) {
+	restore := SetCachePathForTest(filepath.Join(t.TempDir(), CacheFilename))
+	defer restore()
+
+	want := AppliedTargetState{
+		AppliedHash:  "sha256:abc",
+		WrittenValue: samplePolicy,
+		WrittenSettings: map[string]string{
+			galleryServiceURLSettingKey: `"https://mkt.example/api/v1"`,
+		},
+		FetchedAt: time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC),
+	}
+	if err := WriteAppliedState(CategoryIDEExtension, TargetVSCode, want); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := ReadAppliedState(CategoryIDEExtension, TargetVSCode)
+	if !ok {
+		t.Fatal("ok=false after write")
+	}
+	if got.WrittenSettings[galleryServiceURLSettingKey] != want.WrittenSettings[galleryServiceURLSettingKey] {
+		t.Fatalf("WrittenSettings not round-tripped: got %+v", got.WrittenSettings)
+	}
+}
+
+func TestAppliedTargetNoWrittenSettingsOmitsField(t *testing.T) {
+	path := filepath.Join(t.TempDir(), CacheFilename)
+	restore := SetCachePathForTest(path)
+	defer restore()
+
+	if err := WriteAppliedState(CategoryIDEExtension, TargetVSCode, AppliedTargetState{
+		AppliedHash: "sha256:H", WrittenValue: samplePolicy,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A single-key writer's record (npm: one opaque WrittenValue, no managed
+	// multi-key map) must omit written_settings on disk.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "written_settings") {
+		t.Fatalf("single-key record must omit written_settings:\n%s", raw)
+	}
+	// And it reads back as a nil map (owns no managed multi-key state).
+	got, ok := ReadAppliedState(CategoryIDEExtension, TargetVSCode)
+	if !ok || got.WrittenSettings != nil {
+		t.Fatalf("WrittenSettings must be nil for a single-key record, got %+v ok=%v", got.WrittenSettings, ok)
 	}
 }
