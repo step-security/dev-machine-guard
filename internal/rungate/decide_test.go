@@ -90,8 +90,8 @@ func TestDecideOfflineFallback(t *testing.T) {
 		st := &State{
 			GatingEnabled:            true,
 			EffectiveIntervalMinutes: interval,
-			LastFullRunAt:            nowUnix - 60,          // 1 min ago
-			DirectiveFetchedAt:       nowUnix - 3600,        // 1h ago — fresh
+			LastFullRunAt:            nowUnix - 60,   // 1 min ago
+			DirectiveFetchedAt:       nowUnix - 3600, // 1h ago — fresh
 		}
 		if mutate != nil {
 			mutate(st)

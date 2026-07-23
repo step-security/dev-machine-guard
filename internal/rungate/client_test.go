@@ -102,7 +102,7 @@ func TestCheckinRespectsContextDeadline(t *testing.T) {
 
 func TestCheckinValidatesInputs(t *testing.T) {
 	for _, tt := range []struct {
-		name                                 string
+		name                                string
 		endpoint, key, customerID, deviceID string
 	}{
 		{name: "no endpoint", endpoint: "", key: "k", customerID: "c", deviceID: "d"},
