@@ -65,6 +65,7 @@ The CLI tool detector uses a `cliToolSpec` struct:
 | `Binaries` | Binary names to search for in `$PATH`, or home-relative paths (use `~` prefix) |
 | `ConfigDirs` | Config directory paths to check (use `~` for home directory) |
 | `VersionFlag` | Override the default `--version` flag (e.g., `-v`) |
+| `MetadataOnly` | Set to `true` when the binary must never be executed for version discovery; missing metadata reports `unknown` |
 | `VerifyFunc` | Optional function to verify the binary is the correct tool (e.g., for generic names like `q`) |
 
 ### Example: Adding a hypothetical "DevPilot" CLI

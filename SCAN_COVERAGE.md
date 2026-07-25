@@ -45,8 +45,12 @@ Detection is cross-platform — binaries are located via `$PATH` lookup and home
 | GitHub Copilot CLI    | Microsoft | `copilot`, `gh-copilot`     | `~/.config/github-copilot`      |
 | Microsoft AI Shell    | Microsoft | `aish`, `ai`                | `~/.aish`                       |
 | Aider                 | OpenSource| `aider`                     | `~/.aider`                      |
+| PatchWarden           | OpenSource| `patchwarden`                | —                               |
 | OpenCode              | OpenSource| `opencode`                  | `~/.config/opencode`            |
 | Cursor Agent          | Cursor    | `cursor-agent`              | `~/.cursor`                     |
+
+PatchWarden detection is binary-first. A repository `.patchwarden/` directory
+may contain stale task artifacts and is not treated as installation evidence.
 
 ## General-Purpose AI Agents
 

@@ -165,6 +165,114 @@ func TestAICLIDetector_FindsCursorAgent(t *testing.T) {
 	}
 }
 
+func TestAICLIDetector_FindsPatchWardenFromNPMMetadata(t *testing.T) {
+	mock := executor.NewMock()
+	shim := "/usr/local/bin/patchwarden"
+	target := "/usr/local/lib/node_modules/patchwarden/dist/index.js"
+	pkgRoot := "/usr/local/lib/node_modules/patchwarden"
+	mock.SetPath("patchwarden", shim)
+	mock.SetSymlink(shim, target)
+	mock.SetFile(pkgRoot+"/package.json", []byte(`{"name":"patchwarden","version":"1.6.2"}`))
+
+	det := NewAICLIDetector(mock)
+	results := det.Detect(context.Background())
+
+	var got *model.AITool
+	for i, result := range results {
+		if result.Name == "patchwarden" {
+			got = &results[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatal("patchwarden not found")
+	}
+	if got.Vendor != "OpenSource" {
+		t.Errorf("expected vendor OpenSource, got %s", got.Vendor)
+	}
+	if got.Type != "cli_tool" {
+		t.Errorf("expected type cli_tool, got %s", got.Type)
+	}
+	if got.Version != "1.6.2" {
+		t.Errorf("expected version 1.6.2 from npm metadata, got %s", got.Version)
+	}
+	if got.BinaryPath != shim {
+		t.Errorf("expected binary_path %s, got %s", shim, got.BinaryPath)
+	}
+	if got.InstallPath != pkgRoot {
+		t.Errorf("expected install_path %s, got %s", pkgRoot, got.InstallPath)
+	}
+	if got.ConfigDir != "" {
+		t.Errorf("expected no user-level config dir, got %s", got.ConfigDir)
+	}
+}
+
+func TestAICLIDetector_PatchWardenSkipsVersionExecutionWithoutMetadata(t *testing.T) {
+	mock := executor.NewMock()
+	bin := "/usr/local/bin/patchwarden"
+	mock.SetPath("patchwarden", bin)
+	// PatchWarden is an MCP stdio entrypoint, not a conventional --version CLI.
+	// If the detector executes this stub, it would incorrectly report 9.9.9.
+	mock.SetCommand("9.9.9\n", "", 0, bin, "--version")
+
+	det := NewAICLIDetector(mock)
+	results := det.Detect(context.Background())
+
+	for _, result := range results {
+		if result.Name == "patchwarden" {
+			if result.Version != "unknown" {
+				t.Errorf("expected metadata-only version to remain unknown, got %s", result.Version)
+			}
+			return
+		}
+	}
+	t.Fatal("patchwarden not found")
+}
+
+func TestAICLIDetector_FindsPatchWardenWindowsNPMShim(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS(model.PlatformWindows)
+	shim := `C:\Users\testuser\AppData\Roaming\npm\patchwarden.cmd`
+	pkgRoot := `C:\Users\testuser\AppData\Roaming\npm\node_modules\patchwarden`
+	mock.SetPath("patchwarden", shim)
+	mock.SetFile(shim, []byte(`"%_prog%" "%dp0%\node_modules\patchwarden\dist\index.js" %*`))
+	mock.SetFile(pkgRoot+`\package.json`, []byte(`{"name":"patchwarden","version":"1.6.2"}`))
+
+	det := NewAICLIDetector(mock)
+	results := det.Detect(context.Background())
+
+	for _, result := range results {
+		if result.Name != "patchwarden" {
+			continue
+		}
+		if result.Version != "1.6.2" {
+			t.Errorf("expected version 1.6.2 from Windows npm metadata, got %s", result.Version)
+		}
+		if result.InstallPath != pkgRoot {
+			t.Errorf("expected install_path %s, got %s", pkgRoot, result.InstallPath)
+		}
+		if result.ConfigDir != "" {
+			t.Errorf("expected no user-level config dir, got %s", result.ConfigDir)
+		}
+		return
+	}
+	t.Fatal("patchwarden not found via Windows npm shim")
+}
+
+func TestAICLIDetector_DoesNotTreatPatchWardenArtifactsAsInstallation(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetDir("/Users/testuser/.patchwarden")
+
+	det := NewAICLIDetector(mock)
+	results := det.Detect(context.Background())
+
+	for _, result := range results {
+		if result.Name == "patchwarden" {
+			t.Fatalf("stale .patchwarden artifacts must not prove installation: %+v", result)
+		}
+	}
+}
+
 // TestAICLIDetector_ResolvesNpmInstallPath asserts that when the binary on
 // PATH is a symlink to a node_modules package (the standard layout for
 // claude-code, codex, opencode, etc.), the detector surfaces both the shim
