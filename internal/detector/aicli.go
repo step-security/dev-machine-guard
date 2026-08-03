@@ -15,12 +15,13 @@ import (
 )
 
 type cliToolSpec struct {
-	Name        string
-	Vendor      string
-	Binaries    []string // binary names or paths (~ expanded at runtime)
-	ConfigDirs  []string // config directory candidates (~ expanded)
-	VersionFlag string   // flag to get version; defaults to "--version"
-	VerifyFunc  func(ctx context.Context, exec executor.Executor, log *progress.Logger, binary string) bool
+	Name         string
+	Vendor       string
+	Binaries     []string // binary names or paths (~ expanded at runtime)
+	ConfigDirs   []string // config directory candidates (~ expanded)
+	VersionFlag  string   // flag to get version; defaults to "--version"
+	MetadataOnly bool     // never execute the binary for version discovery
+	VerifyFunc   func(ctx context.Context, exec executor.Executor, log *progress.Logger, binary string) bool
 }
 
 var cliToolDefinitions = []cliToolSpec{
@@ -103,6 +104,12 @@ var cliToolDefinitions = []cliToolSpec{
 		Vendor:     "OpenSource",
 		Binaries:   []string{"aider"},
 		ConfigDirs: []string{"~/.aider"},
+	},
+	{
+		Name:         "patchwarden",
+		Vendor:       "OpenSource",
+		Binaries:     []string{"patchwarden"},
+		MetadataOnly: true,
 	},
 	{
 		Name:        "opencode",
@@ -235,6 +242,9 @@ func (d *AICLIDetector) getVersion(ctx context.Context, spec cliToolSpec, binary
 	// addon did exactly that on customer machines).
 	if v := versionmeta.FromBinary(ctx, d.exec, binaryPath); v != "" {
 		return v
+	}
+	if spec.MetadataOnly {
+		return "unknown"
 	}
 	flag := "--version"
 	if spec.VersionFlag != "" {
