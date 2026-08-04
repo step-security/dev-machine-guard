@@ -1,6 +1,8 @@
 BINARY  := stepsecurity-dev-machine-guard
 MODULE  := github.com/step-security/dev-machine-guard
-VERSION := $(shell grep -m1 'Version' internal/buildinfo/version.go | sed 's/.*"//;s/".*//')
+# Anchored to the const assignment: [^"]* stops at the closing quote, and
+# matching `Version =` rules out other lines mentioning Version.
+VERSION := $(shell sed -n 's/^[[:space:]]*Version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' internal/buildinfo/version.go | head -1)
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BRANCH  := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 TAG     := $(shell git describe --tags --exact-match 2>/dev/null || echo "dev")
@@ -8,6 +10,10 @@ LDFLAGS := -s -w \
 	-X $(MODULE)/internal/buildinfo.GitCommit=$(COMMIT) \
 	-X $(MODULE)/internal/buildinfo.ReleaseTag=$(TAG) \
 	-X $(MODULE)/internal/buildinfo.ReleaseBranch=$(BRANCH)
+
+# MSI packaging is the only VERSION consumer, and an empty value is accepted
+# silently by both `wix -d` and the -out filename. Fail there instead.
+check-version = test -n "$(VERSION)" || { echo "error: no Version found in internal/buildinfo/version.go" >&2; exit 1; }
 
 .PHONY: build build-windows build-windows-task build-windows-arm64 build-windows-task-arm64 build-linux deploy-windows test lint clean smoke build-msi-amd64 build-msi-arm64
 
@@ -37,6 +43,7 @@ build-linux:
 # Reads Version from internal/buildinfo so MajorUpgrade semantics line up
 # with whatever the binary reports as `--version`.
 build-msi-amd64: build-windows build-windows-task
+	@$(check-version)
 	mkdir -p dist
 	@wix extension list --global 2>/dev/null | grep -q "WixToolset.Util.wixext" || \
 		wix extension add --global WixToolset.Util.wixext/4.0.5
@@ -50,6 +57,7 @@ build-msi-amd64: build-windows build-windows-task
 		-out dist/stepsecurity-dev-machine-guard-$(VERSION)-x64.msi
 
 build-msi-arm64: build-windows-arm64 build-windows-task-arm64
+	@$(check-version)
 	mkdir -p dist
 	@wix extension list --global 2>/dev/null | grep -q "WixToolset.Util.wixext" || \
 		wix extension add --global WixToolset.Util.wixext/4.0.5
