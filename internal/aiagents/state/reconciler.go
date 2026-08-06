@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 )
@@ -29,22 +28,14 @@ type Reconciler struct {
 	Stderr      io.Writer
 	InstallFn   HookCommandFn
 	UninstallFn HookCommandFn
-	Now         func() time.Time
 }
 
-// Reconcile fetches desired state, writes the cache, and converges
-// settings to match by calling InstallFn / UninstallFn. Both are
-// idempotent so we don't need to detect the current state — install
-// is a no-op when entries are already in place, uninstall is a no-op
-// when no DMG-owned entries exist.
-//
-// Order: cache write first, then settings reconciliation. If the
-// settings reconciliation fails, the cache still reflects the desired
-// state — the hot path honors the new value immediately, and the next
-// tick retries the settings change.
-//
-// Errors are returned to the caller for logging via cli.AppendError;
-// Reconcile itself never panics into the caller's hot path.
+// Reconcile fetches desired state and calls InstallFn / UninstallFn to
+// converge settings.json (Claude Code) and config.toml (Codex) to
+// match. Both seams are idempotent — install is a no-op when entries
+// are already present, uninstall is a no-op when none are. The
+// presence of the managed entry in the agent's settings file is the
+// single source of truth; no on-disk state is kept by this package.
 func (r *Reconciler) Reconcile(ctx context.Context) error {
 	if r.Fetcher == nil {
 		return errors.New("state: nil fetcher")
@@ -53,19 +44,6 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 	res, err := r.Fetcher.Fetch(ctx, r.CustomerID, r.DeviceID)
 	if err != nil {
 		return fmt.Errorf("state: fetch: %w", err)
-	}
-
-	now := time.Now().UTC
-	if r.Now != nil {
-		now = r.Now
-	}
-	next := Default()
-	next.FetchedAt = now()
-	next.Source = SourcePoll
-	next.Hooks.Enabled = res.Enabled
-
-	if err := Write(next); err != nil {
-		return fmt.Errorf("state: write cache: %w", err)
 	}
 
 	switch {
