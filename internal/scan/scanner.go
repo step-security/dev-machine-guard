@@ -10,6 +10,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/detector"
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
+	"github.com/step-security/dev-machine-guard/internal/detector/credentials"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/featuregate"
@@ -251,6 +252,16 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		log.StepDone(time.Since(start))
 	}
 
+	// Credential-location inventory — where this machine's developer tools keep
+	// credentials, and how well guarded each location is. Exact paths only, never a
+	// walk; every read byte-capped; nothing about the credential itself leaves the
+	// detector. A nil result means the phase did not run, which is the only signal a
+	// reader has for that, so the pointer is passed through untouched.
+	log.StepStart("Inventorying credential locations")
+	start = time.Now()
+	credentialScan := credentials.New(exec).WithSkipper(tccSkipper).Detect(ctx)
+	log.StepDone(time.Since(start))
+
 	// npm config audit — surface-only inventory of every .npmrc on the host
 	// plus the merged effective view npm itself would resolve. The audit is
 	// cheap (a few stat calls and at most two npm invocations) but stays
@@ -380,6 +391,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		YarnAudit:         yarnAudit,
 		AgentSkills:       agentSkills,
 		AgentSkillScan:    agentSkillScan,
+		CredentialScan:    credentialScan,
 		Summary: model.Summary{
 			AIAgentsAndToolsCount: len(aiTools),
 			IDEInstallationsCount: len(ides),

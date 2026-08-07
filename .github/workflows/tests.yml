@@ -100,13 +100,19 @@ jobs:
           go-version-file: go.mod
       - run: make test
 
-  # devicepolicy has Windows-only code (the registry managed-policy probe) and
-  # Windows-specific behavior (%APPDATA% settings-path resolution) whose tests
-  # the macOS test job can only cross-compile, not run. This job executes the
-  # package natively; scoped to it so the rest of the suite (which assumes a
-  # POSIX host) is untouched.
-  test-windows-devicepolicy:
-    name: Test (windows devicepolicy)
+  # These packages have Windows-only code and Windows-specific behavior whose
+  # tests the macOS test job can only cross-compile, not run:
+  #   - devicepolicy: the registry managed-policy probe, %APPDATA%
+  #     settings-path resolution
+  #   - detector/credentials: reading the security descriptor behind
+  #     broad_read_allow_ace_present, and the per-account environment read from
+  #     the registry hive
+  #   - safepath: opening a leaf without following a reparse point and matching
+  #     the kernel's own final path for the handle
+  # This job executes them natively; scoped to these packages so the rest of the
+  # suite (which assumes a POSIX host) is untouched.
+  test-windows-native:
+    name: Test (windows native packages)
     runs-on: windows-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -118,7 +124,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
-      - run: go test -race -count=1 ./internal/devicepolicy/
+      - run: go test -race -count=1 ./internal/devicepolicy/ ./internal/detector/credentials/ ./internal/safepath/
 
   smoke:
     name: Smoke Tests

@@ -32,6 +32,7 @@ var phaseBudgets = map[string]time.Duration{
 	"ai_tools_scan":       5 * time.Minute,
 	"mcp_config_scan":     1 * time.Minute,
 	"agent_skills_scan":   2 * time.Minute, // detector self-caps at 60s; headroom for lock parsing
+	"credentials_scan":    1 * time.Minute, // fixed-path reads plus one bounded child process
 	"malicious_file_scan": 10 * time.Minute,
 	"brew_scan":           5 * time.Minute,
 	"python_scan":         10 * time.Minute,

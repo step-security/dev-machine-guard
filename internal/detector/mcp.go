@@ -133,6 +133,53 @@ func (d *MCPDetector) discoverProjectMCPConfigs() []mcpConfigSpec {
 	return specs
 }
 
+// DetectKnownUserConfigs returns the resolved paths of the known user-level MCP
+// config files, and nothing else. It performs no discovery: no project registry,
+// no directory walk, and no filesystem access beyond what path resolution needs.
+// Paths are returned whether or not they exist, so the caller decides what to
+// open.
+//
+// The no-discovery guarantee is in the signature so a caller cannot opt out of it
+// by accident: a caller that must not walk calls this, and the guarantee holds for
+// every caller of it rather than depending on which arguments each one passes.
+//
+// homeDir and appData are the resolved developer's, not the agent's. The agent
+// runs as a system service, so its own home and roaming-profile values point at a
+// service account; passing them in is what keeps this from reading the wrong
+// user's configuration. An empty appData falls back to the process environment,
+// which is correct only when the agent already runs as the developer.
+func (d *MCPDetector) DetectKnownUserConfigs(homeDir, appData string) []string {
+	seen := make(map[string]bool, len(mcpConfigDefinitions))
+	paths := make([]string, 0, len(mcpConfigDefinitions))
+	for _, spec := range mcpConfigDefinitions {
+		path := d.knownUserConfigPath(spec, homeDir, appData)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		paths = append(paths, path)
+	}
+	return paths
+}
+
+// knownUserConfigPath resolves one definition against the roots it was given.
+//
+// On Windows a roaming-profile location is rebased onto the caller's roaming
+// directory rather than expanded against the process environment, because that
+// environment belongs to the service account. Only a location that names that root
+// is rebased, and the rebase happens instead of the ordinary resolution rather
+// than after it: a location anchored somewhere else joined below a root it never
+// referenced would yield a path that resolves to nothing, reported as
+// authoritatively as a real one.
+func (d *MCPDetector) knownUserConfigPath(spec mcpConfigSpec, homeDir, appData string) string {
+	if appData != "" && d.exec.GOOS() == model.PlatformWindows {
+		if rel, ok := strings.CutPrefix(spec.WinConfigPath, "%APPDATA%/"); ok {
+			return filepath.Join(appData, filepath.FromSlash(rel))
+		}
+	}
+	return d.resolveConfigPath(spec, homeDir)
+}
+
 // resolveConfigPath returns the appropriate config path for the current platform.
 func (d *MCPDetector) resolveConfigPath(spec mcpConfigSpec, homeDir string) string {
 	if d.exec.GOOS() == model.PlatformWindows && spec.WinConfigPath != "" {

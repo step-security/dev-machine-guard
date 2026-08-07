@@ -38,6 +38,11 @@ type ScanResult struct {
 	AgentSkills    []AgentSkill        `json:"agent_skills,omitempty"`
 	AgentSkillScan *AgentSkillScanInfo `json:"agent_skill_scan,omitempty"`
 
+	// CredentialScan is the credential-location inventory. Nil means the phase
+	// did not run, which is the only "no information" signal a reader has — a
+	// non-nil section with zero findings means it ran and found nothing.
+	CredentialScan *CredentialScanInfo `json:"credential_scan,omitempty"`
+
 	Summary Summary `json:"summary"`
 }
 

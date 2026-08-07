@@ -22,6 +22,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/detector"
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
+	"github.com/step-security/dev-machine-guard/internal/detector/credentials"
 	"github.com/step-security/dev-machine-guard/internal/detector/rules"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -106,6 +107,7 @@ type Payload struct {
 	YarnAudit               *model.YarnAudit                `json:"yarn_audit,omitempty"`
 	AgentSkills             []model.AgentSkill              `json:"agent_skills,omitempty"`
 	AgentSkillScan          *model.AgentSkillScanInfo       `json:"agent_skill_scan,omitempty"`
+	CredentialScan          *model.CredentialScanInfo       `json:"credential_scan,omitempty"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -983,6 +985,23 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		postPhase()
 	}
 
+	// Credential-location inventory — where this machine's developer tools keep
+	// credentials, and how well guarded each location is. Exact paths only, never
+	// a walk; every read byte-capped; nothing about the credential itself leaves
+	// the detector. A non-nil section always ships once the phase has run, because
+	// nil is the only "did not run" signal a reader has and a nil payload must
+	// never be readable as "this machine holds no credentials".
+	//
+	// userExec (not exec): the account whose credentials this describes is the
+	// logged-in developer, not the service profile an unattended deploy runs as.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "credentials_scan")
+	log.Progress("Inventorying credential locations...")
+	credentialScan := credentials.New(userExec).WithSkipper(tccSkipper).Detect(phaseCtx)
+	log.Progress("  Found %d credential locations", len(credentialScan.Findings))
+	fmt.Fprintln(os.Stderr)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "credentials_scan")
+	postPhase()
+
 	// npm + pip configuration audits — surface-only inventory of every
 	// .npmrc and pip.conf on the host, plus the merged effective views
 	// each tool would resolve. We use the user-aware executor so npm and
@@ -1121,6 +1140,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		YarnAudit:               &yarnAudit,
 		AgentSkills:             agentSkills,
 		AgentSkillScan:          agentSkillScan,
+		CredentialScan:          credentialScan,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,

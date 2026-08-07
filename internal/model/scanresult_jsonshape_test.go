@@ -23,3 +23,18 @@ func TestScanResult_NewAuditFields_OmitWhenNil(t *testing.T) {
 		}
 	}
 }
+
+// TestScanResult_CredentialScan_OmittedWhenNil guards the one signal a reader
+// has for "the credential phase did not run". An emitted section with zero
+// findings is the positive assertion that the machine holds no credentials in
+// any known location, and it replaces the stored inventory wholesale — so a
+// section that renders when nobody scanned erases real findings.
+func TestScanResult_CredentialScan_OmittedWhenNil(t *testing.T) {
+	b, err := json.Marshal(&ScanResult{})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if s := string(b); strings.Contains(s, `"credential_scan"`) {
+		t.Errorf("zero ScanResult should omit \"credential_scan\", got: %s", s)
+	}
+}
