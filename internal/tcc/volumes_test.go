@@ -186,6 +186,49 @@ func hasVisited(visited []string, want string) bool {
 	return false
 }
 
+// TestForRun_DefaultsMatchPreToggleBehavior is the no-surprise guarantee for
+// already-deployed fleets: with neither toggle set, the Skipper must behave
+// exactly as the pre-toggle New(home) did. A regression here means an agent
+// upgrade silently changes which paths a scan walks — and on macOS, walking
+// something new is how a customer gets a TCC prompt out of nowhere.
+func TestForRun_DefaultsMatchPreToggleBehavior(t *testing.T) {
+	home := "/Users/alice"
+	before, after := New(home), ForRun(home, nil, nil)
+
+	if after == nil {
+		t.Fatal("default run must still produce a Skipper")
+	}
+	if after.NetworkVolumes() != nil {
+		t.Error("default run must not skip any network volume")
+	}
+	if !reflect.DeepEqual(before.Candidates(), after.Candidates()) {
+		t.Errorf("protected-dir list drifted: %v vs %v", before.Candidates(), after.Candidates())
+	}
+	for _, p := range []string{
+		home,
+		home + "/Documents",
+		home + "/Library",
+		home + "/code/app",
+		home + "/OrbStack",
+		home + "/OrbStack/docker/containers",
+		"/Volumes/share",
+	} {
+		if before.ShouldSkip(p, home) != after.ShouldSkip(p, home) {
+			t.Errorf("ShouldSkip(%q) drifted from pre-toggle behavior", p)
+		}
+		if before.WithinProtected(p) != after.WithinProtected(p) {
+			t.Errorf("WithinProtected(%q) drifted from pre-toggle behavior", p)
+		}
+	}
+
+	// The other pre-existing shape: --include-tcc-protected produced a nil
+	// skipper, and still must.
+	optedIn := true
+	if s := ForRun(home, &optedIn, nil); s != nil {
+		t.Error("--include-tcc-protected must still yield a nil Skipper by default")
+	}
+}
+
 func TestForRun_TogglePolarity(t *testing.T) {
 	trueVal := true
 	falseVal := false
