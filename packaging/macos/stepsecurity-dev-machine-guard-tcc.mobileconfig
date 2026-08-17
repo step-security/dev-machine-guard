@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  StepSecurity Dev Machine Guard — PPPC (Privacy Preferences Policy Control)
+  profile for MDM-managed macOS fleets.
+
+  Pre-approves two TCC services for the agent so developers never see a
+  permission prompt:
+
+    SystemPolicyAllFiles         Full Disk Access — needed only when
+                                 include_tcc_protected is true.
+    SystemPolicyNetworkVolumes   Non-local mounts, which is how macOS
+                                 classifies container-runtime filesystems
+                                 (OrbStack, Docker Desktop, Colima virtiofs).
+                                 Needed on the DEFAULT config, because the
+                                 agent walks those mounts to inventory
+                                 packages inside dev containers.
+
+  BEFORE DEPLOYING, replace:
+
+    REPLACE-WITH-UUIDGEN-OUTPUT-1/-2  Fresh UUIDs (run `uuidgen` twice).
+    REPLACE_INSTALL_DIR               The fixed system-wide install directory,
+                                      e.g. /usr/local/stepsecurity.
+
+  The install path must be system-wide. PPPC path identifiers have no $HOME
+  expansion, so the default per-user install at ~/.stepsecurity/bin cannot be
+  targeted, and a symlink at a stable path does not help (TCC matches the
+  resolved executable). See docs/macos-tcc-permissions.md for the migration
+  steps, and for the include_network_volumes config toggle — the alternative
+  for fleets that cannot move off the per-user path.
+
+  The CodeRequirement is pinned to StepSecurity's Apple Developer Team ID
+  (D63S9HLM4L) and should be left as-is. To regenerate it against a specific
+  binary:
+
+    codesign -d -r- <binary> 2>&1 | sed -n 's/^designated => //p'
+
+  To pre-DENY instead of pre-approve — no prompt, no access — set Allowed to
+  false on the service in question.
+-->
+<plist version="1.0">
+<dict>
+    <key>PayloadType</key>
+    <string>Configuration</string>
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+    <key>PayloadIdentifier</key>
+    <string>io.stepsecurity.dmg.tcc</string>
+    <key>PayloadUUID</key>
+    <string>REPLACE-WITH-UUIDGEN-OUTPUT-1</string>
+    <key>PayloadDisplayName</key>
+    <string>StepSecurity Dev Machine Guard — TCC Pre-Approval</string>
+    <key>PayloadDescription</key>
+    <string>Grants Dev Machine Guard Full Disk Access and network-volume access so dev-tool inventory and supply-chain scans run without prompting developers.</string>
+    <key>PayloadOrganization</key>
+    <string>StepSecurity</string>
+    <key>PayloadScope</key>
+    <string>System</string>
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+            <key>PayloadType</key>
+            <string>com.apple.TCC.configuration-profile-policy</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+            <key>PayloadIdentifier</key>
+            <string>io.stepsecurity.dmg.tcc.pppc</string>
+            <key>PayloadUUID</key>
+            <string>REPLACE-WITH-UUIDGEN-OUTPUT-2</string>
+            <key>PayloadDisplayName</key>
+            <string>Privacy Preferences Policy Control</string>
+            <key>PayloadOrganization</key>
+            <string>StepSecurity</string>
+            <key>Services</key>
+            <dict>
+                <key>SystemPolicyAllFiles</key>
+                <array>
+                    <dict>
+                        <key>Identifier</key>
+                        <string>REPLACE_INSTALL_DIR/bin/stepsecurity-dev-machine-guard</string>
+                        <key>IdentifierType</key>
+                        <string>path</string>
+                        <key>CodeRequirement</key>
+                        <string>anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "D63S9HLM4L"</string>
+                        <key>Allowed</key>
+                        <true/>
+                        <key>Comment</key>
+                        <string>Allow Dev Machine Guard to scan all files for dev-tool inventory and supply-chain checks. Only takes effect when include_tcc_protected is true.</string>
+                    </dict>
+                </array>
+                <key>SystemPolicyNetworkVolumes</key>
+                <array>
+                    <dict>
+                        <key>Identifier</key>
+                        <string>REPLACE_INSTALL_DIR/bin/stepsecurity-dev-machine-guard</string>
+                        <key>IdentifierType</key>
+                        <string>path</string>
+                        <key>CodeRequirement</key>
+                        <string>anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "D63S9HLM4L"</string>
+                        <key>Allowed</key>
+                        <true/>
+                        <key>Comment</key>
+                        <string>Pre-approve the network-volume prompt so container-runtime mounts (OrbStack, Docker Desktop, Colima virtiofs) are inventoried without asking the developer. Set Allowed to false to pre-deny instead: still no prompt, but no container inventory.</string>
+                    </dict>
+                </array>
+            </dict>
+        </dict>
+    </array>
+</dict>
+</plist>

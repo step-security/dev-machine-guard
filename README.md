@@ -518,7 +518,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 - [Scan Coverage](SCAN_COVERAGE.md) — full catalog of detections
 - [Release Process](docs/release-process.md) — how releases are signed and verified
 - [Deploying via SCCM](docs/deploying-via-sccm.md) — Windows fleet rollout via Microsoft Configuration Manager (signed MSI, no PowerShell)
-- [macOS TCC Permissions](docs/macos-tcc-permissions.md) — how the agent handles Documents/Downloads/Mail TCC dirs, PPPC profile for MDM-pushed Full Disk Access, and the `include_tcc_protected` config field
+- [macOS TCC Permissions](docs/macos-tcc-permissions.md) — how the agent handles Documents/Downloads/Mail TCC dirs and network volumes (container-runtime mounts), PPPC profile for MDM-pushed Full Disk Access and network-volume pre-approval, and the `include_tcc_protected` / `include_network_volumes` config fields
+- [macOS MDM packaging](packaging/macos/README.md) — ready-made PPPC `.mobileconfig` for fleet deployment
 - [Versioning](VERSIONING.md) — why the version starts at 1.8.1
 - [Security Policy](SECURITY.md) — reporting vulnerabilities
 - [Code of Conduct](CODE_OF_CONDUCT.md)

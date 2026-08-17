@@ -39,12 +39,20 @@ type Config struct {
 	// an MDM-pushed PPPC profile) flip this to true to opt back into
 	// full scan coverage. See docs/macos-tcc-permissions.md.
 	IncludeTCCProtected *bool
-	NPMRCOnly           bool     // --npmrc: run only the npmrc audit and render verbose pretty output
-	PipConfigOnly       bool     // --pipconfig: run only the pip config audit and render verbose pretty output
-	PnpmRCOnly          bool     // --pnpmrc: run only the pnpm config audit and render verbose pretty output
-	BunfigOnly          bool     // --bunfig: run only the bun config audit and render verbose pretty output
-	YarnRCOnly          bool     // --yarnrc: run only the yarn config audit (both flavors) and render verbose pretty output
-	SearchDirs          []string // defaults to ["$HOME"]
+	// IncludeNetworkVolumes is tristate with the OPPOSITE default to
+	// IncludeTCCProtected: nil or true = walk macOS network volumes
+	// (container-runtime mounts — OrbStack, Docker Desktop, Colima — are
+	// Network Volumes to macOS), false = skip them. Walking them is what
+	// inventories packages inside dev containers, at the cost of a one-time
+	// TCC prompt on machines with no PPPC pre-approval. Fleets that can't
+	// pre-approve set this to false. See docs/macos-tcc-permissions.md.
+	IncludeNetworkVolumes *bool
+	NPMRCOnly             bool     // --npmrc: run only the npmrc audit and render verbose pretty output
+	PipConfigOnly         bool     // --pipconfig: run only the pip config audit and render verbose pretty output
+	PnpmRCOnly            bool     // --pnpmrc: run only the pnpm config audit and render verbose pretty output
+	BunfigOnly            bool     // --bunfig: run only the bun config audit and render verbose pretty output
+	YarnRCOnly            bool     // --yarnrc: run only the yarn config audit (both flavors) and render verbose pretty output
+	SearchDirs            []string // defaults to ["$HOME"]
 
 	// GateProceedReason is populated at runtime (not a CLI flag) by the run
 	// gate when it lets a run proceed, so telemetry.Run can echo the gate
@@ -219,6 +227,12 @@ func Parse(args []string) (*Config, error) {
 		case arg == "--no-include-tcc-protected":
 			v := false
 			cfg.IncludeTCCProtected = &v
+		case arg == "--include-network-volumes":
+			v := true
+			cfg.IncludeNetworkVolumes = &v
+		case arg == "--no-include-network-volumes":
+			v := false
+			cfg.IncludeNetworkVolumes = &v
 		case arg == "--npmrc":
 			cfg.NPMRCOnly = true
 		case arg == "--pipconfig":
@@ -518,6 +532,17 @@ Options:
                                 Settings — see docs/macos-tcc-permissions.md.
   --no-include-tcc-protected    Skip macOS TCC-protected dirs even if config has
                                 include_tcc_protected: true.
+  --no-include-network-volumes  Skip macOS network volumes — which is how macOS
+                                classifies container-runtime mounts (OrbStack,
+                                Docker Desktop, Colima). Suppresses the one-time
+                                "access files on a network volume" prompt at the
+                                cost of the package inventory inside dev
+                                containers. Default: walked. Fleets that can
+                                pre-approve the prompt with a PPPC profile
+                                should keep the default — see
+                                docs/macos-tcc-permissions.md.
+  --include-network-volumes     Walk macOS network volumes even if config has
+                                include_network_volumes: false.
   --npmrc                       Run ONLY the npm config audit (verbose pretty view; --json supported)
   --pipconfig                   Run ONLY the pip config audit (verbose pretty view; --json supported)
   --pnpmrc                      Run ONLY the pnpm config audit (verbose pretty view; --json supported)

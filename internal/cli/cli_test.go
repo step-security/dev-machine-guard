@@ -122,6 +122,32 @@ func TestParse_NPMScan(t *testing.T) {
 	}
 }
 
+func TestParse_NetworkVolumes(t *testing.T) {
+	cfg, err := Parse(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.IncludeNetworkVolumes != nil {
+		t.Error("expected IncludeNetworkVolumes unset by default (walk them)")
+	}
+
+	cfg, err = Parse([]string{"--no-include-network-volumes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.IncludeNetworkVolumes == nil || *cfg.IncludeNetworkVolumes {
+		t.Error("expected IncludeNetworkVolumes=false")
+	}
+
+	cfg, err = Parse([]string{"--include-network-volumes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.IncludeNetworkVolumes == nil || !*cfg.IncludeNetworkVolumes {
+		t.Error("expected IncludeNetworkVolumes=true")
+	}
+}
+
 func TestParse_SearchDirs(t *testing.T) {
 	cfg, err := Parse([]string{"--search-dirs", "/tmp", "/opt"})
 	if err != nil {

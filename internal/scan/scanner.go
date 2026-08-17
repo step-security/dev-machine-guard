@@ -37,15 +37,16 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 
 	// Build the TCC skipper so directory walks avoid macOS-protected dirs
 	// (Documents, Downloads, ~/Library/Mail, ...) and don't trigger system
-	// permission prompts. Nil when --include-tcc-protected is set; the
-	// skipper's ShouldSkip is nil-safe so downstream callers don't branch.
-	var tccSkipper *tcc.Skipper
-	if tcc.Enabled(cfg.IncludeTCCProtected) {
-		tccSkipper = tcc.New(executor.ResolveHome(exec))
-		if cands := tccSkipper.Candidates(); len(cands) > 0 {
-			log.Warn("macOS TCC: skipping %d protected dirs (Documents, Downloads, ~/Library/Mail, ...) to avoid permission prompts. Pass --include-tcc-protected to scan them.", len(cands))
-			log.Debug("tcc skip list: %v", cands)
-		}
+	// permission prompts. Nil when --include-tcc-protected is set and
+	// network volumes are walked (the default); every Skipper method is
+	// nil-safe so downstream callers don't branch.
+	tccSkipper := tcc.ForRun(executor.ResolveHome(exec), cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes)
+	if cands := tccSkipper.Candidates(); len(cands) > 0 {
+		log.Warn("macOS TCC: skipping %d protected dirs (Documents, Downloads, ~/Library/Mail, ...) to avoid permission prompts. Pass --include-tcc-protected to scan them.", len(cands))
+		log.Debug("tcc skip list: %v", cands)
+	}
+	if vols := tccSkipper.NetworkVolumes(); len(vols) > 0 {
+		log.Warn("macOS TCC: skipping %d network volume(s) — packages inside container mounts will not be inventoried. Pass --include-network-volumes to scan them: %v", len(vols), vols)
 	}
 
 	// Gather device info
