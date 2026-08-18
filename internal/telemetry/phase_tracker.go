@@ -11,6 +11,12 @@ type PhaseCompletion struct {
 	Name       string `json:"name"`
 	FinishedAt int64  `json:"finished_at"`
 	DurationMs int64  `json:"duration_ms"`
+	// SleptMs is how long the system was suspended while this phase ran:
+	// the wall-clock elapsed minus the monotonic elapsed (macOS/Linux
+	// monotonic clocks halt during sleep; Windows QPC usually keeps ticking,
+	// so this under-reports there). DurationMs stays monotonic — actual work
+	// time — so a phase that spanned a laptop nap reports both honestly.
+	SleptMs int64 `json:"slept_ms,omitempty"`
 }
 
 // RunStatusInfo is the structured progress snapshot sent on each phase
@@ -33,6 +39,29 @@ type RunStatusInfo struct {
 	// rapidly. Backend handlers must tolerate this field being absent on
 	// any given snapshot.
 	LogTailGzipBase64 string `json:"log_tail_gzip_b64,omitempty"`
+	// SleptMs is the run-level counterpart of PhaseCompletion.SleptMs,
+	// measured from run start so it also covers sleep that lands between
+	// phases. Report-only: ElapsedMs stays monotonic.
+	SleptMs int64 `json:"slept_ms,omitempty"`
+}
+
+// minReportedSleep is the smallest wall-vs-monotonic divergence reported as
+// system sleep. NTP steps/slews and scheduler jitter can move the wall clock
+// a few seconds relative to the monotonic clock; a genuine sleep is minutes.
+const minReportedSleep = 60 * time.Second
+
+// sleptDuration returns how long the system was suspended during an
+// interval, given the interval measured on the wall clock and on the
+// monotonic clock. Divergence below minReportedSleep — including the
+// degenerate equal-inputs case, which is what a clock source without a
+// monotonic reading (time.Unix-constructed test clocks) produces — reports
+// zero. Never negative.
+func sleptDuration(wallElapsed, monoElapsed time.Duration) time.Duration {
+	d := wallElapsed - monoElapsed
+	if d < minReportedSleep {
+		return 0
+	}
+	return d
 }
 
 // PhaseTracker accumulates phase lifecycle events for a single telemetry
@@ -78,26 +107,35 @@ func (t *PhaseTracker) Start(phase string) {
 	t.phaseStartedAt = t.now()
 }
 
-// Finish records completion of the current phase. No-op when nothing is
-// in flight — safe to defer.
-func (t *PhaseTracker) Finish() {
+// Finish records completion of the current phase and returns it. The bool
+// is false when nothing was in flight — safe to defer and to call in
+// statement position.
+func (t *PhaseTracker) Finish() (PhaseCompletion, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.finishLocked()
+	return t.finishLocked()
 }
 
-func (t *PhaseTracker) finishLocked() {
+func (t *PhaseTracker) finishLocked() (PhaseCompletion, bool) {
 	if t.currentPhase == "" {
-		return
+		return PhaseCompletion{}, false
 	}
 	finishedAt := t.now()
-	t.completed = append(t.completed, PhaseCompletion{
+	// Sub prefers the monotonic readings when both stamps carry one (actual
+	// work time — halts during system sleep); Round(0) strips them, so the
+	// second Sub is pure wall clock. The difference is time spent asleep.
+	mono := finishedAt.Sub(t.phaseStartedAt)
+	wall := finishedAt.Round(0).Sub(t.phaseStartedAt.Round(0))
+	pc := PhaseCompletion{
 		Name:       t.currentPhase,
 		FinishedAt: finishedAt.Unix(),
-		DurationMs: finishedAt.Sub(t.phaseStartedAt).Milliseconds(),
-	})
+		DurationMs: mono.Milliseconds(),
+		SleptMs:    sleptDuration(wall, mono).Milliseconds(),
+	}
+	t.completed = append(t.completed, pc)
 	t.currentPhase = ""
 	t.currentPhaseDetail = ""
+	return pc, true
 }
 
 // UpdateDetail sets a free-form sub-progress string for the current
@@ -140,9 +178,13 @@ func (t *PhaseTracker) Snapshot() RunStatusInfo {
 		current = current + " (" + t.currentPhaseDetail + ")"
 	}
 
+	now := t.now()
 	out := RunStatusInfo{
 		CurrentPhase: current,
-		ElapsedMs:    t.now().Sub(t.startedAt).Milliseconds(),
+		ElapsedMs:    now.Sub(t.startedAt).Milliseconds(),
+		// Run-level sleep, measured from run start so it also covers sleep
+		// landing between phases (per-phase SleptMs can't see those gaps).
+		SleptMs: sleptDuration(now.Round(0).Sub(t.startedAt.Round(0)), now.Sub(t.startedAt)).Milliseconds(),
 	}
 	if len(t.completed) > 0 {
 		out.PhasesCompleted = make([]PhaseCompletion, len(t.completed))

@@ -1268,6 +1268,12 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 	fmt.Fprintln(os.Stderr)
 	log.Progress("Telemetry collection completed successfully")
+	// Fresh snapshot (not finalStatusInfo, which predates the upload phase)
+	// so sleep during the upload is counted too.
+	if s := tracker.Snapshot(); s.SleptMs > 0 {
+		log.Progress("Note: system slept ~%s during this run — reported durations exclude sleep",
+			(time.Duration(s.SleptMs) * time.Millisecond).Round(time.Second))
+	}
 	tccSkipper.LogHits(log.Debug)
 
 	// Final progress post — AFTER the upload and the completion lines above —
