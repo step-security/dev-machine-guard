@@ -553,14 +553,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 	// Build a TCC skipper so directory walks avoid macOS-protected dirs and
 	// don't trigger system permission prompts when the agent runs without
-	// Full Disk Access. Nil when --include-tcc-protected is set; ShouldSkip
-	// is nil-safe.
-	var tccSkipper *tcc.Skipper
-	if tcc.Enabled(cfg.IncludeTCCProtected) {
-		tccSkipper = tcc.New(executor.ResolveHome(exec))
-		if cands := tccSkipper.Candidates(); len(cands) > 0 {
-			log.Debug("tcc skip list (%d): %v", len(cands), cands)
-		}
+	// Full Disk Access. Nil when --include-tcc-protected is set and network
+	// volumes are walked (the default); every method is nil-safe.
+	tccSkipper := tcc.ForRun(executor.ResolveHome(exec), cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes)
+	if cands := tccSkipper.Candidates(); len(cands) > 0 {
+		log.Debug("tcc skip list (%d): %v", len(cands), cands)
+	}
+	if vols := tccSkipper.NetworkVolumes(); len(vols) > 0 {
+		log.Debug("tcc network volumes skipped (%d): %v", len(vols), vols)
 	}
 
 	// Detect IDEs

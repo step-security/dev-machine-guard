@@ -38,14 +38,12 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/winproc"
 )
 
-// auditSkipper builds a TCC skipper if scanning into TCC-protected dirs is
-// not opted in. Mirrors scan.Run / telemetry.Run so the focused *Only audits
-// don't accidentally prompt the user on macOS.
+// auditSkipper builds the TCC skipper for the focused *Only audits from the
+// same two toggles the full scan uses (protected dirs, network volumes), so
+// they don't accidentally prompt the user on macOS. Mirrors scan.Run /
+// telemetry.Run; nil when neither class has anything to skip.
 func auditSkipper(exec executor.Executor, cfg *cli.Config) *tcc.Skipper {
-	if !tcc.Enabled(cfg.IncludeTCCProtected) {
-		return nil
-	}
-	return tcc.New(executor.ResolveHome(exec))
+	return tcc.ForRun(executor.ResolveHome(exec), cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes)
 }
 
 // hookReconcileTimeout caps the entire reconcile step (fetch + cache
@@ -112,6 +110,9 @@ func main() {
 	}
 	if cfg.IncludeTCCProtected == nil && config.IncludeTCCProtected != nil {
 		cfg.IncludeTCCProtected = config.IncludeTCCProtected
+	}
+	if cfg.IncludeNetworkVolumes == nil && config.IncludeNetworkVolumes != nil {
+		cfg.IncludeNetworkVolumes = config.IncludeNetworkVolumes
 	}
 	if cfg.ColorMode == "auto" && config.ColorMode != "" {
 		cfg.ColorMode = config.ColorMode

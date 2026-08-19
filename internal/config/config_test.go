@@ -224,6 +224,44 @@ func TestConfigFile_UseLegacyPackageScan_JSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestLoad_IncludeNetworkVolumes_AppliedFromFile(t *testing.T) {
+	prev := IncludeNetworkVolumes
+	t.Cleanup(func() { IncludeNetworkVolumes = prev })
+	IncludeNetworkVolumes = nil
+
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("STEPSECURITY_HOME", dir)
+	cfgPath := filepath.Join(dir, ".stepsecurity", "config.json")
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// false is the value that matters: it's how an MDM fleet opts out of the
+	// network-volume walk (and its TCC prompt). omitempty must not drop it.
+	if err := os.WriteFile(cfgPath, []byte(`{"include_network_volumes":false}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	Load()
+
+	if IncludeNetworkVolumes == nil || *IncludeNetworkVolumes {
+		t.Errorf("Load did not propagate include_network_volumes=false, got %v", IncludeNetworkVolumes)
+	}
+
+	data, err := json.Marshal(ConfigFile{IncludeNetworkVolumes: IncludeNetworkVolumes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`"include_network_volumes":false`)) {
+		t.Errorf("explicit false should serialize, not be omitted: %s", data)
+	}
+	if data, err = json.Marshal(ConfigFile{}); err != nil {
+		t.Fatal(err)
+	} else if bytes.Contains(data, []byte("include_network_volumes")) {
+		t.Errorf("nil should be omitted: %s", data)
+	}
+}
+
 func TestLoad_UseLegacyPackageScan_AppliedFromFile(t *testing.T) {
 	// Save and restore package var.
 	prev := UseLegacyPackageScan

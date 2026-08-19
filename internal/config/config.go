@@ -16,15 +16,24 @@ var (
 	APIKey              = "{{API_KEY}}" //#nosec G101 -- build-time placeholder substituted by the backend installer; the literal is not a real credential.
 	ScanFrequencyHours  = "{{SCAN_FREQUENCY_HOURS}}"
 	SearchDirs          []string
-	EnableNPMScan       *bool  // nil=auto
-	EnableBrewScan      *bool  // nil=auto
-	EnablePythonScan    *bool  // nil=auto
-	IncludeTCCProtected *bool  // nil or false = skip macOS TCC-protected dirs (default); true = walk them. The scan as a whole runs in both cases; only reads inside the TCC-protected subtrees themselves (Documents, Mail, etc.) need the agent to have Full Disk Access (PPPC or manual grant) — without that, those walks return EACCES per entry while the rest of the scan completes normally. See docs/macos-tcc-permissions.md.
-	ColorMode           string // "" means auto
-	OutputFormat        string // "" means default (pretty)
-	HTMLOutputFile      string // "" means not set
-	LogLevel            string // "" means default (info); one of error/warn/info/debug
-	InstallDir          string // "" means default (~/.stepsecurity); non-empty makes the agent put all its files (logs, hook errors, future state) under this directory. Bootstrap config.json itself stays at the legacy location. Per-run opt-out is the CLI flag --install-dir=. Resolution: --install-dir flag > STEPSECURITY_HOME env > this field > default — see internal/paths.
+	EnableNPMScan       *bool // nil=auto
+	EnableBrewScan      *bool // nil=auto
+	EnablePythonScan    *bool // nil=auto
+	IncludeTCCProtected *bool // nil or false = skip macOS TCC-protected dirs (default); true = walk them. The scan as a whole runs in both cases; only reads inside the TCC-protected subtrees themselves (Documents, Mail, etc.) need the agent to have Full Disk Access (PPPC or manual grant) — without that, those walks return EACCES per entry while the rest of the scan completes normally. See docs/macos-tcc-permissions.md.
+	// IncludeNetworkVolumes defaults the OTHER way from IncludeTCCProtected:
+	// nil or true = walk macOS network volumes (default); false = skip them.
+	// Container runtimes (OrbStack, Docker Desktop, Colima) expose the guest
+	// filesystem as a network volume, so walking them is what inventories
+	// packages inside dev containers — and what fires a one-time
+	// SystemPolicyNetworkVolumes prompt on machines with no PPPC
+	// pre-approval. Fleets that cannot pre-approve trade that coverage away
+	// by setting this to false. See docs/macos-tcc-permissions.md.
+	IncludeNetworkVolumes *bool
+	ColorMode             string // "" means auto
+	OutputFormat          string // "" means default (pretty)
+	HTMLOutputFile        string // "" means not set
+	LogLevel              string // "" means default (info); one of error/warn/info/debug
+	InstallDir            string // "" means default (~/.stepsecurity); non-empty makes the agent put all its files (logs, hook errors, future state) under this directory. Bootstrap config.json itself stays at the legacy location. Per-run opt-out is the CLI flag --install-dir=. Resolution: --install-dir flag > STEPSECURITY_HOME env > this field > default — see internal/paths.
 	// UseLegacyPackageScan, when true, disables the scan-state delta-upload
 	// optimization for npm and Python project scans — every run re-uploads
 	// the full snapshot as in pre-1.13 agents.
@@ -67,24 +76,25 @@ var MaxExecutionDuration string
 
 // ConfigFile is the JSON structure persisted to ~/.stepsecurity/config.json.
 type ConfigFile struct {
-	CustomerID           string   `json:"customer_id,omitempty"`
-	APIEndpoint          string   `json:"api_endpoint,omitempty"`
-	APIKey               string   `json:"api_key,omitempty"`
-	ScanFrequencyHours   string   `json:"scan_frequency_hours,omitempty"`
-	SearchDirs           []string `json:"search_dirs,omitempty"`
-	EnableNPMScan        *bool    `json:"enable_npm_scan,omitempty"`
-	EnableBrewScan       *bool    `json:"enable_brew_scan,omitempty"`
-	EnablePythonScan     *bool    `json:"enable_python_scan,omitempty"`
-	IncludeTCCProtected  *bool    `json:"include_tcc_protected,omitempty"`
-	ColorMode            string   `json:"color_mode,omitempty"`
-	OutputFormat         string   `json:"output_format,omitempty"`
-	HTMLOutputFile       string   `json:"html_output_file,omitempty"`
-	LogLevel             string   `json:"log_level,omitempty"`
-	InstallDir           string   `json:"install_dir,omitempty"`
-	MaxExecutionDuration string   `json:"max_execution_duration,omitempty"`
-	UseLegacyPackageScan *bool    `json:"use_legacy_package_scan,omitempty"`
-	UseLegacyNodeScan    *bool    `json:"use_legacy_node_scan,omitempty"`
-	UseLegacyPythonScan  *bool    `json:"use_legacy_python_scan,omitempty"`
+	CustomerID            string   `json:"customer_id,omitempty"`
+	APIEndpoint           string   `json:"api_endpoint,omitempty"`
+	APIKey                string   `json:"api_key,omitempty"`
+	ScanFrequencyHours    string   `json:"scan_frequency_hours,omitempty"`
+	SearchDirs            []string `json:"search_dirs,omitempty"`
+	EnableNPMScan         *bool    `json:"enable_npm_scan,omitempty"`
+	EnableBrewScan        *bool    `json:"enable_brew_scan,omitempty"`
+	EnablePythonScan      *bool    `json:"enable_python_scan,omitempty"`
+	IncludeTCCProtected   *bool    `json:"include_tcc_protected,omitempty"`
+	IncludeNetworkVolumes *bool    `json:"include_network_volumes,omitempty"`
+	ColorMode             string   `json:"color_mode,omitempty"`
+	OutputFormat          string   `json:"output_format,omitempty"`
+	HTMLOutputFile        string   `json:"html_output_file,omitempty"`
+	LogLevel              string   `json:"log_level,omitempty"`
+	InstallDir            string   `json:"install_dir,omitempty"`
+	MaxExecutionDuration  string   `json:"max_execution_duration,omitempty"`
+	UseLegacyPackageScan  *bool    `json:"use_legacy_package_scan,omitempty"`
+	UseLegacyNodeScan     *bool    `json:"use_legacy_node_scan,omitempty"`
+	UseLegacyPythonScan   *bool    `json:"use_legacy_python_scan,omitempty"`
 }
 
 // userConfigDir returns ~/.stepsecurity — the per-user config location.
@@ -198,6 +208,9 @@ func Load() {
 	}
 	if cfg.IncludeTCCProtected != nil && IncludeTCCProtected == nil {
 		IncludeTCCProtected = cfg.IncludeTCCProtected
+	}
+	if cfg.IncludeNetworkVolumes != nil && IncludeNetworkVolumes == nil {
+		IncludeNetworkVolumes = cfg.IncludeNetworkVolumes
 	}
 	if cfg.ColorMode != "" && ColorMode == "" {
 		ColorMode = cfg.ColorMode
@@ -352,6 +365,22 @@ func RunConfigure() error {
 		existing.IncludeTCCProtected = &v
 	} else {
 		existing.IncludeTCCProtected = nil
+	}
+
+	// Walk macOS network volumes — container-runtime mounts (OrbStack,
+	// Docker Desktop, Colima) among them. Default is to walk them, so this
+	// one is stored only when DISABLED; anything but "false" clears it back
+	// to the default. See docs/macos-tcc-permissions.md.
+	currentVolumes := "true"
+	if existing.IncludeNetworkVolumes != nil && !*existing.IncludeNetworkVolumes {
+		currentVolumes = "false"
+	}
+	volumesInput := promptValue(reader, "Scan macOS network volumes — container mounts; false suppresses the TCC prompt (true/false)", currentVolumes)
+	if strings.EqualFold(strings.TrimSpace(volumesInput), "false") {
+		v := false
+		existing.IncludeNetworkVolumes = &v
+	} else {
+		existing.IncludeNetworkVolumes = nil
 	}
 
 	// Color mode
@@ -545,6 +574,7 @@ func ShowConfigure() {
 	fmt.Printf("  %-24s %s\n", "Enable Python Scan:", displayBoolScan(cfg.EnablePythonScan))
 	fmt.Printf("  %-24s %s\n", "Legacy Python Scan:", displayBoolScan(cfg.UseLegacyPythonScan))
 	fmt.Printf("  %-24s %s\n", "Scan TCC-Protected Dirs:", displayTCC(cfg.IncludeTCCProtected))
+	fmt.Printf("  %-24s %s\n", "Scan Network Volumes:", displayNetworkVolumes(cfg.IncludeNetworkVolumes))
 	fmt.Printf("  %-24s %s\n", "Color Mode:", displayColorMode(cfg.ColorMode))
 	fmt.Printf("  %-24s %s\n", "Output Format:", displayOutputFormat(cfg.OutputFormat))
 	if cfg.OutputFormat == "html" {
@@ -653,6 +683,16 @@ func displayTCC(v *bool) string {
 		return "true (scanning TCC-protected dirs)"
 	}
 	return "false (default — TCC-protected dirs skipped)"
+}
+
+// displayNetworkVolumes renders the macOS network-volume toggle. nil/true
+// both mean the default (walk them — container mounts stay in the
+// inventory); false means skip them to suppress the TCC prompt.
+func displayNetworkVolumes(v *bool) string {
+	if v != nil && !*v {
+		return "false (network volumes skipped — no TCC prompt, no container inventory)"
+	}
+	return "true (default — network volumes scanned)"
 }
 
 func isPlaceholder(v string) bool {

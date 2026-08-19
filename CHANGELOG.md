@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [Unreleased]
+
+### Added
+
+- **macOS network-volume scan toggle and PPPC pre-approval path** (#177): container runtimes expose the guest filesystem through mounts macOS classifies as *network volumes* (OrbStack's `~/OrbStack`, Docker Desktop and Colima shares), so the first scan that walks one fires a `SystemPolicyNetworkVolumes` prompt naming a process the developer doesn't recognize. That walk stays **on by default** — it is what inventories npm and Python packages inside dev containers, supply-chain surface nothing else covers — but MDM fleets now have both ways out. `include_network_volumes: false` (config) or `--no-include-network-volumes` (CLI) skips every non-local mount, enumerated from the kernel mount table via `getfsstat` rather than a hard-coded path list, so a newly installed runtime is covered without an agent change; the run then logs exactly which mounts it gave up. Alternatively `packaging/macos/stepsecurity-dev-machine-guard-tcc.mobileconfig` pre-answers the prompt for the whole fleet (allow *or* deny) alongside the existing Full Disk Access grant — that route needs a fixed system-wide install path, since PPPC identifiers can't express `$HOME`, and `docs/macos-tcc-permissions.md` now carries the migration steps for a fleet already deployed per-user.
+
 ## [1.15.0] - 2026-08-03
 
 ### Added
