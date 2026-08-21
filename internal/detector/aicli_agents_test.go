@@ -416,6 +416,12 @@ func runAICLICase(t *testing.T, tc aicliCase) {
 
 	allowed := aicliAllowedGlobs(home, goos)
 	for _, pattern := range rec.globs {
+		// versionmeta's dpkg source globs one <tool>:<arch>.list per candidate.
+		// Matched by prefix since the tool name varies per case; it reads the
+		// package database and launches nothing.
+		if strings.HasPrefix(pattern, "/var/lib/dpkg/info/") {
+			continue
+		}
 		if !allowed[pattern] {
 			t.Errorf("unexpected Glob(%q); the ladders may only glob the targeted install trees", pattern)
 		}
