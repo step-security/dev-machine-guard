@@ -10,6 +10,11 @@
 // would happen, so version probes can skip the exec (reporting "unknown")
 // instead of triggering it. This generalizes the existing IsAppleCLTStub
 // guard (which prevents the analogous Command Line Tools install prompt).
+//
+// On Linux the cause differs and the effect is the same: a packaged Electron
+// app does not implement --version (only the unpackaged `electron` binary's
+// default app does), so the flag is ignored and its window opens on the user's
+// desktop. Reported by an Ubuntu 22.04 customer via LM Studio.
 package execguard
 
 import (
@@ -24,7 +29,7 @@ import (
 const probeTimeout = 5 * time.Second
 
 // SafeToExec reports whether launching binaryPath is safe from a
-// GUI-popup perspective. Non-macOS platforms always return true.
+// GUI-popup perspective. Windows always returns true.
 //
 // On macOS it resolves symlinks, then checks the binary and its containing
 // directory for the com.apple.quarantine attribute (cask installs quarantine
@@ -37,19 +42,62 @@ const probeTimeout = 5 * time.Second
 // Both probes execute only Apple-provided utilities (/usr/bin/xattr,
 // /usr/sbin/spctl), which carry none of the third-party-binary risk this
 // package exists to avoid.
+//
+// On Linux it answers whether the binary is an Electron app's GUI entry point,
+// purely from stats.
 func SafeToExec(ctx context.Context, exec executor.Executor, binaryPath string) bool {
-	if exec.GOOS() != model.PlatformDarwin || binaryPath == "" {
+	if binaryPath == "" {
 		return true
 	}
 	resolved, err := exec.EvalSymlinks(binaryPath)
 	if err != nil || resolved == "" {
 		resolved = binaryPath
 	}
-	if !isQuarantined(ctx, exec, resolved) && !isQuarantined(ctx, exec, parentDir(resolved)) {
+
+	switch exec.GOOS() {
+	case model.PlatformLinux:
+		return !isElectronAppEntryPoint(exec, resolved)
+	case model.PlatformDarwin:
+		if !isQuarantined(ctx, exec, resolved) && !isQuarantined(ctx, exec, parentDir(resolved)) {
+			return true
+		}
+		_, _, exitCode, err := exec.RunWithTimeout(ctx, probeTimeout, "/usr/sbin/spctl", "--assess", "--type", "execute", resolved)
+		return err == nil && exitCode == 0
+	default:
 		return true
 	}
-	_, _, exitCode, err := exec.RunWithTimeout(ctx, probeTimeout, "/usr/sbin/spctl", "--assess", "--type", "execute", resolved)
-	return err == nil && exitCode == 0
+}
+
+// electronBundleMarkers are files an Electron app ships beside its executable
+// and nothing else ships: the packed app archive and the Chromium runtime.
+var electronBundleMarkers = []string{
+	"resources/app.asar",
+	"libffmpeg.so",
+	"chrome_100_percent.pak",
+	"icudtl.dat",
+}
+
+// isElectronAppEntryPoint reports whether resolved is the GUI executable at
+// the root of an Electron app tree.
+//
+// Only the binary's OWN directory is examined, which is what separates the app
+// from its CLI: /usr/share/code/code sits beside libffmpeg.so, while the shim
+// at /usr/share/code/bin/code does not. Checking the parent too — as the macOS
+// quarantine probe must, since cask installs mark whole trees — would reject
+// exactly the shims we need.
+//
+// Electron-only is deliberate: a GTK or Qt app on $PATH needs its own signal.
+func isElectronAppEntryPoint(exec executor.Executor, resolved string) bool {
+	dir := parentDir(resolved)
+	if dir == "" {
+		return false
+	}
+	for _, marker := range electronBundleMarkers {
+		if exec.FileExists(dir + "/" + marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // isQuarantined reports whether path carries the com.apple.quarantine
