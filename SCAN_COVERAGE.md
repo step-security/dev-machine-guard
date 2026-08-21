@@ -138,10 +138,17 @@ Only user-installed plugins are reported by default. Use `--include-bundled-plug
 
 | Platform | Detection Method                                                                |
 |----------|---------------------------------------------------------------------------------|
-| macOS    | Scans `features/` and `dropins/` within the Eclipse app bundle                  |
+| macOS    | Scans `features/` and `dropins/` within the Eclipse app bundle, plus `features/` in the p2 shared bundle pool (`~/.p2/pool` by default) |
 | Windows  | Multi-stage: detected IDE paths, well-known paths, registry, drive letter probes; validates with `.ini` + `plugins/` + `configuration/`; uses p2 director and `bundles.info` for feature lists |
 
-Plugins are classified as `bundled`, `marketplace`, or `dropins` based on their location and bundle ID prefix.
+Installs created by the Eclipse Installer keep their units in a shared p2 bundle
+pool rather than under the app bundle — `features/` is absent and `plugins/`
+holds only the launcher. The pool is located from `eclipse.p2.data.area` in
+`configuration/config.ini`, falling back to `~/.p2/pool`. Only feature groups
+are reported, so each installed product is one entry rather than the dozens of
+OSGi bundles it ships.
+
+Plugins are classified as `bundled`, `marketplace`, or `dropins` based on their location and bundle ID prefix. On Windows, bundled units are filtered out of the report unless `--include-bundled-plugins` is passed.
 
 ### Xcode Extensions (macOS only)
 
