@@ -73,7 +73,8 @@ func main() {
 		os.Exit(aiagentscli.RunHook(os.Stdin, os.Stdout, os.Stderr, os.Args[2:]))
 	}
 
-	// Load persisted config (~/.stepsecurity/config.json) before parsing CLI
+	// Load persisted config (config.json from the install dir, falling back
+	// to ~/.stepsecurity — see internal/config.readConfigDir) before parsing CLI
 	config.Load()
 
 	cfg, err := cli.Parse(os.Args[1:])
@@ -643,8 +644,9 @@ func scanJSONEncoder(w io.Writer) *json.Encoder {
 // findLegacyLeftovers checks the legacy ~/.stepsecurity dir for agent
 // files the operator may have moved (intentionally) to a new install
 // dir. Returns basenames of present diagnostic files (config.json is
-// excluded — it must stay at the legacy path as the bootstrap, so its
-// presence there is expected and not a leftover to migrate).
+// excluded — loaders keep a compatibility copy refreshed there for
+// binaries that predate the binary-relative config lookup, so its
+// presence is expected and not a leftover to migrate).
 func findLegacyLeftovers(legacy string) []string {
 	candidates := []string{
 		"agent.error.log",

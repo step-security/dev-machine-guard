@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/bgpriority"
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
 	"github.com/step-security/dev-machine-guard/internal/cli"
 	"github.com/step-security/dev-machine-guard/internal/config"
@@ -380,6 +381,12 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	fmt.Fprintf(os.Stderr, "==========================================\n")
 	fmt.Fprintf(os.Stderr, "StepSecurity Device Agent v%s\n", buildinfo.Version)
 	fmt.Fprintf(os.Stderr, "==========================================\n\n")
+
+	// Drop to background CPU/IO priority before the lock and the first phase
+	// so the whole scan — and every child process it spawns — stays out of
+	// the interactive user's way. After StartCapture so the line lands in
+	// the downloadable execution log. Community scan.Run stays foreground.
+	bgpriority.Apply(exec, log)
 
 	// Acquire lock
 	lk, err := lock.Acquire(exec)
@@ -1261,6 +1268,12 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 	fmt.Fprintln(os.Stderr)
 	log.Progress("Telemetry collection completed successfully")
+	// Fresh snapshot (not finalStatusInfo, which predates the upload phase)
+	// so sleep during the upload is counted too.
+	if s := tracker.Snapshot(); s.SleptMs > 0 {
+		log.Progress("Note: system slept ~%s during this run — reported durations exclude sleep",
+			(time.Duration(s.SleptMs) * time.Millisecond).Round(time.Second))
+	}
 	tccSkipper.LogHits(log.Debug)
 
 	// Final progress post — AFTER the upload and the completion lines above —

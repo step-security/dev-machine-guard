@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [Unreleased]
+
+### Added
+
+- **Telemetry scans run at OS background priority**: at the start of every enterprise scan the agent drops itself — and, on macOS and Linux, every child process it spawns — into the platform's background CPU/IO band (macOS `PRIO_DARWIN_BG`, the Time Machine/Spotlight tier; Linux `nice 19` plus best-effort ionice priority 7; Windows below-normal priority class plus background IO/memory mode), so disk-heavy phases no longer compete with the interactive user. Every mechanism is throttled-but-guaranteed-progress, never an idle-only class that could starve under sustained load, and the existing per-phase budgets and scan deadline bound the worst case. Interactive community `scan` runs are unaffected. Per-device escape hatch: `STEPSEC_DISABLE_BACKGROUND_PRIORITY=1`.
+- **config.json travels with the install dir**: the agent now resolves config.json binary-relative first — next to the binary, then one directory up (the loader layout is `<install_dir>/bin/<binary>` with `<install_dir>/config.json`) — before the legacy `~/.stepsecurity` fallback, and `configure`-style writes follow the file that was read. Combined with the loader change that writes config.json into the install directory (keeping a legacy compatibility copy refreshed for older binaries), a custom Install Directory now holds the binary, logs, state, and configuration in one tree instead of leaving config.json behind in the user home. Default installs are byte-identical (the binary already lives under `~/.stepsecurity/bin`).
+- **Sleep-spanning runs are detected and reported**: when the machine sleeps mid-scan, wall-clock and monotonic elapsed time diverge (the monotonic clock halts during sleep on macOS/Linux); the agent now reports that divergence as `slept_ms` per completed phase and per run in run-status heartbeats and the final telemetry payload, and logs "system slept ~Xm" warnings plus a run-summary note. Report-only — phase durations stay monotonic (actual work time) and the scan is never aborted. Divergence under 60 seconds is ignored to absorb NTP clock steps.
+
 ## [1.16.0] - 2026-08-20
 
 ### Added

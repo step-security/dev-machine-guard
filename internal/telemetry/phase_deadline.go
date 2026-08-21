@@ -109,5 +109,8 @@ func endPhase(phaseCtx context.Context, cancel context.CancelFunc,
 		log.Warn("phase %s exceeded budget %s — continuing with partial results", name, budget)
 	}
 	cancel()
-	tracker.Finish()
+	if pc, finished := tracker.Finish(); finished && pc.SleptMs > 0 {
+		log.Warn("system slept ~%s during phase %s — reported durations exclude sleep",
+			(time.Duration(pc.SleptMs) * time.Millisecond).Round(time.Second), name)
+	}
 }

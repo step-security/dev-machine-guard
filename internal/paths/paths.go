@@ -18,10 +18,11 @@
 // the operator to re-run `install`. The env var stays as a defensive
 // fallback for the rare case where config.json is unreadable.
 //
-// config.json itself stays at the legacy location regardless — see
-// internal/config.LegacyDir — so the agent can always bootstrap. All
-// other files (logs, hook errors, the binary placed by the loader) live
-// under Home().
+// config.json itself is resolved separately (binary-relative install
+// dir first, legacy ~/.stepsecurity as the fallback — see
+// internal/config's readConfigDir); this package governs every other
+// file (logs, hook errors, the binary placed by the loader), which
+// live under Home().
 package paths
 
 import (

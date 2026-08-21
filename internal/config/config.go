@@ -24,7 +24,7 @@ var (
 	OutputFormat        string // "" means default (pretty)
 	HTMLOutputFile      string // "" means not set
 	LogLevel            string // "" means default (info); one of error/warn/info/debug
-	InstallDir          string // "" means default (~/.stepsecurity); non-empty makes the agent put all its files (logs, hook errors, future state) under this directory. Bootstrap config.json itself stays at the legacy location. Per-run opt-out is the CLI flag --install-dir=. Resolution: --install-dir flag > STEPSECURITY_HOME env > this field > default — see internal/paths.
+	InstallDir          string // "" means default (~/.stepsecurity); non-empty makes the agent put all its files (logs, hook errors, future state) under this directory. config.json itself is resolved binary-relative first (the loader writes it into the install dir next to bin/), falling back to the legacy location — see readConfigDir. Per-run opt-out is the CLI flag --install-dir=. Resolution: --install-dir flag > STEPSECURITY_HOME env > this field > default — see internal/paths.
 	// UseLegacyPackageScan, when true, disables the scan-state delta-upload
 	// optimization for npm and Python project scans — every run re-uploads
 	// the full snapshot as in pre-1.13 agents.
@@ -102,10 +102,46 @@ func userConfigDir() string {
 // as the logged-in user — the two never share a $HOME, so config has to
 // live somewhere both can read. C:\ProgramData is that place.
 
+// executablePath is a seam for tests; production value is os.Executable.
+var executablePath = os.Executable
+
+// exeAdjacentConfigDir returns the directory of a config.json that lives in
+// the running binary's install tree: the binary's own directory, then its
+// parent (the loader layout is <install_dir>/bin/<binary> with config.json at
+// <install_dir>/config.json). This is what lets a custom Install Directory
+// carry the configuration along with the binary instead of pinning it to
+// ~/.stepsecurity — the binary always knows its own path, so there is no
+// bootstrap chicken-and-egg. Empty when neither location holds a config.json
+// or the executable path can't be resolved (then the legacy chain applies).
+// Symlinks on the executable are resolved so a symlinked binary still finds
+// its real install tree.
+func exeAdjacentConfigDir() string {
+	exe, err := executablePath()
+	if err != nil || exe == "" {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil && resolved != "" {
+		exe = resolved
+	}
+	exeDir := filepath.Dir(exe)
+	for _, dir := range []string{exeDir, filepath.Dir(exeDir)} {
+		if _, err := os.Stat(filepath.Join(dir, "config.json")); err == nil {
+			return dir
+		}
+	}
+	return ""
+}
+
 // readConfigDir returns the directory we should READ config from.
-// Prefers machine-wide if a config exists there (so an MSI-deployed install
-// is visible even when the scanner runs as an unprivileged user).
+// Binary-relative first (config travels with the install dir — for the
+// default install this resolves to ~/.stepsecurity anyway, since the binary
+// sits in ~/.stepsecurity/bin). Then machine-wide if a config exists there
+// (so an MSI-deployed install is visible even when the scanner runs as an
+// unprivileged user). Then the per-user legacy location.
 func readConfigDir() string {
+	if ead := exeAdjacentConfigDir(); ead != "" {
+		return ead
+	}
 	if mcd := machineConfigDir(); mcd != "" {
 		if _, err := os.Stat(filepath.Join(mcd, "config.json")); err == nil {
 			return mcd
@@ -115,10 +151,17 @@ func readConfigDir() string {
 }
 
 // writeConfigDir returns the directory we should WRITE config to.
-// Elevated/admin/SYSTEM context → machine-wide (Windows only). Otherwise
-// per-user. This is what makes `configure` invoked from an MSI custom
-// action put the config where the scheduled task can later read it.
+// Write where we read: once a config.json exists in the binary's install
+// tree, configure/persist updates must target that same file — otherwise a
+// divergent copy appears at the legacy path and the next read (binary-
+// relative first) never sees the update. Absent that: elevated/admin/SYSTEM
+// context → machine-wide (Windows only), else per-user. This is what makes
+// `configure` invoked from an MSI custom action put the config where the
+// scheduled task can later read it.
 func writeConfigDir() string {
+	if ead := exeAdjacentConfigDir(); ead != "" {
+		return ead
+	}
 	if isElevated() {
 		if mcd := machineConfigDir(); mcd != "" {
 			return mcd
@@ -140,9 +183,11 @@ func WriteConfigFilePath() string {
 }
 
 // LegacyDirName is the basename of the per-user agent directory under
-// $HOME. config.json always lives here so the agent can bootstrap;
-// other files (logs, hook errors, the binary) may be relocated via the
-// resolved install dir — see internal/paths.
+// $HOME. It is the config.json FALLBACK: the primary copy travels with the
+// install dir (see exeAdjacentConfigDir), and loaders with a custom install
+// dir keep a compatibility copy here refreshed on every tick for binaries
+// that predate the binary-relative lookup. Other files (logs, hook errors,
+// the binary) relocate via the resolved install dir — see internal/paths.
 const LegacyDirName = ".stepsecurity"
 
 // LegacyDir returns the per-user agent directory (~/.stepsecurity), used
