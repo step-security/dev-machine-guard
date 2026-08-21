@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/execguard"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
@@ -336,10 +337,7 @@ func (d *IDEDetector) detectLinux(ctx context.Context, spec ideSpec) (model.IDE,
 	if spec.LinuxBinary != "" {
 		binPath, err := d.exec.LookPath(spec.LinuxBinary)
 		if err == nil {
-			version := "unknown"
-			if spec.VersionFlag != "" {
-				version = runVersionCmd(ctx, d.exec, binPath, spec.VersionFlag)
-			}
+			version := d.resolveLinuxVersionFromBinary(ctx, spec, binPath)
 			return model.IDE{
 				IDEType: spec.IDEType, Version: version, InstallPath: binPath,
 				Vendor: spec.Vendor, IsInstalled: true,
@@ -377,17 +375,24 @@ func (d *IDEDetector) resolveLinuxVersion(ctx context.Context, spec ideSpec, ins
 		return v
 	}
 
+	// product-info.json at the root of the install dir (JetBrains, some Electron apps)
+	if v := readJSONVersion(d.exec, filepath.Join(installDir, "product-info.json")); v != "unknown" {
+		return v
+	}
+
+	// .eclipseproduct at the root (Eclipse)
+	if v := readEclipseProductVersion(d.exec, filepath.Join(installDir, ".eclipseproduct")); v != "unknown" {
+		return v
+	}
+
+	// Exec last, and only the CLI shim. `<installDir>/<LinuxBinary>` is the
+	// Electron GUI binary for every VS Code fork (/opt/Cursor/cursor launches
+	// Cursor; the CLI is bin/cursor), so it is no longer a candidate.
 	if spec.LinuxBinary != "" && spec.VersionFlag != "" {
-		// Try binary inside the detected install directory first
-		for _, relBin := range []string{
-			filepath.Join("bin", spec.LinuxBinary),
-			spec.LinuxBinary,
-		} {
-			localBin := filepath.Join(installDir, relBin)
-			if d.exec.FileExists(localBin) {
-				if v := runVersionCmd(ctx, d.exec, localBin, spec.VersionFlag); v != "unknown" {
-					return v
-				}
+		localBin := filepath.Join(installDir, "bin", spec.LinuxBinary)
+		if d.exec.FileExists(localBin) {
+			if v := runVersionCmd(ctx, d.exec, localBin, spec.VersionFlag); v != "unknown" {
+				return v
 			}
 		}
 
@@ -399,17 +404,50 @@ func (d *IDEDetector) resolveLinuxVersion(ctx context.Context, spec ideSpec, ins
 		}
 	}
 
-	// product-info.json at the root of the install dir (JetBrains, some Electron apps)
-	if v := readJSONVersion(d.exec, filepath.Join(installDir, "product-info.json")); v != "unknown" {
-		return v
-	}
-
-	// .eclipseproduct at the root (Eclipse)
-	if v := readEclipseProductVersion(d.exec, filepath.Join(installDir, ".eclipseproduct")); v != "unknown" {
-		return v
-	}
-
 	return "unknown"
+}
+
+// resolveLinuxVersionFromBinary versions an IDE found only as a name on
+// $PATH, where no install directory matched and so no metadata path is known
+// up front. It recovers one by walking up to the install root, and execs only
+// if that finds nothing — previously it went straight to `<binary> --version`,
+// the same launch-it-sight-unseen shape as the LM Studio bug.
+func (d *IDEDetector) resolveLinuxVersionFromBinary(ctx context.Context, spec ideSpec, binPath string) string {
+	if root, ok := d.linuxInstallRootFromBinary(binPath); ok {
+		return d.resolveLinuxVersion(ctx, spec, root)
+	}
+	if spec.VersionFlag == "" {
+		return "unknown"
+	}
+	return runVersionCmd(ctx, d.exec, binPath, spec.VersionFlag)
+}
+
+// linuxInstallRootFromBinary walks up from a resolved binary looking for the
+// directory carrying an IDE's version metadata: /usr/bin/code symlinks to
+// /usr/share/code/bin/code, two levels below its resources/app/package.json.
+// Bounded, so a binary outside any install tree costs a handful of stats.
+func (d *IDEDetector) linuxInstallRootFromBinary(binPath string) (string, bool) {
+	resolved, err := d.exec.EvalSymlinks(binPath)
+	if err != nil || resolved == "" {
+		resolved = binPath
+	}
+	dir := filepath.Dir(resolved)
+	for i := 0; i < maxLinuxInstallRootDepth; i++ {
+		if dir == "" || dir == "/" || dir == "." {
+			return "", false
+		}
+		for _, marker := range []string{
+			filepath.Join(dir, "resources", "app", "package.json"),
+			filepath.Join(dir, "product-info.json"),
+			filepath.Join(dir, ".eclipseproduct"),
+		} {
+			if d.exec.FileExists(marker) {
+				return dir, true
+			}
+		}
+		dir = filepath.Dir(dir)
+	}
+	return "", false
 }
 
 func (d *IDEDetector) detectWindows(ctx context.Context, spec ideSpec) (model.IDE, bool) {
@@ -553,8 +591,18 @@ func (d *IDEDetector) resolveInstallDir(resolved string) (string, bool) {
 	return newest, true
 }
 
+// maxLinuxInstallRootDepth covers the deepest real layout
+// (/usr/share/code/bin/code -> /usr/share/code is two, Toolbox one more).
+const maxLinuxInstallRootDepth = 3
+
 // runVersionCmd runs a binary with a version flag and extracts the first line.
+// Guarded by execguard — every spec in this table names a desktop application,
+// so on Linux it refuses an Electron app's entry point and on macOS a
+// Gatekeeper-rejected quarantined binary.
 func runVersionCmd(ctx context.Context, exec executor.Executor, binary, flag string) string {
+	if !execguard.SafeToExec(ctx, exec, binary) {
+		return "unknown"
+	}
 	stdout, _, _, err := exec.RunWithTimeout(ctx, 10*time.Second, binary, flag)
 	if err != nil {
 		return "unknown"

@@ -3,8 +3,10 @@ package detector
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
 func TestFrameworkDetector_FindsOllama(t *testing.T) {
@@ -144,5 +146,99 @@ func TestFrameworkDetector_Windows_FindsOllama(t *testing.T) {
 	}
 	if !found {
 		t.Error("ollama not found")
+	}
+}
+
+// noExecMock turns any subprocess into a test failure. On Linux the whole
+// lm-studio path (LookPath, version, /proc liveness) is filesystem reads, so
+// a single exec is the regression.
+type noExecMock struct {
+	*executor.Mock
+	t *testing.T
+}
+
+func (m *noExecMock) Run(_ context.Context, name string, args ...string) (string, string, int, error) {
+	m.t.Fatalf("unexpected exec: %s %v", name, args)
+	return "", "", -1, nil
+}
+
+func (m *noExecMock) RunWithTimeout(ctx context.Context, _ time.Duration, name string, args ...string) (string, string, int, error) {
+	return m.Run(ctx, name, args...) //nolint:contextcheck // trap, never reaches a real command
+}
+
+// The reported machine: the .deb's launcher on PATH, symlinked into the
+// electron-builder install root.
+func linuxLMStudioMock(t *testing.T) *noExecMock {
+	t.Helper()
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetHomeDir("/home/dev")
+	mock.SetPath("lm-studio", "/usr/bin/lm-studio")
+	mock.SetSymlink("/usr/bin/lm-studio", "/opt/LM Studio/lm-studio")
+	return &noExecMock{Mock: mock, t: t}
+}
+
+func findTool(results []model.AITool, name string) (model.AITool, bool) {
+	for _, r := range results {
+		if r.Name == name {
+			return r, true
+		}
+	}
+	return model.AITool{}, false
+}
+
+func TestFrameworkDetector_LMStudioLinuxIsNeverLaunched(t *testing.T) {
+	mock := linuxLMStudioMock(t)
+
+	results := NewFrameworkDetector(mock).Detect(context.Background())
+
+	tool, ok := findTool(results, "lm-studio")
+	if !ok {
+		t.Fatal("suppressing the exec must not suppress the detection")
+	}
+	if tool.Version != "unknown" {
+		t.Errorf("version = %q, want unknown", tool.Version)
+	}
+	if tool.BinaryPath != "/usr/bin/lm-studio" {
+		t.Errorf("binary_path = %q, want /usr/bin/lm-studio", tool.BinaryPath)
+	}
+}
+
+// Still recoverable without launching anything: dpkg records both the file
+// list and the version of the .deb that installed the launcher.
+func TestFrameworkDetector_LMStudioLinuxVersionFromDpkg(t *testing.T) {
+	mock := linuxLMStudioMock(t)
+	mock.SetFile("/var/lib/dpkg/info/lm-studio.list", []byte(
+		"/opt\n/opt/LM Studio\n/opt/LM Studio/lm-studio\n/usr/bin/lm-studio\n"))
+	mock.SetFile("/var/lib/dpkg/status", []byte(
+		"Package: lm-studio\nStatus: install ok installed\nVersion: 0.3.31-1\nArchitecture: amd64\n\n"))
+
+	results := NewFrameworkDetector(mock).Detect(context.Background())
+
+	tool, ok := findTool(results, "lm-studio")
+	if !ok {
+		t.Fatal("lm-studio not found")
+	}
+	if tool.Version != "0.3.31" {
+		t.Errorf("version = %q, want 0.3.31 (upstream part of 0.3.31-1)", tool.Version)
+	}
+}
+
+// GUIApp is opt-in per entry: ollama is a real CLI and must still be exec'd.
+func TestFrameworkDetector_OllamaStillExecsOnLinux(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetHomeDir("/home/dev")
+	mock.SetPath("ollama", "/usr/local/bin/ollama")
+	mock.SetCommand("ollama version is 0.5.13\n", "", 0, "/usr/local/bin/ollama", "--version")
+
+	results := NewFrameworkDetector(mock).Detect(context.Background())
+
+	tool, ok := findTool(results, "ollama")
+	if !ok {
+		t.Fatal("ollama not found")
+	}
+	if tool.Version != "0.5.13" {
+		t.Errorf("version = %q, want 0.5.13", tool.Version)
 	}
 }

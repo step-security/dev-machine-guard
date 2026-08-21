@@ -76,8 +76,25 @@ Binaries are found via `$PATH` lookup (cross-platform). LM Studio is additionall
 |-----------------------|------------|---------------------------------------------------------------------------------|
 | Ollama                | `ollama`   | Checks if process is running                                                    |
 | LocalAI               | `local-ai` | Checks if process is running                                                    |
-| LM Studio             | `lm-studio`| GUI: `/Applications/LM Studio.app` (macOS) or `%LOCALAPPDATA%\Programs\LM Studio` (Windows) |
+| LM Studio             | `lm-studio`| GUI: `/Applications/LM Studio.app` (macOS), `%LOCALAPPDATA%\Programs\LM Studio` (Windows), `~/.local/share/LM Studio` or `/opt/LM Studio` (Linux). Never executed for its version — see below |
 | Text Generation WebUI | `textgen`  | Checks if process is running                                                    |
+
+### Version probes never launch a desktop app
+
+`lm-studio` names the desktop application's launcher, not a CLI (LM Studio's CLI is a
+separate binary, `lms`). A packaged Electron app does not implement `--version`, so probing
+it that way opens the app's window instead of printing a version. Its version therefore comes
+only from on-disk metadata — the macOS bundle `Info.plist`, the Windows uninstall registry, or
+on Linux the dpkg entry for the `.deb`, the snap manifest, or the version in an AppImage
+filename — and reads `unknown` when none of those resolve. The tool is still reported as
+installed either way.
+
+This is also enforced generically: before any version probe execs a binary, the agent checks
+whether it is a packaged Electron app's entry point, which is visible on disk
+(`resources/app.asar` and the Chromium runtime sit beside the executable; a CLI shim's
+directory holds neither). On macOS the equivalent check is Gatekeeper quarantine assessment.
+A refused probe reports `unknown`. Only Electron apps are detected — a GTK or Qt application
+on `$PATH` is not.
 
 ## MCP Configuration Sources
 

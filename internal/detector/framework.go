@@ -16,13 +16,24 @@ type frameworkSpec struct {
 	Name        string
 	BinaryName  string
 	ProcessName string
+
+	// GUIApp marks a binary that is the desktop app itself rather than a CLI,
+	// suppressing the --version exec fallback in getVersion: with no on-disk
+	// source the tool reports "unknown" instead of being launched.
+	//
+	// A packaged Electron app does not implement --version (only the
+	// unpackaged `electron` binary's default_app does), so the flag is ignored
+	// and the app boots — reported by an Ubuntu 22.04 customer whose scan
+	// opened LM Studio's window.
+	GUIApp bool
 }
 
 var frameworkDefinitions = []frameworkSpec{
-	{"ollama", "ollama", "ollama"},
-	{"localai", "local-ai", "local-ai"},
-	{"lm-studio", "lm-studio", "lm-studio"},
-	{"text-generation-webui", "textgen", "textgen"},
+	{Name: "ollama", BinaryName: "ollama", ProcessName: "ollama"},
+	{Name: "localai", BinaryName: "local-ai", ProcessName: "local-ai"},
+	// `lm-studio` is the desktop app's launcher; the CLI is a separate binary, `lms`.
+	{Name: "lm-studio", BinaryName: "lm-studio", ProcessName: "lm-studio", GUIApp: true},
+	{Name: "text-generation-webui", BinaryName: "textgen", ProcessName: "textgen"},
 }
 
 // FrameworkDetector detects AI frameworks and runtimes.
@@ -53,7 +64,7 @@ func (d *FrameworkDetector) Detect(ctx context.Context) []model.AITool {
 			continue
 		}
 
-		version := d.getVersion(ctx, binaryPath)
+		version := d.getVersion(ctx, spec, binaryPath)
 		isRunning := isProcessRunning(ctx, d.exec, spec.ProcessName)
 
 		results = append(results, model.AITool{
@@ -84,12 +95,18 @@ func (d *FrameworkDetector) Detect(ctx context.Context) []model.AITool {
 	return results
 }
 
-func (d *FrameworkDetector) getVersion(ctx context.Context, binaryPath string) string {
+func (d *FrameworkDetector) getVersion(ctx context.Context, spec frameworkSpec, binaryPath string) string {
 	// Static-first, exec-last (AGENTS.md §3.4). Bonus: skipping exec also
 	// avoids the daemon-warning-decorated output some frameworks (ollama)
 	// prepend to --version.
 	if v := versionmeta.FromBinary(ctx, d.exec, binaryPath); v != "" {
 		return v
+	}
+	// No exec step for a GUI app: "unknown" is the floor (§3.4), and the tool
+	// is still reported as installed.
+	if spec.GUIApp {
+		d.log.Debug("skipping %s version probe: GUI application, --version would launch it", binaryPath)
+		return "unknown"
 	}
 	if !execguard.SafeToExec(ctx, d.exec, binaryPath) {
 		d.log.Warn("skipping %s version probe: quarantined and rejected by Gatekeeper", binaryPath)
@@ -124,6 +141,9 @@ func (d *FrameworkDetector) detectLMStudioApp(ctx context.Context) (model.AITool
 		homeDir := getHomeDir(d.exec)
 		for _, candidate := range []string{
 			filepath.Join(homeDir, ".local", "share", "LM Studio"),
+			// electron-builder's .deb installs to /opt/<productName>; the
+			// lowercase path is what community repackagings use.
+			"/opt/LM Studio",
 			"/opt/lm-studio",
 		} {
 			if d.exec.DirExists(candidate) {
