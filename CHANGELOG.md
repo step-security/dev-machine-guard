@@ -23,6 +23,10 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 - **config.json travels with the install dir**: the agent now resolves config.json binary-relative first — next to the binary, then one directory up (the loader layout is `<install_dir>/bin/<binary>` with `<install_dir>/config.json`) — before the legacy `~/.stepsecurity` fallback, and `configure`-style writes follow the file that was read. Combined with the loader change that writes config.json into the install directory (keeping a legacy compatibility copy refreshed for older binaries), a custom Install Directory now holds the binary, logs, state, and configuration in one tree instead of leaving config.json behind in the user home. Default installs are byte-identical (the binary already lives under `~/.stepsecurity/bin`).
 - **Sleep-spanning runs are detected and reported**: when the machine sleeps mid-scan, wall-clock and monotonic elapsed time diverge (the monotonic clock halts during sleep on macOS/Linux); the agent now reports that divergence as `slept_ms` per completed phase and per run in run-status heartbeats and the final telemetry payload, and logs "system slept ~Xm" warnings plus a run-summary note. Report-only — phase durations stay monotonic (actual work time) and the scan is never aborted. Divergence under 60 seconds is ignored to absorb NTP clock steps.
 
+### Fixed
+
+- **Tool lookups no longer hang on interactive zsh prompts**: the per-tool `which` login shells (AI CLI detection and friends) could block forever when a user's rc files hit an interactive read — seen in the field as a scan stuck on `which claude` because zsh compinit's "insecure directories … continue [y] or abort [n]?" prompt read the terminal the agent inherited. Two-layer fix: every Unix child now runs in its own session with no controlling terminal (`Setsid`), so TTY prompts can't block; and user-PATH tool resolution is native Go — the login shell is spawned once per run to capture `$PATH`, then every lookup is a stat against those directories instead of its own rc-sourcing shell.
+
 ## [1.16.0] - 2026-08-20
 
 ### Added
