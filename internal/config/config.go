@@ -74,6 +74,22 @@ var (
 // telemetry.ExecutionDeadline.
 var MaxExecutionDuration string
 
+// AutoUpdate opts the binary into self-updating on scheduler-fired runs
+// (see internal/selfupdate). Written as `auto_update: true` by the
+// auto-loader install flow when it registers the scheduler to launch the
+// binary directly; version-pinned installs and manual runs never set it, so
+// they can never drift off their pin. Default false.
+var AutoUpdate bool
+
+// UpdateLagBehind / UpdateCooldownHours carry a script-baked update-policy
+// override into the binary-periodic flow (the loader persists them at
+// install; the loader-periodic flow sends them itself as query params).
+// 0 means no override — the tenant-wide policy applies server-side.
+var (
+	UpdateLagBehind     int
+	UpdateCooldownHours int
+)
+
 // ConfigFile is the JSON structure persisted to ~/.stepsecurity/config.json.
 type ConfigFile struct {
 	CustomerID            string   `json:"customer_id,omitempty"`
@@ -95,6 +111,9 @@ type ConfigFile struct {
 	UseLegacyPackageScan  *bool    `json:"use_legacy_package_scan,omitempty"`
 	UseLegacyNodeScan     *bool    `json:"use_legacy_node_scan,omitempty"`
 	UseLegacyPythonScan   *bool    `json:"use_legacy_python_scan,omitempty"`
+	AutoUpdate            *bool    `json:"auto_update,omitempty"`
+	UpdateLagBehind       int      `json:"update_lag_behind,omitempty"`
+	UpdateCooldownHours   int      `json:"update_cooldown_hours,omitempty"`
 }
 
 // userConfigDir returns ~/.stepsecurity — the per-user config location.
@@ -301,6 +320,15 @@ func Load() {
 	}
 	if cfg.UseLegacyPythonScan != nil {
 		UseLegacyPythonScan = *cfg.UseLegacyPythonScan
+	}
+	if cfg.AutoUpdate != nil {
+		AutoUpdate = *cfg.AutoUpdate
+	}
+	if cfg.UpdateLagBehind > 0 && UpdateLagBehind == 0 {
+		UpdateLagBehind = cfg.UpdateLagBehind
+	}
+	if cfg.UpdateCooldownHours > 0 && UpdateCooldownHours == 0 {
+		UpdateCooldownHours = cfg.UpdateCooldownHours
 	}
 }
 

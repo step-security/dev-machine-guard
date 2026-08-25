@@ -33,6 +33,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/rungate"
 	"github.com/step-security/dev-machine-guard/internal/scan"
 	"github.com/step-security/dev-machine-guard/internal/schtasks"
+	"github.com/step-security/dev-machine-guard/internal/selfupdate"
 	"github.com/step-security/dev-machine-guard/internal/systemd"
 	"github.com/step-security/dev-machine-guard/internal/tcc"
 	"github.com/step-security/dev-machine-guard/internal/telemetry"
@@ -271,6 +272,12 @@ func main() {
 			log.Error("Enterprise configuration not found. Run '%s configure' or download the script from your StepSecurity dashboard.", os.Args[0])
 			os.Exit(1)
 		}
+		// Self-update BEFORE the run gate so a gated-skip tick still keeps
+		// the binary current, exactly like the loader-periodic flow updated
+		// on every tick regardless of whether a scan ran. No-op unless the
+		// install opted in (config auto_update, written by the auto-loader);
+		// a swapped binary takes effect on the NEXT scheduled fire.
+		selfupdate.Run(context.Background(), exec, log)
 		// Server-driven run gate: exit 0 quietly when the backend says this
 		// invocation isn't due (or another instance is mid-scan). Sits before
 		// the watchdog and telemetry.Run so a skipped wakeup posts no beacon,
