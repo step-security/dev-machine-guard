@@ -55,6 +55,8 @@ func readSSHString(r *bytes.Reader) ([]byte, error) {
 
 func appendSSHString(dst, s []byte) []byte {
 	var n [4]byte
+	// #nosec G115 -- inputs are protocol strings we compose ourselves
+	// (namespace, hash name, a 64-byte digest), always far below uint32.
 	binary.BigEndian.PutUint32(n[:], uint32(len(s)))
 	return append(append(dst, n[:]...), s...)
 }

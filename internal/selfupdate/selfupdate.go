@@ -134,6 +134,8 @@ func Run(ctx context.Context, exec executor.Executor, log *progress.Logger) bool
 		log.Warn("self-update: downloaded binary checksum mismatch (got %.12s, want %.12s) — discarding", got, meta.Checksum)
 		return false
 	}
+	// #nosec G302 -- this IS the agent executable being installed; it must
+	// carry the same 0755 the loaders have always set on the binary.
 	if err := os.Chmod(tmp, 0o755); err != nil {
 		log.Warn("self-update: chmod failed: %v", err)
 		return false
@@ -225,18 +227,20 @@ func downloadAsset(ctx context.Context, version, exe string) (string, error) {
 		return "", err
 	}
 	if _, err := io.Copy(f, resp.Body); err != nil {
-		f.Close()
-		os.Remove(f.Name())
+		_ = f.Close()
+		_ = os.Remove(f.Name())
 		return "", err
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(f.Name())
+		_ = os.Remove(f.Name())
 		return "", err
 	}
 	return f.Name(), nil
 }
 
 func fileSHA256(path string) (string, error) {
+	// #nosec G304 -- path is the agent's own resolved executable or the
+	// temp download it just created; never user or network input.
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -257,5 +261,5 @@ func writeVersionMarker(version string) {
 	if home == "" {
 		return
 	}
-	_ = os.WriteFile(filepath.Join(home, ".current_version"), []byte(version+"\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(home, ".current_version"), []byte(version+"\n"), 0o600)
 }
