@@ -17,6 +17,7 @@ package selfupdate
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
@@ -106,7 +108,12 @@ func Run(ctx context.Context, exec executor.Executor, log *progress.Logger) bool
 	// The signature covers the checksum string exactly as the release
 	// pipeline signed it (no trailing newline; the loaders verify the same
 	// bytes). A bad or missing signature aborts BEFORE any download.
-	if err := verifySSHSig(meta.SignedChecksum, []byte(meta.Checksum), allowedReleaseKeyB64, signatureNamespace); err != nil {
+	armored, err := decodeSignedChecksum(meta.SignedChecksum)
+	if err != nil {
+		log.Warn("self-update: signed_checksum for v%s is malformed: %v", meta.Version, err)
+		return false
+	}
+	if err := verifySSHSig(armored, []byte(meta.Checksum), allowedReleaseKeyB64, signatureNamespace); err != nil {
 		log.Warn("self-update: checksum signature verification failed for v%s: %v", meta.Version, err)
 		return false
 	}
@@ -236,6 +243,33 @@ func downloadAsset(ctx context.Context, version, exe string) (string, error) {
 		return "", err
 	}
 	return f.Name(), nil
+}
+
+// decodeSignedChecksum recovers the multi-line armored SSHSIG block from the
+// API's signed_checksum field, which is base64-wrapped so the armored block
+// survives single-line JSON transport (the shell loaders undo the same layer
+// with `base64 -D` before handing it to ssh-keygen). A value that already
+// carries the armor header is accepted as-is, so a future backend that stops
+// double-encoding keeps working.
+func decodeSignedChecksum(s string) (string, error) {
+	if strings.Contains(s, sigArmorBegin) {
+		return s, nil
+	}
+	compact := strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == ' ' || r == '\t' {
+			return -1
+		}
+		return r
+	}, s)
+	decoded, err := base64.StdEncoding.DecodeString(compact)
+	if err != nil {
+		return "", fmt.Errorf("base64-decode transport wrapper: %w", err)
+	}
+	armored := string(decoded)
+	if !strings.Contains(armored, sigArmorBegin) {
+		return "", fmt.Errorf("decoded signed_checksum is not an armored SSH signature block")
+	}
+	return armored, nil
 }
 
 func fileSHA256(path string) (string, error) {

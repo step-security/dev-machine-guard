@@ -2,6 +2,7 @@ package selfupdate
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -63,7 +64,10 @@ func stageSeams(t *testing.T, metaJSON, assetBody string) (string, *atomic.Int32
 }
 
 func validMeta() string {
-	return `{"version":"9.9.9","checksum":"` + fixturePayloadChecksum + `","signed_checksum":` + jsonString(fixturePayloadSig) + `}`
+	// signed_checksum is base64-wrapped on the wire (single-line JSON
+	// transport of the multi-line armored block), matching the real API.
+	wrapped := base64.StdEncoding.EncodeToString([]byte(fixturePayloadSig))
+	return `{"version":"9.9.9","checksum":"` + fixturePayloadChecksum + `","signed_checksum":"` + wrapped + `"}`
 }
 
 // jsonString encodes s as a JSON string literal (the signature is multi-line).
