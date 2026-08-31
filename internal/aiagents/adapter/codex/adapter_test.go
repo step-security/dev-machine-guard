@@ -477,8 +477,8 @@ func TestInstallCreatesHooksAndFeatureFlag(t *testing.T) {
 	if !ok {
 		t.Fatalf("features table missing: %v", cfgMap)
 	}
-	if features["codex_hooks"] != true {
-		t.Errorf("codex_hooks not true: %v", features)
+	if features["hooks"] != true {
+		t.Errorf("hooks not true: %v", features)
 	}
 
 	// InstallResult tracks both files written under root chown.
@@ -539,8 +539,8 @@ other_flag = true
 	if features["other_flag"] != true {
 		t.Errorf("unrelated features key lost: %v", features)
 	}
-	if features["codex_hooks"] != true {
-		t.Errorf("codex_hooks not enabled: %v", features)
+	if features["hooks"] != true {
+		t.Errorf("hooks not enabled: %v", features)
 	}
 }
 
@@ -732,16 +732,25 @@ enabled = true
 		`sandbox = "workspace-write"`,
 		"[telemetry]",
 		"enabled = true",
-		"codex_hooks = true",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("expected %q in output; got: %s", want, s)
 		}
 	}
-	// Order: telemetry must still come AFTER features (which now contains codex_hooks).
+	// New `hooks = true` key must be present under [features], asserted structurally.
+	cfgMap := readTOML(t, cfg)
+	features, ok := cfgMap["features"].(map[string]any)
+	if !ok {
+		t.Fatalf("features table missing: %v", cfgMap)
+	}
+	if features["hooks"] != true {
+		t.Errorf("hooks not true under [features]: %v", features)
+	}
+	// Order: telemetry must still come AFTER features (which now contains hooks).
+	// Anchor to start-of-line so the substring can't match a `codex_hooks` legacy line.
 	featIdx := strings.Index(s, "[features]")
 	telIdx := strings.Index(s, "[telemetry]")
-	chIdx := strings.Index(s, "codex_hooks")
+	chIdx := strings.Index(s, "\nhooks = true")
 	if !(featIdx < chIdx && chIdx < telIdx) {
 		t.Errorf("table order disturbed: %s", s)
 	}
@@ -777,7 +786,7 @@ func TestInstallSecondInstallIsByteStableNoOp(t *testing.T) {
 
 func TestInstallNoOpDoesNotRewriteConfigTOML(t *testing.T) {
 	a, _, _, cfg := withCodexFiles(t, "", `[features]
-codex_hooks = true
+hooks = true
 sandbox = "workspace-write"
 `)
 	original, _ := os.ReadFile(cfg)
@@ -928,7 +937,7 @@ func TestUninstallPreservesHooksJSONUserKeyOrder(t *testing.T) {
 }
 
 func TestUninstallLeavesFeatureFlagEnabled(t *testing.T) {
-	// Uninstall must NOT revert `[features].codex_hooks = true`. Other
+	// Uninstall must NOT revert `[features].hooks = true`. Other
 	// tools may have wired up their own hooks that depend on it being on.
 	a, _, _, cfg := newCodexHome(t)
 	if _, err := a.Install(context.Background()); err != nil {
@@ -942,7 +951,7 @@ func TestUninstallLeavesFeatureFlagEnabled(t *testing.T) {
 	if !ok {
 		t.Fatalf("features table missing after uninstall: %v", cfgMap)
 	}
-	if features["codex_hooks"] != true {
-		t.Errorf("codex_hooks was reverted on uninstall: %v", features)
+	if features["hooks"] != true {
+		t.Errorf("hooks was reverted on uninstall: %v", features)
 	}
 }
