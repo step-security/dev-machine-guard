@@ -185,6 +185,38 @@ var rules = []rule{
 		re:    regexp.MustCompile(`(?i)\b([A-Z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY))\s*[:=]\s*("?)([^\s"'#]+)`),
 		group: 3,
 	},
+	// Same shape but allows a narrow set of cryptographic suffixes after
+	// the secret-word (passwordHash, apiKeyDigest, accessTokenHmac, ...).
+	// Suffix list is intentionally tight to avoid grabbing innocuous names
+	// like `passwordless`, `tokenize`, or `secretary`. A password hash or
+	// HMAC is still credential-grade — leaking either feeds offline attacks.
+	{
+		name:  "secret_assignment_crypto_suffix",
+		re:    regexp.MustCompile(`(?i)\b([A-Z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY)_?(?:HASH(?:ED|ES)?|DIGEST|HMAC|CIPHER|ENCRYPTED|SIGNATURES?|SALT(?:ED)?))\s*[:=]\s*("?)([^\s"'#]+)`),
+		group: 3,
+	},
+	// Slack incoming-webhook URLs. The /services/<team>/<bot>/<token>
+	// (and /workflows/<team>/<wf>/<step>/<token>) path is effectively a
+	// credential — anyone holding the URL can post. Greedy on the trailing
+	// path so the longer workflows variant matches too.
+	{
+		name: "slack_webhook_url",
+		re:   regexp.MustCompile(`\bhttps://hooks\.slack\.com/(?:services|workflows)/[A-Za-z0-9_/\-]+`),
+	},
+	// Discord webhook URLs. Token is the last path segment (≥60 chars).
+	// Covers discord.com, discordapp.com, and the canary/ptb subdomains.
+	{
+		name: "discord_webhook_url",
+		re:   regexp.MustCompile(`\bhttps?://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/(?:v\d+/)?webhooks/\d+/[A-Za-z0-9_\-]{60,}\b`),
+	},
+	// Microsoft Teams / Power Automate incoming-webhook URLs. Several
+	// tenant-specific subdomain shapes (<tenant>.webhook.office.com,
+	// outlook.office.com); the path segments past /webhook/ carry the
+	// rotating secret.
+	{
+		name: "teams_webhook_url",
+		re:   regexp.MustCompile(`\bhttps://(?:[a-z0-9-]+\.)?(?:webhook\.office|outlook\.office)\.com/(?:webhook(?:b2)?|services/[^/\s]+/IncomingWebhook)/[A-Za-z0-9@/_\-]+\b`),
+	},
 	// JSON-shaped key/value pairs, e.g. "api_key": "abc".
 	{
 		name:  "secret_json_field",
