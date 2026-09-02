@@ -154,11 +154,37 @@ func exeAdjacentConfigDir() string {
 	}
 	exeDir := filepath.Dir(exe)
 	for _, dir := range []string{exeDir, filepath.Dir(exeDir)} {
-		if _, err := os.Stat(filepath.Join(dir, "config.json")); err == nil {
+		if isAgentConfigFile(filepath.Join(dir, "config.json")) {
 			return dir
 		}
 	}
 	return ""
+}
+
+// isAgentConfigFile reports whether path holds a StepSecurity agent config —
+// valid JSON with at least one of the agent's identity keys. "config.json" is
+// a generic filename: a binary run from ~/Downloads (or any directory whose
+// parent happens to hold an unrelated config.json) must NOT adopt that file —
+// reads would silently miss the real config at the legacy path, and worse,
+// configure/persist writes would OVERWRITE the unrelated file. Identity keys
+// only (not scan tunables): every loader-, MSI- and configure-written config
+// carries at least one of these.
+func isAgentConfigFile(path string) bool {
+	// #nosec G304 -- path is derived from the agent's own executable location.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var probe struct {
+		CustomerID  string `json:"customer_id"`
+		APIKey      string `json:"api_key"`
+		APIEndpoint string `json:"api_endpoint"`
+		InstallDir  string `json:"install_dir"`
+	}
+	if json.Unmarshal(data, &probe) != nil {
+		return false
+	}
+	return probe.CustomerID != "" || probe.APIKey != "" || probe.APIEndpoint != "" || probe.InstallDir != ""
 }
 
 // readConfigDir returns the directory we should READ config from.

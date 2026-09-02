@@ -178,3 +178,63 @@ func TestRun_RequiresOptInAndHonorsKillSwitch(t *testing.T) {
 		t.Errorf("downloads = %d, want 0 when disabled", downloads.Load())
 	}
 }
+
+func TestRun_RefusesDowngradeBelowSelfUpdateFloor(t *testing.T) {
+	// A release gate capping the tenant below minSelfUpdateVersion must not
+	// let a binary-periodic install downgrade itself into a binary with no
+	// self-update code (= no update path at all). The floor check runs
+	// before signature verification and before any download.
+	meta := `{"version":"1.16.0","checksum":"` + fixturePayloadChecksum + `","signed_checksum":"ZHVtbXk="}`
+	exe, downloads := stageSeams(t, meta, fixturePayload)
+
+	if Run(context.Background(), executor.NewMock(), progress.NewLogger(progress.LevelInfo)) {
+		t.Fatal("Run() = true for a below-floor downgrade")
+	}
+	if downloads.Load() != 0 {
+		t.Errorf("downloads = %d, want 0 (floor must gate the download)", downloads.Load())
+	}
+	got, _ := os.ReadFile(exe)
+	if string(got) != "old-binary-content\n" {
+		t.Error("binary was replaced despite the self-update floor")
+	}
+}
+
+func TestVersionBelow(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"1.16.0", "1.17.0", true},
+		{"1.17.0", "1.17.0", false},
+		{"1.17.1", "1.17.0", false},
+		{"1.18.0", "1.17.0", false},
+		{"2.0.0", "1.17.0", false},
+		{"1.9.9", "1.17.0", true},
+		{"v1.16.0", "1.17.0", true},
+		{"1.17.0-rc1", "1.17.0", false},
+		{"1.17", "1.17.0", false},
+		{"garbage", "1.17.0", true}, // unparseable = 0.0.0 = refuse (fail safe)
+		{"", "1.17.0", true},
+	}
+	for _, tc := range cases {
+		if got := versionBelow(tc.a, tc.b); got != tc.want {
+			t.Errorf("versionBelow(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+func TestVerifySSHSig_OverlappingArmorMarkersDoNotPanic(t *testing.T) {
+	// Regression: the END marker can match INSIDE the BEGIN marker's
+	// trailing dashes ("-----BEGIN SSH SIGNATURE-----END SSH SIGNATURE-----"
+	// finds END at offset 24 < len(BEGIN)); slicing with that index paniced.
+	crafted := []string{
+		"-----BEGIN SSH SIGNATURE-----END SSH SIGNATURE-----",
+		"-----BEGIN SSH SIGNATUREEND SSH SIGNATURE-----",
+		"-----END SSH SIGNATURE---------BEGIN SSH SIGNATURE-----",
+	}
+	for _, s := range crafted {
+		if err := verifySSHSig(s, []byte("msg"), fixtureKeyB64, signatureNamespace); err == nil {
+			t.Errorf("verifySSHSig(%q) = nil error, want rejection", s)
+		}
+	}
+}

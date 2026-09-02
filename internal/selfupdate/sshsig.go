@@ -67,7 +67,11 @@ func appendSSHString(dst, s []byte) []byte {
 func verifySSHSig(armored string, message []byte, allowedKeyB64, namespace string) error {
 	beg := strings.Index(armored, sigArmorBegin)
 	end := strings.Index(armored, sigArmorEnd)
-	if beg == -1 || end == -1 || end < beg {
+	// The END marker must start at or after the END of the BEGIN marker —
+	// the two markers share the "-----" run, so a crafted blob like
+	// "-----BEGIN SSH SIGNATUREEND SSH SIGNATURE-----" can make END match
+	// inside BEGIN's tail; slicing with that index would panic.
+	if beg == -1 || end == -1 || end < beg+len(sigArmorBegin) {
 		return fmt.Errorf("not an armored SSH signature block")
 	}
 	b64 := strings.Map(func(r rune) rune {

@@ -47,6 +47,15 @@ const (
 	downloadTimeout = 5 * time.Minute
 	maxMetaBytes    = 64 << 10
 	binaryName      = "stepsecurity-dev-machine-guard"
+
+	// minSelfUpdateVersion is the first release that ships this package.
+	// Self-update refuses to install anything OLDER: on a binary-periodic
+	// install (scheduler fires the binary directly, no loader tick) a
+	// downgrade below this floor would land a binary with no self-update
+	// code and no other update mechanism — permanently frozen. A backend
+	// that wants such a fleet on an older release must go through a loader
+	// re-push, which re-installs script-periodic scheduling for it.
+	minSelfUpdateVersion = "1.17.0"
 )
 
 // releaseBaseURL / executablePath / allowedReleaseKeyB64 are vars so tests
@@ -102,6 +111,12 @@ func Run(ctx context.Context, exec executor.Executor, log *progress.Logger) bool
 	meta, err := fetchLatestBinary(ctx)
 	if err != nil {
 		log.Warn("self-update: check failed (%v) — continuing on v%s", err, buildinfo.Version)
+		return false
+	}
+
+	if versionBelow(meta.Version, minSelfUpdateVersion) {
+		log.Warn("self-update: backend resolves v%s, below the self-update floor v%s — refusing (a downgrade past the floor would strand this install with no update path); staying on v%s",
+			meta.Version, minSelfUpdateVersion, buildinfo.Version)
 		return false
 	}
 
@@ -238,11 +253,50 @@ func downloadAsset(ctx context.Context, version, exe string) (string, error) {
 		_ = os.Remove(f.Name())
 		return "", err
 	}
+	// Flush data blocks to disk before the caller renames this over the live
+	// executable: on a power loss, journaled-metadata filesystems can persist
+	// the rename without the data, leaving a truncated binary that the
+	// scheduler then execs directly (no loader tick exists to re-download).
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return "", err
+	}
 	if err := f.Close(); err != nil {
 		_ = os.Remove(f.Name())
 		return "", err
 	}
 	return f.Name(), nil
+}
+
+// versionBelow reports whether semver a is strictly lower than b. Plain
+// numeric field-by-field compare; missing fields count as 0, non-numeric
+// suffixes are ignored ("1.17.0-rc1" compares as 1.17.0). Unparseable
+// versions compare as 0.0.0 — i.e. below the floor, which fails safe (the
+// update is refused, the current binary keeps running and polling).
+func versionBelow(a, b string) bool {
+	parse := func(s string) [3]int {
+		var out [3]int
+		s = strings.TrimPrefix(strings.TrimSpace(s), "v")
+		for i, part := range strings.SplitN(s, ".", 3) {
+			n := 0
+			for _, r := range part {
+				if r < '0' || r > '9' {
+					break
+				}
+				n = n*10 + int(r-'0')
+			}
+			out[i] = n
+		}
+		return out
+	}
+	va, vb := parse(a), parse(b)
+	for i := 0; i < 3; i++ {
+		if va[i] != vb[i] {
+			return va[i] < vb[i]
+		}
+	}
+	return false
 }
 
 // decodeSignedChecksum recovers the multi-line armored SSHSIG block from the

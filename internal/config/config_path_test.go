@@ -24,7 +24,7 @@ func stageInstallTree(t *testing.T) (root, exe string) {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte("{}"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"customer_id":"acme"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return root, filepath.Join(binDir, "stepsecurity-dev-machine-guard")
@@ -50,7 +50,7 @@ func TestReadConfigDir_PrefersInstallTreeParentOfBin(t *testing.T) {
 func TestReadConfigDir_PrefersConfigBesideBinary(t *testing.T) {
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "stepsecurity-dev-machine-guard")
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte("{}"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"customer_id":"acme"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	setExecutablePath(t, exe)
@@ -127,5 +127,37 @@ func TestExeAdjacentConfigDir_ExecutableErrorIsEmpty(t *testing.T) {
 
 	if got := exeAdjacentConfigDir(); got != "" {
 		t.Errorf("exeAdjacentConfigDir() = %q, want empty on executable error", got)
+	}
+}
+
+// An unrelated file that happens to be NAMED config.json next to the binary
+// (e.g. the binary was copied to ~/Downloads) must not be adopted: reads fall
+// through to the legacy chain, and writes must never target (= overwrite) the
+// foreign file.
+func TestExeAdjacentConfig_RejectsForeignConfigJSON(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "stepsecurity-dev-machine-guard")
+	if err := os.WriteFile(exe, []byte("bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := `{"name":"someone-elses-app","port":8080}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(foreign), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	setExecutablePath(t, exe)
+
+	if got := exeAdjacentConfigDir(); got != "" {
+		t.Errorf("exeAdjacentConfigDir() = %q, want \"\" for a foreign config.json", got)
+	}
+	if got := writeConfigDir(); got == dir {
+		t.Errorf("writeConfigDir() = %q — would overwrite the foreign config.json", got)
+	}
+
+	// Malformed JSON is likewise refused.
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := exeAdjacentConfigDir(); got != "" {
+		t.Errorf("exeAdjacentConfigDir() = %q, want \"\" for malformed config.json", got)
 	}
 }
