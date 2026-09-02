@@ -51,6 +51,8 @@ func apply() (string, error) {
 			niceCovered++
 		}
 		ioprio := uintptr(ioprioClassBE<<ioprioClassShift | ioprioBELowest)
+		// #nosec G115 -- tid parses from a /proc/self/task entry name: a
+		// positive kernel thread id, always far below uintptr's range.
 		if _, _, errno := syscall.Syscall(syscall.SYS_IOPRIO_SET, ioprioWhoProcess, uintptr(tid), ioprio); errno == 0 {
 			ioCovered++
 		}
@@ -78,6 +80,7 @@ func applyToThread(tid int) (string, error) {
 		parts = append(parts, "nice 19")
 	}
 	ioprio := uintptr(ioprioClassBE<<ioprioClassShift | ioprioBELowest)
+	// #nosec G115 -- tid is 0 (calling thread) on this fallback path.
 	_, _, errno := syscall.Syscall(syscall.SYS_IOPRIO_SET, ioprioWhoProcess, uintptr(tid), ioprio)
 	if errno == 0 {
 		parts = append(parts, "ionice best-effort 7")
