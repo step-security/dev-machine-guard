@@ -50,10 +50,15 @@ Detection is cross-platform — binaries are located via `$PATH` lookup and home
 | Pi                    | Earendil  | `pi`                        | `~/.pi/agent`                   |
 | Factory Droid         | Factory   | `droid`                     | `~/.factory`                    |
 | Amp                   | Sourcegraph| `amp`                      | `~/.config/amp`                 |
+| Grok Build            | xAI       | `grok`                      | `~/.grok`                       |
+| Kimi Code             | Moonshot  | `kimi`                      | `~/.kimi-code`                  |
+| Muse Code             | Meta      | `muse`                      | `~/.config/muse`                |
+| Hermes Agent          | Nous Research | `hermes`                | `~/AppData/Local/hermes`, `~/.hermes` |
+| Oh My Pi              | Stencil   | `omp`                       | `~/.omp/agent`                  |
 
 † `gh copilot` launches this same `@github/copilot` CLI, downloading it into gh's own data directory when it isn't already on `$PATH` — so that install never lands on `$PATH`. After the two binary names miss, Copilot is also looked for at `~/.local/share/gh/copilot/copilot`, `~/.local/bin/copilot`, `~/AppData/Local/GitHub CLI/copilot/copilot`, `~/AppData/Local/Microsoft/WinGet/Links/copilot.exe`, `~/AppData/Roaming/npm/copilot.cmd`, and the `gh-copilot` extension directory under both `~/.local/share/gh/extensions` and `~/AppData/Local/GitHub CLI/extensions`. A non-default `$XDG_DATA_HOME` is not followed, and WinGet's hashed `Packages\GitHub.Copilot_<hash>\` payload directory is not globbed — only its `Links` shim.
 
-Pi, Factory Droid and Amp share their binary names with unrelated popular tools, so a `$PATH` hit alone does not report them — each is confirmed from an on-disk artifact (a package manifest, an installer anchor directory, a Homebrew cask root, a winget or pacman package entry), and is searched for in the common global-install prefixes as well as on `$PATH`. Pi and Amp are never executed because macOS Gatekeeper prompts on their binaries; their versions come from disk or are reported as `unknown`.
+Pi, Factory Droid, Amp, Grok Build, Kimi Code, Muse Code, Hermes Agent and Oh My Pi share their binary names with unrelated popular tools, so a `$PATH` hit alone does not report them — each is confirmed from an on-disk artifact (a package manifest, an installer anchor directory plus a corroborating sidecar, virtualenv or size floor, a Homebrew Cellar or cask root, a winget or pacman package entry), and is searched for in the common global-install prefixes (including mise's Oh My Pi install tree) as well as on `$PATH`. Of these eight, all but Factory Droid are never executed — macOS Gatekeeper prompts on their binaries — so their versions come from disk (a manifest, a versioned filename, a Python `dist-info` directory name, a Homebrew version segment) or are reported as `unknown`. Every winget-installed one reports `unknown`. No agent's config, auth, session or log files are read.
 
 ## General-Purpose AI Agents
 
@@ -99,7 +104,7 @@ On Windows, `~` refers to the user's home directory (`%USERPROFILE%`). Claude De
 
 ## AI Agent Skills
 
-Dev Machine Guard inventories every installed **agent skill** — a directory containing a `SKILL.md` manifest — across Claude Code, Codex, OpenCode, Cursor, Gemini CLI, GitHub Copilot, Pi, Factory, Amp, the cross-agent `~/.agents` convention, and skills installed via [skills.sh](https://skills.sh). It probes each agent's global, system, project, and plugin skill directories; skills.sh lock files add upstream provenance (joined by symlink-resolved path). Detection is pure filesystem reads (no subprocesses), bounded by a 60-second budget and per-root caps.
+Dev Machine Guard inventories every installed **agent skill** — a directory containing a `SKILL.md` manifest — across Claude Code, Codex, OpenCode, Cursor, Gemini CLI, GitHub Copilot, Pi, Factory, Amp, Grok Build (`~/.grok/skills`, `.grok/skills`), Kimi Code (`~/.kimi-code/skills`, `.kimi-code/skills`), Muse Code (`~/.config/muse/skills`), Hermes Agent (`~/.hermes/skills` or `%LOCALAPPDATA%\hermes\skills`, `.hermes/skills`), Oh My Pi (`~/.omp/agent/skills`, `~/.omp/agent/managed-skills`, `.omp/skills`), the cross-agent `~/.agents` convention, and skills installed via [skills.sh](https://skills.sh). It probes each agent's global, system, project, and plugin skill directories; skills.sh lock files add upstream provenance (joined by symlink-resolved path). Detection is pure filesystem reads (no subprocesses), bounded by a 60-second budget and per-root caps.
 
 **Privacy: only metadata and a single SHA-256 hash of each `SKILL.md` are collected — no other file is ever read, and file contents are never transmitted.** The file census (counts, sizes, timestamps) comes entirely from directory listings and `stat`. For skills installed from a local path, the on-disk source path is never serialized — only the skill's alias.
 

@@ -324,6 +324,27 @@ func (d *SkillsDetector) resolveGlobalRoots(info *model.AgentSkillScanInfo) []sk
 	// project-level .agent/skills is factory_agent_project.
 	add(filepath.Join(home, ".agent", "skills"), "factory_agent_user", "factory", "global", "")
 
+	// grok_user / kimi_user / muse_user: each agent's own global root. All
+	// three also read ~/.agents/skills, which stays attributed to agents_user.
+	add(filepath.Join(home, ".grok", "skills"), "grok_user", "grok-build", "global", "")
+	add(filepath.Join(home, ".kimi-code", "skills"), "kimi_user", "kimi-code", "global", "")
+	add(filepath.Join(home, ".config", "muse", "skills"), "muse_user", "muse-code", "global", "")
+
+	// hermes_user: ~/.hermes/skills holds the bundled skills the installer
+	// copies, nested one category deep (<category>/<skill>/SKILL.md), plus
+	// .bundled_manifest and .hub/ metadata that enumerateRoot ignores. Windows
+	// keeps HERMES_HOME under %LOCALAPPDATA%.
+	if win {
+		add(resolveEnvPath(d.exec, `%LOCALAPPDATA%\hermes\skills`), "hermes_user", "hermes-agent", "global", "")
+	} else {
+		add(filepath.Join(home, ".hermes", "skills"), "hermes_user", "hermes-agent", "global", "")
+	}
+
+	// omp_user / omp_managed_user: Oh My Pi's user skills and the managed
+	// skills it syncs, both under its ~/.omp/agent root.
+	add(filepath.Join(home, ".omp", "agent", "skills"), "omp_user", "oh-my-pi", "global", "")
+	add(filepath.Join(home, ".omp", "agent", "managed-skills"), "omp_managed_user", "oh-my-pi", "global", "")
+
 	return roots
 }
 
@@ -357,6 +378,10 @@ func (d *SkillsDetector) resolveProjectRoots(project string, info *model.AgentSk
 	add([]string{".github", "skills"}, "github_project", "copilot")       // only .github/skills, never the rest of .github
 	add([]string{".gemini", "skills"}, "gemini_project", "gemini-cli")
 	add([]string{".aider", "skills"}, "aider_project", "aider") // community convention: loaded manually, but on-disk state is inventoried
+	add([]string{".grok", "skills"}, "grok_project", "grok-build")
+	add([]string{".kimi-code", "skills"}, "kimi_project", "kimi-code")
+	add([]string{".hermes", "skills"}, "hermes_project", "hermes-agent")
+	add([]string{".omp", "skills"}, "omp_project", "oh-my-pi") // Muse has no agent-specific project root; it reads .agents/.codex/.claude
 	return roots
 }
 
@@ -367,16 +392,20 @@ func (d *SkillsDetector) resolveProjectRoots(project string, info *model.AgentSk
 // table is how walkForProjectRoots recognizes a project it was never told about.
 // A change to one MUST change the other.
 var projectMarkerDirs = map[string][]string{
-	".claude":   {"skills"},
-	".agents":   {"skills"},
-	".opencode": {"skills", "skill"}, // both spellings, same as resolveProjectRoots
-	".cursor":   {"skills"},
-	".pi":       {"skills"},
-	".factory":  {"skills"},
-	".agent":    {"skills"}, // singular — Factory legacy, distinct from .agents
-	".github":   {"skills"}, // only .github/skills, never the rest of .github
-	".gemini":   {"skills"}, // Gemini CLI workspace skills
-	".aider":    {"skills"}, // Aider community convention (skills loaded manually)
+	".claude":    {"skills"},
+	".agents":    {"skills"},
+	".opencode":  {"skills", "skill"}, // both spellings, same as resolveProjectRoots
+	".cursor":    {"skills"},
+	".pi":        {"skills"},
+	".factory":   {"skills"},
+	".agent":     {"skills"}, // singular — Factory legacy, distinct from .agents
+	".github":    {"skills"}, // only .github/skills, never the rest of .github
+	".gemini":    {"skills"}, // Gemini CLI workspace skills
+	".aider":     {"skills"}, // Aider community convention (skills loaded manually)
+	".grok":      {"skills"},
+	".kimi-code": {"skills"},
+	".hermes":    {"skills"},
+	".omp":       {"skills"},
 }
 
 // walkForProjectRoots sweeps each search dir for projectMarkerDirs and returns

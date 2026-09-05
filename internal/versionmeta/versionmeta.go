@@ -53,7 +53,7 @@ func FromBinary(ctx context.Context, exec executor.Executor, binaryPath string) 
 
 	if root := packageRoot(exec, resolved); root != "" {
 		name, version := npmManifest(exec, root)
-		if matchesTool(name, base) && isVersionLike(version) {
+		if matchesTool(name, base) && IsVersionLike(version) {
 			return version
 		}
 		// Inside a node_modules tree but the manifest doesn't claim this
@@ -126,7 +126,7 @@ func versionFromVersionsDir(resolved, base string) string {
 		if segments[i] != "versions" {
 			continue
 		}
-		if matchesTool(segments[i-1], base) && isVersionLike(segments[i+1]) {
+		if matchesTool(segments[i-1], base) && IsVersionLike(segments[i+1]) {
 			return segments[i+1]
 		}
 	}
@@ -144,7 +144,7 @@ func versionFromHomebrew(resolved string) string {
 			continue
 		}
 		v := stripHomebrewRevision(segments[i+2])
-		if isVersionLike(v) {
+		if IsVersionLike(v) {
 			return v
 		}
 	}
@@ -170,7 +170,7 @@ func versionFromAppBundle(ctx context.Context, exec executor.Executor, resolved 
 		return ""
 	}
 	v := strings.TrimSpace(stdout)
-	if !isVersionLike(v) {
+	if !IsVersionLike(v) {
 		return ""
 	}
 	return v
@@ -202,10 +202,10 @@ func matchesTool(name, base string) bool {
 	return name == base || strings.HasPrefix(name, base+"-") || strings.HasPrefix(name, base+"@")
 }
 
-// isVersionLike reports whether s looks like a version: optional "v", then a
+// IsVersionLike reports whether s looks like a version: optional "v", then a
 // digit, at least one dot, and only [0-9A-Za-z.+_-] throughout. Rejects
 // Caskroom "version,build" composites — callers fall back to exec for those.
-func isVersionLike(s string) bool {
+func IsVersionLike(s string) bool {
 	s = strings.TrimPrefix(s, "v")
 	if s == "" || s[0] < '0' || s[0] > '9' || !strings.Contains(s, ".") {
 		return false

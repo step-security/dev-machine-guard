@@ -252,7 +252,7 @@ func captureStderr(t *testing.T, fn func()) (out string) {
 // aicliNewSpecs are the specs this file owns. Every case asserts one row for
 // each spec it names in want and ZERO rows for the others, so a fixture built
 // for one agent cannot quietly start reporting another.
-var aicliNewSpecs = []string{"pi", "factory", "amp"}
+var aicliNewSpecs = []string{"pi", "factory", "amp", "grok-build", "kimi-code", "muse-code", "hermes-agent", "oh-my-pi"}
 
 type aicliWant struct {
 	tool      string
@@ -280,6 +280,10 @@ type aicliCase struct {
 	noLookup     []string // no LookPath name may contain these
 	wantDebug    []string
 	noDebug      []string
+	// allowGlobs are the fixture-specific patterns this case may glob on top
+	// of aicliAllowedGlobs: a sibling probe beside an accepted anchor
+	// (grok-*.exe, muse-bin-*) or a venv's dist-info directory.
+	allowGlobs []string
 }
 
 func findAITool(tools []model.AITool, name string) *model.AITool {
@@ -319,6 +323,7 @@ func aicliAllowedGlobs(home, goos string) map[string]bool {
 	allowed[filepath.Join(home, ".nvm", "versions", "node", "*", "bin")] = true
 	allowed[joinPath(home, ".local", "share", "fnm", "node-versions", "*", "installation", "bin")] = true
 	allowed[joinPath(home, ".local", "share", "mise", "installs", "node", "*", "bin")] = true
+	allowed[joinPath(home, ".local", "share", "mise", "installs", "github-can1357-oh-my-pi", "*")] = true
 	allowed[joinPath(home, ".volta", "tools", "image", "packages", "*", "bin")] = true
 	allowed[joinPath(home, ".volta", "tools", "image", "packages", "*", "*", "bin")] = true
 	allowed[joinPath(home, ".asdf", "installs", "nodejs", "*", "bin")] = true
@@ -415,6 +420,9 @@ func runAICLICase(t *testing.T, tc aicliCase) {
 	}
 
 	allowed := aicliAllowedGlobs(home, goos)
+	for _, pattern := range tc.allowGlobs {
+		allowed[pattern] = true
+	}
 	for _, pattern := range rec.globs {
 		if !allowed[pattern] {
 			t.Errorf("unexpected Glob(%q); the ladders may only glob the targeted install trees", pattern)
@@ -1510,10 +1518,11 @@ func TestAICLIAgents_NoWalkAndGlobBudget(t *testing.T) {
 		wantDistinct   int
 		wantTotalGlobs int
 	}{
-		{model.PlatformLinux, 6, 18},
-		{model.PlatformDarwin, 7, 21},
-		{model.PlatformWindows, 2, 6},
+		{model.PlatformLinux, 7, 56},
+		{model.PlatformDarwin, 8, 64},
+		{model.PlatformWindows, 2, 16},
 	}
+	resolvers := len(aicliNewSpecs)
 	for _, tc := range tests {
 		t.Run(tc.goos, func(t *testing.T) {
 			m, home := newAICLIMock(tc.goos)
@@ -1537,8 +1546,8 @@ func TestAICLIAgents_NoWalkAndGlobBudget(t *testing.T) {
 				t.Errorf("distinct patterns: got %d (%v), want %d", len(counts), counts, tc.wantDistinct)
 			}
 			for pattern, n := range counts {
-				if n != 3 {
-					t.Errorf("Glob(%q) called %d times, want 3 (once per resolver)", pattern, n)
+				if n != resolvers {
+					t.Errorf("Glob(%q) called %d times, want %d (once per resolver)", pattern, n, resolvers)
 				}
 			}
 		})

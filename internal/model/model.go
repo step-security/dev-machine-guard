@@ -720,13 +720,15 @@ type AgentSkill struct {
 	HasShellInjection      bool   `json:"has_shell_injection,omitempty"`     // body has !`cmd` / ```! load-time exec
 
 	// Attribution
-	Agent  string `json:"agent"`  // "claude-code"|"codex"|"opencode"|"cursor"|"pi"|"factory"|"amp"|"copilot"|"gemini-cli"|"aider"|"shared"
+	Agent  string `json:"agent"`  // "claude-code"|"codex"|"opencode"|"cursor"|"pi"|"factory"|"amp"|"copilot"|"gemini-cli"|"aider"|"grok-build"|"kimi-code"|"muse-code"|"hermes-agent"|"oh-my-pi"|"shared"
 	Source string `json:"source"` // atomic attribution key. "claude_user"|"claude_project"|
 	//                              // "agents_user"|"agents_project"|"codex_user"|"codex_system"|"codex_admin"|
 	//                              // "opencode_user"|"opencode_project"|"cursor_user"|"cursor_project"|"pi_user"|
 	//                              // "pi_project"|"factory_user"|"factory_project"|"factory_agent_project"|
 	//                              // "factory_agent_user"|"amp_user"|"copilot_user"|"github_project"|
-	//                              // "gemini_user"|"gemini_project"|"aider_project"
+	//                              // "gemini_user"|"gemini_project"|"aider_project"|"grok_user"|"grok_project"|
+	//                              // "kimi_user"|"kimi_project"|"muse_user"|"hermes_user"|"hermes_project"|
+	//                              // "omp_user"|"omp_managed_user"|"omp_project"
 	Scope       string `json:"scope"`                  // "global" | "project" | "system"
 	ProjectPath string `json:"project_path,omitempty"` // project root for project scope
 	PluginName  string `json:"plugin_name,omitempty"`  // owning plugin, from skills.sh lock pluginName

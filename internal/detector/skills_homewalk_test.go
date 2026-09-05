@@ -58,6 +58,10 @@ func TestDetect_HomeWalkMarkerConventions(t *testing.T) {
 		{".github", "skills", "github_project", "copilot"},
 		{".gemini", "skills", "gemini_project", "gemini-cli"},
 		{".aider", "skills", "aider_project", "aider"},
+		{".grok", "skills", "grok_project", "grok-build"},
+		{".kimi-code", "skills", "kimi_project", "kimi-code"},
+		{".hermes", "skills", "hermes_project", "hermes-agent"},
+		{".omp", "skills", "omp_project", "oh-my-pi"},
 	}
 	for _, c := range cases {
 		t.Run(c.markerDir+"/"+c.child, func(t *testing.T) {

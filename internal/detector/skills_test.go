@@ -1227,6 +1227,12 @@ func TestDetect_NewAgentGlobalSources(t *testing.T) {
 		{testHome + "/.factory/skills/facg", "factory_user", "factory"},
 		{testHome + "/.config/agents/skills/ampg", "amp_user", "amp"},
 		{testHome + "/.copilot/skills/copg", "copilot_user", "copilot"},
+		{testHome + "/.grok/skills/grokg", "grok_user", "grok-build"},
+		{testHome + "/.kimi-code/skills/kimig", "kimi_user", "kimi-code"},
+		{testHome + "/.config/muse/skills/museg", "muse_user", "muse-code"},
+		{testHome + "/.hermes/skills/hermg", "hermes_user", "hermes-agent"},
+		{testHome + "/.omp/agent/skills/ompg", "omp_user", "oh-my-pi"},
+		{testHome + "/.omp/agent/managed-skills/ompm", "omp_managed_user", "oh-my-pi"},
 	}
 	m, fs := newSkillsMock()
 	for _, c := range cases {
@@ -1248,12 +1254,39 @@ func TestDetect_NewAgentGlobalSources(t *testing.T) {
 	}
 }
 
+// TestDetect_HermesUserNestedLayout pins Hermes's bundled layout: skills sit one
+// category deep (<category>/<skill>/SKILL.md) beside .bundled_manifest and .hub/
+// metadata, so root_rel_path is two levels and the dot-entries are ignored.
+func TestDetect_HermesUserNestedLayout(t *testing.T) {
+	m, fs := newSkillsMock()
+	fs.addSkill(testHome+"/.hermes/skills/apple/apple-reminders", "SKILL.md", validFrontmatter("apple-reminders", "d"), nil)
+	fs.addFile(testHome+"/.hermes/skills/.bundled_manifest", "{}")
+	fs.addFile(testHome+"/.hermes/skills/.hub/index.json", "{}")
+	fs.commit()
+
+	records, _ := NewSkillsDetector(m).Detect(context.Background(), nil, nil)
+	if len(records) != 1 {
+		t.Fatalf("want exactly the nested skill, got %+v", records)
+	}
+	rec := findSkill(records, "hermes_user", "apple-reminders")
+	if rec == nil {
+		t.Fatalf("hermes_user apple-reminders not found; records=%+v", records)
+	}
+	if rec.Agent != "hermes-agent" || rec.Scope != "global" || rec.RootRelPath != "apple/apple-reminders" {
+		t.Errorf("agent=%q scope=%q root_rel_path=%q, want hermes-agent/global/apple/apple-reminders", rec.Agent, rec.Scope, rec.RootRelPath)
+	}
+}
+
 // TestDetect_NewAgentProjectSources covers the Pi/Factory/GitHub project roots,
 // including Factory's SINGULAR .agent/skills (distinct from the shared .agents).
 func TestDetect_NewAgentProjectSources(t *testing.T) {
 	proj := testHome + "/work/proj"
 	cases := []struct{ rel, source, agent string }{
 		{".pi/skills/pip", "pi_project", "pi"},
+		{".grok/skills/grokp", "grok_project", "grok-build"},
+		{".kimi-code/skills/kimip", "kimi_project", "kimi-code"},
+		{".hermes/skills/hermp", "hermes_project", "hermes-agent"},
+		{".omp/skills/ompp", "omp_project", "oh-my-pi"},
 		{".factory/skills/facp", "factory_project", "factory"},
 		{".agent/skills/facap", "factory_agent_project", "factory"},
 		{".github/skills/ghp", "github_project", "copilot"},

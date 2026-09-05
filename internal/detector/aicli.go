@@ -219,6 +219,76 @@ var cliToolDefinitions = []cliToolSpec{
 		ResolveFunc:       resolveAmp,
 		StaticVersionOnly: true,
 	},
+	{
+		Name:   "grok-build",
+		Vendor: "xAI",
+		// Anchor first so binary_path reports the installer's own link even when
+		// ~/.local/bin/grok or an npm prefix also resolves to it. `agent` is a
+		// second launcher name Grok installs; it is generic and never searched.
+		Binaries: []string{
+			"~/.grok/bin/grok", "~/.grok/bin/grok.exe",
+			"grok", "~/.local/bin/grok",
+			"~/AppData/Roaming/npm/grok.cmd",
+			"~/AppData/Local/Microsoft/WinGet/Links/grok.exe",
+		},
+		ConfigDirs:        []string{"~/.grok"},
+		ResolveFunc:       resolveGrok,
+		StaticVersionOnly: true,
+	},
+	{
+		Name:   "kimi-code",
+		Vendor: "Moonshot",
+		Binaries: []string{
+			"~/.kimi-code/bin/kimi", "~/.kimi-code/bin/kimi.exe",
+			"kimi", "~/.local/bin/kimi",
+			"/opt/homebrew/opt/kimi-code/bin/kimi", "/usr/local/opt/kimi-code/bin/kimi",
+			"/home/linuxbrew/.linuxbrew/opt/kimi-code/bin/kimi",
+			"~/AppData/Roaming/npm/kimi.cmd",
+			"~/AppData/Local/Microsoft/WinGet/Links/kimi.exe",
+		},
+		ConfigDirs:        []string{"~/.kimi-code"},
+		ResolveFunc:       resolveKimi,
+		StaticVersionOnly: true,
+	},
+	{
+		Name:   "muse-code",
+		Vendor: "Meta",
+		Binaries: []string{
+			"~/.local/bin/muse", "muse",
+			"/opt/homebrew/opt/muse-code/bin/muse", // not created by the cask; harmless
+		},
+		ConfigDirs:        []string{"~/.config/muse"},
+		ResolveFunc:       resolveMuse,
+		StaticVersionOnly: true,
+	},
+	{
+		Name:   "hermes-agent",
+		Vendor: "Nous Research",
+		Binaries: []string{
+			"~/.local/bin/hermes", "/usr/local/bin/hermes", "hermes",
+			"/opt/homebrew/opt/hermes-agent/bin/hermes", "/usr/local/opt/hermes-agent/bin/hermes",
+			"/home/linuxbrew/.linuxbrew/opt/hermes-agent/bin/hermes",
+			"~/AppData/Local/hermes/bin/hermes.exe", "~/AppData/Local/hermes/bin/hermes.cmd",
+		},
+		ConfigDirs:        []string{"~/AppData/Local/hermes", "~/.hermes"},
+		ResolveFunc:       resolveHermes,
+		StaticVersionOnly: true,
+	},
+	{
+		Name:   "oh-my-pi",
+		Vendor: "Stencil",
+		Binaries: []string{
+			"omp", "~/.local/bin/omp", "~/.bun/bin/omp", "~/.bun/bin/omp.exe",
+			"/opt/homebrew/opt/omp/bin/omp", "/usr/local/opt/omp/bin/omp",
+			"/home/linuxbrew/.linuxbrew/opt/omp/bin/omp",
+			"~/AppData/Local/omp/omp.exe",
+			"~/AppData/Roaming/npm/omp.cmd",
+			"~/AppData/Local/Microsoft/WinGet/Links/omp.exe",
+		},
+		ConfigDirs:        []string{"~/.omp/agent"},
+		ResolveFunc:       resolveOMP,
+		StaticVersionOnly: true,
+	},
 }
 
 // AICLIDetector detects AI CLI tools.
@@ -468,7 +538,8 @@ func resolveEnvPath(exec executor.Executor, path string) string {
 }
 
 // ---------------------------------------------------------------------------
-// Shared helpers for the ResolveFunc ladders (pi, factory, amp).
+// Shared helpers for the ResolveFunc ladders (pi, factory, amp here; the
+// wave-2 agents in aicli_agents2.go).
 //
 // Every path manipulation below is separator-agnostic, and that is a
 // correctness requirement rather than tidiness: these ladders run against a
@@ -750,6 +821,10 @@ func aiCLIBinaryCandidateDirs(exec executor.Executor, homeDir string) []string {
 		// all that manager needs. The rest are real install trees, globbed.
 		dirs = append(dirs, globDirs(exec, home(".local", "share", "fnm", "node-versions", "*", "installation", "bin"))...)
 		dirs = append(dirs, globDirs(exec, home(".local", "share", "mise", "installs", "node", "*", "bin"))...)
+		// mise's github backend keeps each Oh My Pi release in its own version
+		// dir with the binary at the root; the shim on PATH resolves to the
+		// mise binary itself, so this is the only way that channel is seen.
+		dirs = append(dirs, globDirs(exec, home(".local", "share", "mise", "installs", "github-can1357-oh-my-pi", "*"))...)
 		dirs = append(dirs, globDirs(exec, home(".volta", "tools", "image", "packages", "*", "bin"))...)
 		dirs = append(dirs, globDirs(exec, home(".volta", "tools", "image", "packages", "*", "*", "bin"))...)
 		dirs = append(dirs, globDirs(exec, home(".asdf", "installs", "nodejs", "*", "bin"))...)
