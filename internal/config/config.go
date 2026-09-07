@@ -105,6 +105,21 @@ func userConfigDir() string {
 // readConfigDir returns the directory we should READ config from.
 // Prefers machine-wide if a config exists there (so an MSI-deployed install
 // is visible even when the scanner runs as an unprivileged user).
+// fileOverride, when set, is the exact config.json the process must read,
+// bypassing both the machine-wide and per-user lookups. Set from --config.
+//
+// It exists for one case that has no other answer: an agent running inside a
+// WSL distribution. config.json is pinned to the per-user directory and
+// neither STEPSECURITY_HOME nor --install-dir redirects it, so without this a
+// distro scan needs the tenant key copied into every distro's home. With it
+// the key stays on the Windows host and is read over /mnt/c.
+var fileOverride string
+
+// SetFileOverride pins the config file path. Called before Load(), from a
+// pre-scan of argv — Load() runs before flag parsing, and its
+// already-set-wins semantics make a second Load() a no-op.
+func SetFileOverride(path string) { fileOverride = strings.TrimSpace(path) }
+
 func readConfigDir() string {
 	if mcd := machineConfigDir(); mcd != "" {
 		if _, err := os.Stat(filepath.Join(mcd, "config.json")); err == nil {
@@ -129,6 +144,9 @@ func writeConfigDir() string {
 
 // ConfigFilePath returns the path to the config file (read-preferred).
 func ConfigFilePath() string {
+	if fileOverride != "" {
+		return fileOverride
+	}
 	return filepath.Join(readConfigDir(), "config.json")
 }
 

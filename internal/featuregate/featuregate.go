@@ -25,6 +25,7 @@ const (
 	FeatureYarnConfigAudit Feature = "yarn-config-audit"
 	FeatureDevicePolicy    Feature = "device-policy"
 	FeatureAgentSkillsScan Feature = "agent-skills-scan"
+	FeatureWSLDetection    Feature = "wsl-detection"
 )
 
 // enabled lists features safe to ship today. Uncomment a line once its
@@ -38,6 +39,10 @@ var enabled = map[Feature]bool{
 	FeatureYarnConfigAudit: true,
 	FeatureDevicePolicy:    true,
 	FeatureAgentSkillsScan: true,
+	// Safe to ship ahead of the backend: a backend that does not yet consume
+	// device.wsl ignores the unknown field and still archives the full
+	// telemetry blob.
+	FeatureWSLDetection: true,
 }
 
 var override bool

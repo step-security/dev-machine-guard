@@ -36,6 +36,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/tcc"
 	"github.com/step-security/dev-machine-guard/internal/telemetry"
 	"github.com/step-security/dev-machine-guard/internal/winproc"
+	"github.com/step-security/dev-machine-guard/internal/wslguest"
 )
 
 // auditSkipper builds a TCC skipper if scanning into TCC-protected dirs is
@@ -74,6 +75,11 @@ func main() {
 	}
 
 	// Load persisted config (~/.stepsecurity/config.json) before parsing CLI
+	// --config must be honoured before Load(), which runs ahead of flag
+	// parsing and keeps the first values it reads.
+	if p := cli.ConfigPathFromArgs(os.Args[1:]); p != "" {
+		config.SetFileOverride(p)
+	}
 	config.Load()
 
 	cfg, err := cli.Parse(os.Args[1:])
@@ -689,12 +695,19 @@ func findLegacyLeftovers(legacy string) []string {
 // gate failure returns false (fail-open), so this can never suppress a scan
 // on error.
 func gateSkipsRun(exec executor.Executor, log *progress.Logger, cfg *cli.Config) bool {
-	res := rungate.Evaluate(context.Background(), exec, log, cfg.ForceScan)
+	// A run inside a WSL distro gates under the identity its host gave it, not
+	// under the distro's own (absent) serial.
+	res := rungate.Evaluate(context.Background(), exec, log, cfg.ForceScan,
+		wslguest.DeviceID(cfg.WSLHostSerial, cfg.WSLDistroID))
 	if !res.Skip {
 		log.Progress("Run gate: proceeding with this run (%s)", res.Reason)
 		// Carry the decision into telemetry.Run so it echoes a line inside the
 		// captured execution log (the gate runs before log capture starts).
 		cfg.GateProceedReason = res.Reason
+		// Carry the tenant's WSL switch into the run. Only set on the proceed
+		// path: a skipped run scans nothing at all.
+		cfg.WSLScanEnabled = res.WSL.Enabled
+		cfg.WSLScanReason = res.WSL.Reason
 		return false
 	}
 	if res.Detail != "" {

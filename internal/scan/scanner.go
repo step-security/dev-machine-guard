@@ -55,6 +55,16 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	dev := device.Gather(ctx, exec)
 	log.StepDone(time.Since(start))
 
+	// WSL detection — host-side "is WSL present and actively used" on Windows.
+	// Feature-gated until the backend consumes device.wsl; GatherWSL is a no-op
+	// (nil) off Windows. Populates dev.WSL in place so it flows through Device.
+	if featuregate.IsEnabled(featuregate.FeatureWSLDetection) {
+		log.StepStart("Detecting WSL")
+		start = time.Now()
+		dev.WSL = device.GatherWSL(ctx, exec)
+		log.StepDone(time.Since(start))
+	}
+
 	// Detect IDE installations
 	log.StepStart("Detecting IDE installations")
 	start = time.Now()

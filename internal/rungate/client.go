@@ -39,17 +39,17 @@ const maxDirectiveBytes = 64 << 10
 // response are ignored (the scan path fetches run-config for those in its own
 // phase). Errors are redacted (the URL embeds the customer id and the header
 // carries the tenant key). A near-verbatim sibling of rules/fetch.go.
-func Checkin(ctx context.Context, endpoint, apiKey, customerID, deviceID string, lastRunAt int64) (Directive, error) {
+func Checkin(ctx context.Context, endpoint, apiKey, customerID, deviceID string, lastRunAt int64) (Directive, WSLDirective, error) {
 	endpoint = strings.TrimSpace(endpoint)
 	apiKey = strings.TrimSpace(apiKey)
 	if endpoint == "" || apiKey == "" {
-		return Directive{}, errors.New("rungate: missing endpoint or api key")
+		return Directive{}, WSLDirective{}, errors.New("rungate: missing endpoint or api key")
 	}
 	if strings.TrimSpace(customerID) == "" {
-		return Directive{}, errors.New("rungate: empty customer_id")
+		return Directive{}, WSLDirective{}, errors.New("rungate: empty customer_id")
 	}
 	if strings.TrimSpace(deviceID) == "" {
-		return Directive{}, errors.New("rungate: empty device_id")
+		return Directive{}, WSLDirective{}, errors.New("rungate: empty device_id")
 	}
 
 	target := strings.TrimRight(endpoint, "/") +
@@ -64,7 +64,7 @@ func Checkin(ctx context.Context, endpoint, apiKey, customerID, deviceID string,
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return Directive{}, fmt.Errorf("rungate: build request: %w", err)
+		return Directive{}, WSLDirective{}, fmt.Errorf("rungate: build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Accept", "application/json")
@@ -72,31 +72,37 @@ func Checkin(ctx context.Context, endpoint, apiKey, customerID, deviceID string,
 
 	resp, err := (&http.Client{Timeout: checkinTimeout}).Do(req)
 	if err != nil {
-		return Directive{}, fmt.Errorf("rungate: transport: %s", redact.String(err.Error()))
+		return Directive{}, WSLDirective{}, fmt.Errorf("rungate: transport: %s", redact.String(err.Error()))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, maxDirectiveBytes))
-		return Directive{}, fmt.Errorf("rungate: unexpected status %d: %s",
+		return Directive{}, WSLDirective{}, fmt.Errorf("rungate: unexpected status %d: %s",
 			resp.StatusCode, redact.String(strings.TrimSpace(string(snippet))))
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxDirectiveBytes))
 	if err != nil {
-		return Directive{}, fmt.Errorf("rungate: read body: %w", err)
+		return Directive{}, WSLDirective{}, fmt.Errorf("rungate: read body: %w", err)
 	}
 	var env runConfigEnvelope
 	if err := json.Unmarshal(body, &env); err != nil {
-		return Directive{}, fmt.Errorf("rungate: decode body: %w", err)
+		return Directive{}, WSLDirective{}, fmt.Errorf("rungate: decode body: %w", err)
 	}
 	// A 200 with no scan_directive is an unknown shape (or an older backend
 	// that predates run gating) — surface it as an error so the caller fails
 	// open rather than trusting a zero value.
 	if env.ScanDirective == nil || env.ScanDirective.Mode == "" {
-		return Directive{}, errors.New("rungate: response carried no scan_directive")
+		return Directive{}, WSLDirective{}, errors.New("rungate: response carried no scan_directive")
 	}
-	return *env.ScanDirective, nil
+	// wsl_directive is optional and fails closed: a backend that does not send
+	// it yields the zero value, i.e. distro scanning off.
+	var wsl WSLDirective
+	if env.WSLDirective != nil {
+		wsl = *env.WSLDirective
+	}
+	return *env.ScanDirective, wsl, nil
 }
 
 // skipBeaconTimeout bounds the gated-skip heartbeat POST. Kept short: it is

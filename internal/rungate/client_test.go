@@ -20,7 +20,7 @@ func TestCheckinParsesDirectiveAndSendsParams(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d, err := Checkin(context.Background(), srv.URL, "tenant-key", "acme corp", "SER 123", 1753150000)
+	d, wsl, err := Checkin(context.Background(), srv.URL, "tenant-key", "acme corp", "SER 123", 1753150000)
 	if err != nil {
 		t.Fatalf("Checkin: %v", err)
 	}
@@ -39,6 +39,53 @@ func TestCheckinParsesDirectiveAndSendsParams(t *testing.T) {
 	if gotAuth != "Bearer tenant-key" {
 		t.Errorf("Authorization = %q", gotAuth)
 	}
+	// This fixture carries no wsl_directive: distro scanning must read as off.
+	if wsl.Enabled {
+		t.Error("wsl.Enabled = true with no wsl_directive in the response; must fail closed")
+	}
+}
+
+// TestCheckinParsesWSLDirective covers the sibling block: it rides the same
+// run-config response as scan_directive, so enabling WSL scanning costs no
+// extra request.
+func TestCheckinParsesWSLDirective(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"scan_directive":{"mode":"full","reason":"due"},` +
+			`"wsl_directive":{"enabled":true,"reason":"tenant_opt_in"}}`))
+	}))
+	defer srv.Close()
+
+	d, wsl, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0)
+	if err != nil {
+		t.Fatalf("Checkin: %v", err)
+	}
+	if d.ShouldSkip() {
+		t.Error("scan directive should still proceed")
+	}
+	if !wsl.Enabled || wsl.Reason != "tenant_opt_in" {
+		t.Errorf("wsl directive = %+v, want {true tenant_opt_in}", wsl)
+	}
+}
+
+// TestCheckinWSLDirectiveDisabledIsHonoured: an explicit enabled:false must be
+// read as off, not as "field present so probably on".
+func TestCheckinWSLDirectiveDisabledIsHonoured(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"scan_directive":{"mode":"full","reason":"due"},` +
+			`"wsl_directive":{"enabled":false,"reason":"tenant_opt_out"}}`))
+	}))
+	defer srv.Close()
+
+	_, wsl, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0)
+	if err != nil {
+		t.Fatalf("Checkin: %v", err)
+	}
+	if wsl.Enabled {
+		t.Error("explicit enabled:false must stay off")
+	}
+	if wsl.Reason != "tenant_opt_out" {
+		t.Errorf("reason = %q, want tenant_opt_out", wsl.Reason)
+	}
 }
 
 func TestCheckinOmitsZeroLastRunAt(t *testing.T) {
@@ -49,7 +96,7 @@ func TestCheckinOmitsZeroLastRunAt(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0); err != nil {
+	if _, _, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0); err != nil {
 		t.Fatalf("Checkin: %v", err)
 	}
 	if strings.Contains(gotQuery, "last_run_at") {
@@ -77,7 +124,7 @@ func TestCheckinErrorPaths(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := httptest.NewServer(tt.handler)
 			defer srv.Close()
-			if _, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0); err == nil {
+			if _, _, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0); err == nil {
 				t.Fatal("Checkin must error so the gate fails open")
 			}
 		})
@@ -95,7 +142,7 @@ func TestCheckinRespectsContextDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, err := Checkin(ctx, srv.URL, "k", "acme", "SER1", 0)
+	_, _, err := Checkin(ctx, srv.URL, "k", "acme", "SER1", 0)
 	if err == nil {
 		t.Fatal("Checkin must error on deadline")
 	}
@@ -115,7 +162,7 @@ func TestCheckinValidatesInputs(t *testing.T) {
 		{name: "no device", endpoint: "http://x", key: "k", customerID: "c", deviceID: ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := Checkin(context.Background(), tt.endpoint, tt.key, tt.customerID, tt.deviceID, 0); err == nil {
+			if _, _, err := Checkin(context.Background(), tt.endpoint, tt.key, tt.customerID, tt.deviceID, 0); err == nil {
 				t.Fatal("want validation error")
 			}
 		})

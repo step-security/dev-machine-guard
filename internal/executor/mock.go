@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,6 +26,11 @@ type Mock struct {
 
 	// Path lookup stubs
 	paths map[string]string
+
+	// DetachedCalls records StartDetached invocations, newest last.
+	// StartDetachedErr makes every spawn fail.
+	DetachedCalls    []string
+	StartDetachedErr error
 
 	// Environment
 	env      map[string]string
@@ -229,6 +235,14 @@ func (m *Mock) SetLoggedInUserError(err error) {
 }
 
 // --- Executor interface ---
+
+// DetachedCalls records every StartDetached invocation as "name arg arg ...",
+// so a test can assert what the WSL-scan phase launched without running it.
+// StartDetachedErr, when set, fails every spawn.
+func (m *Mock) StartDetached(name string, args ...string) error {
+	m.DetachedCalls = append(m.DetachedCalls, strings.Join(append([]string{name}, args...), " "))
+	return m.StartDetachedErr
+}
 
 func (m *Mock) Run(_ context.Context, name string, args ...string) (string, string, int, error) {
 	m.mu.RLock()

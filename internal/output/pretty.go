@@ -50,6 +50,9 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 	if result.Device.Resources.DiskTotalBytes > 0 {
 		fmt.Fprintf(w, "    %-16s %s\n", "Disk", formatBytes(result.Device.Resources.DiskTotalBytes))
 	}
+	if wsl := result.Device.WSL; wsl != nil {
+		fmt.Fprintf(w, "    %-16s %s\n", "WSL", formatWSL(wsl))
+	}
 	fmt.Fprintln(w)
 
 	// SUMMARY
@@ -536,6 +539,38 @@ func setupColors(mode string) *colors {
 func truncate(s string, max int) string {
 	if len(s) > max {
 		return s[:max-3] + "..."
+	}
+	return s
+}
+
+// formatWSL renders the WSL summary line for the DEVICE block, e.g.
+// "present — 2 distros, 1 running (WSL 2.7.11.0)". Presence is tri-state:
+// "unknown" (probe couldn't read the registry) is shown as-is rather than
+// collapsed to "not present".
+func formatWSL(w *model.WSLInfo) string {
+	switch w.Presence {
+	case model.WSLPresenceNo:
+		return "not present"
+	case model.WSLPresenceUnknown:
+		return "unknown"
+	}
+	running := 0
+	for _, d := range w.Distros {
+		if d.Running {
+			running++
+		}
+	}
+	s := fmt.Sprintf("present — %d distro", len(w.Distros))
+	if len(w.Distros) != 1 {
+		s += "s"
+	}
+	if w.Active {
+		s += fmt.Sprintf(", %d running", running)
+	} else {
+		s += ", none running"
+	}
+	if w.Version != "" && w.Version != "unknown" {
+		s += " (WSL " + w.Version + ")"
 	}
 	return s
 }

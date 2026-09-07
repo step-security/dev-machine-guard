@@ -10,6 +10,11 @@
     -d LauncherPath=<path>    path to stepsecurity-dev-machine-guard-task.exe
                               (GUI-subsystem launcher Task Scheduler invokes
                               so the agent doesn't flash a console window)
+    -d LinuxBinaryPath=<path> path to the LINUX build of the agent, installed
+                              as dmg-linux so a Windows host can scan inside
+                              its WSL distributions. Must match the MSI's
+                              architecture: Windows on ARM runs an aarch64
+                              WSL2 kernel. Windows never executes it.
     -d Arch=<x64|arm64>       selects InstallScope + UpgradeCode
 
   Designed for SCCM/Intune deployment under environments where PowerShell
@@ -88,6 +93,21 @@
                 Name="stepsecurity-dev-machine-guard-task.exe"
                 KeyPath="yes"/>
         </Component>
+        <!-- The Linux build of the same agent, shipped so a Windows host can
+             scan inside its WSL distributions. Nothing is installed into a
+             distribution: the host runs this binary over the distro's /mnt/c
+             mount, which is why it must sit beside the agent (the WSL scan
+             phase looks next to its own executable). It is inert on a machine
+             with no WSL, and never executed by Windows itself.
+
+             Named dmg-linux, matching wslLinuxBinaryNames in
+             internal/telemetry/wsl_scan.go. -->
+        <Component Id="LinuxBinary" Bitness="always64">
+          <File Id="DMGLinuxBinary"
+                Source="$(var.LinuxBinaryPath)"
+                Name="dmg-linux"
+                KeyPath="yes"/>
+        </Component>
         <!-- Stable registry marker for Intune/SCCM detection rules.
              HKLM\Software\StepSecurity\AgentVersion carries the installed
              MSI's ProductVersion. The path is stable across releases —
@@ -110,6 +130,7 @@
     <Feature Id="Main" Title="Dev Machine Guard" Level="1">
       <ComponentRef Id="MainBinary"/>
       <ComponentRef Id="LauncherBinary"/>
+      <ComponentRef Id="LinuxBinary"/>
       <ComponentRef Id="VersionRegistry"/>
     </Feature>
 

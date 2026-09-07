@@ -28,6 +28,13 @@ type Executor interface {
 	RunInDir(ctx context.Context, dir string, timeout time.Duration, name string, args ...string) (stdout, stderr string, exitCode int, err error)
 	// RunAsUser runs a shell command as a specific user (for root -> user delegation).
 	RunAsUser(ctx context.Context, username, command string) (string, error)
+	// StartDetached launches a command and returns as soon as it has started,
+	// without waiting for it to finish and without tying its lifetime to this
+	// process. Used to trigger a scan inside a WSL distribution: the scan
+	// outlives the run that started it, and its own agent reports the result.
+	// The error covers failure to *start* only — anything the child does
+	// afterwards is invisible here by design.
+	StartDetached(name string, args ...string) error
 	// LookPath searches for an executable in PATH.
 	LookPath(name string) (string, error)
 	// FileExists checks if a file exists and is not a directory.
@@ -81,6 +88,39 @@ type Real struct {
 }
 
 func NewReal() *Real { return &Real{} }
+
+// StartDetached starts the process and lets it go. It deliberately does not
+// Wait: the child must outlive this process.
+//
+// detachAttrs supplies platform creation flags that keep the child from being
+// reaped with this process, most isolated first, falling back because job
+// breakaway fails outright when the job forbids it. See detach_windows.go: a
+// plain spawn was not observed to fail, so those flags are insurance against a
+// silent failure mode rather than a fix for a measured one.
+//
+// Release drops our handle afterwards so nothing here holds the child.
+func (r *Real) StartDetached(name string, args ...string) error {
+	attrs := detachAttrs()
+	var err error
+	for _, attr := range attrs {
+		// #nosec G204 -- argv is passed to CreateProcess directly, with no
+		// shell interposed, so a value containing metacharacters becomes one
+		// argv element rather than another command. The only caller is the WSL
+		// scan phase, whose name is the literal "wsl.exe" and whose arguments
+		// come from the local Lxss registry and this agent's own install
+		// directory — writable only by the user the scan is already running as.
+		cmd := exec.Command(name, args...)
+		cmd.SysProcAttr = attr
+		if err = cmd.Start(); err != nil {
+			continue // try the next, less isolated, form
+		}
+		if cmd.Process == nil {
+			return nil
+		}
+		return cmd.Process.Release()
+	}
+	return err
+}
 
 func (r *Real) Run(ctx context.Context, name string, args ...string) (string, string, int, error) {
 	cmd := exec.CommandContext(ctx, name, args...)

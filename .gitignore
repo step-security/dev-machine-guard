@@ -31,7 +31,10 @@
 /cmd/stepsecurity-dev-machine-guard-task/stepsecurity-dev-machine-guard-task
 *.exe
 dist/
-stepsecurity-dev-machine-guard-linux
+# Trailing glob so the per-arch outputs are covered too: `make
+# build-linux-arm64` writes stepsecurity-dev-machine-guard-linux-arm64, which
+# the bare name did not match — and it got committed once as an 11 MB blob.
+stepsecurity-dev-machine-guard-linux*
 
 # Temporary files
 todo-remove/

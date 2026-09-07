@@ -53,6 +53,28 @@ type Config struct {
 	// reach the downloadable log without this.
 	GateProceedReason string
 
+	// WSLScanEnabled and WSLScanReason are populated at runtime (not CLI flags)
+	// from the run-config check-in's wsl_directive. They gate scanning INSIDE
+	// WSL distros — a tenant-wide switch with no per-device granularity. Both
+	// stay zero on every path that never reached a backend answer, so distro
+	// scanning fails closed; host-side WSL detection does not consult them.
+	WSLScanEnabled bool
+	WSLScanReason  string
+
+	// WSLHostSerial and WSLDistroID identify this run as happening INSIDE a WSL
+	// distribution, and are passed by the Windows host that triggered it
+	// (--wsl-host-serial, --wsl-distro-id). A distro cannot discover either for
+	// itself. When both are set the agent derives a stable device id from them,
+	// because a distro's own identity is unusable: it inherits the host's
+	// hostname, and a minimal or WSL1 distro has no machine-id.
+	WSLHostSerial string
+	WSLDistroID   string
+
+	// ConfigFile is --config: the exact config.json to read. Applied by a
+	// pre-scan of argv before config.Load(), so this field is informational
+	// once parsing is done.
+	ConfigFile string
+
 	// HooksAgent is the --agent value on `hooks install` / `hooks uninstall`;
 	// "" means "every detected agent".
 	HooksAgent string
@@ -298,6 +320,30 @@ func Parse(args []string) (*Config, error) {
 			cfg.Verbose = true
 		case arg == "--override-gate":
 			cfg.OverrideGate = true
+		case strings.HasPrefix(arg, "--config="):
+			cfg.ConfigFile = strings.TrimPrefix(arg, "--config=")
+		case arg == "--config":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--config requires a file path argument")
+			}
+			cfg.ConfigFile = args[i]
+		case strings.HasPrefix(arg, "--wsl-host-serial="):
+			cfg.WSLHostSerial = strings.TrimPrefix(arg, "--wsl-host-serial=")
+		case arg == "--wsl-host-serial":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--wsl-host-serial requires a value")
+			}
+			cfg.WSLHostSerial = args[i]
+		case strings.HasPrefix(arg, "--wsl-distro-id="):
+			cfg.WSLDistroID = strings.TrimPrefix(arg, "--wsl-distro-id=")
+		case arg == "--wsl-distro-id":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--wsl-distro-id requires a value")
+			}
+			cfg.WSLDistroID = args[i]
 		case arg == "--force-scan":
 			cfg.ForceScan = true
 		case strings.HasPrefix(arg, "--rules-file="):
@@ -570,4 +616,23 @@ Configuration:
 		name, name, name, name, name, name, name, name,
 		name, name, name,
 		buildinfo.AgentURL)
+}
+
+// ConfigPathFromArgs pre-scans argv for --config so main can pin the config
+// path before config.Load() runs. Parse() happens after Load(), and Load()
+// keeps whatever it read first, so the flag cannot be honoured any later.
+// Deliberately forgiving: an unparseable argv is Parse()'s problem to report,
+// not this helper's.
+func ConfigPathFromArgs(args []string) string {
+	for i, arg := range args {
+		switch {
+		case strings.HasPrefix(arg, "--config="):
+			return strings.TrimPrefix(arg, "--config=")
+		case arg == "--config":
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+		}
+	}
+	return ""
 }

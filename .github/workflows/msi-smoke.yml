@@ -67,7 +67,16 @@ jobs:
           go build -trimpath -ldflags "-s -w -H windowsgui" `
             -o "$PWD\dmg-smoke-task.exe" `
             ./cmd/stepsecurity-dev-machine-guard-task
-          Get-Item "$PWD\dmg-smoke.exe", "$PWD\dmg-smoke-task.exe" |
+          # The MSI's third component: the Linux build of the same agent, which
+          # a Windows host runs inside its WSL distributions over /mnt/c.
+          # CGO_ENABLED stays 0 (set above) because a glibc-linked binary fails
+          # on a musl distro such as Alpine.
+          $env:GOOS = "linux"
+          go build -trimpath -ldflags "-s -w" `
+            -o "$PWD\dmg-smoke-linux" `
+            ./cmd/stepsecurity-dev-machine-guard
+          $env:GOOS = "windows"
+          Get-Item "$PWD\dmg-smoke.exe", "$PWD\dmg-smoke-task.exe", "$PWD\dmg-smoke-linux" |
             Select-Object Name, Length
 
       - name: Build MSI
@@ -88,6 +97,7 @@ jobs:
             -d "Version=$version" `
             -d "BinaryPath=$PWD\dmg-smoke.exe" `
             -d "LauncherPath=$PWD\dmg-smoke-task.exe" `
+            -d "LinuxBinaryPath=$PWD\dmg-smoke-linux" `
             -out "dist\dmg-smoke.msi"
           Get-Item "dist\dmg-smoke.msi" | Select-Object Name, Length
 
@@ -139,6 +149,32 @@ jobs:
             $checks += $true
           } else {
             Write-Host "::error::Launcher missing: $launcher"
+            $checks += $false
+          }
+
+          # 1c. The Linux agent, beside the Windows one. "Beside" is the whole
+          # requirement: the WSL scan phase resolves this binary relative to
+          # its own executable, so a component that installs anywhere else
+          # ships fine and is silently inert. The ELF header is checked because
+          # Windows never executes this file, so nothing else here would notice
+          # if the wrong architecture were packaged.
+          $linuxAgent = "C:\Program Files\StepSecurity\dmg-linux"
+          if (Test-Path $linuxAgent) {
+            $hdr = [byte[]]::new(20)
+            $fs = [System.IO.File]::OpenRead($linuxAgent)
+            try { $null = $fs.Read($hdr, 0, 20) } finally { $fs.Dispose() }
+            # ELF magic, EI_CLASS=2 (64-bit), e_machine 0x3E (x86-64) at offset 18.
+            $machine = $hdr[18] + ($hdr[19] -shl 8)
+            if ($hdr[0] -eq 0x7F -and $hdr[1] -eq 0x45 -and $hdr[2] -eq 0x4C -and $hdr[3] -eq 0x46 `
+                -and $hdr[4] -eq 2 -and $machine -eq 0x3E) {
+              Write-Host "[OK] dmg-linux present beside the agent, 64-bit x86-64 ELF"
+              $checks += $true
+            } else {
+              Write-Host "::error::dmg-linux is not a 64-bit x86-64 ELF (class=$($hdr[4]) machine=0x$('{0:X2}' -f $machine))"
+              $checks += $false
+            }
+          } else {
+            Write-Host "::error::dmg-linux missing: $linuxAgent"
             $checks += $false
           }
 
@@ -224,17 +260,20 @@ jobs:
         run: |
           $task = "StepSecurity Dev Machine Guard"
 
-          # Both binaries should be gone
+          # All three shipped binaries should be gone. dmg-linux is 11-12 MB, so
+          # an uninstall that leaves it behind is the largest single piece of
+          # litter this package can produce.
           foreach ($leftover in @(
             "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard.exe",
-            "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard-task.exe"
+            "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard-task.exe",
+            "C:\Program Files\StepSecurity\dmg-linux"
           )) {
             if (Test-Path $leftover) {
               Write-Host "::error::File still present after uninstall: $leftover"
               exit 1
             }
           }
-          Write-Host "[OK] Agent + launcher removed"
+          Write-Host "[OK] Agent + launcher + linux agent removed"
 
           # Scheduled task should be gone. Capture the exit code into a
           # local — PowerShell uses $LASTEXITCODE from the last native call

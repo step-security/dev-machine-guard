@@ -41,7 +41,10 @@ var phaseBudgets = map[string]time.Duration{
 	"python_scan":             10 * time.Minute,
 	"syspkg_scan":             5 * time.Minute,
 	"node_scan":               15 * time.Minute,
-	"telemetry_upload":        10 * time.Minute,
+	// Spawns only — it never waits for a distro scan to finish — so this
+	// bounds a wedged wsl.exe, not the work.
+	"wsl_scan":         2 * time.Minute,
+	"telemetry_upload": 10 * time.Minute,
 }
 
 const defaultPhaseBudget = 5 * time.Minute

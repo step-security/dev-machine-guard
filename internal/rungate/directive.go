@@ -32,12 +32,28 @@ type Directive struct {
 	CheckedAt                int64  `json:"checked_at"`
 }
 
+// WSLDirective is the tenant-wide switch for scanning inside WSL distros. It
+// rides the same run-config response as ScanDirective — which the agent already
+// fetches before every scan — so enabling it costs no extra call and needs no
+// per-device state. The granularity is deliberately tenant-only: there is no
+// per-device or per-group gating for WSL scanning.
+//
+// It fails CLOSED, unlike the scan gate. An absent block, a backend that
+// predates the field, a failed check-in, or a bypassed gate all leave distro
+// scanning off. Host-side WSL *detection* is unaffected: it is GA and needs no
+// directive.
+type WSLDirective struct {
+	Enabled bool   `json:"enabled"`
+	Reason  string `json:"reason,omitempty"`
+}
+
 // runConfigEnvelope is the subset of the run-config response the gate reads.
 // The scan directive rides run-config alongside detection_rules and policy;
 // those siblings are intentionally ignored here (the scan path fetches them
 // itself). A pointer so a missing field is distinguishable from a zero value.
 type runConfigEnvelope struct {
-	ScanDirective *Directive `json:"scan_directive"`
+	ScanDirective *Directive    `json:"scan_directive"`
+	WSLDirective  *WSLDirective `json:"wsl_directive"`
 }
 
 // ShouldSkip is the single reader of Mode. Anything that is not exactly

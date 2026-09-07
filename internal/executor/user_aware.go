@@ -84,6 +84,13 @@ func posixShellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// StartDetached delegates: a detached spawn carries no user-impersonation
+// concern of its own, and the WSL relay it launches already runs as the
+// distro's default user.
+func (e *UserAwareExecutor) StartDetached(name string, args ...string) error {
+	return e.inner.StartDetached(name, args...)
+}
+
 func (e *UserAwareExecutor) Run(ctx context.Context, name string, args ...string) (string, string, int, error) {
 	cmd := posixShellQuote(name)
 	for _, a := range args {

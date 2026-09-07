@@ -243,14 +243,21 @@ jobs:
         run: |
           $tag = "${{ needs.release.outputs.release_tag }}"
           New-Item -ItemType Directory -Path dist -Force | Out-Null
+          # The Linux agents come down too: the MSI carries one as its
+          # dmg-linux component, which a Windows host runs inside its WSL
+          # distributions over /mnt/c. Taking them from the release means the
+          # MSI ships the byte-identical binary that was published, rather than
+          # a rebuild.
           gh release download "$tag" `
             -R "${{ github.repository }}" `
             -p "*-windows_amd64.exe" `
             -p "*-windows_arm64.exe" `
+            -p "*-linux_amd64" `
+            -p "*-linux_arm64" `
             -D dist
           Get-ChildItem dist | Format-Table Name, Length
 
-      - name: Resolve Windows binary paths
+      - name: Resolve Windows and Linux binary paths
         id: paths
         shell: pwsh
         run: |
@@ -264,11 +271,25 @@ jobs:
             Get-ChildItem dist | Format-Table Name
             exit 1
           }
+          # Each MSI pairs with the Linux binary of its OWN architecture:
+          # Windows on ARM runs an aarch64 WSL2 kernel, where an amd64 binary
+          # fails the same way a glibc-linked one fails on musl. These are ELF,
+          # so they are deliberately absent from the Authenticode `files:` list
+          # below — inside the MSI they inherit the installer's signature.
+          $linuxAmd64 = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-*-linux_amd64" | Select-Object -First 1
+          $linuxArm64 = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-*-linux_arm64" | Select-Object -First 1
+          if (-not $linuxAmd64 -or -not $linuxArm64) {
+            Write-Error "Linux agent assets (both arches) missing under dist/ -- the MSI's dmg-linux component cannot be built"
+            Get-ChildItem dist | Format-Table Name
+            exit 1
+          }
           # trusted-signing-action v2 requires absolute (rooted) paths in `files:`.
           "amd64=$($amd64.FullName)"          | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "arm64=$($arm64.FullName)"          | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "task_amd64=$($taskAmd64.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "task_arm64=$($taskArm64.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "linux_amd64=$($linuxAmd64.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "linux_arm64=$($linuxArm64.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Azure login (OIDC)
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
@@ -396,6 +417,7 @@ jobs:
             -d "Version=$version" `
             -d "BinaryPath=${{ steps.paths.outputs.amd64 }}" `
             -d "LauncherPath=${{ steps.paths.outputs.task_amd64 }}" `
+            -d "LinuxBinaryPath=${{ steps.paths.outputs.linux_amd64 }}" `
             -out "dist/stepsecurity-dev-machine-guard-$version-x64.msi"
 
           wix build packaging/windows/Product.wxs `
@@ -405,6 +427,7 @@ jobs:
             -d "Version=$version" `
             -d "BinaryPath=${{ steps.paths.outputs.arm64 }}" `
             -d "LauncherPath=${{ steps.paths.outputs.task_arm64 }}" `
+            -d "LinuxBinaryPath=${{ steps.paths.outputs.linux_arm64 }}" `
             -out "dist/stepsecurity-dev-machine-guard-$version-arm64.msi"
 
           $x64   = (Get-Item "dist/stepsecurity-dev-machine-guard-$version-x64.msi").FullName

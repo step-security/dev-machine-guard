@@ -87,6 +87,7 @@ func HTML(outputFile string, result *model.ScanResult) error {
 		"add":                 func(a, b int) int { return a + b },
 		"formatBytes":         formatBytes,
 		"formatCPU":           formatCPU,
+		"formatWSL":           formatWSL,
 	}
 
 	tmpl, err := template.New("report").Funcs(funcMap).Parse(htmlTemplate)
@@ -218,6 +219,7 @@ const htmlTemplate = `<!DOCTYPE html>
   {{with formatCPU .Device.Resources}}<div class="field"><span class="field-label">CPU</span><span class="field-value">{{.}}</span></div>{{end}}
   {{if .Device.Resources.MemoryBytes}}<div class="field"><span class="field-label">Memory</span><span class="field-value">{{formatBytes .Device.Resources.MemoryBytes}}</span></div>{{end}}
   {{if .Device.Resources.DiskTotalBytes}}<div class="field"><span class="field-label">Disk</span><span class="field-value">{{formatBytes .Device.Resources.DiskTotalBytes}}</span></div>{{end}}
+  {{with .Device.WSL}}<div class="field"><span class="field-label">WSL</span><span class="field-value">{{formatWSL .}}</span></div>{{end}}
 </div>
 
 <div class="section">

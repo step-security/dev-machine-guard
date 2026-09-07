@@ -178,6 +178,17 @@ jobs:
           name: windows-exes
           path: dist
 
+      # The MSI now also carries dmg-linux: the Linux build of the same agent,
+      # which a Windows host runs inside its WSL distributions over /mnt/c.
+      # Taken from the build job's existing artifact rather than compiled here,
+      # so the MSI ships the byte-identical binary that gets released (and this
+      # job still needs no Go toolchain).
+      - name: Download Linux binaries from build job
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: linux
+          path: dist
+
       - name: Build MSIs (x64 + arm64)
         shell: pwsh
         run: |
@@ -194,6 +205,17 @@ jobs:
             exit 1
           }
 
+          # Each MSI pairs with the Linux binary of its OWN architecture:
+          # Windows on ARM runs an aarch64 WSL2 kernel, where an amd64 binary
+          # fails the same way a glibc-linked one fails on musl.
+          $linuxAmd64 = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-*-linux_amd64" | Select-Object -First 1
+          $linuxArm64 = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-*-linux_arm64" | Select-Object -First 1
+          if (-not $linuxAmd64 -or -not $linuxArm64) {
+            Write-Error "Linux agent assets (both arches) missing under dist/ -- the MSI's dmg-linux component cannot be built"
+            Get-ChildItem dist | Format-Table Name
+            exit 1
+          }
+
           wix build packaging/windows/Product.wxs `
             -arch x64 `
             -ext WixToolset.Util.wixext `
@@ -201,6 +223,7 @@ jobs:
             -d "Version=$version" `
             -d "BinaryPath=$($amd64.FullName)" `
             -d "LauncherPath=$($taskAmd64.FullName)" `
+            -d "LinuxBinaryPath=$($linuxAmd64.FullName)" `
             -out "dist/stepsecurity-dev-machine-guard-$version-x64.msi"
 
           wix build packaging/windows/Product.wxs `
@@ -210,6 +233,7 @@ jobs:
             -d "Version=$version" `
             -d "BinaryPath=$($arm64.FullName)" `
             -d "LauncherPath=$($taskArm64.FullName)" `
+            -d "LinuxBinaryPath=$($linuxArm64.FullName)" `
             -out "dist/stepsecurity-dev-machine-guard-$version-arm64.msi"
 
           Get-ChildItem dist -Filter "*.msi" | Format-Table Name, Length

@@ -49,7 +49,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Stage Windows .exes with release-style names
+      - name: Stage Windows .exes and Linux agents with release-style names
         run: |
           set -euo pipefail
           version="${{ steps.version.outputs.version }}"
@@ -75,6 +75,16 @@ jobs:
           cp "$win_arm64_src"       "staging/stepsecurity-dev-machine-guard-${version}-windows_arm64.exe"
           cp "$win_task_amd64_src"  "staging/stepsecurity-dev-machine-guard-task-${version}-windows_amd64.exe"
           cp "$win_task_arm64_src"  "staging/stepsecurity-dev-machine-guard-task-${version}-windows_arm64.exe"
+
+          # The MSI's third component, dmg-linux: the Linux build of the same
+          # agent, which a Windows host runs inside its WSL distributions over
+          # /mnt/c. goreleaser already built both arches; they were simply
+          # never staged. Each MSI takes the binary of its OWN architecture,
+          # because Windows on ARM runs an aarch64 WSL2 kernel.
+          linux_amd64_src=$(find_one -name 'stepsecurity-dev-machine-guard' -path '*linux_amd64*')
+          linux_arm64_src=$(find_one -name 'stepsecurity-dev-machine-guard' -path '*linux_arm64*')
+          cp "$linux_amd64_src"     "staging/stepsecurity-dev-machine-guard-${version}-linux_amd64"
+          cp "$linux_arm64_src"     "staging/stepsecurity-dev-machine-guard-${version}-linux_arm64"
           ls -la staging/
 
       - name: Upload Windows .exes
@@ -86,6 +96,18 @@ jobs:
             staging/stepsecurity-dev-machine-guard-*-windows_arm64.exe
             staging/stepsecurity-dev-machine-guard-task-*-windows_amd64.exe
             staging/stepsecurity-dev-machine-guard-task-*-windows_arm64.exe
+          if-no-files-found: error
+
+      # Separate artifact rather than adding ELF binaries to one named
+      # "windows-exes": these are never Authenticode-signed, they only ride
+      # inside the MSI and inherit its signature.
+      - name: Upload Linux agents
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-agents
+          path: |
+            staging/stepsecurity-dev-machine-guard-*-linux_amd64
+            staging/stepsecurity-dev-machine-guard-*-linux_arm64
           if-no-files-found: error
 
   sign-and-verify:
@@ -120,7 +142,13 @@ jobs:
           name: windows-exes
           path: dist
 
-      - name: Resolve Windows binary paths
+      - name: Download Linux agents from build job
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: linux-agents
+          path: dist
+
+      - name: Resolve Windows and Linux binary paths
         id: paths
         shell: pwsh
         run: |
@@ -134,10 +162,22 @@ jobs:
             Get-ChildItem dist | Format-Table Name
             exit 1
           }
+          # The MSI's dmg-linux component. ELF, so deliberately kept out of the
+          # Authenticode `files:` list — inside the MSI it inherits the
+          # installer's signature.
+          $linuxAmd64 = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-*-linux_amd64" | Select-Object -First 1
+          $linuxArm64 = Get-ChildItem dist -Filter "stepsecurity-dev-machine-guard-*-linux_arm64" | Select-Object -First 1
+          if (-not $linuxAmd64 -or -not $linuxArm64) {
+            Write-Error "Linux agent assets (both arches) missing under dist/ -- the MSI's dmg-linux component cannot be built"
+            Get-ChildItem dist | Format-Table Name
+            exit 1
+          }
           "amd64=$($amd64.FullName)"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "arm64=$($arm64.FullName)"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "task_amd64=$($taskAmd64.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "task_arm64=$($taskArm64.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "linux_amd64=$($linuxAmd64.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "linux_arm64=$($linuxArm64.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Show pre-signing signature state (sanity)
         shell: pwsh
@@ -224,6 +264,7 @@ jobs:
             -d "Version=$version" `
             -d "BinaryPath=${{ steps.paths.outputs.amd64 }}" `
             -d "LauncherPath=${{ steps.paths.outputs.task_amd64 }}" `
+            -d "LinuxBinaryPath=${{ steps.paths.outputs.linux_amd64 }}" `
             -out "dist/stepsecurity-dev-machine-guard-$version-x64.msi"
 
           wix build packaging/windows/Product.wxs `
@@ -233,6 +274,7 @@ jobs:
             -d "Version=$version" `
             -d "BinaryPath=${{ steps.paths.outputs.arm64 }}" `
             -d "LauncherPath=${{ steps.paths.outputs.task_arm64 }}" `
+            -d "LinuxBinaryPath=${{ steps.paths.outputs.linux_arm64 }}" `
             -out "dist/stepsecurity-dev-machine-guard-$version-arm64.msi"
 
           # trusted-signing-action v2 requires absolute (rooted) paths in `files:`.
