@@ -119,7 +119,8 @@ func (d *MCPDetector) allConfigLocations(homeDir string, searchDirs []string) []
 // discoverWalkedMCPConfigs walks the configured search dirs and the per-user
 // IDE dotfile roots, recognizing MCP configs by basename. It never enters
 // ~/Library (TCC skipper), skips dependency/cache/build dirs and directory
-// symlinks, and is bounded by maxMCPWalkFiles.
+// symlinks, and is bounded by maxMCPWalkFiles. Hits inside an agent plugin
+// package go through classifyWalkedMCPConfig, which drops catalog templates.
 func (d *MCPDetector) discoverWalkedMCPConfigs(searchDirs []string, homeDir string) []mcpConfigSpec {
 	roots := make([]string, 0, len(searchDirs)+6)
 	roots = append(roots, searchDirs...)
@@ -163,11 +164,13 @@ func (d *MCPDetector) discoverWalkedMCPConfigs(searchDirs []string, homeDir stri
 				c := filepath.Clean(path)
 				if !seen[c] {
 					seen[c] = true
-					specs = append(specs, mcpConfigSpec{
-						SourceName: "discovered_mcp",
-						ConfigPath: c,
-						Vendor:     mcpVendorForPath(c),
-					})
+					if source, vendor, keep := classifyWalkedMCPConfig(c, root); keep {
+						specs = append(specs, mcpConfigSpec{
+							SourceName: source,
+							ConfigPath: c,
+							Vendor:     vendor,
+						})
+					}
 				}
 			}
 			return nil
