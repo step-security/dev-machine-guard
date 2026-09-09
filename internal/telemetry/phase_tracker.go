@@ -3,6 +3,8 @@ package telemetry
 import (
 	"sync"
 	"time"
+
+	"github.com/step-security/dev-machine-guard/internal/procusage"
 )
 
 // PhaseCompletion records a single analysis phase that ran to completion.
@@ -11,6 +13,12 @@ type PhaseCompletion struct {
 	Name       string `json:"name"`
 	FinishedAt int64  `json:"finished_at"`
 	DurationMs int64  `json:"duration_ms"`
+	// CPUMs is CPU consumed during the phase (self plus subprocesses
+	// where the platform attributes them), so an expensive phase is
+	// distinguishable from a merely slow one. There is no memory
+	// equivalent: peak RSS is a lifetime high-water mark and cannot be
+	// differenced across phase boundaries.
+	CPUMs int64 `json:"cpu_ms,omitempty"`
 }
 
 // RunStatusInfo is the structured progress snapshot sent on each phase
@@ -43,10 +51,12 @@ type PhaseTracker struct {
 	mu                 sync.Mutex
 	startedAt          time.Time
 	phaseStartedAt     time.Time
+	phaseStartedCPUMs  int64
 	currentPhase       string
 	currentPhaseDetail string
 	completed          []PhaseCompletion
 	now                func() time.Time // overridable for tests
+	cpuMs              func() int64     // overridable for tests
 }
 
 // NewPhaseTracker constructs a tracker anchored at the current time.
@@ -58,6 +68,7 @@ func newPhaseTrackerWithClock(now func() time.Time) *PhaseTracker {
 	return &PhaseTracker{
 		startedAt: now(),
 		now:       now,
+		cpuMs:     procusage.CPUMillis,
 	}
 }
 
@@ -76,6 +87,7 @@ func (t *PhaseTracker) Start(phase string) {
 	t.currentPhase = phase
 	t.currentPhaseDetail = ""
 	t.phaseStartedAt = t.now()
+	t.phaseStartedCPUMs = t.cpuMs()
 }
 
 // Finish records completion of the current phase. No-op when nothing is
@@ -91,10 +103,17 @@ func (t *PhaseTracker) finishLocked() {
 		return
 	}
 	finishedAt := t.now()
+	// CPU counters are monotonic, but clamp anyway: a swapped-in reader
+	// or a failed getrusage returning 0 must not emit a negative cost.
+	cpuDelta := t.cpuMs() - t.phaseStartedCPUMs
+	if cpuDelta < 0 {
+		cpuDelta = 0
+	}
 	t.completed = append(t.completed, PhaseCompletion{
 		Name:       t.currentPhase,
 		FinishedAt: finishedAt.Unix(),
 		DurationMs: finishedAt.Sub(t.phaseStartedAt).Milliseconds(),
+		CPUMs:      cpuDelta,
 	})
 	t.currentPhase = ""
 	t.currentPhaseDetail = ""

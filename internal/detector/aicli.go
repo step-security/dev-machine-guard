@@ -93,8 +93,8 @@ var cliToolDefinitions = []cliToolSpec{
 		Binaries:   []string{"kiro-cli", "kiro", "q"},
 		ConfigDirs: []string{"~/.q", "~/.kiro", "~/.aws/q"},
 		VerifyFunc: func(ctx context.Context, exec executor.Executor, log *progress.Logger, binary string) bool {
-			if !execguard.SafeToExec(ctx, exec, binary) {
-				log.Warn("skipping %s: quarantined and rejected by Gatekeeper — cannot verify identity", binary)
+			if safe, reason := execguard.SafeToExec(ctx, exec, binary); !safe {
+				log.Warn("skipping %s: %s — cannot verify identity", binary, reason)
 				return false
 			}
 			log.Progress("exec fallback: running %s --version (amazon-q identity check)", binary)
@@ -133,8 +133,8 @@ var cliToolDefinitions = []cliToolSpec{
 			if versionmeta.NPMPackageName(exec, binary) == "@github/copilot" {
 				return true
 			}
-			if !execguard.SafeToExec(ctx, exec, binary) {
-				log.Warn("skipping %s: quarantined and rejected by Gatekeeper — cannot verify identity", binary)
+			if safe, reason := execguard.SafeToExec(ctx, exec, binary); !safe {
+				log.Warn("skipping %s: %s — cannot verify identity", binary, reason)
 				return false
 			}
 			log.Progress("exec fallback: running %s --version (copilot identity check)", binary)
@@ -374,8 +374,8 @@ func (d *AICLIDetector) getVersion(ctx context.Context, spec cliToolSpec, binary
 	if spec.VersionFlag != "" {
 		flag = spec.VersionFlag
 	}
-	if !execguard.SafeToExec(ctx, d.exec, binaryPath) {
-		d.log.Warn("skipping %s version probe: quarantined and rejected by Gatekeeper", binaryPath)
+	if safe, reason := execguard.SafeToExec(ctx, d.exec, binaryPath); !safe {
+		d.log.Warn("skipping %s version probe: %s", binaryPath, reason)
 		return "unknown"
 	}
 	d.log.Progress("exec fallback: running %s %s (no metadata version source)", binaryPath, flag)

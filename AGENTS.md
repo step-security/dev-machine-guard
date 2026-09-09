@@ -102,6 +102,10 @@ Detectors, schedulers, and collectors take an `executor.Executor` and call `exec
 `exec.FileExists`, `exec.LookPath`, `exec.IsRoot()`, `exec.GOOS()`, etc. — never `os/exec` or `os.*`
 directly. This is what lets the entire codebase be unit-tested with `executor.Mock`. (Detail in §7.1.)
 
+One exception: `internal/procusage` reads resource counters for our *own* PID (`getrusage`,
+`GetProcessTimes`), which are in-process syscalls with no command for `executor.Mock` to intercept;
+it exposes a swappable `readUsage` hook instead.
+
 ### 2.2 Split by build tag with a shared base file
 When a function needs a different implementation per OS, put the **shared code** (orchestration and
 the common entry point that *calls* the platform hook) in the unsuffixed `x.go`, and put each

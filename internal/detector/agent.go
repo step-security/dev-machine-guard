@@ -143,8 +143,8 @@ func (d *AgentDetector) getVersion(ctx context.Context, binaryPath string) strin
 	if v := versionmeta.FromBinary(ctx, d.exec, binaryPath); v != "" {
 		return v
 	}
-	if !execguard.SafeToExec(ctx, d.exec, binaryPath) {
-		d.log.Warn("skipping %s version probe: quarantined and rejected by Gatekeeper", binaryPath)
+	if safe, reason := execguard.SafeToExec(ctx, d.exec, binaryPath); !safe {
+		d.log.Warn("skipping %s version probe: %s", binaryPath, reason)
 		return "unknown"
 	}
 	d.log.Progress("exec fallback: running %s --version (no metadata version source)", binaryPath)

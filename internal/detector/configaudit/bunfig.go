@@ -279,8 +279,8 @@ func (d *BunDetector) bunVersion(ctx context.Context) string {
 		if v := versionmeta.FromBinary(ctx, d.exec, path); v != "" {
 			return v
 		}
-		if !execguard.SafeToExec(ctx, d.exec, path) {
-			d.log.Warn("skipping %s version probe: quarantined and rejected by Gatekeeper", path)
+		if safe, reason := execguard.SafeToExec(ctx, d.exec, path); !safe {
+			d.log.Warn("skipping %s version probe: %s", path, reason)
 			return "unknown"
 		}
 		target = path

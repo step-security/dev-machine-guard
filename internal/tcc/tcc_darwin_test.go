@@ -2,7 +2,10 @@
 
 package tcc
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestSkipper_ShouldSkip(t *testing.T) {
 	home := "/Users/alice"
@@ -144,6 +147,28 @@ func TestSkipper_RegressionAVFoundationMediaLibraryPrompt(t *testing.T) {
 	s := New("/Users/alice")
 	if !s.ShouldSkip("/Users/alice/Library", "/Users/alice") {
 		t.Fatal("~/Library must be skipped to prevent walker from descending into Apple-managed TCC subtrees (e.g. Library/Application Support/com.apple.avfoundation/ → kTCCServiceMediaLibrary)")
+	}
+}
+
+// TestNetworkVolumeMounts exercises the real getfsstat enumeration. The
+// mount set depends on the machine, so the assertions are the invariants
+// every caller relies on: absolute, sorted, and never "/" — skipping the
+// root volume would silently gut the whole scan.
+func TestNetworkVolumeMounts(t *testing.T) {
+	mounts := networkVolumeMounts()
+	for i, m := range mounts {
+		if m == "/" {
+			t.Error("root volume must never be reported as a network volume")
+		}
+		if !filepath.IsAbs(m) {
+			t.Errorf("mount %q is not absolute", m)
+		}
+		if m != filepath.Clean(m) {
+			t.Errorf("mount %q is not cleaned", m)
+		}
+		if i > 0 && mounts[i-1] > m {
+			t.Errorf("mounts not sorted: %q > %q", mounts[i-1], m)
+		}
 	}
 }
 

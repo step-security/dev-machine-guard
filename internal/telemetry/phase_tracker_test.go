@@ -224,3 +224,64 @@ func TestPhaseTracker_ConcurrentReadDuringWrite(t *testing.T) {
 
 	wg.Wait()
 }
+
+// fakeCPU returns a monotonically advancing CPU total so per-phase
+// deltas are checkable without burning real cycles.
+type fakeCPU struct {
+	mu   sync.Mutex
+	cur  int64
+	step int64
+}
+
+func (f *fakeCPU) millis() int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	v := f.cur
+	f.cur += f.step
+	return v
+}
+
+func TestPhaseTracker_RecordsPerPhaseCPU(t *testing.T) {
+	clk := &fakeClock{cur: time.Unix(1_700_000_000, 0), step: time.Second}
+	cpu := &fakeCPU{step: 100}
+	pt := newPhaseTrackerWithClock(clk.now)
+	pt.cpuMs = cpu.millis
+
+	pt.Start("ide_scan")       // cpu reads 0
+	pt.Start("extension_scan") // implicit finish reads 100; new phase starts at 200
+	pt.Finish()                // reads 300
+
+	snap := pt.Snapshot()
+	if len(snap.PhasesCompleted) != 2 {
+		t.Fatalf("phases_completed = %d, want 2", len(snap.PhasesCompleted))
+	}
+	for _, p := range snap.PhasesCompleted {
+		if p.CPUMs != 100 {
+			t.Errorf("%s cpu_ms = %d, want 100", p.Name, p.CPUMs)
+		}
+	}
+}
+
+// TestPhaseTracker_CPUNeverNegative covers a failed getrusage returning
+// zero mid-run, which would otherwise emit a negative phase cost.
+func TestPhaseTracker_CPUNeverNegative(t *testing.T) {
+	clk := &fakeClock{cur: time.Unix(1_700_000_000, 0), step: time.Second}
+	readings := []int64{500, 0}
+	i := 0
+	pt := newPhaseTrackerWithClock(clk.now)
+	pt.cpuMs = func() int64 {
+		v := readings[i]
+		if i < len(readings)-1 {
+			i++
+		}
+		return v
+	}
+
+	pt.Start("ide_scan")
+	pt.Finish()
+
+	snap := pt.Snapshot()
+	if got := snap.PhasesCompleted[0].CPUMs; got != 0 {
+		t.Errorf("cpu_ms = %d, want 0 (clamped)", got)
+	}
+}

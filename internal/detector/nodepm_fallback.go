@@ -171,8 +171,8 @@ func runPMVersion(ctx context.Context, exec executor.Executor, log *progress.Log
 	if v := versionmeta.FromBinary(ctx, exec, binPath); v != "" {
 		return v
 	}
-	if !execguard.SafeToExec(ctx, exec, binPath) {
-		log.Warn("skipping %s version probe: quarantined and rejected by Gatekeeper", binPath)
+	if safe, reason := execguard.SafeToExec(ctx, exec, binPath); !safe {
+		log.Warn("skipping %s version probe: %s", binPath, reason)
 		return ""
 	}
 	log.Progress("exec fallback: running %s %s (no metadata version source)", binPath, versionCmd)

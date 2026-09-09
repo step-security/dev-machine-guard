@@ -40,7 +40,15 @@ import (
 //     means the formula owns the binary, so <v> is its version (npm-installed
 //     binaries under a brew node live in node_modules and are claimed or
 //     rejected by rule 1 before this can misfire).
-//  4. macOS app bundle: CFBundleShortVersionString of the enclosing .app.
+//  4. dpkg (Linux): the version of the package whose own file manifest lists
+//     this path. A binary dpkg still owns but that self-updated in place
+//     reports the packaged version; rules 1-3 claim the layouts where that
+//     happens before this is reached.
+//  5. snap (Linux): the `version` field of the snap manifest, which the path
+//     rules can't reach (/snap/bin/<name> symlinks to the snap wrapper).
+//  6. AppImage (Linux): the version in the filename, the only static source a
+//     single-file install has.
+//  7. macOS app bundle: CFBundleShortVersionString of the enclosing .app.
 func FromBinary(ctx context.Context, exec executor.Executor, binaryPath string) string {
 	if binaryPath == "" {
 		return ""
@@ -66,6 +74,17 @@ func FromBinary(ctx context.Context, exec executor.Executor, binaryPath string) 
 	}
 	if v := versionFromHomebrew(resolved); v != "" {
 		return v
+	}
+	if exec.GOOS() == model.PlatformLinux {
+		if v := versionFromDpkg(exec, base, []string{binaryPath, resolved}); v != "" {
+			return v
+		}
+		if v := versionFromSnap(exec, binaryPath); v != "" {
+			return v
+		}
+		if v := versionFromAppImage(resolved, base); v != "" {
+			return v
+		}
 	}
 	if exec.GOOS() == model.PlatformDarwin {
 		if v := versionFromAppBundle(ctx, exec, resolved); v != "" {

@@ -60,16 +60,18 @@ func (d *NodePMDetector) DetectManagers(ctx context.Context) []model.PkgManager 
 			// the version without launching anything.
 			version = versionmeta.FromBinary(ctx, d.exec, path)
 		}
-		if path != "" && version == "" && !execguard.SafeToExec(ctx, d.exec, path) {
-			d.log.Warn("skipping %s version probe: quarantined and rejected by Gatekeeper", path)
-		} else if path != "" && version == "" {
-			// Run the exact absolute path the guard assessed, not the bare
-			// name — a PATH re-resolution at exec time could pick a
-			// different (unassessed) binary.
-			d.log.Progress("exec fallback: running %s %s (no metadata version source)", path, pm.VersionCmd)
-			stdout, _, _, err := d.exec.RunWithTimeout(ctx, 10*time.Second, path, pm.VersionCmd)
-			if err == nil {
-				version = strings.TrimSpace(stdout)
+		if path != "" && version == "" {
+			if safe, reason := execguard.SafeToExec(ctx, d.exec, path); !safe {
+				d.log.Warn("skipping %s version probe: %s", path, reason)
+			} else {
+				// Run the exact absolute path the guard assessed, not the bare
+				// name — a PATH re-resolution at exec time could pick a
+				// different (unassessed) binary.
+				d.log.Progress("exec fallback: running %s %s (no metadata version source)", path, pm.VersionCmd)
+				stdout, _, _, err := d.exec.RunWithTimeout(ctx, 10*time.Second, path, pm.VersionCmd)
+				if err == nil {
+					version = strings.TrimSpace(stdout)
+				}
 			}
 		}
 

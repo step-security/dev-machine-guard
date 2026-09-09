@@ -31,6 +31,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/paths"
+	"github.com/step-security/dev-machine-guard/internal/procusage"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 	"github.com/step-security/dev-machine-guard/internal/rungate"
 	"github.com/step-security/dev-machine-guard/internal/schedinfo"
@@ -197,6 +198,35 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		executionID = fmt.Sprintf("nouuid-%d", time.Now().UnixNano())
 		fmt.Fprintf(os.Stderr, "[warn] failed to generate execution id, using fallback: %v\n", idErr)
 	}
+
+	// Resource accounting for the run. Runs exactly once: normally at the
+	// call site just before the execution-log snapshot, so the line lands
+	// inside the ExecutionLogs payload we can download; the defer is the
+	// fallback for runs that error out or trip the deadline before
+	// reaching that point.
+	//
+	// It cannot be deferred alone. capture.Finalize() is deferred later in
+	// this function, so LIFO makes it run FIRST — a deferred report would
+	// write to already-restored stderr and never reach the payload.
+	var usageReported atomic.Bool
+	reportUsageOnce := func() {
+		if !usageReported.CompareAndSwap(false, true) {
+			return
+		}
+		snapshot := tracker.Snapshot()
+		phases := make([]procusage.Phase, 0, len(snapshot.PhasesCompleted))
+		for _, p := range snapshot.PhasesCompleted {
+			phases = append(phases, procusage.Phase{
+				Name: p.Name, DurationMs: p.DurationMs, CPUMs: p.CPUMs,
+			})
+		}
+		procusage.Report(log, time.Since(startTime), procusage.Meta{
+			Command:          cfg.Command,
+			InvocationMethod: invocationMethod,
+			ExecutionID:      executionID,
+		}, phases)
+	}
+	defer reportUsageOnce()
 
 	// deviceID is populated once device.Gather completes; the closure below
 	// captures it by reference so the deferred failure report uses whatever is
@@ -578,14 +608,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 	// Build a TCC skipper so directory walks avoid macOS-protected dirs and
 	// don't trigger system permission prompts when the agent runs without
-	// Full Disk Access. Nil when --include-tcc-protected is set; ShouldSkip
-	// is nil-safe.
-	var tccSkipper *tcc.Skipper
-	if tcc.Enabled(cfg.IncludeTCCProtected) {
-		tccSkipper = tcc.New(executor.ResolveHome(exec))
-		if cands := tccSkipper.Candidates(); len(cands) > 0 {
-			log.Debug("tcc skip list (%d): %v", len(cands), cands)
-		}
+	// Full Disk Access. Nil when --include-tcc-protected is set and network
+	// volumes are walked (the default); every method is nil-safe.
+	tccSkipper := tcc.ForRun(executor.ResolveHome(exec), cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes)
+	if cands := tccSkipper.Candidates(); len(cands) > 0 {
+		log.Debug("tcc skip list (%d): %v", len(cands), cands)
+	}
+	if vols := tccSkipper.NetworkVolumes(); len(vols) > 0 {
+		log.Debug("tcc network volumes skipped (%d): %v", len(vols), vols)
 	}
 
 	// Detect IDEs
@@ -1094,6 +1124,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// otherwise outruns the async capture tee and truncates this log. The upload
 	// path re-snapshots after the upload-intent lines (see uploadToS3); this drain
 	// also covers the --telemetry-out dev dump below, which skips that re-snapshot.
+	// Emit the resource-usage line before the snapshot so it ships inside
+	// ExecutionLogs. This measures scan and audit work but not the upload
+	// that follows — a payload cannot contain the log of its own upload.
+	reportUsageOnce()
+
 	capture.Sync()
 	execLogsBase64 := capture.SnapshotBase64()
 	endTime := time.Now()

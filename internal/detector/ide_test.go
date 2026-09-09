@@ -907,3 +907,121 @@ func findIDE(results []model.IDE, ideType string) *model.IDE {
 	}
 	return nil
 }
+
+// The install dir's bare `<LinuxBinary>` is the Electron GUI binary for every
+// VS Code fork, and used to be an exec candidate ahead of product-info.json.
+// Here package.json is absent and only the GUI binary exists.
+func TestIDEDetector_Linux_NeverExecsTheInstallDirGUIBinary(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	installDir := "/opt/Windsurf"
+	mock.SetDir(installDir)
+	// No resources/app/package.json, no product-info.json, no .eclipseproduct.
+	gui := installDir + "/windsurf"
+	mock.SetFile(gui, []byte{})
+	mock.SetCommand("9.9.9-GUI-LAUNCHED", "", 0, gui, "--version")
+
+	found := findIDE(NewIDEDetector(mock).Detect(context.Background()), "windsurf")
+	if found == nil {
+		t.Fatal("expected Windsurf to be detected at /opt/Windsurf")
+	}
+	if found.Version == "9.9.9-GUI-LAUNCHED" {
+		t.Fatalf("exec'd %s — the install dir's bare binary is the GUI app, never a version target", gui)
+	}
+	if found.Version != "unknown" {
+		t.Errorf("version = %q, want unknown (no metadata source, no safe exec target)", found.Version)
+	}
+}
+
+// Phase 2 (a $PATH hit with no matching install dir) used to go straight to
+// `<binary> --version`. The shim knows its own install root: /usr/local/bin/code
+// resolves into <root>/bin/code, two levels below the package.json.
+func TestIDEDetector_Linux_PathFallbackReadsInstallRootBeforeExec(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	// Non-standard root, so Phase 1 can't match and Phase 2 is the only way in.
+	root := "/opt/vscode-custom"
+	mock.SetPath("code", "/usr/local/bin/code")
+	mock.SetSymlink("/usr/local/bin/code", root+"/bin/code")
+	mock.SetFile(root+"/resources/app/package.json", []byte(`{"name":"code","version":"1.98.2"}`))
+	// Poison both exec candidates: reaching either means the walk didn't run.
+	for _, b := range []string{"/usr/local/bin/code", root + "/bin/code"} {
+		mock.SetFile(b, []byte{})
+		mock.SetCommand("9.9.9-EXEC'D", "", 0, b, "--version")
+	}
+
+	found := findIDE(NewIDEDetector(mock).Detect(context.Background()), "vscode")
+	if found == nil {
+		t.Fatal("expected VS Code to be detected via the PATH fallback")
+	}
+	if found.Version == "9.9.9-EXEC'D" {
+		t.Fatal("Phase 2 exec'd the PATH binary before walking up to its install root")
+	}
+	if found.Version != "1.98.2" {
+		t.Errorf("version should come from the install root's package.json (1.98.2), got %s", found.Version)
+	}
+}
+
+// The walk is best effort: a binary outside any recognizable install tree
+// still resolves through the exec fallback, costing no detection.
+func TestIDEDetector_Linux_PathFallbackStillExecsWhenNoRootFound(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetPath("code", "/usr/local/bin/code")
+	mock.SetFile("/usr/local/bin/code", []byte{})
+	mock.SetCommand("1.98.2\nabcdef\nx64\n", "", 0, "/usr/local/bin/code", "--version")
+
+	found := findIDE(NewIDEDetector(mock).Detect(context.Background()), "vscode")
+	if found == nil {
+		t.Fatal("expected VS Code to be detected via the PATH fallback")
+	}
+	if found.Version != "1.98.2" {
+		t.Errorf("version = %q, want 1.98.2 from the exec fallback", found.Version)
+	}
+}
+
+// When no metadata resolves and the only exec candidate is an Electron app's
+// entry point, execguard refuses it. An asar-packed app has no unpacked
+// package.json, so this is the realistic shape of "static sources all missed".
+func TestIDEDetector_Linux_ExecguardRefusesElectronEntryPoint(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	root := "/opt/windsurf-custom"
+	mock.SetPath("windsurf", root+"/windsurf")
+	mock.SetFile(root+"/resources/app.asar", []byte{})
+	mock.SetFile(root+"/libffmpeg.so", []byte{})
+	mock.SetFile(root+"/windsurf", []byte{})
+	mock.SetCommand("9.9.9-GUI-LAUNCHED", "", 0, root+"/windsurf", "--version")
+
+	found := findIDE(NewIDEDetector(mock).Detect(context.Background()), "windsurf")
+	if found == nil {
+		t.Fatal("expected Windsurf to be detected via the PATH fallback")
+	}
+	if found.Version == "9.9.9-GUI-LAUNCHED" {
+		t.Fatal("exec'd the Electron entry point — execguard must refuse it on Linux")
+	}
+	if found.Version != "unknown" {
+		t.Errorf("version = %q, want unknown", found.Version)
+	}
+}
+
+// A CLI shim one directory below the same bundle must still be exec'd, or
+// every VS Code fork on Linux silently loses its version.
+func TestIDEDetector_Linux_ExecguardAllowsCLIShimInsideBundle(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	root := "/opt/windsurf-custom"
+	mock.SetPath("windsurf", root+"/bin/windsurf")
+	mock.SetFile(root+"/resources/app.asar", []byte{})
+	mock.SetFile(root+"/libffmpeg.so", []byte{})
+	mock.SetFile(root+"/bin/windsurf", []byte{})
+	mock.SetCommand("1.12.4\n", "", 0, root+"/bin/windsurf", "--version")
+
+	found := findIDE(NewIDEDetector(mock).Detect(context.Background()), "windsurf")
+	if found == nil {
+		t.Fatal("expected Windsurf to be detected via the PATH fallback")
+	}
+	if found.Version != "1.12.4" {
+		t.Errorf("version = %q, want 1.12.4 from the CLI shim", found.Version)
+	}
+}

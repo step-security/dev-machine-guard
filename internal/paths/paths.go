@@ -164,3 +164,15 @@ func HeartbeatFile() string {
 	}
 	return filepath.Join(home, "last-run.json")
 }
+
+// RunMetricsFile returns the absolute path to run-metrics.jsonl, or ""
+// when Home() is disabled. Same contract as ScanStateFile: "" means the
+// feature is off, not an error. One JSON record per run, capped by
+// internal/procusage.
+func RunMetricsFile() string {
+	home := Home()
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, "run-metrics.jsonl")
+}
