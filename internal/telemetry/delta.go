@@ -116,6 +116,14 @@ func pythonRecordsFromResults(results []model.ProjectInfo) []state.ScanRecord {
 		if r.Path == "" {
 			continue
 		}
+		// ProjectInfo carries no exit code or error, so a nil package list is
+		// the only failure signal the scanners have: they return an empty
+		// non-nil slice for a venv that scanned cleanly with nothing in it,
+		// and nil only when the scan itself failed (pip errored, unparseable
+		// output). Marking a failure non-zero keeps commitProjects from
+		// recording its hash, so a transient failure can't convince the
+		// backend the venv is empty — while a genuinely empty venv still
+		// converges to an unchanged ref instead of re-uploading every run.
 		exitCode := 0
 		if r.Packages == nil {
 			exitCode = 1

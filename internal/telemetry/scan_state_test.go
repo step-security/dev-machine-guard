@@ -305,3 +305,70 @@ func TestDelta_NilStateReturnsNilSnapshot(t *testing.T) {
 		t.Errorf("nil state should produce nil snapshot, got %+v", snap)
 	}
 }
+
+// An empty venv scans successfully and must converge to an unchanged ref.
+// Regression: conflating an empty package list with a failed scan kept it out
+// of the scan state, so it re-shipped a full body on every run, forever.
+func TestDelta_EmptyVenvConvergesToUnchanged(t *testing.T) {
+	path := tempStateFile(t)
+	s := state.New(buildinfo.Version)
+	empty := []model.ProjectInfo{
+		{Path: "/proj/.venv", PackageManager: "pip", Packages: []model.PackageDetail{}},
+	}
+	snap, reloaded := runDelta(t, s, path, "exec-1", nil, nil, empty, []string{"/proj/.venv"}, nil, nil, false)
+	if len(snap.pyChanged) != 1 {
+		t.Fatalf("first run: expected the venv as changed, got %+v", snap.pyChanged)
+	}
+	if _, ok := reloaded.PythonProjects["/proj/.venv"]; !ok {
+		t.Fatal("an empty venv that scanned successfully must be recorded in scan state")
+	}
+
+	s2, _ := state.Load(path, buildinfo.Version)
+	snap2, _ := runDelta(t, s2, path, "exec-2", nil, nil, empty, []string{"/proj/.venv"}, nil, nil, false)
+	if len(snap2.pyChanged) != 0 {
+		t.Errorf("second run: empty venv must not re-ship a body, got %+v", snap2.pyChanged)
+	}
+	if len(snap2.pyUnchanged) != 1 {
+		t.Errorf("second run: expected 1 unchanged ref, got %+v", snap2.pyUnchanged)
+	}
+}
+
+// The other direction of the same contract: a nil package list means the scan
+// failed, so its hash must be withheld rather than convincing the backend the
+// venv is empty.
+func TestDelta_FailedVenvScanIsNotRecorded(t *testing.T) {
+	path := tempStateFile(t)
+	s := state.New(buildinfo.Version)
+	failed := []model.ProjectInfo{
+		{Path: "/proj/.venv", PackageManager: "pip", Packages: nil},
+	}
+	_, reloaded := runDelta(t, s, path, "exec-1", nil, nil, failed, []string{"/proj/.venv"}, nil, nil, false)
+	if _, ok := reloaded.PythonProjects["/proj/.venv"]; ok {
+		t.Error("a failed venv scan must not be recorded in scan state")
+	}
+}
+
+// A populated venv that later scans empty is a real package removal, not a
+// failure: the change must ship and the new hash must land.
+func TestDelta_VenvEmptiedShipsAsChanged(t *testing.T) {
+	path := tempStateFile(t)
+	s := state.New(buildinfo.Version)
+	full := []model.ProjectInfo{
+		{Path: "/proj/.venv", PackageManager: "pip", Packages: []model.PackageDetail{{Name: "django", Version: "5.0"}}},
+	}
+	runDelta(t, s, path, "exec-1", nil, nil, full, []string{"/proj/.venv"}, nil, nil, false)
+	before, _ := state.Load(path, buildinfo.Version)
+	fullHash := before.PythonProjects["/proj/.venv"].ScanOutputHash
+
+	s2, _ := state.Load(path, buildinfo.Version)
+	emptied := []model.ProjectInfo{
+		{Path: "/proj/.venv", PackageManager: "pip", Packages: []model.PackageDetail{}},
+	}
+	snap, reloaded := runDelta(t, s2, path, "exec-2", nil, nil, emptied, []string{"/proj/.venv"}, nil, nil, false)
+	if len(snap.pyChanged) != 1 {
+		t.Errorf("emptying a venv must ship as changed, got %+v", snap.pyChanged)
+	}
+	if reloaded.PythonProjects["/proj/.venv"].ScanOutputHash == fullHash {
+		t.Error("emptied venv must record a new hash, not keep the populated one")
+	}
+}
