@@ -330,8 +330,14 @@ func (s *State) AckRemovals(acked []PendingRemoval) {
 // state. The caller must call Save afterward to persist. Effects:
 //
 //   - For every scanned record with ExitCode == 0: upsert the project entry
-//     with this run's hash, execution_id, and timestamps. FirstSeenAt is
-//     preserved when present; LastVerifiedAt is always bumped.
+//     with this run's hash and timestamps. FirstSeenAt is preserved when
+//     present; LastVerifiedAt is always bumped.
+//   - LastUploadedExecutionID / LastUploadedAt track the run that last shipped
+//     the project's actual inventory, so they only advance when this run sent a
+//     body for it — a changed hash, or any project during a full sync. A run
+//     that shipped only an unchanged ref leaves them alone; otherwise the ref
+//     it emits next run would advertise a payload that never carried the
+//     inventory.
 //   - LastSuccessfulExecutionID and AgentVersion are stamped.
 //   - If fullSync: refresh LastFullSyncAt.
 //
@@ -344,10 +350,10 @@ func (s *State) CommitAfterUpload(
 	npmGlobals, pythonGlobals []GlobalRecord,
 	fullSync bool,
 ) {
-	s.commitProjects(EcosystemNPM, npmScanned, now, executionID)
-	s.commitProjects(EcosystemPython, pythonScanned, now, executionID)
-	s.commitGlobals(EcosystemNPM, npmGlobals, now, executionID)
-	s.commitGlobals(EcosystemPython, pythonGlobals, now, executionID)
+	s.commitProjects(EcosystemNPM, npmScanned, now, executionID, fullSync)
+	s.commitProjects(EcosystemPython, pythonScanned, now, executionID, fullSync)
+	s.commitGlobals(EcosystemNPM, npmGlobals, now, executionID, fullSync)
+	s.commitGlobals(EcosystemPython, pythonGlobals, now, executionID, fullSync)
 	s.LastSuccessfulExecutionID = executionID
 	s.AgentVersion = runningAgentVersion
 	if fullSync {
@@ -355,7 +361,7 @@ func (s *State) CommitAfterUpload(
 	}
 }
 
-func (s *State) commitProjects(ecosystem string, scanned []ScanRecord, now time.Time, executionID string) {
+func (s *State) commitProjects(ecosystem string, scanned []ScanRecord, now time.Time, executionID string, fullSync bool) {
 	entries := s.projectMap(ecosystem)
 	for _, r := range scanned {
 		if r.ExitCode != 0 {
@@ -375,22 +381,36 @@ func (s *State) commitProjects(ecosystem string, scanned []ScanRecord, now time.
 		} else {
 			next.FirstSeenAt = now
 		}
+		// This run shipped only a ref for an unchanged project, so the earlier
+		// run still owns the inventory. Keep its provenance.
+		if !fullSync && existed && prev.ScanOutputHash == r.Hash && prev.LastUploadedExecutionID != "" {
+			next.LastUploadedExecutionID = prev.LastUploadedExecutionID
+			next.LastUploadedAt = prev.LastUploadedAt
+		}
 		entries[r.Path] = next
 	}
 }
 
-func (s *State) commitGlobals(ecosystem string, scanned []GlobalRecord, now time.Time, executionID string) {
+func (s *State) commitGlobals(ecosystem string, scanned []GlobalRecord, now time.Time, executionID string, fullSync bool) {
 	entries := s.globalMap(ecosystem)
 	for _, r := range scanned {
 		if r.ExitCode != 0 {
 			continue
 		}
-		entries[r.PM] = GlobalEntry{
+		prev, existed := entries[r.PM]
+		next := GlobalEntry{
 			ScanOutputHash:          r.Hash,
 			LastUploadedExecutionID: executionID,
 			LastUploadedAt:          now,
 			LastVerifiedAt:          now,
 		}
+		// Same rule as projects: an unchanged global shipped as a ref, so the
+		// run that actually uploaded its package set keeps the provenance.
+		if !fullSync && existed && prev.ScanOutputHash == r.Hash && prev.LastUploadedExecutionID != "" {
+			next.LastUploadedExecutionID = prev.LastUploadedExecutionID
+			next.LastUploadedAt = prev.LastUploadedAt
+		}
+		entries[r.PM] = next
 	}
 }
 

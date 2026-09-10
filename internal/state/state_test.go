@@ -417,3 +417,78 @@ func TestPartitionGlobals_MatchIsUnchanged(t *testing.T) {
 		t.Errorf("changed=%v unchanged=%v", changed, unchanged)
 	}
 }
+
+// A run that ships only an unchanged ref did not upload the inventory, so the
+// provenance must stay with the run that did. Otherwise the ref emitted next
+// run advertises a payload that never carried the packages.
+func TestCommitAfterUpload_UnchangedKeepsUploadProvenance(t *testing.T) {
+	s := New(runningAgentVersion)
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	t1 := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	s.CommitAfterUpload(t0, "exec-upload", runningAgentVersion,
+		[]ScanRecord{freshScan("/a", "sha256:x")}, nil, nil, nil, false)
+	s.CommitAfterUpload(t1, "exec-refonly", runningAgentVersion,
+		[]ScanRecord{freshScan("/a", "sha256:x")}, nil, nil, nil, false)
+
+	e := s.NPMProjects["/a"]
+	if e.LastUploadedExecutionID != "exec-upload" {
+		t.Errorf("unchanged project must keep the uploading run's id, got %q", e.LastUploadedExecutionID)
+	}
+	if !e.LastUploadedAt.Equal(t0) {
+		t.Errorf("LastUploadedAt must stay at the upload, got %v want %v", e.LastUploadedAt, t0)
+	}
+	if !e.LastVerifiedAt.Equal(t1) {
+		t.Errorf("LastVerifiedAt must still advance, got %v want %v", e.LastVerifiedAt, t1)
+	}
+}
+
+func TestCommitAfterUpload_ChangedAdvancesUploadProvenance(t *testing.T) {
+	s := New(runningAgentVersion)
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	t1 := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	s.CommitAfterUpload(t0, "exec-1", runningAgentVersion,
+		[]ScanRecord{freshScan("/a", "sha256:x")}, nil, nil, nil, false)
+	s.CommitAfterUpload(t1, "exec-2", runningAgentVersion,
+		[]ScanRecord{freshScan("/a", "sha256:CHANGED")}, nil, nil, nil, false)
+
+	if got := s.NPMProjects["/a"].LastUploadedExecutionID; got != "exec-2" {
+		t.Errorf("changed project must advance provenance, got %q", got)
+	}
+}
+
+// During a full sync every discovered project ships a body, so provenance
+// advances even though the hash matches.
+func TestCommitAfterUpload_FullSyncAdvancesProvenance(t *testing.T) {
+	s := New(runningAgentVersion)
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	t1 := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	s.CommitAfterUpload(t0, "exec-1", runningAgentVersion,
+		[]ScanRecord{freshScan("/a", "sha256:x")}, nil, nil, nil, false)
+	s.CommitAfterUpload(t1, "exec-full", runningAgentVersion,
+		[]ScanRecord{freshScan("/a", "sha256:x")}, nil, nil, nil, true)
+
+	if got := s.NPMProjects["/a"].LastUploadedExecutionID; got != "exec-full" {
+		t.Errorf("full sync must advance provenance, got %q", got)
+	}
+}
+
+func TestCommitAfterUpload_UnchangedGlobalKeepsProvenance(t *testing.T) {
+	s := New(runningAgentVersion)
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	t1 := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	g := []GlobalRecord{{PM: "npm", Hash: "sha256:g"}}
+
+	s.CommitAfterUpload(t0, "exec-upload", runningAgentVersion, nil, nil, g, nil, false)
+	s.CommitAfterUpload(t1, "exec-refonly", runningAgentVersion, nil, nil, g, nil, false)
+
+	e := s.NPMGlobal["npm"]
+	if e.LastUploadedExecutionID != "exec-upload" {
+		t.Errorf("unchanged global must keep the uploading run's id, got %q", e.LastUploadedExecutionID)
+	}
+	if !e.LastVerifiedAt.Equal(t1) {
+		t.Errorf("global LastVerifiedAt must still advance, got %v", e.LastVerifiedAt)
+	}
+}
