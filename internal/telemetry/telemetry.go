@@ -502,9 +502,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		endPhase(wslCtx, wslCancel, tracker, log, "wsl_scan")
 	}
 
-	// Per-device scan state for the delta-upload protocol. Gated OFF by
-	// default (config.UseLegacyPackageScan defaults true) until the agent-api
-	// side ships. Resolution, in order:
+	// Per-device scan state for the delta-upload protocol. Enabled by default
+	// (config.UseLegacyPackageScan defaults false). Resolution, in order:
 	//   - STEPSEC_DISABLE_SCAN_STATE=1         (env kill switch, always wins)
 	//   - STEPSEC_ENABLE_SCAN_STATE=1          (env test opt-in)
 	//   - config.UseLegacyPackageScan          (persistent, set in config.json)

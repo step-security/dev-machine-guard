@@ -183,6 +183,14 @@ func TestConfigFile_InstallDir_JSONRoundTrip(t *testing.T) {
 	}
 }
 
+// The delta upload protocol ships on. This pins the default so flipping it
+// back becomes a deliberate, visible change rather than an accident.
+func TestUseLegacyPackageScan_DefaultsToDeltaEnabled(t *testing.T) {
+	if UseLegacyPackageScan {
+		t.Error("UseLegacyPackageScan should default to false (delta upload enabled)")
+	}
+}
+
 func TestConfigFile_UseLegacyPackageScan_JSONRoundTrip(t *testing.T) {
 	legacy := true
 	in := ConfigFile{UseLegacyPackageScan: &legacy}
@@ -203,7 +211,7 @@ func TestConfigFile_UseLegacyPackageScan_JSONRoundTrip(t *testing.T) {
 	}
 
 	// An explicit false must survive the round trip — it's how a config opts
-	// the (default-off) delta protocol back on.
+	// the delta protocol off for a fleet.
 	enabled := false
 	data, err = json.Marshal(ConfigFile{UseLegacyPackageScan: &enabled})
 	if err != nil {
@@ -288,8 +296,8 @@ func TestLoad_UseLegacyPackageScan_AppliedFromFile(t *testing.T) {
 }
 
 func TestLoad_UseLegacyPackageScan_FalseReEnablesFromFile(t *testing.T) {
-	// Default is legacy-on (true). An explicit false in config.json must flip
-	// the package var back to the delta protocol.
+	// An explicit false in config.json must hold the package var on the delta
+	// protocol even when something earlier pinned it to legacy.
 	prev := UseLegacyPackageScan
 	t.Cleanup(func() { UseLegacyPackageScan = prev })
 	UseLegacyPackageScan = true

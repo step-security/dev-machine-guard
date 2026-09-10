@@ -97,9 +97,16 @@ func venvSitePackages(venvPath string) []string {
 // install metadata. Packages are de-duplicated by (lowercased name, version)
 // so the same install surfaced once is reported once, and the result is
 // sorted by name then version for stable output.
+//
+// The result is always non-nil: a walk that finds nothing returns an empty
+// slice, never nil. Reading metadata off disk cannot fail as a whole (per-entry
+// errors are skipped), so "no packages" here is a successful scan of an empty
+// environment. Callers use nil to mean "scan failed" — see
+// telemetry.pythonRecordsFromResults, where a nil package list marks the
+// project's scan as failed and withholds it from the delta scan state.
 func (d *PythonDistDetector) ScanRoots(roots []string) []model.PackageDetail {
 	seen := make(map[string]struct{})
-	var pkgs []model.PackageDetail
+	pkgs := []model.PackageDetail{}
 
 	for _, root := range roots {
 		_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
