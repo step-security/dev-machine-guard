@@ -26,10 +26,22 @@ type nodeGlobalRoot struct {
 // every installed version's global dir is included.
 func NodeGlobalRoots(exec executor.Executor) []nodeGlobalRoot {
 	var roots []nodeGlobalRoot
+	// The candidate lists overlap: npm_config_prefix=/usr/local resolves to the
+	// same directory as the built-in /usr/local entry, and PREFIX can repeat
+	// either. Callers emit one scan result per root, so a duplicate would scan
+	// and upload the same directory twice.
+	seen := make(map[string]struct{})
 	add := func(pm, dir string) {
-		if dir != "" && exec.DirExists(dir) {
-			roots = append(roots, nodeGlobalRoot{pm: pm, dir: dir})
+		if dir == "" || !exec.DirExists(dir) {
+			return
 		}
+		dir = filepath.Clean(dir)
+		key := pm + "\x00" + dir
+		if _, dup := seen[key]; dup {
+			return
+		}
+		seen[key] = struct{}{}
+		roots = append(roots, nodeGlobalRoot{pm: pm, dir: dir})
 	}
 	addGlob := func(pm, pattern string) {
 		if matches, err := exec.Glob(pattern); err == nil {

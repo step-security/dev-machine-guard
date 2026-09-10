@@ -2,6 +2,7 @@ package detector
 
 import (
 	"context"
+	"os"
 	"os/user"
 	"path/filepath"
 	"slices"
@@ -203,4 +204,55 @@ func keysOf(m map[string][]string) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// The candidate lists overlap, so the same directory can be added twice (here
+// via both prefix env vars). One result per root means a duplicate would scan
+// and upload the same directory twice and fold its hash twice.
+func TestNodeGlobalRoots_DedupesRepeatedRoots(t *testing.T) {
+	prefix := t.TempDir()
+	nm := filepath.Join(prefix, "lib", "node_modules")
+	mustWrite(t, filepath.Join(nm, "typescript", "package.json"), `{"name":"typescript","version":"5.4.0"}`)
+	t.Setenv("npm_config_prefix", prefix)
+	t.Setenv("PREFIX", prefix)
+
+	var hits int
+	for _, r := range NodeGlobalRoots(executor.NewReal()) {
+		if r.pm == "npm" && filepath.Clean(r.dir) == filepath.Clean(nm) {
+			hits++
+		}
+	}
+	if hits != 1 {
+		t.Errorf("root %q reported %d times, want exactly 1", nm, hits)
+	}
+}
+
+// A root whose packages have all been uninstalled must still be reported.
+// Dropping it would leave the PM out of the delta records once its last root
+// empties, so nothing marks the PM changed and the old packages linger.
+func TestNodeScanner_DiskMode_EmptyGlobalRootStillReported(t *testing.T) {
+	prefix := t.TempDir()
+	nm := filepath.Join(prefix, "lib", "node_modules")
+	if err := os.MkdirAll(nm, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("npm_config_prefix", prefix)
+
+	exec := executor.NewReal()
+	scanner := NewNodeScanner(exec, progress.NewNoop(), "").
+		WithDiskScan(NewNodeDistDetector(exec))
+
+	var found *model.NodeScanResult
+	for _, r := range scanner.ScanGlobalPackages(context.Background()) {
+		if filepath.Clean(r.ProjectPath) == filepath.Clean(nm) {
+			found = &r
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("emptied global root %q was dropped from the scan results", nm)
+	}
+	if found.PackagesCount != 0 || len(found.Packages) != 0 {
+		t.Errorf("want an empty package set, got count=%d %v", found.PackagesCount, found.Packages)
+	}
 }

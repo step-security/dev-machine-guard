@@ -799,12 +799,12 @@ func (s *NodeScanner) scanGlobalPackagesFromDisk() []model.NodeScanResult {
 			// lockfile with the resolved graph — parse that instead.
 			pkgs = s.dist.ScanProject(filepath.Dir(r.dir), r.pm)
 		}
+		// A root that has gone empty is still reported. Dropping it would
+		// leave the PM out of the delta records entirely once its last root
+		// empties, so nothing would mark the PM changed and the previously
+		// uploaded packages would linger. The backend iterates Packages, so a
+		// zero-package result attaches this path to nothing.
 		pkgs = dedupSortPackages(pkgs)
-		if len(pkgs) == 0 {
-			// Emitting it would attach this root's path to no package at all.
-			s.log.Debug("node global disk scan: %s root %s -> no packages", r.pm, r.dir)
-			continue
-		}
 		s.log.Debug("node global disk scan: %s root %s -> %d packages", r.pm, r.dir, len(pkgs))
 		results = append(results, model.NodeScanResult{
 			ProjectPath:      r.dir,
