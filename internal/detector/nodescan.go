@@ -779,43 +779,40 @@ func (s *NodeScanner) scanProjectFromDisk(projectDir, pm string) (model.NodeScan
 }
 
 // scanGlobalPackagesFromDisk inventories globally-installed packages from each
-// package manager's global node_modules on disk, returning one NodeScanResult
-// per PM (the delta layer reconciles globals keyed by package manager). Roots
-// for the same PM are merged and de-duplicated. Returns nil when no global
-// roots exist on the host.
+// global node_modules on disk, one result per root. ProjectPath must be set:
+// the backend reads it into the package row's project_paths. Roots are kept
+// separate so a package installed under two prefixes lists both; the delta
+// layer reconciles them back to one record per PM (globalRecordsFromNode).
 func (s *NodeScanner) scanGlobalPackagesFromDisk() []model.NodeScanResult {
 	roots := NodeGlobalRoots(s.exec)
 	if len(roots) == 0 {
 		s.log.Debug("node global disk scan: no global node_modules roots found")
 		return nil
 	}
-	byPM := make(map[string][]model.NodePackage)
-	var order []string
+	results := make([]model.NodeScanResult, 0, len(roots))
 	for _, r := range roots {
 		s.emitProgress("global: " + r.pm)
-		if _, seen := byPM[r.pm]; !seen {
-			order = append(order, r.pm)
-		}
 		pkgs := s.dist.ScanGlobalModules(r.dir)
 		if len(pkgs) == 0 {
-			// pnpm (and other store-based managers) symlink the global
-			// node_modules into a content-addressed store the walk can't
-			// traverse, so it comes back empty. The install dir (parent of
-			// node_modules) carries the lockfile + package.json with the full
-			// resolved graph — parse that instead, keyed on the root's PM.
+			// pnpm symlinks its global node_modules into a content-addressed
+			// store the walk can't traverse. The install dir holds the
+			// lockfile with the resolved graph — parse that instead.
 			pkgs = s.dist.ScanProject(filepath.Dir(r.dir), r.pm)
 		}
-		byPM[r.pm] = append(byPM[r.pm], pkgs...)
-	}
-	results := make([]model.NodeScanResult, 0, len(order))
-	for _, pm := range order {
-		pkgs := dedupSortPackages(byPM[pm])
-		s.log.Debug("node global disk scan: %s -> %d packages", pm, len(pkgs))
+		pkgs = dedupSortPackages(pkgs)
+		if len(pkgs) == 0 {
+			// Emitting it would attach this root's path to no package at all.
+			s.log.Debug("node global disk scan: %s root %s -> no packages", r.pm, r.dir)
+			continue
+		}
+		s.log.Debug("node global disk scan: %s root %s -> %d packages", r.pm, r.dir, len(pkgs))
 		results = append(results, model.NodeScanResult{
-			PackageManager: pm,
-			Packages:       pkgs,
-			PackagesCount:  len(pkgs),
-			ExitCode:       0,
+			ProjectPath:      r.dir,
+			PackageManager:   r.pm,
+			WorkingDirectory: r.dir,
+			Packages:         pkgs,
+			PackagesCount:    len(pkgs),
+			ExitCode:         0,
 		})
 	}
 	return results

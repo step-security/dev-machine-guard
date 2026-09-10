@@ -153,3 +153,54 @@ func TestNodeScanner_DiskMode_Project(t *testing.T) {
 		t.Errorf("want 1 discovered project, got %d", len(discovered))
 	}
 }
+
+// Every global result names the root it was read from — the backend reads
+// ProjectPath into the row's project_paths — and two prefixes stay two
+// results. Prefixes come from npm_config_prefix / PREFIX so the fixture does
+// not depend on the host's nvm or homebrew layout.
+func TestNodeScanner_DiskMode_GlobalsCarryRoot(t *testing.T) {
+	pfxA, pfxB := t.TempDir(), t.TempDir()
+	rootA := filepath.Join(pfxA, "lib", "node_modules")
+	rootB := filepath.Join(pfxB, "lib", "node_modules")
+	mustWrite(t, filepath.Join(rootA, "chalk", "package.json"), `{"name":"chalk","version":"5.6.1"}`)
+	mustWrite(t, filepath.Join(rootB, "chalk", "package.json"), `{"name":"chalk","version":"5.6.1"}`)
+	mustWrite(t, filepath.Join(rootB, "typescript", "package.json"), `{"name":"typescript","version":"5.4.0"}`)
+	t.Setenv("npm_config_prefix", pfxA)
+	t.Setenv("PREFIX", pfxB)
+
+	exec := executor.NewReal()
+	scanner := NewNodeScanner(exec, progress.NewNoop(), "").
+		WithDiskScan(NewNodeDistDetector(exec))
+
+	byRoot := make(map[string][]string)
+	for _, r := range scanner.ScanGlobalPackages(context.Background()) {
+		if r.PackageManager != "npm" {
+			continue
+		}
+		if r.ProjectPath == "" {
+			t.Fatalf("global npm result has no ProjectPath: %+v", r)
+		}
+		if r.WorkingDirectory != r.ProjectPath {
+			t.Errorf("WorkingDirectory = %q, want it to match ProjectPath %q", r.WorkingDirectory, r.ProjectPath)
+		}
+		for _, p := range r.Packages {
+			byRoot[filepath.Clean(r.ProjectPath)] = append(byRoot[filepath.Clean(r.ProjectPath)], p.Name)
+		}
+	}
+
+	if got := byRoot[filepath.Clean(rootA)]; len(got) != 1 || got[0] != "chalk" {
+		t.Errorf("prefix A packages = %v, want [chalk]; all roots seen: %v", got, keysOf(byRoot))
+	}
+	if got := byRoot[filepath.Clean(rootB)]; len(got) != 2 {
+		t.Errorf("prefix B packages = %v, want chalk and typescript; all roots seen: %v", got, keysOf(byRoot))
+	}
+}
+
+func keysOf(m map[string][]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
+}
