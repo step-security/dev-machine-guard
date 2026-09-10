@@ -38,11 +38,16 @@ var (
 	// optimization for npm and Python project scans — every run re-uploads
 	// the full snapshot as in pre-1.13 agents.
 	//
-	// Defaults to true: the delta protocol is gated OFF until the agent-api
-	// side ships. Set use_legacy_package_scan=false in config.json (or
-	// STEPSEC_ENABLE_SCAN_STATE=1) to opt back in. STEPSEC_DISABLE_SCAN_STATE=1
-	// always forces legacy.
-	UseLegacyPackageScan = true
+	// Defaults to false: the delta protocol is ON. A run uploads full package
+	// bodies only for projects whose inventory hash changed, plus refs for the
+	// unchanged and removed ones, and re-asserts everything on a full sync
+	// (weekly, or after an agent-version change). Requires a backend that
+	// understands payload_schema_version 1.
+	//
+	// Set use_legacy_package_scan=true in config.json to pin a fleet back to
+	// full-snapshot uploads. STEPSEC_DISABLE_SCAN_STATE=1 forces legacy for a
+	// single run and always wins; STEPSEC_ENABLE_SCAN_STATE=1 forces delta on.
+	UseLegacyPackageScan = false
 
 	// UseLegacyNodeScan, when true, reverts Node.js package discovery to the
 	// command-based path (`npm ls` / `yarn list` / `pnpm ls` / `bun pm ls`,
