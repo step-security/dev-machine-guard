@@ -1049,13 +1049,12 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	//
 	// userExec (not exec): the account whose credentials this describes is the
 	// logged-in developer, not the service profile an unattended deploy runs as.
-	phaseCtx, phaseCancel = startPhase(ctx, tracker, "credentials_scan")
-	log.Progress("Inventorying credential locations...")
-	credentialScan := credentials.New(userExec).WithSkipper(tccSkipper).Detect(phaseCtx)
-	log.Progress("  Found %d credential locations", len(credentialScan.Findings))
-	fmt.Fprintln(os.Stderr)
-	endPhase(phaseCtx, phaseCancel, tracker, log, "credentials_scan")
-	postPhase()
+	// The detector is built inside the callback so nothing is constructed when
+	// the tenant has turned the phase off.
+	credentialScan := collectCredentials(ctx, tracker, log, cfg.CredentialScanningDisabled,
+		func(phaseCtx context.Context) *model.CredentialScanInfo {
+			return credentials.New(userExec).WithSkipper(tccSkipper).Detect(phaseCtx)
+		}, postPhase)
 
 	// Browser extension inventory — which extensions are installed in this
 	// machine's browsers, whether they are enabled and why not, where they came
@@ -1798,4 +1797,25 @@ func ideDisplayName(ideType string) string {
 	default:
 		return ideType
 	}
+}
+
+// collectCredentials runs the credential-location phase, or nothing at all when
+// the tenant has turned credential scanning off: no detector, no shell probe for
+// relocating variables, no file opened, no phase recorded, and a nil result so
+// the credential_scan key is absent from the upload. Other inventory is
+// unaffected. detect is the detector call itself, passed in so the guard can be
+// exercised without touching the filesystem.
+func collectCredentials(ctx context.Context, tracker *PhaseTracker, log *progress.Logger, disabled bool,
+	detect func(context.Context) *model.CredentialScanInfo, postPhase func()) *model.CredentialScanInfo {
+	if disabled {
+		return nil
+	}
+	phaseCtx, phaseCancel := startPhase(ctx, tracker, "credentials_scan")
+	log.Progress("Inventorying credential locations...")
+	result := detect(phaseCtx)
+	log.Progress("  Found %d credential locations", len(result.Findings))
+	fmt.Fprintln(os.Stderr)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "credentials_scan")
+	postPhase()
+	return result
 }

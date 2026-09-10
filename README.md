@@ -146,7 +146,7 @@ stepsecurity-dev-machine-guard [COMMAND] [OPTIONS]
 | `--include-bundled-plugins`  | Include bundled/platform IDE plugins in output                |
 | `--log-level=LEVEL`          | Log level: `error` \| `warn` \| `info` \| `debug`             |
 | `--verbose`                  | Shortcut for `--log-level=debug`                              |
-| `--force-scan`               | Bypass the server-driven run gate and scan now (enterprise)   |
+| `--force-scan`               | Scan now regardless of the dashboard cadence; still checks in |
 | `--color=WHEN`               | Color mode: `auto` \| `always` \| `never` (default: `auto`)   |
 | `-v`, `--version`            | Show version                                                  |
 | `-h`, `--help`               | Show help                                                     |
