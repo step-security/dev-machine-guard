@@ -2,10 +2,48 @@ package executor
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestReal_GuardedFiles(t *testing.T) {
+	// CI's Windows TEMP can use an 8.3 alias; verified opens use the full path.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{"small": "ok", "large": "oversize", "blocked": "no"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, exec := range []Executor{NewReal(), NewUserAwareExecutor(NewReal(), "test-user")} {
+		guarded := exec.GuardedFiles([]string{root}, func(p string) string {
+			if filepath.Base(p) == "blocked" {
+				return "test_refusal"
+			}
+			return ""
+		}, 4)
+		if data, err := guarded.ReadFile(filepath.Join(root, "small")); err != nil || string(data) != "ok" {
+			t.Fatalf("guarded read = %q, %v", data, err)
+		}
+		for _, name := range []string{"large", "blocked"} {
+			if data, err := guarded.ReadFile(filepath.Join(root, name)); err == nil || len(data) != 0 {
+				t.Errorf("%s: expected refusal without contents, got %q, %v", name, data, err)
+			}
+		}
+		if info, err := guarded.Stat(filepath.Join(root, "small")); err != nil || info.Size() != 2 {
+			t.Fatalf("guarded stat = %v, %v", info, err)
+		}
+		entries, err := guarded.ReadDir(root)
+		if err != nil || len(entries) != 3 || entries[0].Name() != "blocked" || entries[2].Name() != "small" {
+			t.Fatalf("guarded directory ordering = %v, %v", entries, err)
+		}
+	}
+}
 
 // TestNewUserAwareExecutor_Wrapping pins the wrapping decision. The fix dropped
 // the old `!inner.IsRoot()` gate so the wrapper also applies under a LaunchAgent

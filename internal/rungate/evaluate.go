@@ -28,17 +28,25 @@ type Result struct {
 	// check-in. Zero (disabled) on every path that does not reach a backend
 	// answer — see WSLDirective: this one fails closed.
 	WSL WSLDirective
+	// CredentialScanningDisabled is true only when this invocation's check-in
+	// answered with an explicit false. Nothing is remembered between runs, so
+	// every other path (no answer, failure, older backend) scans as before.
+	CredentialScanningDisabled bool
 }
 
 // Evaluate runs the whole gate ahead of telemetry.Run: explicit escapes,
 // cached-or-probed device id, the backend check-in, the decision, and state
-// persistence. It makes one or two network calls — the backend check-in, plus
-// a best-effort gated-skip heartbeat on an online skip (and none at all when an
-// escape short-circuits) — and NEVER fails the run: every error path degrades
-// to Skip=false. Lock contention is deliberately NOT handled here: a not-due
-// wakeup skips on the directive before the run ever tries the lock, and a due
-// wakeup that collides with a running scan is left to telemetry.Run's
-// lock.Acquire so it reports the contention as before.
+// persistence. It makes one or two network calls (the backend check-in, plus
+// a best-effort gated-skip heartbeat on an online skip) and NEVER fails the
+// run: every error path degrades to Skip=false. Lock contention is deliberately
+// NOT handled here: a not-due wakeup skips on the directive before the run ever
+// tries the lock, and a due wakeup that collides with a running scan is left to
+// telemetry.Run's lock.Acquire so it reports the contention as before.
+//
+// The force and kill-switch escapes decide cadence only. The check-in still
+// happens because it also carries the tenant's credential-scanning setting,
+// which a forced run must honour; nothing else from that answer is applied.
+//
 // guestDeviceID, when non-empty, is the identity of an agent running inside a
 // WSL distribution, derived by the host that triggered it. It must be used in
 // preference to any local probe: a distro's own serial is its machine-id — or
@@ -51,17 +59,11 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 		Now:        time.Now(),
 	}
 
-	// Local escapes need no I/O at all; resolve them before touching disk or
-	// network. Everything else defers to the backend's scan directive — there
-	// is no agent-side feature flag, so the feature is turned on or off
-	// entirely from the backend.
-	if in.ForceScan || in.KillSwitch {
-		if in.ForceScan {
-			log.Progress("Run gate: bypassed (--force-scan)")
-		}
-		// Note the asymmetry: bypassing the cadence gate does NOT enable WSL
-		// scanning. Without a directive we never scan inside a distro.
-		return Result{Skip: false, Reason: Decide(in).Reason, WSL: wslWithOverride(WSLDirective{})}
+	// Local escapes decide cadence on their own, but the check-in below still
+	// runs: it is the only source of the tenant's credential-scanning setting.
+	escape := in.ForceScan || in.KillSwitch
+	if in.ForceScan {
+		log.Progress("Run gate: bypassed (--force-scan)")
 	}
 
 	// Device id: the guest identity when we were given one, else cached from a
@@ -82,25 +84,43 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 	}
 	if deviceID == "" || deviceID == "unknown" {
 		log.Debug("run-gate: no usable device id — failing open")
-		return Result{Skip: false, Reason: "no_device_id", WSL: wslWithOverride(WSLDirective{})}
+		reason := "no_device_id"
+		if escape {
+			reason = Decide(in).Reason
+		}
+		return Result{Skip: false, Reason: reason, WSL: wslWithOverride(WSLDirective{})}
 	}
 
 	log.Progress("Run gate: checking scan cadence with the dashboard...")
-	directive, wslDirective, err := Checkin(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, deviceID, st.LastFullRunAt)
+	directive, wslDirective, credentialScanning, err := Checkin(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, deviceID, st.LastFullRunAt)
+	// Only an explicit false in this invocation's answer turns credential
+	// scanning off. A failed or silent check-in scans.
+	credentialDisabled := err == nil && credentialScanning != nil && !*credentialScanning
+	if escape {
+		// Bypassing the cadence gate applies nothing else from the answer: no
+		// directive, no persistence, and no WSL scanning. Without a directive
+		// we never scan inside a distro.
+		return Result{Skip: false, Reason: Decide(in).Reason, WSL: wslWithOverride(WSLDirective{}),
+			CredentialScanningDisabled: credentialDisabled}
+	}
 	if err != nil {
 		log.Progress("Run gate: dashboard check-in failed, using cached cadence: %v", err)
 	} else {
 		if wslDirective.Enabled {
 			log.Progress("Run gate: WSL scanning enabled for this tenant (%s)", wslDirective.Reason)
 		}
-		in.Directive = &directive
-		log.Progress("Run gate: dashboard directive: mode=%s reason=%s interval=%dm",
-			directive.Mode, directive.Reason, directive.EffectiveIntervalMinutes)
-		// Persist the resolved id + gating fields even on "full" answers so
-		// skipped wakeups never re-probe and the offline fallback stays
-		// current. Best-effort.
-		if perr := recordCheckin(deviceID, directive, in.Now); perr != nil {
-			log.Debug("run-gate: could not persist check-in state: %v", perr)
+		if directive.Mode != "" {
+			in.Directive = &directive
+			log.Progress("Run gate: dashboard directive: mode=%s reason=%s interval=%dm",
+				directive.Mode, directive.Reason, directive.EffectiveIntervalMinutes)
+			// Persist the resolved id + gating fields even on "full" answers so
+			// skipped wakeups never re-probe and the offline fallback stays
+			// current. Best-effort.
+			if perr := recordCheckin(deviceID, directive, in.Now); perr != nil {
+				log.Debug("run-gate: could not persist check-in state: %v", perr)
+			}
+		} else {
+			log.Debug("run-gate: response carried no scan_directive; using cached cadence")
 		}
 	}
 	if stOK {
@@ -108,7 +128,8 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 	}
 
 	dec := Decide(in)
-	res := Result{Skip: dec.Skip, Reason: dec.Reason, WSL: wslWithOverride(wslDirective)}
+	res := Result{Skip: dec.Skip, Reason: dec.Reason, WSL: wslWithOverride(wslDirective),
+		CredentialScanningDisabled: credentialDisabled}
 	if dec.Skip {
 		// Online skip: best-effort heartbeat so the console shows the agent
 		// checked in and was told not to scan (a gated skip otherwise leaves no

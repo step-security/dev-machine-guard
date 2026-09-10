@@ -47,6 +47,9 @@ type Mock struct {
 	symlinks map[string]string
 	// Symlink resolution errors: path -> error (simulates a dangling link)
 	symlinkErrs map[string]error
+	// Raw link targets: path -> target, for Readlink. Falls back to symlinks
+	// when a path is registered only there.
+	readlinks map[string]string
 
 	// macOS Command Line Tools presence (false simulates a Mac without CLT
 	// installed, where /usr/bin/python3 etc. are install-prompt shims).
@@ -59,6 +62,12 @@ type Mock struct {
 	// instead of falling through to CurrentUser. Used by tests covering
 	// the macOS+root "no console user" branch (issue #63).
 	loggedInUserErr error
+}
+
+// GuardedFiles retains the in-memory filesystem. Native guarded I/O is covered
+// by real-filesystem tests; mocks never access the host filesystem.
+func (m *Mock) GuardedFiles(_ []string, _ func(string) string, _ int64) Executor {
+	return m
 }
 
 type cmdResult struct {
@@ -80,6 +89,7 @@ func NewMock() *Mock {
 		globs:          make(map[string][]string),
 		symlinks:       make(map[string]string),
 		symlinkErrs:    make(map[string]error),
+		readlinks:      make(map[string]string),
 		diskCapacities: make(map[string]uint64),
 		hostname:       "test-host",
 		username:       "testuser",
@@ -202,6 +212,15 @@ func (m *Mock) SetSymlinkError(path string, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.symlinkErrs[path] = err
+}
+
+// SetReadlink stubs the stored target Readlink(path) returns (relative, or a
+// junction's \??\ spelling). Without it Readlink falls back to the SetSymlink
+// target, so a plain symlink fixture needs only one call.
+func (m *Mock) SetReadlink(path, target string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.readlinks[path] = target
 }
 
 func (m *Mock) SetGOOS(goos string) {
@@ -385,6 +404,18 @@ func (m *Mock) EvalSymlinks(path string) (string, error) {
 	return path, nil
 }
 
+func (m *Mock) Readlink(path string) (string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if target, ok := m.readlinks[path]; ok {
+		return target, nil
+	}
+	if target, ok := m.symlinks[path]; ok {
+		return target, nil
+	}
+	return "", fmt.Errorf("mock: readlink %s: not a link", path)
+}
+
 func (m *Mock) GOOS() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -442,10 +473,18 @@ func MockSymlinkDirEntry(name string) os.DirEntry {
 	return &mockDirEntry{name: name, symlink: true}
 }
 
+// MockIrregularDirEntry creates an os.DirEntry whose Type() reports
+// os.ModeIrregular (IsDir() and symlink both false) — what os.ReadDir reports
+// for a Windows directory junction. Pair it with SetReadlink for the target.
+func MockIrregularDirEntry(name string) os.DirEntry {
+	return &mockDirEntry{name: name, irregular: true}
+}
+
 type mockDirEntry struct {
-	name    string
-	dir     bool
-	symlink bool
+	name      string
+	dir       bool
+	symlink   bool
+	irregular bool
 }
 
 func (e *mockDirEntry) Name() string { return e.name }
@@ -453,6 +492,9 @@ func (e *mockDirEntry) IsDir() bool  { return e.dir }
 func (e *mockDirEntry) Type() os.FileMode {
 	if e.symlink {
 		return os.ModeSymlink
+	}
+	if e.irregular {
+		return os.ModeIrregular
 	}
 	if e.dir {
 		return os.ModeDir

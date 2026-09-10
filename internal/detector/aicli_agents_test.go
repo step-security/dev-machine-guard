@@ -3,7 +3,9 @@ package detector
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -50,14 +52,27 @@ type recExec struct {
 	t        *testing.T
 	trapExec bool
 
-	execs   []aicliExecCall
-	globs   []string
-	reads   []string // ReadFile + Stat + FileExists, i.e. every path touched
-	lookups []string
+	execs []aicliExecCall
+	// regReads counts the Kiro CLI registry reads. On Windows that is a native
+	// registry API call; only the non-Windows test twin (registry_other.go)
+	// spells it as `reg query`, so it is kept out of execs and never trips the
+	// trap — but it is fatal off Windows, where the registry must not exist.
+	regReads int
+	globs    []string
+	reads    []string // ReadFile + Stat + FileExists, i.e. every path touched
+	evals    []string // EvalSymlinks, i.e. every path followed
+	lookups  []string
 }
 
 // No mutex: Detect is single-goroutine and AGENTS.md §15.5 forbids t.Parallel.
 func (e *recExec) recordExec(name string, args []string) {
+	if name == "reg" && slices.Equal(args, []string{"query", `HKCU\SOFTWARE\Kiro\CLI`}) {
+		if e.GOOS() != model.PlatformWindows {
+			e.t.Fatalf("Kiro CLI registry read on %s: the registry is Windows-only", e.GOOS())
+		}
+		e.regReads++
+		return
+	}
 	e.execs = append(e.execs, aicliExecCall{name: name, args: slices.Clone(args)})
 	if e.trapExec {
 		e.t.Fatalf("unexpected exec: %s %v", name, args)
@@ -107,6 +122,14 @@ func (e *recExec) Stat(path string) (os.FileInfo, error) {
 func (e *recExec) FileExists(path string) bool {
 	e.reads = append(e.reads, path)
 	return e.Mock.FileExists(path)
+}
+
+// EvalSymlinks follows every component; it is recorded apart from reads so a
+// case can assert a path was never followed without forbidding the failed
+// resolution attempt another case is about.
+func (e *recExec) EvalSymlinks(path string) (string, error) {
+	e.evals = append(e.evals, path)
+	return e.Mock.EvalSymlinks(path)
 }
 
 func (e *recExec) LookPath(name string) (string, error) {
@@ -252,7 +275,7 @@ func captureStderr(t *testing.T, fn func()) (out string) {
 // aicliNewSpecs are the specs this file owns. Every case asserts one row for
 // each spec it names in want and ZERO rows for the others, so a fixture built
 // for one agent cannot quietly start reporting another.
-var aicliNewSpecs = []string{"pi", "factory", "amp"}
+var aicliNewSpecs = []string{"pi", "factory", "amp", "amazon-q-cli", "grok-build", "kimi-code", "muse-code", "hermes-agent", "oh-my-pi"}
 
 type aicliWant struct {
 	tool      string
@@ -274,12 +297,17 @@ type aicliCase struct {
 	// accepts may set it, and they must pin wantExecs.
 	allowExec bool
 
-	want         []aicliWant
-	wantExecs    []aicliExecCall
-	noReadPrefix []string // no ReadFile/Stat/FileExists path may start with these
-	noLookup     []string // no LookPath name may contain these
-	wantDebug    []string
-	noDebug      []string
+	want           []aicliWant
+	wantExecs      []aicliExecCall
+	noReadPrefix   []string // no ReadFile/Stat/FileExists path may start with these
+	noFollowPrefix []string // no EvalSymlinks path may start with these either
+	noLookup       []string // no LookPath name may contain these
+	wantDebug      []string
+	noDebug        []string
+	// allowGlobs are the fixture-specific patterns this case may glob on top
+	// of aicliAllowedGlobs: a sibling probe beside an accepted anchor
+	// (grok-*.exe, muse-bin-*) or a venv's dist-info directory.
+	allowGlobs []string
 }
 
 func findAITool(tools []model.AITool, name string) *model.AITool {
@@ -319,6 +347,7 @@ func aicliAllowedGlobs(home, goos string) map[string]bool {
 	allowed[filepath.Join(home, ".nvm", "versions", "node", "*", "bin")] = true
 	allowed[joinPath(home, ".local", "share", "fnm", "node-versions", "*", "installation", "bin")] = true
 	allowed[joinPath(home, ".local", "share", "mise", "installs", "node", "*", "bin")] = true
+	allowed[joinPath(home, ".local", "share", "mise", "installs", "github-can1357-oh-my-pi", "*")] = true
 	allowed[joinPath(home, ".volta", "tools", "image", "packages", "*", "bin")] = true
 	allowed[joinPath(home, ".volta", "tools", "image", "packages", "*", "*", "bin")] = true
 	allowed[joinPath(home, ".asdf", "installs", "nodejs", "*", "bin")] = true
@@ -389,10 +418,26 @@ func runAICLICase(t *testing.T, tc aicliCase) {
 	}) {
 		t.Errorf("execs: got %+v, want %+v", rec.execs, tc.wantExecs)
 	}
+	// The Kiro ladder reads its registry key once per resolve, whether or not a
+	// candidate exists (the key is also how a non-default InstallPath is found).
+	wantRegReads := 0
+	if goos == model.PlatformWindows {
+		wantRegReads = 1
+	}
+	if rec.regReads != wantRegReads {
+		t.Errorf("Kiro registry reads: got %d, want %d", rec.regReads, wantRegReads)
+	}
 	for _, prefix := range tc.noReadPrefix {
 		for _, read := range rec.reads {
 			if strings.HasPrefix(read, prefix) {
 				t.Errorf("touched %q, which is under the forbidden prefix %q", read, prefix)
+			}
+		}
+	}
+	for _, prefix := range tc.noFollowPrefix {
+		for _, followed := range rec.evals {
+			if strings.HasPrefix(followed, prefix) {
+				t.Errorf("followed %q, which is under the forbidden prefix %q", followed, prefix)
 			}
 		}
 	}
@@ -415,6 +460,9 @@ func runAICLICase(t *testing.T, tc aicliCase) {
 	}
 
 	allowed := aicliAllowedGlobs(home, goos)
+	for _, pattern := range tc.allowGlobs {
+		allowed[pattern] = true
+	}
 	for _, pattern := range rec.globs {
 		// versionmeta's dpkg source globs one <tool>:<arch>.list per candidate.
 		// Matched by prefix since the tool name varies per case; it reads the
@@ -1493,6 +1541,61 @@ func TestAICLIAgents_TCCGuard(t *testing.T) {
 			want:  []aicliWant{{tool: "pi", binary: "/Users/u/Documents/bin/pi", version: "0.83.0"}},
 		})
 	})
+
+	t.Run("(t6) a corroborator derived beside an accepted candidate is guarded after it resolves", func(t *testing.T) {
+		t.Run("a .muse-version symlinked into ~/Downloads is rejected before it is read", func(t *testing.T) {
+			requireDarwinHost(t)
+			runAICLICase(t, aicliCase{
+				name:    "~/.local/bin/.muse-version -> ~/Downloads/.muse-version",
+				goos:    model.PlatformDarwin,
+				skipper: true,
+				setup: func(m *executor.Mock, home string) {
+					bin := joinPath(home, ".local", "bin")
+					addFile(m, joinPath(bin, "muse"), []byte("#!/usr/bin/env bash\n"))
+					sidecar := joinPath(bin, ".muse-version")
+					addFile(m, sidecar, []byte(museVersion+"\n"))
+					m.SetSymlink(sidecar, joinPath(home, "Downloads", ".muse-version"))
+					addBinary(m, joinPath(bin, "muse-bin-"+museVersion), 90<<20)
+				},
+				noReadPrefix: []string{"/Users/u/Downloads"},
+				wantDebug:    []string{"under a macOS TCC-protected path"},
+			})
+		})
+		t.Run("a muse-bin payload symlinked into ~/Downloads is rejected before it is stat'd", func(t *testing.T) {
+			requireDarwinHost(t)
+			runAICLICase(t, aicliCase{
+				name:    "~/.local/bin/muse-bin-<v> -> ~/Downloads/muse-bin-<v>",
+				goos:    model.PlatformDarwin,
+				skipper: true,
+				setup: func(m *executor.Mock, home string) {
+					bin := joinPath(home, ".local", "bin")
+					addFile(m, joinPath(bin, "muse"), []byte("#!/usr/bin/env bash\n"))
+					addFile(m, joinPath(bin, ".muse-version"), []byte(museVersion+"\n"))
+					payload := joinPath(bin, "muse-bin-"+museVersion)
+					addFile(m, payload, []byte{})
+					m.SetSymlink(payload, joinPath(home, "Downloads", "muse-bin-"+museVersion))
+				},
+				noReadPrefix: []string{"/Users/u/Downloads"},
+				wantDebug:    []string{"under a macOS TCC-protected path"},
+			})
+		})
+		t.Run("a hermes venv symlinked into ~/Documents is rejected before it is globbed", func(t *testing.T) {
+			requireDarwinHost(t)
+			runAICLICase(t, aicliCase{
+				name:    "~/.hermes/hermes-agent/venv -> ~/Documents/venv",
+				goos:    model.PlatformDarwin,
+				skipper: true,
+				setup: func(m *executor.Mock, home string) {
+					addFile(m, joinPath(home, ".local", "bin", "hermes"), []byte("#!/bin/bash\n"))
+					venv := joinPath(home, ".hermes", "hermes-agent", "venv")
+					m.SetDir(venv)
+					m.SetSymlink(venv, joinPath(home, "Documents", "venv"))
+				},
+				noReadPrefix: []string{"/Users/u/Documents"},
+				wantDebug:    []string{"under a macOS TCC-protected path"},
+			})
+		})
+	})
 }
 
 // tccDocumentsFixture is one Pi install under ~/Documents that satisfies rule 2
@@ -1509,16 +1612,19 @@ func tccDocumentsFixture(m *executor.Mock, home string) {
 // Executor.ReadDir on either implementation, so the two claims are asserted
 // separately: recExec.ReadDir fails the test unconditionally (across this whole
 // file, not just here), and the glob budget is pinned exactly — one call per
-// targeted install-tree pattern per resolver, three resolvers.
+// targeted install-tree pattern per resolver. Every spec in aicliNewSpecs
+// walks on Unix; on Windows the Kiro ladder returns before any candidate walk
+// when its registry key is absent, so one fewer.
 func TestAICLIAgents_NoWalkAndGlobBudget(t *testing.T) {
+	resolvers := len(aicliNewSpecs)
 	tests := []struct {
 		goos           string
 		wantDistinct   int
+		wantPerPattern int
 		wantTotalGlobs int
-	}{
-		{model.PlatformLinux, 6, 18},
-		{model.PlatformDarwin, 7, 21},
-		{model.PlatformWindows, 2, 6},
+	}{{model.PlatformLinux, 7, resolvers, 7 * resolvers},
+		{model.PlatformDarwin, 8, resolvers, 8 * resolvers},
+		{model.PlatformWindows, 2, resolvers - 1, 2 * (resolvers - 1)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.goos, func(t *testing.T) {
@@ -1543,8 +1649,8 @@ func TestAICLIAgents_NoWalkAndGlobBudget(t *testing.T) {
 				t.Errorf("distinct patterns: got %d (%v), want %d", len(counts), counts, tc.wantDistinct)
 			}
 			for pattern, n := range counts {
-				if n != 3 {
-					t.Errorf("Glob(%q) called %d times, want 3 (once per resolver)", pattern, n)
+				if n != tc.wantPerPattern {
+					t.Errorf("Glob(%q) called %d times, want %d (once per resolver)", pattern, n, tc.wantPerPattern)
 				}
 			}
 		})
@@ -1558,7 +1664,7 @@ func TestAICLIAgents_NoWalkAndGlobBudget(t *testing.T) {
 func TestResolveGlobalRoots_AmpConfigAndFactoryAgentRoots(t *testing.T) {
 	cases := []struct{ dir, source, agent string }{
 		{testHome + "/.config/amp/skills/ampcfg", "amp_user", "amp"},
-		{testHome + "/.agent/skills/facag", "factory_agent_user", "factory"},
+		{testHome + "/.agent/skills/facag", "factory_agent_user", "shared"}, // read by Factory and Antigravity
 	}
 	m, fs := newSkillsMock()
 	for _, c := range cases {
@@ -1593,5 +1699,1355 @@ func TestResolveGlobalRoots_NewRootsAbsentWhenDirsAbsent(t *testing.T) {
 	want := []string{filepath.Join(testHome, ".claude", "skills")}
 	if !slices.Equal(info.RootsScanned, want) {
 		t.Errorf("roots_scanned: got %v, want %v (the two new roots must not appear when absent)", info.RootsScanned, want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Kiro CLI (amazon-q-cli). Runs under the aicli harness: the exec trap is on
+// unless a case says otherwise, so every accept below is proven without
+// launching the candidate. Fixture values are the ones measured on real
+// installs (bundle id com.amazon.codewhisperer, version 2.21.1, Windows
+// ProductVersion 2.21.1.0).
+// ---------------------------------------------------------------------------
+
+const kiroCLIBundle = "/Applications/Kiro CLI.app"
+
+// kiroPlist is a minimal XML Info.plist; short == "" omits
+// CFBundleShortVersionString. CFBundleVersion is always present and never the
+// answer.
+func kiroPlist(bundleID, short string) []byte {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` +
+		`<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">` +
+		`<plist version="1.0"><dict>`)
+	b.WriteString(`<key>CFBundleIdentifier</key><string>` + bundleID + `</string>`)
+	if short != "" {
+		b.WriteString(`<key>CFBundleShortVersionString</key><string>` + short + `</string>`)
+	}
+	b.WriteString(`<key>CFBundleVersion</key><string>999</string>` +
+		`<key>CFBundleExecutable</key><string>kiro_cli_desktop</string></dict></plist>`)
+	return []byte(b.String())
+}
+
+// kiroDarwinBundle installs the CLI bundle with the given plist.
+func kiroDarwinBundle(m *executor.Mock, plist []byte) {
+	addFile(m, kiroCLIBundle+"/Contents/MacOS/kiro-cli", []byte{})
+	addFile(m, kiroCLIBundle+"/Contents/Info.plist", plist)
+}
+
+// kiroLinuxTrio drops the installer's three binaries into dir.
+func kiroLinuxTrio(m *executor.Mock, dir string) {
+	for _, name := range []string{"kiro-cli", "kiro-cli-chat", "kiro-cli-term"} {
+		addFile(m, joinPath(dir, name), []byte{})
+	}
+}
+
+// kiroRegistry stubs the installer key as the non-Windows twin queries it.
+func kiroRegistry(m *executor.Mock, installPath string) {
+	m.SetCommand("\r\nHKEY_CURRENT_USER\\SOFTWARE\\Kiro\\CLI\r\n"+
+		"    InstallPath    REG_SZ    "+installPath+"\r\n"+
+		"    ProductVersion    REG_SZ    2.21.1.0\r\n"+
+		"    CliVersion    REG_SZ    v2\r\n", "", 0,
+		"reg", "query", `HKCU\SOFTWARE\Kiro\CLI`)
+}
+
+func TestAICLIAgents_Kiro_Darwin(t *testing.T) {
+	bin := kiroCLIBundle + "/Contents/MacOS/kiro-cli"
+	plistBuddy := aicliExecCall{name: "/usr/libexec/PlistBuddy", args: []string{"-c", "Print :CFBundleShortVersionString", kiroCLIBundle + "/Contents/Info.plist"}}
+	runAICLICases(t, []aicliCase{
+		{
+			name: "PATH symlink into the bundle: identity and version from the plist",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, home string) {
+				kiroDarwinBundle(m, kiroPlist(kiroCLIBundleID, "2.21.1"))
+				link := joinPath(home, ".local", "bin", "kiro-cli")
+				m.SetPath("kiro-cli", link)
+				addFile(m, link, []byte{})
+				m.SetSymlink(link, bin)
+				setConfigDir(m, home, "~/.kiro")
+			},
+			want: []aicliWant{{tool: "amazon-q-cli", binary: "/Users/u/.local/bin/kiro-cli", version: "2.21.1", install: bin, configRel: "~/.kiro"}},
+		},
+		{
+			name: "nothing on PATH: the fixed bundle path is the anchor",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, home string) {
+				kiroDarwinBundle(m, kiroPlist(kiroCLIBundleID, "2.21.1"))
+			},
+			want: []aicliWant{{tool: "amazon-q-cli", binary: bin, version: "2.21.1"}},
+		},
+		{
+			name: "PATH alias and fixed path resolve to one file: one row",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, home string) {
+				kiroDarwinBundle(m, kiroPlist(kiroCLIBundleID, "2.21.1"))
+				m.SetPath("kiro-cli", bin)
+				m.SetPath("q", bin)
+			},
+			want: []aicliWant{{tool: "amazon-q-cli", binary: bin, version: "2.21.1"}},
+		},
+		{
+			// The only exec is Apple's PlistBuddy, from the shared static
+			// version ladder every bundle-shipped tool goes through; the CLI
+			// itself is never launched (StaticVersionOnly).
+			name: "plist without a short version: unknown, CLI never launched",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, home string) {
+				kiroDarwinBundle(m, kiroPlist(kiroCLIBundleID, ""))
+			},
+			allowExec: true,
+			wantExecs: []aicliExecCall{plistBuddy},
+			want:      []aicliWant{{tool: "amazon-q-cli", binary: bin, version: "unknown"}},
+			wantDebug: []string{"reporting version unknown (never launched)"},
+		},
+		{
+			name: "a bundle with another identifier is rejected",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, home string) {
+				other := "/Applications/Other.app/Contents/MacOS/kiro-cli"
+				addFile(m, other, []byte{})
+				addFile(m, "/Applications/Other.app/Contents/Info.plist", kiroPlist("com.example.other", "9.9.9"))
+				m.SetPath("kiro-cli", other)
+			},
+			wantDebug: []string{`bundle identifier is "com.example.other", not com.amazon.codewhisperer`},
+		},
+		{
+			name: "the Kiro IDE bundle is not the CLI",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, home string) {
+				ide := "/Applications/Kiro.app/Contents/Resources/app/bin/code"
+				addFile(m, ide, []byte{})
+				addFile(m, "/Applications/Kiro.app/Contents/Info.plist", kiroPlist("dev.kiro.desktop", "1.0.437"))
+				m.SetPath("kiro", ide)
+			},
+			wantDebug: []string{"not <bundle>.app/Contents/MacOS/kiro-cli"},
+		},
+		{
+			// The link is seen with Readlink and never followed: neither its
+			// target nor the link path itself is stat'd, resolved or read.
+			name: "a plist symlinked into ~/Downloads is never followed",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, home string) {
+				addFile(m, bin, []byte{})
+				m.SetSymlink(kiroCLIBundle+"/Contents/Info.plist", joinPath(home, "Downloads", "Info.plist"))
+				addFile(m, joinPath(home, "Downloads", "Info.plist"), kiroPlist(kiroCLIBundleID, "2.21.1"))
+			},
+			skipper:        true,
+			noReadPrefix:   []string{"/Users/u/Downloads", kiroCLIBundle + "/Contents/Info.plist"},
+			noFollowPrefix: []string{"/Users/u/Downloads", kiroCLIBundle + "/Contents/Info.plist"},
+			wantDebug:      []string{"under a macOS TCC-protected path"},
+		},
+	})
+}
+
+func TestAICLIAgents_Kiro_Linux(t *testing.T) {
+	const dpkgStatus = "Package: kiro-cli\nStatus: install ok installed\nVersion: 2.21.1\n\n"
+	runAICLICases(t, []aicliCase{
+		{
+			name: "dpkg: the package owns the binary and carries the version",
+			setup: func(m *executor.Mock, home string) {
+				m.SetPath("kiro-cli", "/usr/bin/kiro-cli")
+				addFile(m, "/usr/bin/kiro-cli", []byte{})
+				addFile(m, "/var/lib/dpkg/info/kiro-cli.list", []byte("/usr\n/usr/bin\n/usr/bin/kiro-cli\n"))
+				addFile(m, "/var/lib/dpkg/status", []byte(dpkgStatus))
+			},
+			want: []aicliWant{{tool: "amazon-q-cli", binary: "/usr/bin/kiro-cli", version: "2.21.1"}},
+		},
+		{
+			name: "installer trio in ~/.local/bin, archive gone: unknown version, never launched",
+			setup: func(m *executor.Mock, home string) {
+				dir := joinPath(home, ".local", "bin")
+				kiroLinuxTrio(m, dir)
+				m.SetPath("kiro-cli", joinPath(dir, "kiro-cli"))
+			},
+			want:      []aicliWant{{tool: "amazon-q-cli", binary: "/home/u/.local/bin/kiro-cli", version: "unknown"}},
+			wantDebug: []string{"reporting version unknown (never launched)"},
+		},
+		{
+			name: "trio symlinked from the retained kirocli/bin tree: detected, version unknown",
+			setup: func(m *executor.Mock, home string) {
+				archive := joinPath(home, "kirocli")
+				kiroLinuxTrio(m, joinPath(archive, "bin"))
+				link := joinPath(home, ".local", "bin", "kiro-cli")
+				addFile(m, link, []byte{})
+				m.SetSymlink(link, joinPath(archive, "bin", "kiro-cli"))
+			},
+			want: []aicliWant{{tool: "amazon-q-cli", binary: "/home/u/.local/bin/kiro-cli", version: "unknown", install: "/home/u/kirocli/bin/kiro-cli"}},
+		},
+		{
+			name: "kiro-cli without its siblings is not a Kiro install",
+			setup: func(m *executor.Mock, home string) {
+				m.SetPath("kiro-cli", "/usr/local/bin/kiro-cli")
+				addFile(m, "/usr/local/bin/kiro-cli", []byte{})
+			},
+			wantDebug: []string{"no kiro-cli-chat beside it"},
+		},
+		{
+			name: "the IDE's /usr/bin/kiro launcher and a `q` wrapper alone prove nothing",
+			setup: func(m *executor.Mock, home string) {
+				m.SetPath("kiro", "/usr/bin/kiro")
+				addFile(m, "/usr/bin/kiro", []byte{})
+				m.SetSymlink("/usr/bin/kiro", "/usr/share/kiro/bin/kiro")
+				m.SetPath("q", "/usr/local/bin/q")
+				addFile(m, "/usr/local/bin/q", []byte("#!/bin/sh\nexec kiro-cli chat \"$@\"\n"))
+			},
+			wantDebug: []string{"resolves to /usr/share/kiro/bin/kiro, whose basename is not kiro-cli", "resolves to /usr/local/bin/q, whose basename is not kiro-cli"},
+		},
+		{
+			// kiro-cli is listed first, so the installer trio off PATH is
+			// found before either alias is examined.
+			name: "the same colliders on PATH do not hide the trio in ~/.local/bin",
+			setup: func(m *executor.Mock, home string) {
+				m.SetPath("kiro", "/usr/bin/kiro")
+				addFile(m, "/usr/bin/kiro", []byte{})
+				m.SetSymlink("/usr/bin/kiro", "/usr/share/kiro/bin/kiro")
+				m.SetPath("q", "/usr/local/bin/q")
+				addFile(m, "/usr/local/bin/q", []byte{})
+				kiroLinuxTrio(m, joinPath(home, ".local", "bin"))
+			},
+			want:     []aicliWant{{tool: "amazon-q-cli", binary: "/home/u/.local/bin/kiro-cli"}},
+			noLookup: []string{"q"},
+		},
+		{
+			name: "a sibling that is a symlink is not followed",
+			setup: func(m *executor.Mock, home string) {
+				dir := joinPath(home, ".local", "bin")
+				kiroLinuxTrio(m, dir)
+				m.SetSymlink(joinPath(dir, "kiro-cli-chat"), "/home/u/Documents/kiro-cli-chat")
+				addFile(m, "/home/u/Documents/kiro-cli-chat", []byte{})
+			},
+			noReadPrefix:   []string{"/home/u/Documents", "/home/u/.local/bin/kiro-cli-chat"},
+			noFollowPrefix: []string{"/home/u/Documents", "/home/u/.local/bin/kiro-cli-chat"},
+			wantDebug:      []string{"no kiro-cli-chat beside it"},
+		},
+		{
+			name: "a sibling that is a directory does not count",
+			setup: func(m *executor.Mock, home string) {
+				dir := joinPath(home, ".local", "bin")
+				addFile(m, joinPath(dir, "kiro-cli"), []byte{})
+				addFile(m, joinPath(dir, "kiro-cli-chat"), []byte{})
+				m.SetFileInfo(joinPath(dir, "kiro-cli-term"), &dirInfo{n: "kiro-cli-term"})
+				m.SetPath("kiro-cli", joinPath(dir, "kiro-cli"))
+			},
+			wantDebug: []string{"no kiro-cli-term beside it"},
+		},
+	})
+}
+
+func TestAICLIAgents_Kiro_Windows(t *testing.T) {
+	const defaultInstall = `C:\Users\u\AppData\Local\Kiro-Cli`
+	exe := defaultInstall + `\kiro-cli.exe`
+	runAICLICases(t, []aicliCase{
+		{
+			name: "default install: the fixed path is bound to the registry InstallPath",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, home string) {
+				kiroRegistry(m, defaultInstall)
+				addFile(m, exe, []byte{})
+			},
+			allowExec: true,
+			wantExecs: []aicliExecCall{},
+			want:      []aicliWant{{tool: "amazon-q-cli", binary: exe, version: "2.21.1.0", install: exe}},
+		},
+		{
+			name: "PATH hit inside the registered InstallPath, spelled in another case",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, home string) {
+				kiroRegistry(m, `c:\users\u\appdata\local\kiro-cli\`)
+				m.SetPath("kiro-cli", exe)
+				addFile(m, exe, []byte{})
+			},
+			allowExec: true,
+			wantExecs: []aicliExecCall{},
+			want:      []aicliWant{{tool: "amazon-q-cli", binary: exe, version: "2.21.1.0"}},
+		},
+		{
+			name: "non-default InstallPath, on no PATH: the key's path joins the candidates",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, home string) {
+				kiroRegistry(m, `D:\Tools\KiroCli`)
+				addFile(m, `D:\Tools\KiroCli\kiro-cli.exe`, []byte{})
+			},
+			allowExec: true,
+			wantExecs: []aicliExecCall{},
+			want:      []aicliWant{{tool: "amazon-q-cli", binary: `D:\Tools\KiroCli\kiro-cli.exe`, version: "2.21.1.0"}},
+		},
+		{
+			name: "a kiro-cli.exe outside the registered InstallPath is rejected",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, home string) {
+				kiroRegistry(m, `D:\Tools\KiroCli`)
+				m.SetPath("kiro-cli", `C:\stray\kiro-cli.exe`)
+				addFile(m, `C:\stray\kiro-cli.exe`, []byte{})
+			},
+			allowExec: true,
+			wantExecs: []aicliExecCall{},
+			wantDebug: []string{`not kiro-cli.exe under the registered InstallPath D:\Tools\KiroCli`},
+		},
+		{
+			name: "registry key present but the executable is gone",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, home string) {
+				kiroRegistry(m, defaultInstall)
+			},
+			allowExec: true,
+			wantExecs: []aicliExecCall{},
+		},
+		{
+			// With no key nothing can be proven, so no candidate is even looked
+			// up — the PATH kiro-cli.exe stays untouched.
+			name: "no registry key: no candidate is examined",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, home string) {
+				m.SetPath("kiro-cli", exe)
+				addFile(m, exe, []byte{})
+			},
+			allowExec: true,
+			wantExecs: []aicliExecCall{},
+			noLookup:  []string{"kiro"},
+			wantDebug: []string{`HKCU\SOFTWARE\Kiro\CLI is absent`},
+		},
+	})
+}
+
+// dirInfo is an os.FileInfo for a directory, for the sibling-is-a-directory case.
+type dirInfo struct{ n string }
+
+func (d *dirInfo) Name() string       { return d.n }
+func (d *dirInfo) Size() int64        { return 0 }
+func (d *dirInfo) Mode() os.FileMode  { return os.ModeDir | 0o755 }
+func (d *dirInfo) ModTime() time.Time { return time.Time{} }
+func (d *dirInfo) IsDir() bool        { return true }
+func (d *dirInfo) Sys() any           { return nil }
+
+// Cases for the grok-build, kimi-code, muse-code, hermes-agent and oh-my-pi
+// ladders, on the harness above. Every case
+// traps exec: all five specs are StaticVersionOnly, so no channel — accept or
+// reject — may launch anything.
+
+const (
+	kimiRealBytes int64 = 151 << 20 // measured installer binary, low end
+	ompRealBytes  int64 = 135 << 20 // measured standalone binary, low end
+	museVersion         = "1.0.3-R2198.1"
+	hermesVersion       = "0.21.0"
+	ompVersion          = "18.1.10"
+)
+
+// distInfoGlob is the pattern distInfoVersion issues for venv, in the goos
+// spelling — what a case must SetGlob and allow.
+func distInfoGlob(goos, venv, dist string) string {
+	if goos == model.PlatformWindows {
+		return joinPath(venv, "Lib", "site-packages", dist+"-*.dist-info")
+	}
+	return joinPath(venv, "lib", "python*", "site-packages", dist+"-*.dist-info")
+}
+
+// addDistInfo registers exactly one <dist>-<v>.dist-info under venv and returns
+// the pattern the case must allow.
+func addDistInfo(m *executor.Mock, goos, venv, dist, version string) string {
+	pattern := distInfoGlob(goos, venv, dist)
+	m.SetGlob(pattern, []string{joinPath(pathDir(pattern), dist+"-"+version+".dist-info")})
+	return pattern
+}
+
+// addMuseInstall lays down the installer's directory: the launcher script, the
+// .muse-version sidecar and the muse-bin-<v> payload.
+func addMuseInstall(m *executor.Mock, dir, version string) {
+	addFile(m, joinPath(dir, "muse"), []byte("#!/usr/bin/env bash\n"))
+	addFile(m, joinPath(dir, ".muse-version"), []byte(version+"\n"))
+	addBinary(m, joinPath(dir, "muse-bin-"+version), 90<<20)
+}
+
+func TestVersionFromFilename(t *testing.T) {
+	tests := []struct{ base, prefix, want string }{
+		{"grok-1.0.13", "grok-", "1.0.13"},
+		{"grok-1.0.13-linux-aarch64", "grok-", "1.0.13"},
+		{"grok-1.0.13-macos-aarch64", "grok-", "1.0.13"},
+		{"grok-1.0.13.exe", "grok-", "1.0.13"},
+		{"grok-1.0.13-windows-x64.EXE", "grok-", "1.0.13"},
+		{"grok-macos-aarch64", "grok-", ""}, // unversioned bootstrap
+		{"grok", "grok-", ""},
+		{"grok.exe", "grok-", ""},
+		{"muse-bin-1.0.3-R2198.1", "muse-bin-", "1.0.3-R2198.1"},
+		{"muse-bin-", "muse-bin-", ""},
+		{"kimi-1.0.13", "grok-", ""},
+	}
+	for _, tc := range tests {
+		if got := versionFromFilename(tc.base, tc.prefix); got != tc.want {
+			t.Errorf("versionFromFilename(%q, %q) = %q, want %q", tc.base, tc.prefix, got, tc.want)
+		}
+	}
+}
+
+func TestDistInfoVersion(t *testing.T) {
+	venv := "/home/u/.local/share/uv/tools/kimi-cli"
+	pattern := distInfoGlob(model.PlatformLinux, venv, "kimi_cli")
+	sp := pathDir(pattern)
+
+	t.Run("one match yields its version", func(t *testing.T) {
+		m, _ := newAICLIMock(model.PlatformLinux)
+		m.SetGlob(pattern, []string{sp + "/kimi_cli-1.49.0.dist-info"})
+		if got := distInfoVersion(m, progress.NewNoop(), venv, "kimi_cli"); got != "1.49.0" {
+			t.Errorf("got %q, want 1.49.0", got)
+		}
+	})
+	t.Run("two matches yield nothing", func(t *testing.T) {
+		m, _ := newAICLIMock(model.PlatformLinux)
+		m.SetGlob(pattern, []string{sp + "/kimi_cli-1.49.0.dist-info", sp + "/kimi_cli-1.50.0.dist-info"})
+		if got := distInfoVersion(m, progress.NewNoop(), venv, "kimi_cli"); got != "" {
+			t.Errorf("got %q, want \"\"", got)
+		}
+	})
+	t.Run("no match yields nothing and nothing else is touched", func(t *testing.T) {
+		m, _ := newAICLIMock(model.PlatformLinux)
+		rec := &recExec{Mock: m, t: t, trapExec: true}
+		if got := distInfoVersion(rec, progress.NewNoop(), venv, "kimi_cli"); got != "" {
+			t.Errorf("got %q, want \"\"", got)
+		}
+		if len(rec.reads) != 0 || len(rec.globs) != 1 {
+			t.Errorf("reads=%v globs=%v; want no reads and one glob", rec.reads, rec.globs)
+		}
+	})
+	t.Run("windows uses Lib/site-packages", func(t *testing.T) {
+		m, _ := newAICLIMock(model.PlatformWindows)
+		wv := `C:\Users\u\AppData\Local\hermes\hermes-agent\venv`
+		wp := distInfoGlob(model.PlatformWindows, wv, "hermes_agent")
+		m.SetGlob(wp, []string{wv + `\Lib\site-packages\hermes_agent-0.21.0.dist-info`})
+		if got := distInfoVersion(m, progress.NewNoop(), wv, "hermes_agent"); got != "0.21.0" {
+			t.Errorf("got %q, want 0.21.0", got)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// grok-build
+// ---------------------------------------------------------------------------
+
+func TestAICLIAgents_Grok(t *testing.T) {
+	runAICLICases(t, []aicliCase{
+		{
+			name: "(g1) script install: the bootstrap link carries no version and reports unknown",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, home string) {
+				link := joinPath(home, ".grok", "bin", "grok")
+				addFile(m, link, []byte{})
+				m.SetSymlink(link, joinPath(home, ".grok", "bin", "grok-macos-aarch64"))
+				setConfigDir(m, home, "~/.grok")
+			},
+			want: []aicliWant{{tool: "grok-build", binary: "/Users/u/.grok/bin/grok", version: "unknown", configRel: "~/.grok"}},
+		},
+		{
+			name: "(g2) after npm postinstall the link names its version",
+			setup: func(m *executor.Mock, home string) {
+				link := joinPath(home, ".grok", "bin", "grok")
+				addFile(m, link, []byte{})
+				m.SetSymlink(link, joinPath(home, ".grok", "bin", "grok-1.0.13"))
+			},
+			want: []aicliWant{{tool: "grok-build", binary: "/home/u/.grok/bin/grok", version: "1.0.13"}},
+		},
+		{
+			name: "(g3) after a self-update the link points into downloads with a platform suffix",
+			setup: func(m *executor.Mock, home string) {
+				link := joinPath(home, ".grok", "bin", "grok")
+				addFile(m, link, []byte{})
+				m.SetSymlink(link, joinPath(home, ".grok", "downloads", "grok-1.0.13-linux-aarch64"))
+			},
+			want: []aicliWant{{tool: "grok-build", binary: "/home/u/.grok/bin/grok", version: "1.0.13"}},
+		},
+		{
+			name: "(g4) the npm prefix trampoline accepts from its manifest",
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("grok", "/usr/local/bin/grok")
+				addNPMGlobal(m, "/usr/local/bin/grok", "/usr/local/lib/node_modules/@xai-official/grok", grokPackageName, "1.0.13")
+			},
+			want: []aicliWant{{tool: "grok-build", binary: "/usr/local/bin/grok", version: "1.0.13"}},
+		},
+		{
+			name: "(g4a) the anchor wins over a PATH hit that resolves to the same file",
+			setup: func(m *executor.Mock, home string) {
+				link := joinPath(home, ".grok", "bin", "grok")
+				addFile(m, link, []byte{})
+				m.SetSymlink(link, joinPath(home, ".grok", "bin", "grok-1.0.13"))
+				local := joinPath(home, ".local", "bin", "grok")
+				m.SetPath("grok", local)
+				addFile(m, local, []byte{})
+				m.SetSymlink(local, joinPath(home, ".grok", "bin", "grok-1.0.13"))
+			},
+			want: []aicliWant{{tool: "grok-build", binary: "/home/u/.grok/bin/grok", version: "1.0.13"}},
+		},
+		{
+			name: "(g5) /usr/bin/grok owned by an AUR grok-build package accepts",
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("grok", "/usr/bin/grok")
+				addFile(m, "/usr/bin/grok", []byte{})
+				m.SetGlob("/var/lib/pacman/local/*-*", []string{"/var/lib/pacman/local/grok-build-bin-1.0.13-1"})
+				addFile(m, "/var/lib/pacman/local/grok-build-bin-1.0.13-1/files", pacmanFiles("usr/bin/grok"))
+			},
+			want: []aicliWant{{tool: "grok-build", binary: "/usr/bin/grok", version: "unknown"}},
+		},
+		{
+			name: "(g5r) /usr/bin/grok owned by the distro grok is the unrelated log parser",
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("grok", "/usr/bin/grok")
+				addFile(m, "/usr/bin/grok", []byte{})
+				m.SetGlob("/var/lib/pacman/local/*-*", []string{"/var/lib/pacman/local/grok-1.20.2-1"})
+				addFile(m, "/var/lib/pacman/local/grok-1.20.2-1/files", pacmanFiles("usr/bin/grok"))
+			},
+			wantDebug: []string{"no installed grok-build package owns usr/bin/grok"},
+		},
+		{
+			name: "(g6r) Homebrew Cellar/grok is the regex formula",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("grok", "/opt/homebrew/bin/grok")
+				addFile(m, "/opt/homebrew/bin/grok", []byte{})
+				m.SetSymlink("/opt/homebrew/bin/grok", "/opt/homebrew/Cellar/grok/1.20.2/bin/grok")
+			},
+			wantDebug: []string{"Homebrew Cellar/grok is the regex log-parser formula"},
+		},
+		{
+			name: "(g7r) the cargo grok is rejected",
+			setup: func(m *executor.Mock, home string) {
+				cargo := joinPath(home, ".cargo", "bin", "grok")
+				m.SetPath("grok", cargo)
+				addFile(m, cargo, []byte{})
+			},
+			wantDebug: []string{"under ~/.cargo"},
+		},
+		{
+			name: "(g8r) an npm package of another name is rejected by name",
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("grok", "/usr/local/bin/grok")
+				addNPMGlobal(m, "/usr/local/bin/grok", "/usr/local/lib/node_modules/grok", "grok", "0.1.0")
+			},
+			wantDebug: []string{`npm package is "grok", not ` + grokPackageName},
+		},
+		{
+			name: "(g9r) a plain ~/.local/bin/grok script with no corroborator is rejected",
+			setup: func(m *executor.Mock, home string) {
+				addFile(m, joinPath(home, ".local", "bin", "grok"), []byte("#!/bin/sh\n"))
+			},
+			wantDebug: []string{"no Grok Build channel claims it"},
+		},
+		{
+			name: "(g10) ~/.grok and its generic `agent` launcher alone are not an install",
+			setup: func(m *executor.Mock, home string) {
+				setConfigDir(m, home, "~/.grok")
+				addFile(m, joinPath(home, ".grok", "bin", "agent"), []byte{})
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// kimi-code
+// ---------------------------------------------------------------------------
+
+func TestAICLIAgents_Kimi(t *testing.T) {
+	runAICLICases(t, []aicliCase{
+		{
+			name: "(k1) the installer binary at or above the floor accepts with version unknown",
+			setup: func(m *executor.Mock, home string) {
+				addBinary(m, joinPath(home, ".kimi-code", "bin", "kimi"), kimiRealBytes)
+				setConfigDir(m, home, "~/.kimi-code")
+			},
+			want: []aicliWant{{tool: "kimi-code", binary: "/home/u/.kimi-code/bin/kimi", version: "unknown", configRel: "~/.kimi-code"}},
+		},
+		{
+			name: "(k1r) a script at the installer target is under the floor and rejected",
+			setup: func(m *executor.Mock, home string) {
+				addBinary(m, joinPath(home, ".kimi-code", "bin", "kimi"), 40<<10)
+			},
+			wantDebug: []string{"at the installer target but under"},
+		},
+		{
+			name: "(k2) the npm prefix accepts from its manifest",
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("kimi", "/usr/local/bin/kimi")
+				addNPMGlobal(m, "/usr/local/bin/kimi", "/usr/local/lib/node_modules/@moonshot-ai/kimi-code", kimiPackageName, "0.12.0")
+			},
+			want: []aicliWant{{tool: "kimi-code", binary: "/usr/local/bin/kimi", version: "0.12.0"}},
+		},
+		{
+			name: "(k3) the Homebrew formula resolves into its libexec node_modules and needs no brew rule",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("kimi", "/opt/homebrew/bin/kimi")
+				addNPMGlobal(m, "/opt/homebrew/bin/kimi",
+					"/opt/homebrew/Cellar/kimi-code/0.12.0/libexec/lib/node_modules/@moonshot-ai/kimi-code", kimiPackageName, "0.12.0")
+			},
+			want: []aicliWant{{tool: "kimi-code", binary: "/opt/homebrew/bin/kimi", version: "0.12.0"}},
+		},
+		{
+			name: "(k3b) an unlinked brew install is reached through the opt anchor",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				addNPMGlobal(m, "/opt/homebrew/opt/kimi-code/bin/kimi",
+					"/opt/homebrew/Cellar/kimi-code/0.12.0/libexec/lib/node_modules/@moonshot-ai/kimi-code", kimiPackageName, "0.12.0")
+			},
+			want: []aicliWant{{tool: "kimi-code", binary: "/opt/homebrew/opt/kimi-code/bin/kimi", version: "0.12.0"}},
+		},
+		{
+			name: "(k4) the legacy uv-tool venv accepts with its dist-info version",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, home string) {
+				venv := joinPath(home, ".local", "share", "uv", "tools", "kimi-cli")
+				link := joinPath(home, ".local", "bin", "kimi")
+				addFile(m, link, []byte{})
+				m.SetSymlink(link, joinPath(venv, "bin", "kimi"))
+				addDistInfo(m, model.PlatformDarwin, venv, "kimi_cli", "1.49.0")
+			},
+			allowGlobs: []string{distInfoGlob(model.PlatformDarwin, "/Users/u/.local/share/uv/tools/kimi-cli", "kimi_cli")},
+			want:       []aicliWant{{tool: "kimi-code", binary: "/Users/u/.local/bin/kimi", version: "1.49.0"}},
+		},
+		{
+			name: "(k4b) the pipx venv accepts too; two dist-info dirs degrade to unknown",
+			setup: func(m *executor.Mock, home string) {
+				venv := joinPath(home, ".local", "share", "pipx", "venvs", "kimi-cli")
+				link := joinPath(home, ".local", "bin", "kimi")
+				addFile(m, link, []byte{})
+				m.SetSymlink(link, joinPath(venv, "bin", "kimi"))
+				pattern := distInfoGlob(model.PlatformLinux, venv, "kimi_cli")
+				m.SetGlob(pattern, []string{pathDir(pattern) + "/kimi_cli-1.48.0.dist-info", pathDir(pattern) + "/kimi_cli-1.49.0.dist-info"})
+			},
+			allowGlobs: []string{distInfoGlob(model.PlatformLinux, "/home/u/.local/share/pipx/venvs/kimi-cli", "kimi_cli")},
+			want:       []aicliWant{{tool: "kimi-code", binary: "/home/u/.local/bin/kimi", version: "unknown"}},
+			wantDebug:  []string{"2 dist-info directories"},
+		},
+		{
+			name: "(k5r) the cargo kimi is rejected",
+			setup: func(m *executor.Mock, home string) {
+				cargo := joinPath(home, ".cargo", "bin", "kimi")
+				m.SetPath("kimi", cargo)
+				addFile(m, cargo, []byte{})
+			},
+			wantDebug: []string{"under ~/.cargo"},
+		},
+		{
+			name: "(k6r) Homebrew Cellar/kimi is not the kimi-code formula",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("kimi", "/opt/homebrew/bin/kimi")
+				addFile(m, "/opt/homebrew/bin/kimi", []byte{})
+				m.SetSymlink("/opt/homebrew/bin/kimi", "/opt/homebrew/Cellar/kimi/2.0.0/bin/kimi")
+			},
+			wantDebug: []string{"Homebrew Cellar/kimi is not the kimi-code formula"},
+		},
+		{
+			name: "(k7r) a plain ~/.local/bin/kimi script is rejected; ~/.kimi-code alone is not an install",
+			setup: func(m *executor.Mock, home string) {
+				addFile(m, joinPath(home, ".local", "bin", "kimi"), []byte("#!/bin/sh\n"))
+				setConfigDir(m, home, "~/.kimi-code")
+			},
+			wantDebug: []string{"no Kimi Code channel claims it"},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// muse-code
+// ---------------------------------------------------------------------------
+
+func TestAICLIAgents_Muse(t *testing.T) {
+	runAICLICases(t, []aicliCase{
+		{
+			name: "(m1) launcher with sidecar and matching muse-bin accepts with the sidecar version",
+			setup: func(m *executor.Mock, home string) {
+				addMuseInstall(m, joinPath(home, ".local", "bin"), museVersion)
+				setConfigDir(m, home, "~/.config/muse")
+			},
+			want: []aicliWant{{tool: "muse-code", binary: "/home/u/.local/bin/muse", version: museVersion, configRel: "~/.config/muse"}},
+		},
+		{
+			name: "(m1b) a relocated MUSE_INSTALL_DIR on PATH is directory-relative and still accepts",
+			setup: func(m *executor.Mock, _ string) {
+				addMuseInstall(m, "/opt/muse", museVersion)
+				m.SetPath("muse", "/opt/muse/muse")
+			},
+			want: []aicliWant{{tool: "muse-code", binary: "/opt/muse/muse", version: museVersion}},
+		},
+		{
+			name: "(m2r) sidecar without its muse-bin payload is rejected",
+			setup: func(m *executor.Mock, home string) {
+				bin := joinPath(home, ".local", "bin")
+				addFile(m, joinPath(bin, "muse"), []byte("#!/usr/bin/env bash\n"))
+				addFile(m, joinPath(bin, ".muse-version"), []byte(museVersion+"\n"))
+			},
+			wantDebug: []string{"no muse-bin-" + museVersion + " sits beside it"},
+		},
+		{
+			name: "(m2b) a sidecar that is not a Muse release string is rejected",
+			setup: func(m *executor.Mock, home string) {
+				bin := joinPath(home, ".local", "bin")
+				addFile(m, joinPath(bin, "muse"), []byte("#!/usr/bin/env bash\n"))
+				addFile(m, joinPath(bin, ".muse-version"), []byte("1.0.3\n"))
+				addBinary(m, joinPath(bin, "muse-bin-1.0.3"), 90<<20)
+			},
+			wantDebug: []string{"does not carry a Muse release version"},
+		},
+		{
+			name: "(m2c) an oversized sidecar is refused before it is read",
+			setup: func(m *executor.Mock, home string) {
+				bin := joinPath(home, ".local", "bin")
+				addFile(m, joinPath(bin, "muse"), []byte("#!/usr/bin/env bash\n"))
+				addBinary(m, joinPath(bin, ".muse-version"), museVersionMaxBytes+1)
+			},
+			wantDebug: []string{"over the 64-byte cap"},
+		},
+		{
+			name: "(m2d) a FIFO sidecar is refused before it is read; its zero size must not pass the cap",
+			setup: func(m *executor.Mock, home string) {
+				bin := joinPath(home, ".local", "bin")
+				addFile(m, joinPath(bin, "muse"), []byte("#!/usr/bin/env bash\n"))
+				m.SetFileInfo(joinPath(bin, ".muse-version"), pipeFileInfo{name: ".muse-version"})
+				addBinary(m, joinPath(bin, "muse-bin-"+museVersion), 90<<20)
+			},
+			wantDebug: []string{"is not a regular file"},
+		},
+		{
+			name: "(m2e) a sidecar whose resolution fails for a reason other than absence rejects instead of touching the unresolved path",
+			setup: func(m *executor.Mock, home string) {
+				bin := joinPath(home, ".local", "bin")
+				addMuseInstall(m, bin, museVersion)
+				m.SetSymlinkError(joinPath(bin, ".muse-version"), errors.New("too many levels of symbolic links"))
+			},
+			noReadPrefix: []string{"/home/u/.local/bin/.muse-version"},
+			wantDebug:    []string{"could not be safely resolved"},
+		},
+		{
+			name: "(m3) launcher with a single muse-bin and no sidecar accepts from the filename",
+			setup: func(m *executor.Mock, home string) {
+				bin := joinPath(home, ".local", "bin")
+				addFile(m, joinPath(bin, "muse"), []byte("#!/usr/bin/env bash\n"))
+				addBinary(m, joinPath(bin, "muse-bin-"+museVersion), 90<<20)
+				m.SetGlob(joinPath(bin, "muse-bin-*"), []string{joinPath(bin, "muse-bin-"+museVersion)})
+			},
+			allowGlobs: []string{"/home/u/.local/bin/muse-bin-*"},
+			want:       []aicliWant{{tool: "muse-code", binary: "/home/u/.local/bin/muse", version: museVersion}},
+		},
+		{
+			name: "(m3a) an absent sidecar reported by EvalSymlinks still falls through to the muse-bin-* sibling",
+			setup: func(m *executor.Mock, home string) {
+				bin := joinPath(home, ".local", "bin")
+				addFile(m, joinPath(bin, "muse"), []byte("#!/usr/bin/env bash\n"))
+				addBinary(m, joinPath(bin, "muse-bin-"+museVersion), 90<<20)
+				m.SetGlob(joinPath(bin, "muse-bin-*"), []string{joinPath(bin, "muse-bin-"+museVersion)})
+				m.SetSymlinkError(joinPath(bin, ".muse-version"), fs.ErrNotExist)
+			},
+			allowGlobs: []string{"/home/u/.local/bin/muse-bin-*"},
+			want:       []aicliWant{{tool: "muse-code", binary: "/home/u/.local/bin/muse", version: museVersion}},
+		},
+		{
+			name: "(m3b) two muse-bin payloads and no sidecar accept with version unknown",
+			setup: func(m *executor.Mock, home string) {
+				bin := joinPath(home, ".local", "bin")
+				addFile(m, joinPath(bin, "muse"), []byte("#!/usr/bin/env bash\n"))
+				m.SetGlob(joinPath(bin, "muse-bin-*"), []string{joinPath(bin, "muse-bin-1.0.2-R2040.1"), joinPath(bin, "muse-bin-"+museVersion)})
+			},
+			allowGlobs: []string{"/home/u/.local/bin/muse-bin-*"},
+			want:       []aicliWant{{tool: "muse-code", binary: "/home/u/.local/bin/muse", version: "unknown"}},
+		},
+		{
+			name: "(m3r) a single muse-bin-* sibling without a Muse release suffix proves nothing",
+			setup: func(m *executor.Mock, home string) {
+				bin := joinPath(home, ".local", "bin")
+				addFile(m, joinPath(bin, "muse"), []byte("#!/usr/bin/env bash\n"))
+				m.SetGlob(joinPath(bin, "muse-bin-*"), []string{joinPath(bin, "muse-bin-readme")})
+			},
+			allowGlobs: []string{"/home/u/.local/bin/muse-bin-*"},
+			wantDebug:  []string{"no Muse Code channel claims it"},
+		},
+		{
+			name: "(m3c) one release payload beside an unversioned sibling accepts with the payload version",
+			setup: func(m *executor.Mock, home string) {
+				bin := joinPath(home, ".local", "bin")
+				addFile(m, joinPath(bin, "muse"), []byte("#!/usr/bin/env bash\n"))
+				m.SetGlob(joinPath(bin, "muse-bin-*"), []string{joinPath(bin, "muse-bin-readme"), joinPath(bin, "muse-bin-"+museVersion)})
+			},
+			allowGlobs: []string{"/home/u/.local/bin/muse-bin-*"},
+			want:       []aicliWant{{tool: "muse-code", binary: "/home/u/.local/bin/muse", version: museVersion}},
+		},
+		{
+			name: "(m4) the homebrew cask accepts and its version comes from the Caskroom segment",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("muse", "/opt/homebrew/bin/muse")
+				addFile(m, "/opt/homebrew/bin/muse", []byte{})
+				m.SetSymlink("/opt/homebrew/bin/muse", "/opt/homebrew/Caskroom/muse-code/1.0.2-R2040.1/muse")
+			},
+			allowGlobs: []string{"/opt/homebrew/Caskroom/muse-code/1.0.2-R2040.1/muse-bin-*"},
+			want:       []aicliWant{{tool: "muse-code", binary: "/opt/homebrew/bin/muse", version: "1.0.2-R2040.1"}},
+		},
+		{
+			name: "(m5) /usr/bin/muse owned by the AUR muse-code-bin accepts",
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("muse", "/usr/bin/muse")
+				addFile(m, "/usr/bin/muse", []byte{})
+				m.SetGlob("/var/lib/pacman/local/*-*", []string{"/var/lib/pacman/local/muse-code-bin-1.0.3-1"})
+				addFile(m, "/var/lib/pacman/local/muse-code-bin-1.0.3-1/files", pacmanFiles("usr/bin/muse"))
+			},
+			allowGlobs: []string{"/usr/bin/muse-bin-*"},
+			want:       []aicliWant{{tool: "muse-code", binary: "/usr/bin/muse", version: "unknown"}},
+		},
+		{
+			name: "(m5r) /usr/bin/muse owned by the distro muse is the MusE sequencer",
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("muse", "/usr/bin/muse")
+				addFile(m, "/usr/bin/muse", []byte{})
+				m.SetGlob("/var/lib/pacman/local/*-*", []string{"/var/lib/pacman/local/muse-4.2.1-1"})
+				addFile(m, "/var/lib/pacman/local/muse-4.2.1-1/files", pacmanFiles("usr/bin/muse"))
+			},
+			allowGlobs: []string{"/usr/bin/muse-bin-*"},
+			wantDebug:  []string{"the distro `muse` is the MusE sequencer"},
+		},
+		{
+			name: "(m6r) the npm muse is rejected before its directory is probed",
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("muse", "/usr/local/bin/muse")
+				addNPMGlobal(m, "/usr/local/bin/muse", "/usr/local/lib/node_modules/muse", "muse", "3.1.0")
+			},
+			noReadPrefix: []string{"/usr/local/lib/node_modules/muse/dist"},
+			wantDebug:    []string{"under node_modules; npm `muse` is unrelated"},
+		},
+		{
+			name: "(m7r) the cargo muse is rejected",
+			setup: func(m *executor.Mock, home string) {
+				cargo := joinPath(home, ".cargo", "bin", "muse")
+				m.SetPath("muse", cargo)
+				addFile(m, cargo, []byte{})
+			},
+			wantDebug: []string{"under ~/.cargo"},
+		},
+		{
+			name: "(m8r) a bare ~/.local/bin/muse with neither sidecar nor payload is rejected",
+			setup: func(m *executor.Mock, home string) {
+				addFile(m, joinPath(home, ".local", "bin", "muse"), []byte("#!/bin/sh\n"))
+				setConfigDir(m, home, "~/.config/muse")
+			},
+			allowGlobs: []string{"/home/u/.local/bin/muse-bin-*"},
+			wantDebug:  []string{"no Muse Code channel claims it"},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// hermes-agent
+// ---------------------------------------------------------------------------
+
+func TestAICLIAgents_Hermes(t *testing.T) {
+	const keg = "/opt/homebrew/Cellar/hermes-agent/2026.8.31"
+	runAICLICases(t, []aicliCase{
+		{
+			name: "(h1) the user launcher with its venv accepts with the dist-info version; the launcher is never read",
+			setup: func(m *executor.Mock, home string) {
+				addFile(m, joinPath(home, ".local", "bin", "hermes"), []byte("#!/bin/bash\nexec ~/.hermes/hermes-agent/venv/bin/hermes \"$@\"\n"))
+				venv := joinPath(home, ".hermes", "hermes-agent", "venv")
+				m.SetDir(venv)
+				addDistInfo(m, model.PlatformLinux, venv, "hermes_agent", hermesVersion)
+				setConfigDir(m, home, "~/.hermes")
+			},
+			allowGlobs: []string{distInfoGlob(model.PlatformLinux, "/home/u/.hermes/hermes-agent/venv", "hermes_agent")},
+			want:       []aicliWant{{tool: "hermes-agent", binary: "/home/u/.local/bin/hermes", version: hermesVersion, configRel: "~/.hermes"}},
+		},
+		{
+			name: "(h1r) the same launcher without the venv is rejected",
+			setup: func(m *executor.Mock, home string) {
+				addFile(m, joinPath(home, ".local", "bin", "hermes"), []byte("#!/bin/bash\n"))
+				setConfigDir(m, home, "~/.hermes")
+			},
+			wantDebug: []string{"the installer launcher is there but /home/u/.hermes/hermes-agent/venv is not"},
+		},
+		{
+			name: "(h1v) the venv alone, with no launcher, is not an install",
+			setup: func(m *executor.Mock, home string) {
+				m.SetDir(joinPath(home, ".hermes", "hermes-agent", "venv"))
+				setConfigDir(m, home, "~/.hermes")
+			},
+		},
+		{
+			// The venv path is derived from $HOME, not from a resolved candidate,
+			// so a link there is seen with Readlink and never followed.
+			name: "(h1l) a venv that is itself a symlink is rejected unread",
+			setup: func(m *executor.Mock, home string) {
+				addFile(m, joinPath(home, ".local", "bin", "hermes"), []byte("#!/bin/bash\n"))
+				venv := joinPath(home, ".hermes", "hermes-agent", "venv")
+				m.SetSymlink(venv, joinPath(home, "Documents", "venv"))
+				m.SetDir(joinPath(home, "Documents", "venv"))
+				setConfigDir(m, home, "~/.hermes")
+			},
+			noReadPrefix:   []string{"/home/u/Documents", "/home/u/.hermes/hermes-agent/venv"},
+			noFollowPrefix: []string{"/home/u/Documents", "/home/u/.hermes/hermes-agent/venv"},
+			wantDebug:      []string{"could not be safely resolved"},
+		},
+		{
+			name: "(h2) the root layout pairs /usr/local/bin/hermes with /usr/local/lib/hermes-agent/venv",
+			setup: func(m *executor.Mock, _ string) {
+				addFile(m, "/usr/local/bin/hermes", []byte("#!/bin/bash\n"))
+				m.SetDir("/usr/local/lib/hermes-agent/venv")
+				addDistInfo(m, model.PlatformLinux, "/usr/local/lib/hermes-agent/venv", "hermes_agent", hermesVersion)
+			},
+			allowGlobs: []string{distInfoGlob(model.PlatformLinux, "/usr/local/lib/hermes-agent/venv", "hermes_agent")},
+			want:       []aicliWant{{tool: "hermes-agent", binary: "/usr/local/bin/hermes", version: hermesVersion}},
+		},
+		{
+			name: "(h3) the Homebrew keg accepts with the venv's upstream version when its dist-info exists",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("hermes", "/opt/homebrew/bin/hermes")
+				addFile(m, "/opt/homebrew/bin/hermes", []byte{})
+				m.SetSymlink("/opt/homebrew/bin/hermes", keg+"/bin/hermes")
+				addDistInfo(m, model.PlatformDarwin, keg+"/libexec", "hermes_agent", hermesVersion)
+			},
+			allowGlobs: []string{distInfoGlob(model.PlatformDarwin, keg+"/libexec", "hermes_agent")},
+			want:       []aicliWant{{tool: "hermes-agent", binary: "/opt/homebrew/bin/hermes", version: hermesVersion}},
+		},
+		{
+			name: "(h3b) without a dist-info the keg falls back to its Cellar version segment",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("hermes", "/opt/homebrew/bin/hermes")
+				addFile(m, "/opt/homebrew/bin/hermes", []byte{})
+				m.SetSymlink("/opt/homebrew/bin/hermes", keg+"/bin/hermes")
+			},
+			allowGlobs: []string{distInfoGlob(model.PlatformDarwin, keg+"/libexec", "hermes_agent")},
+			want:       []aicliWant{{tool: "hermes-agent", binary: "/opt/homebrew/bin/hermes", version: "2026.8.31"}},
+		},
+		{
+			name: "(h4r) the npm hermes is rejected",
+			setup: func(m *executor.Mock, home string) {
+				addNPMGlobal(m, joinPath(home, ".local", "bin", "hermes"), joinPath(home, ".local", "lib", "node_modules", "hermes"), "hermes", "0.3.0")
+			},
+			wantDebug: []string{"under node_modules; npm `hermes`"},
+		},
+		{
+			name: "(h5r) the cargo hermes is rejected",
+			setup: func(m *executor.Mock, home string) {
+				cargo := joinPath(home, ".cargo", "bin", "hermes")
+				m.SetPath("hermes", cargo)
+				addFile(m, cargo, []byte{})
+			},
+			wantDebug: []string{"under ~/.cargo"},
+		},
+		{
+			name: "(h6r) a hermes on PATH somewhere else is rejected",
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("hermes", "/opt/hermes/hermes")
+				addFile(m, "/opt/hermes/hermes", []byte("#!/bin/sh\n"))
+			},
+			wantDebug: []string{"no Hermes Agent channel claims it"},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// oh-my-pi
+// ---------------------------------------------------------------------------
+
+func TestAICLIAgents_OMP(t *testing.T) {
+	runAICLICases(t, []aicliCase{
+		{
+			name: "(o1) the npm prefix accepts from its manifest",
+			setup: func(m *executor.Mock, home string) {
+				m.SetPath("omp", "/usr/local/bin/omp")
+				addNPMGlobal(m, "/usr/local/bin/omp", "/usr/local/lib/node_modules/@oh-my-pi/pi-coding-agent", ompPackageName, ompVersion)
+				setConfigDir(m, home, "~/.omp/agent")
+			},
+			want: []aicliWant{{tool: "oh-my-pi", binary: "/usr/local/bin/omp", version: ompVersion, configRel: "~/.omp/agent"}},
+		},
+		{
+			name: "(o1b) the ~/.local/bin npm symlink is an npm channel, not the standalone anchor",
+			setup: func(m *executor.Mock, home string) {
+				addNPMGlobal(m, joinPath(home, ".local", "bin", "omp"), joinPath(home, ".local", "lib", "node_modules", "@oh-my-pi", "pi-coding-agent"), ompPackageName, ompVersion)
+			},
+			want: []aicliWant{{tool: "oh-my-pi", binary: "/home/u/.local/bin/omp", version: ompVersion}},
+		},
+		{
+			name: "(o2) the Bun global symlink accepts",
+			setup: func(m *executor.Mock, home string) {
+				addNPMGlobal(m, joinPath(home, ".bun", "bin", "omp"), joinPath(home, ".bun", "install", "global", "node_modules", "@oh-my-pi", "pi-coding-agent"), ompPackageName, ompVersion)
+			},
+			want: []aicliWant{{tool: "oh-my-pi", binary: "/home/u/.bun/bin/omp", version: ompVersion}},
+		},
+		{
+			name: "(o3) the Homebrew formula at or above the floor accepts with the Cellar version",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("omp", "/opt/homebrew/bin/omp")
+				addBinary(m, "/opt/homebrew/bin/omp", ompRealBytes)
+				m.SetSymlink("/opt/homebrew/bin/omp", "/opt/homebrew/Cellar/omp/18.1.10/bin/omp")
+			},
+			want: []aicliWant{{tool: "oh-my-pi", binary: "/opt/homebrew/bin/omp", version: ompVersion}},
+		},
+		{
+			name: "(o3r) a tap token is attacker-choosable, so a small Cellar/omp is rejected",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("omp", "/opt/homebrew/bin/omp")
+				addBinary(m, "/opt/homebrew/bin/omp", 2<<20)
+				m.SetSymlink("/opt/homebrew/bin/omp", "/opt/homebrew/Cellar/omp/18.1.10/bin/omp")
+			},
+			wantDebug: []string{"Homebrew Cellar/omp but under"},
+		},
+		{
+			name: "(o4) the mise install tree is globbed; the alias dir resolves to the real version dir",
+			setup: func(m *executor.Mock, home string) {
+				root := joinPath(home, ".local", "share", "mise", "installs", "github-can1357-oh-my-pi")
+				real := joinPath(root, ompVersion)
+				alias := joinPath(root, "latest")
+				m.SetGlob(joinPath(root, "*"), []string{real, alias})
+				addBinary(m, joinPath(real, "omp"), ompRealBytes)
+				addFile(m, joinPath(alias, "omp"), []byte{})
+				m.SetSymlink(joinPath(alias, "omp"), joinPath(real, "omp"))
+				// The shim on PATH resolves to mise itself and proves nothing.
+				shim := joinPath(home, ".local", "share", "mise", "shims", "omp")
+				m.SetPath("omp", shim)
+				addFile(m, shim, []byte{})
+				m.SetSymlink(shim, joinPath(home, ".local", "share", "mise", "bin", "mise"))
+			},
+			// globDirs sorts descending, so "latest" is probed before "18.1.10";
+			// its resolved form is the real dir, and the real dir then dedups.
+			want:      []aicliWant{{tool: "oh-my-pi", binary: "/home/u/.local/share/mise/installs/github-can1357-oh-my-pi/latest/omp", version: ompVersion}},
+			wantDebug: []string{"no Oh My Pi channel claims it (resolved /home/u/.local/share/mise/bin/mise)"},
+		},
+		{
+			name: "(o4b) a mise version dir alone accepts with that version",
+			setup: func(m *executor.Mock, home string) {
+				root := joinPath(home, ".local", "share", "mise", "installs", "github-can1357-oh-my-pi")
+				real := joinPath(root, ompVersion)
+				m.SetGlob(joinPath(root, "*"), []string{real})
+				addBinary(m, joinPath(real, "omp"), ompRealBytes)
+			},
+			want: []aicliWant{{tool: "oh-my-pi", binary: "/home/u/.local/share/mise/installs/github-can1357-oh-my-pi/18.1.10/omp", version: ompVersion}},
+		},
+		{
+			name: "(o4r) a non-version directory under the mise root is rejected",
+			setup: func(m *executor.Mock, home string) {
+				root := joinPath(home, ".local", "share", "mise", "installs", "github-can1357-oh-my-pi")
+				dev := joinPath(root, "dev")
+				m.SetGlob(joinPath(root, "*"), []string{dev})
+				addBinary(m, joinPath(dev, "omp"), ompRealBytes)
+			},
+			wantDebug: []string{"under the mise install root but not in a version directory"},
+		},
+		{
+			name: "(o5) the standalone ~/.local/bin/omp at or above the floor accepts with version unknown",
+			setup: func(m *executor.Mock, home string) {
+				addBinary(m, joinPath(home, ".local", "bin", "omp"), ompRealBytes)
+			},
+			want: []aicliWant{{tool: "oh-my-pi", binary: "/home/u/.local/bin/omp", version: "unknown"}},
+		},
+		{
+			name: "(o5r) a script at the standalone anchor is under the floor and rejected",
+			setup: func(m *executor.Mock, home string) {
+				addBinary(m, joinPath(home, ".local", "bin", "omp"), 4<<10)
+				setConfigDir(m, home, "~/.omp/agent")
+			},
+			wantDebug: []string{"at the standalone anchor but under"},
+		},
+		{
+			name: "(o6r) an npm package of another name is rejected by name",
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("omp", "/usr/local/bin/omp")
+				addNPMGlobal(m, "/usr/local/bin/omp", "/usr/local/lib/node_modules/omp", "omp", "1.0.0")
+			},
+			wantDebug: []string{`npm package is "omp", not ` + ompPackageName},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Windows-shaped cases
+// ---------------------------------------------------------------------------
+
+func TestAICLIAgents2_Windows(t *testing.T) {
+	npmDir := `C:\Users\u\AppData\Roaming\npm`
+	linksDir := `C:\Users\u\AppData\Local\Microsoft\WinGet\Links`
+	pkgsDir := `C:\Users\u\AppData\Local\Microsoft\WinGet\Packages`
+	grokBin := `C:\Users\u\.grok\bin`
+	hermesVenv := `C:\Users\u\AppData\Local\hermes\hermes-agent\venv`
+
+	runAICLICases(t, []aicliCase{
+		{
+			name: "(w1) the grok.cmd npm shim accepts",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, _ string) {
+				addFile(m, npmDir+`\grok.cmd`, winNPMShim(`node_modules\@xai-official\grok\dist\cli.js`))
+				addManifest(m, npmDir+`\node_modules\@xai-official\grok`, grokPackageName, "1.0.13")
+			},
+			want: []aicliWant{{tool: "grok-build", binary: npmDir + `\grok.cmd`, version: "1.0.13"}},
+		},
+		{
+			name: "(w2) the home copy takes its version from the single same-size versioned sibling",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, home string) {
+				addBinary(m, grokBin+`\grok.exe`, 95_000_000)
+				addBinary(m, grokBin+`\grok-1.0.13.exe`, 95_000_000)
+				m.SetGlob(grokBin+`\grok-*.exe`, []string{grokBin + `\grok-1.0.13.exe`})
+				setConfigDir(m, home, "~/.grok")
+			},
+			allowGlobs: []string{grokBin + `\grok-*.exe`},
+			want:       []aicliWant{{tool: "grok-build", binary: grokBin + `\grok.exe`, version: "1.0.13", configRel: "~/.grok"}},
+		},
+		{
+			name: "(w2b) two versioned siblings leave the copy's version unknown",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, _ string) {
+				addBinary(m, grokBin+`\grok.exe`, 95_000_000)
+				addBinary(m, grokBin+`\grok-1.0.12.exe`, 94_000_000)
+				addBinary(m, grokBin+`\grok-1.0.13.exe`, 95_000_000)
+				m.SetGlob(grokBin+`\grok-*.exe`, []string{grokBin + `\grok-1.0.12.exe`, grokBin + `\grok-1.0.13.exe`})
+			},
+			allowGlobs: []string{grokBin + `\grok-*.exe`},
+			want:       []aicliWant{{tool: "grok-build", binary: grokBin + `\grok.exe`, version: "unknown"}},
+			wantDebug:  []string{"2 versioned grok-*.exe siblings"},
+		},
+		{
+			name: "(w2c) a single sibling of a different size is not the copy's source",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, _ string) {
+				addBinary(m, grokBin+`\grok.exe`, 95_000_000)
+				addBinary(m, grokBin+`\grok-1.0.13.exe`, 94_000_000)
+				m.SetGlob(grokBin+`\grok-*.exe`, []string{grokBin + `\grok-1.0.13.exe`})
+			},
+			allowGlobs: []string{grokBin + `\grok-*.exe`},
+			want:       []aicliWant{{tool: "grok-build", binary: grokBin + `\grok.exe`, version: "unknown"}},
+			wantDebug:  []string{"is not the same size as"},
+		},
+		{
+			name: "(w3) winget Grok Build accepts through the Links shim",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, _ string) {
+				addFile(m, linksDir+`\grok.exe`, []byte{})
+				m.SetSymlink(linksDir+`\grok.exe`, pkgsDir+`\xAI.GrokBuild_Microsoft.Winget.Source_8wekyb3d8bbwe\grok.exe`)
+			},
+			want: []aicliWant{{tool: "grok-build", binary: linksDir + `\grok.exe`, version: "unknown"}},
+		},
+		{
+			name: "(w4) the Kimi installer .exe at or above the floor accepts",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, home string) {
+				addBinary(m, `C:\Users\u\.kimi-code\bin\kimi.exe`, kimiRealBytes)
+				setConfigDir(m, home, "~/.kimi-code")
+			},
+			want: []aicliWant{{tool: "kimi-code", binary: `C:\Users\u\.kimi-code\bin\kimi.exe`, version: "unknown", configRel: "~/.kimi-code"}},
+		},
+		{
+			name: "(w5) winget Kimi accepts under either identifier",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, _ string) {
+				addFile(m, linksDir+`\kimi.exe`, []byte{})
+				m.SetSymlink(linksDir+`\kimi.exe`, pkgsDir+`\MoonshotAI.KimiCLI_Microsoft.Winget.Source_8wekyb3d8bbwe\kimi.exe`)
+			},
+			want: []aicliWant{{tool: "kimi-code", binary: linksDir + `\kimi.exe`, version: "unknown"}},
+		},
+		{
+			name: "(w5b) the newer winget identifier too",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, _ string) {
+				addFile(m, linksDir+`\kimi.exe`, []byte{})
+				m.SetSymlink(linksDir+`\kimi.exe`, pkgsDir+`\MoonshotAI.KimiCodeCLI_Microsoft.Winget.Source_8wekyb3d8bbwe\kimi.exe`)
+			},
+			want: []aicliWant{{tool: "kimi-code", binary: linksDir + `\kimi.exe`, version: "unknown"}},
+		},
+		{
+			name: "(w5r) another publisher's kimi in WinGet is rejected",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, _ string) {
+				addFile(m, linksDir+`\kimi.exe`, []byte{})
+				m.SetSymlink(linksDir+`\kimi.exe`, pkgsDir+`\SomeoneElse.Kimi_Microsoft.Winget.Source_8wekyb3d8bbwe\kimi.exe`)
+			},
+			wantDebug: []string{"no Kimi Code channel claims it"},
+		},
+		{
+			name: "(w6) the legacy Kimi CLI's uv venv under %LOCALAPPDATA% reads Lib\\site-packages",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, home string) {
+				venv := joinPath(home, "AppData", "Local", "uv", "tools", "kimi-cli")
+				addFile(m, npmDir+`\kimi.cmd`, []byte("@echo off\r\n"))
+				m.SetSymlink(npmDir+`\kimi.cmd`, venv+`\Scripts\kimi.exe`)
+				addDistInfo(m, model.PlatformWindows, venv, "kimi_cli", "1.49.0")
+			},
+			allowGlobs: []string{distInfoGlob(model.PlatformWindows, `C:\Users\u\AppData\Local\uv\tools\kimi-cli`, "kimi_cli")},
+			want:       []aicliWant{{tool: "kimi-code", binary: npmDir + `\kimi.cmd`, version: "1.49.0"}},
+		},
+		{
+			name: "(w7) hermes.exe with the %LOCALAPPDATA% venv accepts",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, home string) {
+				addFile(m, `C:\Users\u\AppData\Local\hermes\bin\hermes.exe`, []byte{})
+				m.SetDir(hermesVenv)
+				addDistInfo(m, model.PlatformWindows, hermesVenv, "hermes_agent", hermesVersion)
+				setConfigDir(m, home, "~/AppData/Local/hermes")
+			},
+			allowGlobs: []string{distInfoGlob(model.PlatformWindows, hermesVenv, "hermes_agent")},
+			want: []aicliWant{{
+				tool: "hermes-agent", binary: `C:\Users\u\AppData\Local\hermes\bin\hermes.exe`,
+				version: hermesVersion, configRel: "~/AppData/Local/hermes",
+			}},
+		},
+		{
+			name: "(w7b) the hermes.cmd variant accepts too",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, _ string) {
+				addFile(m, `C:\Users\u\AppData\Local\hermes\bin\hermes.cmd`, []byte("@echo off\r\n"))
+				m.SetDir(hermesVenv)
+				addDistInfo(m, model.PlatformWindows, hermesVenv, "hermes_agent", hermesVersion)
+			},
+			allowGlobs: []string{distInfoGlob(model.PlatformWindows, hermesVenv, "hermes_agent")},
+			want:       []aicliWant{{tool: "hermes-agent", binary: `C:\Users\u\AppData\Local\hermes\bin\hermes.cmd`, version: hermesVersion}},
+		},
+		{
+			name: "(w7r) hermes.exe without the venv is rejected",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, _ string) {
+				addFile(m, `C:\Users\u\AppData\Local\hermes\bin\hermes.exe`, []byte{})
+			},
+			wantDebug: []string{"the installer launcher is there but " + hermesVenv + " is not"},
+		},
+		{
+			name: "(w8) the omp.cmd npm shim accepts even though its runner is bun.exe",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, _ string) {
+				addFile(m, npmDir+`\omp.cmd`, []byte("@ECHO off\r\n\"%dp0%\\bun.exe\" \"%dp0%\\node_modules\\@oh-my-pi\\pi-coding-agent\\dist\\cli.js\" %*\r\n"))
+				addManifest(m, npmDir+`\node_modules\@oh-my-pi\pi-coding-agent`, ompPackageName, ompVersion)
+			},
+			want: []aicliWant{{tool: "oh-my-pi", binary: npmDir + `\omp.cmd`, version: ompVersion}},
+		},
+		{
+			name: "(w9) the Bun .exe is identified through its .bunx pointer",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, home string) {
+				bunBin := joinPath(home, ".bun", "bin")
+				pkgRoot := joinPath(home, ".bun", "install", "global", "node_modules", "@oh-my-pi", "pi-coding-agent")
+				addFile(m, bunBin+`\omp.exe`, []byte{})
+				addFile(m, bunBin+`\omp.bunx`, utf16LE(pkgRoot+`\dist\cli.js`))
+				addManifest(m, pkgRoot, ompPackageName, ompVersion)
+			},
+			want: []aicliWant{{tool: "oh-my-pi", binary: `C:\Users\u\.bun\bin\omp.exe`, version: ompVersion}},
+		},
+		{
+			name: "(w10) the standalone %LOCALAPPDATA%\\omp\\omp.exe at or above the floor accepts",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, home string) {
+				addBinary(m, `C:\Users\u\AppData\Local\omp\omp.exe`, ompRealBytes)
+				setConfigDir(m, home, "~/.omp/agent")
+			},
+			want: []aicliWant{{tool: "oh-my-pi", binary: `C:\Users\u\AppData\Local\omp\omp.exe`, version: "unknown", configRel: "~/.omp/agent"}},
+		},
+		{
+			name: "(w11) winget Oh My Pi accepts",
+			goos: model.PlatformWindows,
+			setup: func(m *executor.Mock, _ string) {
+				addFile(m, linksDir+`\omp.exe`, []byte{})
+				m.SetSymlink(linksDir+`\omp.exe`, pkgsDir+`\can1357.oh-my-pi_Microsoft.Winget.Source_8wekyb3d8bbwe\omp.exe`)
+			},
+			want: []aicliWant{{tool: "oh-my-pi", binary: linksDir + `\omp.exe`, version: "unknown"}},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// TCC guard: one decoy per new binary name under ~/Documents, and a symlink from
+// an accepted anchor into ~/Downloads. Each decoy satisfies an accept rule, so a
+// green reject is the guard firing and not a ladder miss.
+// ---------------------------------------------------------------------------
+
+func TestAICLIAgents2_TCCGuard(t *testing.T) {
+	requireDarwinHost(t)
+	docs := "/Users/u/Documents"
+
+	decoys := []struct {
+		bin   string
+		setup func(m *executor.Mock, home, dir string)
+	}{
+		{"grok", func(m *executor.Mock, _, dir string) {
+			addNPMGlobal(m, dir+"/grok", dir+"/node_modules/@xai-official/grok", grokPackageName, "1.0.13")
+		}},
+		{"kimi", func(m *executor.Mock, _, dir string) {
+			addNPMGlobal(m, dir+"/kimi", dir+"/node_modules/@moonshot-ai/kimi-code", kimiPackageName, "0.12.0")
+		}},
+		{"muse", func(m *executor.Mock, _, dir string) {
+			addMuseInstall(m, dir, museVersion)
+		}},
+		{"hermes", func(m *executor.Mock, _, dir string) {
+			addFile(m, dir+"/hermes", []byte("#!/bin/bash\n"))
+		}},
+		{"omp", func(m *executor.Mock, _, dir string) {
+			addNPMGlobal(m, dir+"/omp", dir+"/node_modules/@oh-my-pi/pi-coding-agent", ompPackageName, ompVersion)
+		}},
+	}
+	for _, d := range decoys {
+		t.Run("~/Documents/bin/"+d.bin+" on PATH is never touched", func(t *testing.T) {
+			runAICLICase(t, aicliCase{
+				name:    d.bin,
+				goos:    model.PlatformDarwin,
+				skipper: true,
+				setup: func(m *executor.Mock, home string) {
+					dir := joinPath(home, "Documents", "bin")
+					m.SetPath(d.bin, dir+"/"+d.bin)
+					d.setup(m, home, dir)
+				},
+				noReadPrefix: []string{docs},
+				wantDebug:    []string{"under a macOS TCC-protected path"},
+			})
+		})
+	}
+
+	t.Run("~/.local/bin/muse -> ~/Downloads/muse is rejected before its sidecar is read", func(t *testing.T) {
+		runAICLICase(t, aicliCase{
+			name:    "symlink into Downloads",
+			goos:    model.PlatformDarwin,
+			skipper: true,
+			setup: func(m *executor.Mock, home string) {
+				addMuseInstall(m, joinPath(home, "Downloads"), museVersion)
+				link := joinPath(home, ".local", "bin", "muse")
+				addFile(m, link, []byte{})
+				m.SetSymlink(link, joinPath(home, "Downloads", "muse"))
+			},
+			noReadPrefix: []string{"/Users/u/Downloads"},
+			wantDebug:    []string{"under a macOS TCC-protected path"},
+		})
+	})
+
+	t.Run("~/.local/bin/grok -> ~/Downloads/grok-1.0.13 is rejected; the same link into ~/.grok accepts", func(t *testing.T) {
+		runAICLICase(t, aicliCase{
+			name:    "grok symlink into Downloads",
+			goos:    model.PlatformDarwin,
+			skipper: true,
+			setup: func(m *executor.Mock, home string) {
+				link := joinPath(home, ".local", "bin", "grok")
+				addFile(m, link, []byte{})
+				m.SetSymlink(link, joinPath(home, "Downloads", "grok-1.0.13"))
+			},
+			noReadPrefix: []string{"/Users/u/Downloads"},
+			wantDebug:    []string{"under a macOS TCC-protected path"},
+		})
+		runAICLICase(t, aicliCase{
+			name:    "grok symlink into ~/.grok",
+			goos:    model.PlatformDarwin,
+			skipper: true,
+			setup: func(m *executor.Mock, home string) {
+				link := joinPath(home, ".local", "bin", "grok")
+				addFile(m, link, []byte{})
+				m.SetSymlink(link, joinPath(home, ".grok", "bin", "grok-1.0.13"))
+			},
+			want: []aicliWant{{tool: "grok-build", binary: "/Users/u/.local/bin/grok", version: "1.0.13"}},
+		})
+	})
+}
+
+// TestAICLIAgents2_EmptyFixture: the five new specs produce nothing on the empty
+// fixture on every platform, and nothing is read outside the candidate probes.
+func TestAICLIAgents2_EmptyFixture(t *testing.T) {
+	for _, goos := range []string{model.PlatformLinux, model.PlatformDarwin, model.PlatformWindows} {
+		t.Run(goos, func(t *testing.T) {
+			m, _ := newAICLIMock(goos)
+			rec := &recExec{Mock: m, t: t, trapExec: true}
+			var tools []model.AITool
+			captureStderr(t, func() { tools = NewAICLIDetector(rec).Detect(context.Background()) })
+			if len(tools) != 0 {
+				t.Errorf("empty fixture: got %d rows, want 0; %+v", len(tools), tools)
+			}
+		})
 	}
 }

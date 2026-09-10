@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"os"
 	"testing"
 )
 
@@ -35,5 +36,42 @@ func TestMock_IsAppleCLTStub(t *testing.T) {
 					tc.path, tc.goos, tc.clt, got, tc.expected)
 			}
 		})
+	}
+}
+
+func TestMock_Readlink(t *testing.T) {
+	m := NewMock()
+	m.SetSymlink("/only-symlink", "/resolved")
+	m.SetSymlink("/both", "/resolved-both")
+	m.SetReadlink("/both", "../raw-both")
+	m.SetReadlink("/only-readlink", `\??\C:\raw`)
+
+	cases := []struct {
+		path, want string
+		wantErr    bool
+	}{
+		{"/only-symlink", "/resolved", false}, // falls back to the SetSymlink target
+		{"/both", "../raw-both", false},       // SetReadlink wins over SetSymlink
+		{"/only-readlink", `\??\C:\raw`, false},
+		{"/plain", "", true},
+	}
+	for _, c := range cases {
+		got, err := m.Readlink(c.path)
+		if (err != nil) != c.wantErr || got != c.want {
+			t.Errorf("Readlink(%q) = (%q, %v), want (%q, err=%v)", c.path, got, err, c.want, c.wantErr)
+		}
+	}
+	if got, err := m.EvalSymlinks("/both"); err != nil || got != "/resolved-both" {
+		t.Errorf("SetReadlink must not change EvalSymlinks: got (%q, %v)", got, err)
+	}
+}
+
+func TestMockIrregularDirEntry(t *testing.T) {
+	e := MockIrregularDirEntry("junction")
+	if e.Name() != "junction" || e.IsDir() || e.Type()&os.ModeIrregular == 0 || e.Type()&os.ModeSymlink != 0 {
+		t.Errorf("irregular entry: name=%q dir=%v type=%v", e.Name(), e.IsDir(), e.Type())
+	}
+	if s := MockSymlinkDirEntry("s"); s.Type()&os.ModeIrregular != 0 {
+		t.Errorf("symlink entry must not be irregular: %v", s.Type())
 	}
 }

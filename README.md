@@ -146,7 +146,7 @@ stepsecurity-dev-machine-guard [COMMAND] [OPTIONS]
 | `--include-bundled-plugins`  | Include bundled/platform IDE plugins in output                |
 | `--log-level=LEVEL`          | Log level: `error` \| `warn` \| `info` \| `debug`             |
 | `--verbose`                  | Shortcut for `--log-level=debug`                              |
-| `--force-scan`               | Bypass the server-driven run gate and scan now (enterprise)   |
+| `--force-scan`               | Scan now regardless of the dashboard cadence; still checks in |
 | `--color=WHEN`               | Color mode: `auto` \| `always` \| `never` (default: `auto`)   |
 | `-v`, `--version`            | Show version                                                  |
 | `-h`, `--help`               | Show help                                                     |
@@ -282,8 +282,8 @@ See [SCAN_COVERAGE.md](SCAN_COVERAGE.md) for the full catalog of supported detec
 
 | Category             | Examples                                                                                 |
 | -------------------- | ---------------------------------------------------------------------------------------- |
-| IDEs & Desktop Apps  | VS Code, Cursor, Windsurf, Antigravity, Zed, Claude, Copilot, JetBrains suite (13 IDEs), Eclipse, Android Studio |
-| AI CLI Tools         | Claude Code, Codex, Gemini CLI, Kiro, GitHub Copilot CLI, Aider, OpenCode, Cursor Agent, Pi, Factory Droid, Amp |
+| IDEs & Desktop Apps  | VS Code, Cursor, Windsurf, Antigravity, Kiro, Zed, Claude, Copilot, JetBrains suite (13 IDEs), Eclipse, Android Studio |
+| AI CLI Tools         | Claude Code, Codex, Gemini CLI, Kiro CLI, GitHub Copilot CLI, Aider, OpenCode, Cursor Agent, Pi, Factory Droid, Amp, Grok Build, Kimi Code, Muse Code, Hermes Agent, Oh My Pi |
 | AI Agents            | Claude Cowork, OpenClaw, ClawdBot, GPT-Engineer                                          |
 | AI Frameworks        | Ollama, LM Studio, LocalAI, Text Generation WebUI                                        |
 | MCP Server Configs   | Claude Desktop, Claude Code, Cursor, Windsurf, Antigravity, Zed, Open Interpreter, Codex, OpenCode |
