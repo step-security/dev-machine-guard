@@ -257,3 +257,38 @@ func TestFromBinary_SnapAliasHasNoManifest(t *testing.T) {
 		t.Errorf("FromBinary = %q, want \"\"", got)
 	}
 }
+
+// DpkgPackageVersion is versionFromDpkg with the package named by the caller,
+// for a binary whose PATH aliases do not share the package's name.
+func TestDpkgPackageVersion(t *testing.T) {
+	const status = "Package: kiro-cli\nStatus: install ok installed\nVersion: 2.21.1-1\n\n"
+	newMock := func(goos, list string) *executor.Mock {
+		m := executor.NewMock()
+		m.SetGOOS(goos)
+		m.SetFile("/var/lib/dpkg/info/kiro-cli.list", []byte(list))
+		m.SetFile("/var/lib/dpkg/status", []byte(status))
+		return m
+	}
+	cases := []struct {
+		name  string
+		mock  *executor.Mock
+		paths []string
+		want  string
+	}{
+		{"owns the alias's target", newMock("linux", "/usr/bin/kiro-cli\n"), []string{"/usr/local/bin/q", "/usr/bin/kiro-cli"}, "2.21.1"},
+		{"owns nothing passed", newMock("linux", "/usr/bin/kiro-cli\n"), []string{"/home/u/.local/bin/kiro-cli"}, ""},
+		{"not linux", newMock("darwin", "/usr/bin/kiro-cli\n"), []string{"/usr/bin/kiro-cli"}, ""},
+		{"empty package name", newMock("linux", "/usr/bin/kiro-cli\n"), nil, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			pkg := "kiro-cli"
+			if c.name == "empty package name" {
+				pkg = ""
+			}
+			if got := DpkgPackageVersion(c.mock, pkg, c.paths...); got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}

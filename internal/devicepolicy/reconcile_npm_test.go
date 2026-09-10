@@ -68,8 +68,8 @@ func (s *npmStore) exists() bool {
 
 // npmPolicyWire stands in for the fetched npm policy payload (passed verbatim to
 // the Render seam). npmRendered is what the fake renderer turns it into — the
-// value the reconciler writes and compares, standing in for the two managed
-// content lines RenderNPMRCBlock produces.
+// value the reconciler writes and compares, standing in for the managed body
+// RenderNPMRCBlock produces.
 const npmPolicyWire = `{"registry":"https://npm.pkg.example/","always_auth":true}`
 const npmRendered = "registry=https://npm.pkg.example/\nalways-auth=true"
 
@@ -167,22 +167,66 @@ func TestNPMEnforceRendersBlockAndWrites(t *testing.T) {
 	}
 }
 
-func TestNPMRenderFailureReportsPolicyNotApplied(t *testing.T) {
-	// A malformed npm policy the renderer rejects: nothing is applied and the
-	// cycle reports policy_not_applied (not a silent no-op). Render runs FIRST, so
-	// the writer is never read or written and the probe never runs.
+func TestNPMSettingsDMGReportIncludesAggregateMatchWithPrebuiltWriter(t *testing.T) {
 	w := &fakeWriter{}
-	st := newNPMStore(t)
-	r, rep := newNPMRec(t, npmPolicyEP("sha256:N"), w, st)
-	probed := false
-	r.ProbeExpected = func(string) (bool, string) { probed = true; return false, "" }
-	r.Render = func(json.RawMessage) (string, error) { return "", errors.New("policy missing registry") }
-	if err := r.Reconcile(context.Background()); err == nil {
-		t.Fatal("a render failure must surface an error")
+	r, rep := newNPMRec(t, npmPolicyEP("sha256:N"), w, newNPMStore(t))
+	r.Render = func(json.RawMessage) (string, error) { return stdSettingsBody, nil }
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
 	}
-	if w.reads != 0 || len(w.writes) != 0 || w.clears != 0 || probed {
-		t.Fatalf("render failure must touch nothing: reads=%d writes=%v clears=%d probed=%v",
-			w.reads, w.writes, w.clears, probed)
+	r.Converged = func(expected string) (bool, error) { return w.present && w.value == expected, nil }
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	w.value = "registry=https://drift.example/"
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatalf("drift Reconcile: %v", err)
+	}
+	if len(w.writes) != 2 {
+		t.Fatalf("writes = %d, want apply, no-op, and drift repair", len(w.writes))
+	}
+
+	for i, got := range rep.reports {
+		wantState := StateCompliant
+		if i == 2 {
+			wantState = StateDriftDetected
+		}
+		if got.State != wantState {
+			t.Fatalf("report[%d] state = %q, want %q", i, got.State, wantState)
+		}
+		var observed map[string]json.RawMessage
+		if err := json.Unmarshal(got.Observed, &observed); err != nil {
+			t.Fatalf("report[%d] observed is not a JSON object: %v (%s)", i, err, got.Observed)
+		}
+		if len(observed) != 4 || string(observed[observedKeySettingsStatus]) != `"match"` {
+			t.Fatalf("report[%d] observed = %s, want four-key bag with matching settings", i, got.Observed)
+		}
+		for _, sensitive := range []string{"save-exact", "EXAMPLE_NPM_TOKEN", "engine-strict"} {
+			if strings.Contains(string(got.Observed), sensitive) {
+				t.Fatalf("report[%d] contains %q: %s", i, sensitive, got.Observed)
+			}
+		}
+	}
+}
+
+func TestNPMNullSettingRejectedBeforeWriterInitialization(t *testing.T) {
+	// A null settings member must fail at the policy boundary before target-user
+	// resolution or any filesystem access.
+	st := newNPMStore(t)
+	ep := npmPolicyEP("sha256:N")
+	ep.Policy = json.RawMessage(`{"ecosystem":"npm","registry_url":"https://registry-int.stepsecurity.io/javascript","auth":{"scheme":"stepsecurity_device_token","api_key":"ssabc123"},"settings":{"save-exact":null}}`)
+	r, rep := newNPMRec(t, ep, nil, st)
+	r.Render = func(policy json.RawMessage) (string, error) { return RenderNPMRCBlock(policy, stdSerial) }
+	initialized := false
+	r.InitWriter = func() error {
+		initialized = true
+		return nil
+	}
+	if err := r.Reconcile(context.Background()); err == nil {
+		t.Fatal("a null settings member must surface an error")
+	}
+	if initialized {
+		t.Fatal("writer initialized before settings validation")
 	}
 	if got := lastReport(t, rep); got.State != StatePolicyNotApplied {
 		t.Fatalf("state = %q, want policy_not_applied", got.State)
@@ -709,6 +753,12 @@ func npmObservedFake() map[string]json.RawMessage {
 	}
 }
 
+func npmSettingsObservedFake(status string) map[string]json.RawMessage {
+	observed := npmObservedFake()
+	observed[observedKeySettingsStatus] = json.RawMessage(`"` + status + `"`)
+	return observed
+}
+
 // npmMDMEP is an npm policy directive on the verify-only channel.
 func npmMDMEP(hash string) EffectivePolicy {
 	ep := npmPolicyEP(hash)
@@ -789,6 +839,49 @@ func TestNPMMDMChannelVerifiesAndNeverWrites(t *testing.T) {
 	// Nothing was recorded, so the state file was never even created.
 	if st.exists() {
 		t.Fatal("mdm mode must not create the state file — it owns nothing to record")
+	}
+}
+
+func TestNPMMDMChannelReportsAggregateSettingsStatus(t *testing.T) {
+	w := &fakeWriter{}
+	r, rep := newNPMRec(t, npmMDMEP("sha256:N"), w, newNPMStore(t))
+	r.Render = func(json.RawMessage) (string, error) { return stdSettingsBody, nil }
+	r.ProbeContent = func(expected string) (bool, map[string]json.RawMessage, error) {
+		if expected != stdSettingsBody {
+			t.Fatalf("expected = %q, want settings body", expected)
+		}
+		return true, npmSettingsObservedFake(settingsMismatch), nil
+	}
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	report := lastReport(t, rep)
+	if report.State != StateMDMManaged {
+		t.Fatalf("state = %q, want %q", report.State, StateMDMManaged)
+	}
+	var observed map[string]json.RawMessage
+	if err := json.Unmarshal(report.Observed, &observed); err != nil {
+		t.Fatal(err)
+	}
+	if len(observed) != 4 {
+		t.Fatalf("observed key count = %d, want 4", len(observed))
+	}
+	if string(observed[observedKeySettingsStatus]) != `"mismatch"` {
+		t.Fatalf("settings_status = %s, want mismatch", observed[observedKeySettingsStatus])
+	}
+	for _, sensitive := range []string{"save-exact", "EXAMPLE_NPM_TOKEN", "engine-strict"} {
+		if strings.Contains(string(report.Observed), sensitive) {
+			t.Fatalf("report contains %q: %s", sensitive, report.Observed)
+		}
+	}
+	if len(w.writes) != 0 {
+		t.Fatalf("MDM observation wrote through the writer: %v", w.writes)
+	}
+	if w.clears != 0 {
+		t.Fatalf("MDM observation clear count = %d, want 0", w.clears)
+	}
+	if w.reads != 0 {
+		t.Fatalf("MDM observation read count = %d, want 0", w.reads)
 	}
 }
 
@@ -1131,5 +1224,30 @@ func TestNPMNeverLogsOrReportsTheToken(t *testing.T) {
 	}
 	if logged.Len() == 0 {
 		t.Fatal("the test proved nothing — no log lines were captured")
+	}
+}
+
+func TestNPMSettingsOnlyDMGReportCarriesSettingsStatusOnly(t *testing.T) {
+	w := &fakeWriter{}
+	r, rep := newNPMRec(t, npmPolicyEP("sha256:N"), w, newNPMStore(t))
+	r.Render = func(json.RawMessage) (string, error) { return stdSettingsOnlyBody, nil }
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	got := lastReport(t, rep)
+	if got.State != StateCompliant {
+		t.Fatalf("state = %q, want %q", got.State, StateCompliant)
+	}
+	var observed map[string]json.RawMessage
+	if err := json.Unmarshal(got.Observed, &observed); err != nil {
+		t.Fatalf("observed is not a JSON object: %v (%s)", err, got.Observed)
+	}
+	if len(observed) != 2 || string(observed[observedKeyEcosystem]) != `"npm"` || string(observed[observedKeySettingsStatus]) != `"match"` {
+		t.Fatalf("observed = %s, want ecosystem and settings_status only", got.Observed)
+	}
+	for _, sensitive := range []string{"packages.example.com", "EXAMPLE_NPM_TOKEN", "save-exact"} {
+		if strings.Contains(string(got.Observed), sensitive) {
+			t.Fatalf("report contains %q: %s", sensitive, got.Observed)
+		}
 	}
 }

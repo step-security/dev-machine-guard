@@ -21,10 +21,10 @@ import (
 )
 
 const (
-	dmgUVBegin          = "# BEGIN StepSecurity PyPI Secure Registry uv -- managed by dmg"
-	dmgUVEnd            = "# END StepSecurity PyPI Secure Registry uv"
-	mdmUVBegin          = "# BEGIN StepSecurity PyPI Secure Registry uv -- managed by mdm"
-	mdmUVEnd            = "# END StepSecurity PyPI Secure Registry uv"
+	dmgUVBegin          = "# BEGIN StepSecurity Package Configuration uv -- managed by dmg"
+	dmgUVEnd            = "# END StepSecurity Package Configuration uv"
+	mdmUVBegin          = "# BEGIN StepSecurity Package Configuration uv -- managed by mdm"
+	mdmUVEnd            = "# END StepSecurity Package Configuration uv"
 	dmgUVDisabledPrefix = "# [stepsecurity-pypi-uv-dmg] "
 	dmgUVCreatedFile    = "# [stepsecurity-pypi-uv-dmg] created=true"
 	uvBackupPrefix      = ".dmg-"

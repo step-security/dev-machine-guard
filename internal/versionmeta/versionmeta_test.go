@@ -215,8 +215,8 @@ func TestIsVersionLike(t *testing.T) {
 		{"", false},
 	}
 	for _, tc := range tests {
-		if got := isVersionLike(tc.in); got != tc.want {
-			t.Errorf("isVersionLike(%q) = %v, want %v", tc.in, got, tc.want)
+		if got := IsVersionLike(tc.in); got != tc.want {
+			t.Errorf("IsVersionLike(%q) = %v, want %v", tc.in, got, tc.want)
 		}
 	}
 }

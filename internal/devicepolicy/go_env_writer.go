@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	dmgGoEnvBegin          = "# BEGIN StepSecurity Go Secure Registry GOPROXY -- managed by dmg"
-	mdmGoEnvBegin          = "# BEGIN StepSecurity Go Secure Registry GOPROXY -- managed by mdm"
-	goEnvEnd               = "# END StepSecurity Go Secure Registry GOPROXY"
+	dmgGoEnvBegin          = "# BEGIN StepSecurity Package Configuration go -- managed by dmg"
+	mdmGoEnvBegin          = "# BEGIN StepSecurity Package Configuration go -- managed by mdm"
+	goEnvEnd               = "# END StepSecurity Package Configuration go"
 	dmgGoEnvDisabledPrefix = "# [stepsecurity-go-env-dmg] "
 	mdmGoEnvDisabledPrefix = "# [stepsecurity-go-env-mdm] "
 	dmgGoEnvCreatedFile    = "# [stepsecurity-go-env-dmg] created=true"

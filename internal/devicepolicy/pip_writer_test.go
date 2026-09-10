@@ -22,10 +22,10 @@ func TestPipMarkers_Canonical(t *testing.T) {
 		got  string
 		want string
 	}{
-		{"DMG begin", dmgPipBegin, "# BEGIN StepSecurity PyPI Secure Registry pip -- managed by dmg"},
-		{"DMG end", dmgPipEnd, "# END StepSecurity PyPI Secure Registry pip"},
-		{"MDM begin", mdmPipBegin, "# BEGIN StepSecurity PyPI Secure Registry pip -- managed by mdm"},
-		{"MDM end", mdmPipEnd, "# END StepSecurity PyPI Secure Registry pip"},
+		{"DMG begin", dmgPipBegin, "# BEGIN StepSecurity Package Configuration pip -- managed by dmg"},
+		{"DMG end", dmgPipEnd, "# END StepSecurity Package Configuration pip"},
+		{"MDM begin", mdmPipBegin, "# BEGIN StepSecurity Package Configuration pip -- managed by mdm"},
+		{"MDM end", mdmPipEnd, "# END StepSecurity Package Configuration pip"},
 		{"disabled prefix", dmgPipDisabledPrefix, "# [stepsecurity-pypi-pip-dmg] "},
 	}
 	for _, tc := range tests {
@@ -733,17 +733,17 @@ func TestPipObservedStaticConvergedAcceptsOnlyCanonicalMDMCreatedBlocks(t *testi
 }
 
 func TestPipObservation_AcceptsExactGeneratedMDMArtifacts(t *testing.T) {
-	created := "# BEGIN StepSecurity PyPI Secure Registry pip -- managed by mdm\n" +
+	created := "# BEGIN StepSecurity Package Configuration pip -- managed by mdm\n" +
 		"# [stepsecurity-pypi-pip-mdm] created=true\n" +
 		"[global]\n" + pipExpected + "\n" +
-		"# END StepSecurity PyPI Secure Registry pip\n"
+		"# END StepSecurity Package Configuration pip\n"
 	existingGlobal := "[global]\n" +
-		"# BEGIN StepSecurity PyPI Secure Registry pip -- managed by mdm\n" + pipExpected + "\n" +
-		"# END StepSecurity PyPI Secure Registry pip\n"
+		"# BEGIN StepSecurity Package Configuration pip -- managed by mdm\n" + pipExpected + "\n" +
+		"# END StepSecurity Package Configuration pip\n"
 	existingWithoutGlobal := "[install]\nuser = true\n" +
-		"# BEGIN StepSecurity PyPI Secure Registry pip -- managed by mdm\n" +
+		"# BEGIN StepSecurity Package Configuration pip -- managed by mdm\n" +
 		"[global]\n" + pipExpected + "\n" +
-		"# END StepSecurity PyPI Secure Registry pip\n"
+		"# END StepSecurity Package Configuration pip\n"
 	tests := []struct {
 		name string
 		body string

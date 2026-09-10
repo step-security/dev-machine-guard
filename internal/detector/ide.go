@@ -10,6 +10,8 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/execguard"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/versionmeta"
+	"howett.net/plist"
 )
 
 type ideSpec struct {
@@ -25,6 +27,10 @@ type ideSpec struct {
 	LinuxBinary  string   // Linux: binary name to search in PATH (LookPath)
 	VersionFlag  string
 	RegistryName string // Windows: override for registry search if DisplayName differs from AppName
+
+	// ResolveFunc, when set, owns discovery, identity and version for this
+	// IDE; the generic per-platform ladder never runs for it.
+	ResolveFunc func(ctx context.Context, exec executor.Executor, spec ideSpec) (model.IDE, bool)
 }
 
 // registrySearchName returns the name to use for registry searches.
@@ -93,6 +99,15 @@ var ideDefinitions = []ideSpec{
 		LinuxPaths:  []string{"/opt/antigravity-ide/Antigravity-IDE", "/opt/antigravity-ide", "~/Applications/antigravity-ide", "/opt/Antigravity", "/usr/share/antigravity"},
 		LinuxBinary: "antigravity-ide",
 		VersionFlag: "--version",
+	},
+	{
+		AppName: "Kiro", IDEType: "kiro", Vendor: "Amazon",
+		// VS Code fork whose name prefixes "Kiro CLI"; resolveKiroIDE proves
+		// identity from bundle/package metadata at fixed roots. Never launched.
+		AppPath: "/Applications/Kiro.app", BinaryPath: "Contents/Resources/app/bin/code",
+		WinPaths: []string{`%LOCALAPPDATA%\Programs\Kiro`}, WinBinary: `Kiro.exe`,
+		LinuxPaths: []string{"/usr/share/kiro"}, LinuxBinary: "kiro",
+		ResolveFunc: resolveKiroIDE,
 	},
 	{
 		AppName: "Zed", IDEType: "zed", Vendor: "Zed",
@@ -226,6 +241,12 @@ func (d *IDEDetector) Detect(ctx context.Context) []model.IDE {
 	var results []model.IDE
 
 	for _, spec := range ideDefinitions {
+		if spec.ResolveFunc != nil {
+			if ide, ok := spec.ResolveFunc(ctx, d.exec, spec); ok {
+				results = append(results, ide)
+			}
+			continue
+		}
 		switch d.exec.GOOS() {
 		case model.PlatformWindows:
 			if ide, ok := d.detectWindows(ctx, spec); ok {
@@ -667,6 +688,90 @@ func readPlistVersion(ctx context.Context, exec executor.Executor, plistPath str
 		}
 	}
 	return "unknown"
+}
+
+// readBundleInfo reads CFBundleIdentifier and CFBundleShortVersionString from
+// an .app's Info.plist in-process (XML or binary), so proving a bundle's
+// identity launches nothing. ok is false when the file is missing, over 1 MiB,
+// unparsable or has no identifier; shortVersion may be "" with ok true.
+func readBundleInfo(exec executor.Executor, plistPath string) (bundleID, shortVersion string, ok bool) {
+	if !regularFileWithin(exec, plistPath, 1<<20) {
+		return "", "", false
+	}
+	data, err := exec.ReadFile(plistPath)
+	if err != nil {
+		return "", "", false
+	}
+	var info struct {
+		BundleID     string `plist:"CFBundleIdentifier"`
+		ShortVersion string `plist:"CFBundleShortVersionString"`
+	}
+	if _, err := plist.Unmarshal(data, &info); err != nil || info.BundleID == "" {
+		return "", "", false
+	}
+	return info.BundleID, info.ShortVersion, true
+}
+
+// resolveKiroIDE is the Kiro IDE's ResolveFunc. Kiro's name prefixes "Kiro
+// CLI", so the generic ladder (PATH names, .desktop files, Windows Uninstall
+// DisplayName substrings) could return the wrong product; instead only the
+// fixed root per platform is accepted, and only once its own metadata names
+// Kiro. Every path touched is first proven link-free from the root down, so
+// nothing is ever followed into a location the fixed root does not own.
+// Nothing here is exec'd.
+func resolveKiroIDE(_ context.Context, exec executor.Executor, spec ideSpec) (model.IDE, bool) {
+	root, binary, meta := spec.LinuxPaths[0], spec.LinuxBinary, "resources/app/package.json"
+	switch exec.GOOS() {
+	case model.PlatformDarwin:
+		root, binary, meta = spec.AppPath, spec.BinaryPath, "Contents/Info.plist"
+	case model.PlatformWindows:
+		root, binary = resolveEnvPath(exec, spec.WinPaths[0]), spec.WinBinary
+	}
+	if !linkFreeUnder(exec, root, binary) || !linkFreeUnder(exec, root, meta) {
+		return model.IDE{}, false
+	}
+	if !exec.FileExists(filepath.Join(root, binary)) {
+		return model.IDE{}, false
+	}
+
+	var version string
+	if exec.GOOS() == model.PlatformDarwin {
+		id, shortVersion, ok := readBundleInfo(exec, filepath.Join(root, meta))
+		if !ok || id != "dev.kiro.desktop" {
+			return model.IDE{}, false
+		}
+		version = shortVersion
+	} else if name, v := readNPMManifest(exec, filepath.Join(root, "resources", "app"), siblingManifestMaxBytes); name == "Kiro" {
+		version = v
+	} else {
+		return model.IDE{}, false
+	}
+	if !versionmeta.IsVersionLike(version) {
+		version = "unknown"
+	}
+	return model.IDE{
+		IDEType: spec.IDEType, Version: version, InstallPath: root,
+		Vendor: spec.Vendor, IsInstalled: true,
+	}, true
+}
+
+// linkFreeUnder reports whether root and each component of rel beneath it is
+// not a symlink or junction, checked top-down with Readlink — which does not
+// follow its final component — so a link is seen before anything is resolved
+// through it. Absent components pass (Readlink fails on them too); the caller's
+// own Stat decides existence afterwards, on a path now known to be plain.
+func linkFreeUnder(exec executor.Executor, root, rel string) bool {
+	p := root
+	if _, err := exec.Readlink(p); err == nil {
+		return false
+	}
+	for _, part := range splitPathAny(rel) {
+		p = filepath.Join(p, part)
+		if _, err := exec.Readlink(p); err == nil {
+			return false
+		}
+	}
+	return true
 }
 
 // registryInstallInfo holds version and install path from Windows Uninstall registry keys.

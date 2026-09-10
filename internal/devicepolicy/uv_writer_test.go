@@ -22,10 +22,10 @@ func TestUVMarkers_Canonical(t *testing.T) {
 		got  string
 		want string
 	}{
-		{"DMG begin", dmgUVBegin, "# BEGIN StepSecurity PyPI Secure Registry uv -- managed by dmg"},
-		{"DMG end", dmgUVEnd, "# END StepSecurity PyPI Secure Registry uv"},
-		{"MDM begin", mdmUVBegin, "# BEGIN StepSecurity PyPI Secure Registry uv -- managed by mdm"},
-		{"MDM end", mdmUVEnd, "# END StepSecurity PyPI Secure Registry uv"},
+		{"DMG begin", dmgUVBegin, "# BEGIN StepSecurity Package Configuration uv -- managed by dmg"},
+		{"DMG end", dmgUVEnd, "# END StepSecurity Package Configuration uv"},
+		{"MDM begin", mdmUVBegin, "# BEGIN StepSecurity Package Configuration uv -- managed by mdm"},
+		{"MDM end", mdmUVEnd, "# END StepSecurity Package Configuration uv"},
 		{"disabled prefix", dmgUVDisabledPrefix, "# [stepsecurity-pypi-uv-dmg] "},
 		{"created file", dmgUVCreatedFile, "# [stepsecurity-pypi-uv-dmg] created=true"},
 	}

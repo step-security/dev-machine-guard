@@ -26,6 +26,7 @@ type PyPICoordinator struct {
 	DeviceID   string
 	Platform   string
 	Logf       func(format string, args ...any)
+	Warnf      func(format string, args ...any)
 
 	buildComponents func(context.Context, executor.Executor, PyPIPolicy) (*pypiComponents, error)
 	writeState      func(category, target string, state AppliedTargetState) error
@@ -456,6 +457,7 @@ func (c *PyPICoordinator) childReconciler(effective EffectivePolicy, component *
 		ProbeContent:        func(string) (bool, map[string]json.RawMessage, error) { return true, nil, nil },
 		Render:              func(json.RawMessage) (string, error) { return component.expected, nil },
 		Logf:                c.Logf,
+		Warnf:               c.Warnf,
 		writeState:          c.writeOwnershipState,
 		clearState:          c.clearOwnershipState,
 		probeState:          ProbeAppliedStateWritable,

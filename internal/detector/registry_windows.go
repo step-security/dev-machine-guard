@@ -71,3 +71,31 @@ func readRegistryVersion(ctx context.Context, exec executor.Executor, appName st
 	}
 	return "unknown"
 }
+
+// readKiroCLIRegistry reads the Kiro CLI installer's own key,
+// HKCU\SOFTWARE\Kiro\CLI, returning InstallPath and ProductVersion. ok is
+// false when the key or InstallPath is absent. HKCU only: Windows scans always
+// run as the interactive user (NewUserAwareExecutor returns the plain executor
+// on Windows and a SYSTEM-context inline scan is refused), so HKCU is the
+// scanned user's hive by construction. Uninstall rows are deliberately not
+// consulted — the CLI's row carries an empty InstallLocation, and its
+// "Kiro CLI" DisplayName substring-matches the "Kiro" IDE.
+func readKiroCLIRegistry(_ context.Context, _ executor.Executor) (installPath, productVersion string, ok bool) {
+	return readKiroCLIKey(registry.CURRENT_USER, `SOFTWARE\Kiro\CLI`)
+}
+
+// readKiroCLIKey is readKiroCLIRegistry with the key injectable, so the native
+// test can point it at a scratch key instead of the real installer's.
+func readKiroCLIKey(root registry.Key, path string) (installPath, productVersion string, ok bool) {
+	k, err := registry.OpenKey(root, path, registry.QUERY_VALUE)
+	if err != nil {
+		return "", "", false
+	}
+	defer func() { _ = k.Close() }()
+	installPath, _, err = k.GetStringValue("InstallPath")
+	if err != nil || installPath == "" {
+		return "", "", false
+	}
+	productVersion, _, _ = k.GetStringValue("ProductVersion")
+	return installPath, productVersion, true
+}

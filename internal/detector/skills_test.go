@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -1082,7 +1083,8 @@ func TestDetect_DanglingSymlink(t *testing.T) {
 	fs.mkdir(testHome + "/.claude/skills")
 	fs.addSymlink(testHome+"/.claude/skills/broken", testHome+"/gone")
 	fs.commit()
-	m.SetSymlinkError(testHome+"/.claude/skills/broken", errors.New("no such file"))
+	// The link itself reads fine (Readlink); following its target is what fails.
+	m.SetSymlinkError(testHome+"/gone", errors.New("no such file"))
 
 	records, info := NewSkillsDetector(m).Detect(context.Background(), nil, nil)
 	if len(records) != 0 {
@@ -1227,6 +1229,12 @@ func TestDetect_NewAgentGlobalSources(t *testing.T) {
 		{testHome + "/.factory/skills/facg", "factory_user", "factory"},
 		{testHome + "/.config/agents/skills/ampg", "amp_user", "amp"},
 		{testHome + "/.copilot/skills/copg", "copilot_user", "copilot"},
+		{testHome + "/.grok/skills/grokg", "grok_user", "grok-build"},
+		{testHome + "/.kimi-code/skills/kimig", "kimi_user", "kimi-code"},
+		{testHome + "/.config/muse/skills/museg", "muse_user", "muse-code"},
+		{testHome + "/.hermes/skills/hermg", "hermes_user", "hermes-agent"},
+		{testHome + "/.omp/agent/skills/ompg", "omp_user", "oh-my-pi"},
+		{testHome + "/.omp/agent/managed-skills/ompm", "omp_managed_user", "oh-my-pi"},
 	}
 	m, fs := newSkillsMock()
 	for _, c := range cases {
@@ -1248,14 +1256,41 @@ func TestDetect_NewAgentGlobalSources(t *testing.T) {
 	}
 }
 
+// TestDetect_HermesUserNestedLayout pins Hermes's bundled layout: skills sit one
+// category deep (<category>/<skill>/SKILL.md) beside .bundled_manifest and .hub/
+// metadata, so root_rel_path is two levels and the dot-entries are ignored.
+func TestDetect_HermesUserNestedLayout(t *testing.T) {
+	m, fs := newSkillsMock()
+	fs.addSkill(testHome+"/.hermes/skills/apple/apple-reminders", "SKILL.md", validFrontmatter("apple-reminders", "d"), nil)
+	fs.addFile(testHome+"/.hermes/skills/.bundled_manifest", "{}")
+	fs.addFile(testHome+"/.hermes/skills/.hub/index.json", "{}")
+	fs.commit()
+
+	records, _ := NewSkillsDetector(m).Detect(context.Background(), nil, nil)
+	if len(records) != 1 {
+		t.Fatalf("want exactly the nested skill, got %+v", records)
+	}
+	rec := findSkill(records, "hermes_user", "apple-reminders")
+	if rec == nil {
+		t.Fatalf("hermes_user apple-reminders not found; records=%+v", records)
+	}
+	if rec.Agent != "hermes-agent" || rec.Scope != "global" || rec.RootRelPath != "apple/apple-reminders" {
+		t.Errorf("agent=%q scope=%q root_rel_path=%q, want hermes-agent/global/apple/apple-reminders", rec.Agent, rec.Scope, rec.RootRelPath)
+	}
+}
+
 // TestDetect_NewAgentProjectSources covers the Pi/Factory/GitHub project roots,
 // including Factory's SINGULAR .agent/skills (distinct from the shared .agents).
 func TestDetect_NewAgentProjectSources(t *testing.T) {
 	proj := testHome + "/work/proj"
 	cases := []struct{ rel, source, agent string }{
 		{".pi/skills/pip", "pi_project", "pi"},
+		{".grok/skills/grokp", "grok_project", "grok-build"},
+		{".kimi-code/skills/kimip", "kimi_project", "kimi-code"},
+		{".hermes/skills/hermp", "hermes_project", "hermes-agent"},
+		{".omp/skills/ompp", "omp_project", "oh-my-pi"},
 		{".factory/skills/facp", "factory_project", "factory"},
-		{".agent/skills/facap", "factory_agent_project", "factory"},
+		{".agent/skills/facap", "factory_agent_project", "shared"}, // read by Factory and Antigravity
 		{".github/skills/ghp", "github_project", "copilot"},
 	}
 	m, fs := newSkillsMock()
@@ -1577,6 +1612,24 @@ func TestDetect_WindowsCodexAdmin(t *testing.T) {
 	}
 }
 
+func TestDetect_WindowsHermesUser(t *testing.T) {
+	m, fs := newSkillsMock()
+	m.SetGOOS(model.PlatformWindows)
+	m.SetEnv("LOCALAPPDATA", `C:\Users\u\AppData\Local`)
+	base := resolveEnvPath(m, `%LOCALAPPDATA%\hermes\skills`)
+	fs.addSkill(filepath.Join(base, "winherm"), "SKILL.md", validFrontmatter("winherm", "d"), nil)
+	fs.commit()
+
+	records, _ := NewSkillsDetector(m).Detect(context.Background(), nil, nil)
+	rec := findSkill(records, "hermes_user", "winherm")
+	if rec == nil {
+		t.Fatalf("windows hermes_user skill not found; records=%+v", records)
+	}
+	if rec.Scope != "global" || rec.Agent != "hermes-agent" {
+		t.Errorf("scope=%q agent=%q, want global/hermes-agent", rec.Scope, rec.Agent)
+	}
+}
+
 func TestDetect_ProjectRootFromClaudeRegistry(t *testing.T) {
 	m, fs := newSkillsMock()
 	proj := testHome + "/work/myproj"
@@ -1647,4 +1700,333 @@ func hasErrorContaining(xs []string, sub string) bool {
 		}
 	}
 	return false
+}
+
+// addJunction registers a Windows directory junction: a ModeIrregular entry
+// under its parent whose raw Readlink target is rawTarget (as stored, i.e. the
+// NT-namespace spelling). No EvalSymlinks stub — the detector resolves the
+// stripped target itself.
+func (f *fakeFS) addJunction(linkPath, rawTarget string) {
+	dir := filepath.Dir(linkPath)
+	f.ensureDir(dir)
+	f.m.SetReadlink(linkPath, rawTarget)
+	f.children[dir][filepath.Base(linkPath)] = executor.MockIrregularDirEntry(filepath.Base(linkPath))
+}
+
+// TestDetect_KiroParityGlobalRoots covers every new global/system root with
+// its exact source label, agent and scope (macOS spellings; the mock's default
+// GOOS is darwin).
+func TestDetect_KiroParityGlobalRoots(t *testing.T) {
+	cases := []struct{ dir, source, agent, scope string }{
+		{testHome + "/.kiro/skills/kg", "kiro_user", "kiro", "global"},
+		{testHome + "/.codeium/windsurf/skills/wg", "windsurf_user", "windsurf", "global"},
+		{"/Library/Application Support/Windsurf/skills/ws", "windsurf_system", "windsurf", "system"},
+		{testHome + "/.gemini/config/skills/ag1", "antigravity_user", "antigravity", "global"},
+		{testHome + "/.gemini/antigravity/skills/ag2", "antigravity_user", "antigravity", "global"},
+		{testHome + "/.openclaw/skills/ocg", "openclaw_user", "openclaw", "global"},
+		{testHome + "/.agent/skills/legacy", "factory_agent_user", "shared", "global"},
+	}
+	m, fs := newSkillsMock()
+	for _, c := range cases {
+		fs.addSkill(c.dir, "SKILL.md", validFrontmatter(filepath.Base(c.dir), "d"), nil)
+	}
+	fs.commit()
+
+	records, info := NewSkillsDetector(m).Detect(context.Background(), nil, nil)
+	for _, c := range cases {
+		slug := filepath.Base(c.dir)
+		rec := findSkill(records, c.source, slug)
+		if rec == nil {
+			t.Errorf("%s skill %q not found; records=%+v", c.source, slug, records)
+			continue
+		}
+		if rec.Agent != c.agent || rec.Scope != c.scope {
+			t.Errorf("%s: agent=%q scope=%q, want %s/%s", c.source, rec.Agent, rec.Scope, c.agent, c.scope)
+		}
+		if root := filepath.Dir(c.dir); !slices.Contains(info.RootsScanned, root) {
+			t.Errorf("roots_scanned missing %q", root)
+		}
+	}
+}
+
+func TestDetect_WindsurfSystemRoot_PerOS(t *testing.T) {
+	cases := []struct {
+		goos   string
+		env    map[string]string
+		system string
+	}{
+		{model.PlatformLinux, nil, "/etc/windsurf/skills"},
+		{model.PlatformWindows, map[string]string{"ProgramData": `C:\ProgramData`}, `C:\ProgramData\Windsurf\skills`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.goos, func(t *testing.T) {
+			m, fs := newSkillsMock()
+			m.SetGOOS(tc.goos)
+			for k, v := range tc.env {
+				m.SetEnv(k, v)
+			}
+			fs.addSkill(filepath.Join(tc.system, "ws"), "SKILL.md", validFrontmatter("ws", "d"), nil)
+			fs.commit()
+
+			records, _ := NewSkillsDetector(m).Detect(context.Background(), nil, nil)
+			if rec := findSkill(records, "windsurf_system", "ws"); rec == nil || rec.Scope != "system" {
+				t.Errorf("windsurf_system on %s: %+v", tc.goos, rec)
+			}
+		})
+	}
+}
+
+// TestDetect_KiroParityProjectRoots covers the new project roots through the
+// ~/.claude.json registry (the home-walk marker path is covered in
+// skills_homewalk_test.go).
+func TestDetect_KiroParityProjectRoots(t *testing.T) {
+	proj := testHome + "/work/proj"
+	cases := []struct{ rel, source, agent string }{
+		{".kiro/skills/kp", "kiro_project", "kiro"},
+		{".windsurf/skills/wp", "windsurf_project", "windsurf"},
+		{".codex/skills/cp", "codex_project", "codex"},
+		{".agent/skills/lp", "factory_agent_project", "shared"},
+	}
+	m, fs := newSkillsMock()
+	for _, c := range cases {
+		fs.addSkill(filepath.Join(proj, filepath.FromSlash(c.rel)), "SKILL.md", validFrontmatter(filepath.Base(c.rel), "d"), nil)
+	}
+	fs.addFile(testHome+"/.claude.json", `{"projects":{"`+proj+`":{}}}`)
+	fs.commit()
+
+	records, _ := NewSkillsDetector(m).Detect(context.Background(), nil, nil)
+	for _, c := range cases {
+		slug := filepath.Base(c.rel)
+		rec := findSkill(records, c.source, slug)
+		if rec == nil {
+			t.Errorf("%s skill %q not found; records=%+v", c.source, slug, records)
+			continue
+		}
+		if rec.Agent != c.agent || rec.Scope != "project" || rec.ProjectPath != proj {
+			t.Errorf("%s: agent=%q scope=%q proj=%q", c.source, rec.Agent, rec.Scope, rec.ProjectPath)
+		}
+	}
+}
+
+// TestDetect_OpenClawDefaultWorkspace: the default workspace is a project root
+// with the workspace as project_path; named workspaces are not discovered.
+func TestDetect_OpenClawDefaultWorkspace(t *testing.T) {
+	m, fs := newSkillsMock()
+	oc := testHome + "/.openclaw"
+	fs.addSkill(oc+"/workspace/skills/dflt", "SKILL.md", validFrontmatter("dflt", "d"), nil)
+	fs.addSkill(oc+"/workspace-agent7/skills/named", "SKILL.md", validFrontmatter("named", "d"), nil)
+	fs.commit()
+
+	records, _ := NewSkillsDetector(m).Detect(context.Background(), nil, nil)
+	rec := findSkill(records, "openclaw_project", "dflt")
+	if rec == nil {
+		t.Fatalf("openclaw_project not found; records=%+v", records)
+	}
+	if rec.Agent != "openclaw" || rec.Scope != "project" || rec.ProjectPath != oc+"/workspace" {
+		t.Errorf("agent=%q scope=%q project=%q", rec.Agent, rec.Scope, rec.ProjectPath)
+	}
+	if findSkill(records, "openclaw_project", "named") != nil {
+		t.Error("named workspaces are out of scope and must not be inventoried")
+	}
+}
+
+// TestDetect_WindowsJunctionFolds is the skills.sh-on-Windows case: the
+// canonical skill lives under ~/.agents/skills and the agent roots hold
+// directory junctions to it, which ReadDir reports as ModeIrregular with the
+// target in the NT namespace. Both junctions must fold into the physical
+// record as symlink_sources — before this, they were skipped as plain files
+// and even Claude's association was lost.
+func TestDetect_WindowsJunctionFolds(t *testing.T) {
+	m, fs := newSkillsMock()
+	m.SetGOOS(model.PlatformWindows)
+	real := testHome + "/.agents/skills/pptx"
+	fs.addSkill(real, "SKILL.md", validFrontmatter("pptx", "d"), nil)
+	fs.addJunction(testHome+"/.claude/skills/pptx", `\??\`+real)
+	fs.addJunction(testHome+"/.kiro/skills/pptx", `\\?\`+real)
+	fs.commit()
+
+	records, info := NewSkillsDetector(m).Detect(context.Background(), nil, nil)
+	if info.SkillsFound != 1 {
+		t.Fatalf("expected 1 folded record, got %d: %+v", info.SkillsFound, records)
+	}
+	rec := findSkill(records, "agents_user", "pptx")
+	if rec == nil {
+		t.Fatalf("canonical agents_user record missing; records=%+v", records)
+	}
+	if !equalStrings(rec.SymlinkSources, []string{"claude_user", "kiro_user"}) {
+		t.Errorf("symlink_sources = %v, want [claude_user kiro_user]", rec.SymlinkSources)
+	}
+	if len(info.Errors) != 0 {
+		t.Errorf("junctions must not be reported as errors: %v", info.Errors)
+	}
+}
+
+// TestDetect_IrregularEntryOffWindowsIgnored: ModeIrregular means junction
+// only on Windows; elsewhere it is a socket or device and is skipped silently,
+// never Readlink'd.
+func TestDetect_IrregularEntryOffWindowsIgnored(t *testing.T) {
+	m, fs := newSkillsMock()
+	m.SetGOOS(model.PlatformLinux)
+	real := testHome + "/.agents/skills/pptx"
+	fs.addSkill(real, "SKILL.md", validFrontmatter("pptx", "d"), nil)
+	fs.addJunction(testHome+"/.claude/skills/pptx", real)
+	fs.commit()
+
+	records, info := NewSkillsDetector(m).Detect(context.Background(), nil, nil)
+	rec := findSkill(records, "agents_user", "pptx")
+	if rec == nil || len(rec.SymlinkSources) != 0 {
+		t.Errorf("an irregular entry on linux must not fold as a link; rec=%+v", rec)
+	}
+	if len(info.Errors) != 0 {
+		t.Errorf("unexpected errors: %v", info.Errors)
+	}
+}
+
+// TestDetect_JunctionTargetsRejected: a junction to a volume GUID cannot be
+// guarded lexically and is skipped; one whose target cannot be read is not a
+// junction at all. Neither is an error.
+func TestDetect_JunctionTargetsRejected(t *testing.T) {
+	m, fs := newSkillsMock()
+	m.SetGOOS(model.PlatformWindows)
+	fs.mkdir(testHome + "/.claude/skills")
+	fs.addJunction(testHome+"/.claude/skills/vol", `\??\Volume{6f2a1c3e-0000-0000-0000-000000000000}\skills\x`)
+	dir := testHome + "/.claude/skills"
+	fs.children[dir]["sock"] = executor.MockIrregularDirEntry("sock") // no Readlink stub: not a link
+	fs.commit()
+
+	records, info := NewSkillsDetector(m).Detect(context.Background(), nil, nil)
+	if len(records) != 0 {
+		t.Errorf("no skill may come from a rejected junction, got %+v", records)
+	}
+	if len(info.Errors) != 0 {
+		t.Errorf("rejected junctions are not errors: %v", info.Errors)
+	}
+}
+
+// TestDetect_RelativeSymlinkTargetFolds: a symlink stored with a relative
+// target is resolved against the link's parent, so it folds like an absolute
+// one.
+func TestDetect_RelativeSymlinkTargetFolds(t *testing.T) {
+	m, fs := newSkillsMock()
+	real := testHome + "/.agents/skills/foo"
+	fs.addSkill(real, "SKILL.md", validFrontmatter("foo", "d"), nil)
+	link := testHome + "/.claude/skills/foo"
+	fs.addSymlink(link, real)
+	m.SetReadlink(link, "../../.agents/skills/foo")
+	m.SetSymlink(testHome+"/.claude/skills/../../.agents/skills/foo", real) // what EvalSymlinks sees
+	fs.commit()
+
+	records, info := NewSkillsDetector(m).Detect(context.Background(), nil, nil)
+	if info.SkillsFound != 1 {
+		t.Fatalf("expected 1 folded record, got %d: %+v", info.SkillsFound, records)
+	}
+	rec := findSkill(records, "agents_user", "foo")
+	if rec == nil || !equalStrings(rec.SymlinkSources, []string{"claude_user"}) {
+		t.Errorf("relative symlink did not fold: %+v", rec)
+	}
+}
+
+// TestDetect_DotDotAfterSymlinkResolvesThroughIt, on a real filesystem: a
+// skill link stores `alias/../skill` where alias is itself a symlink to another
+// tree. The kernel resolves `..` against alias's target, so the skill is the
+// one in that other tree — a lexical clean of the stored spelling would name
+// root/skill instead and attribute the wrong directory.
+func TestDetect_DotDotAfterSymlinkResolvesThroughIt(t *testing.T) {
+	if runtime.GOOS == model.PlatformWindows {
+		t.Skip("symlink creation needs privilege on Windows")
+	}
+	base := t.TempDir()
+	root := filepath.Join(base, "root")
+	elsewhere := filepath.Join(base, "elsewhere")
+	for _, dir := range []string{filepath.Join(elsewhere, "sub"), filepath.Join(elsewhere, "skill"), filepath.Join(root, "skill")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Both candidates are valid skills, so only the resolved path tells them apart.
+	for _, dir := range []string{filepath.Join(elsewhere, "skill"), filepath.Join(root, "skill")} {
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(validFrontmatter("skill", "d")), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(elsewhere, "sub"), filepath.Join(root, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("alias/../skill", filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+
+	d := NewSkillsDetector(executor.NewReal())
+	records := d.enumerateRoot(context.Background(), skillsRoot{path: root, source: "claude_project", agent: "claude", scope: "project", projectPath: base}, &model.AgentSkillScanInfo{}, map[string]*skillScan{})
+
+	want, _ := filepath.EvalSymlinks(filepath.Join(elsewhere, "skill"))
+	var linked *discoveredSkill
+	for i := range records {
+		if records[i].rec.RootRelPath == "linked" {
+			linked = &records[i]
+		}
+	}
+	if linked == nil {
+		t.Fatalf("linked skill not recorded; records=%+v", records)
+	}
+	if linked.resolvedDir != want {
+		t.Errorf("linked resolves to %q, want %q (through the alias, not root/skill)", linked.resolvedDir, want)
+	}
+}
+
+func TestLinkTarget(t *testing.T) {
+	type row struct {
+		link, want string
+		ok         bool
+	}
+	check := func(t *testing.T, m *executor.Mock, cases []row) {
+		for _, c := range cases {
+			got, ok := linkTarget(m, c.link)
+			if got != c.want || ok != c.ok {
+				t.Errorf("linkTarget(%q) = (%q, %v), want (%q, %v)", c.link, got, ok, c.want, c.ok)
+			}
+		}
+	}
+	t.Run("unix targets are literal", func(t *testing.T) {
+		m := executor.NewMock()
+		m.SetGOOS(model.PlatformLinux)
+		m.SetReadlink("/l/abs", "/t/abs")
+		m.SetReadlink("/l/rel", "../x/rel")
+		m.SetReadlink("/l/bs", `/t/back\slash`)  // a backslash is an ordinary character
+		m.SetReadlink("/l/vol", "Volume{abc}/x") // an ordinary relative name, not a GUID
+		m.SetReadlink("/l/nt", `\??\C:\x`)       // never stripped off Windows
+		m.SetReadlink("/l/empty", "")
+		check(t, m, []row{
+			{"/l/abs", "/t/abs", true},
+			{"/l/rel", "/l/../x/rel", true}, // not cleaned: EvalSymlinks owns ".."
+			{"/l/bs", `/t/back\slash`, true},
+			{"/l/vol", "/l/Volume{abc}/x", true},
+			{"/l/nt", `/l/\??\C:\x`, true},
+			{"/l/empty", "", false},
+			{"/l/notalink", "", false},
+		})
+	})
+	t.Run("windows namespaces", func(t *testing.T) {
+		m := executor.NewMock()
+		m.SetGOOS(model.PlatformWindows)
+		m.SetReadlink(`C:\l\nt`, `\??\C:\t\nt`)
+		m.SetReadlink(`C:\l\q`, `\\?\C:\t\q`)
+		m.SetReadlink(`C:\l\rel`, `..\t\rel`)
+		m.SetReadlink(`C:\l\vol`, `\??\Volume{abc}\x`)
+		m.SetReadlink(`C:\l\unc`, `\\?\UNC\srv\share\x`)
+		m.SetReadlink(`C:\l\share`, `\\srv\share\x`)
+		m.SetReadlink(`C:\l\dev`, `\??\GLOBALROOT\Device\HarddiskVolume1\x`)
+		m.SetReadlink(`C:\l\ntrel`, `\??\..\x`)
+		check(t, m, []row{
+			{`C:\l\nt`, `C:\t\nt`, true},
+			{`C:\l\q`, `C:\t\q`, true},
+			{`C:\l\rel`, `C:\l\..\t\rel`, true},
+			{`C:\l\vol`, "", false},
+			{`C:\l\unc`, "", false},
+			{`C:\l\share`, "", false},
+			{`C:\l\dev`, "", false},
+			{`C:\l\ntrel`, "", false},
+			{`C:\l\notalink`, "", false},
+		})
+	})
 }

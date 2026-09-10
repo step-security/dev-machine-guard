@@ -5,6 +5,7 @@ package detector
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,62 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
+
+// ancestorTraversalRecorder uses real filesystem resolution in a temporary
+// fake home; its Documents directory is not a user's TCC-protected directory.
+type ancestorTraversalRecorder struct {
+	*executor.Real
+	protected string
+	traversed []string
+	guarded   []string
+}
+
+func (r *ancestorTraversalRecorder) GuardedFiles(roots []string, guard func(string) string, maxReadBytes int64) executor.Executor {
+	return r.Real.GuardedFiles(roots, func(p string) string {
+		if p == r.protected {
+			r.guarded = append(r.guarded, p)
+		}
+		return guard(p)
+	}, maxReadBytes)
+}
+
+func (r *ancestorTraversalRecorder) EvalSymlinks(p string) (string, error) {
+	resolved, err := r.Real.EvalSymlinks(p)
+	if err == nil && (resolved == r.protected || strings.HasPrefix(resolved, r.protected+"/")) {
+		r.traversed = append(r.traversed, p)
+	}
+	return resolved, err
+}
+
+func TestSkillsAncestorLinkRejectedBeforeResolution(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	protected := filepath.Join(home, "Documents")
+	root := filepath.Join(home, ".kiro", "skills")
+	for _, dir := range []string{root, filepath.Join(protected, "skill")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alias := filepath.Join(home, "ordinary-alias")
+	if err := os.Symlink(protected, alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(alias, "skill"), filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	rec := &ancestorTraversalRecorder{Real: executor.NewReal(), protected: protected}
+	d := NewSkillsDetector(rec).WithSkipper(tcc.New(home))
+	d.enumerateRoot(context.Background(), skillsRoot{path: root, source: "kiro_project", agent: "kiro", scope: "project", projectPath: home}, &model.AgentSkillScanInfo{}, map[string]*skillScan{})
+	if len(rec.traversed) != 0 {
+		t.Fatalf("protected ancestor was already traversed by EvalSymlinks before rejection: %v", rec.traversed)
+	}
+	if len(rec.guarded) == 0 {
+		t.Fatal("protected link destination was not checked by the guard")
+	}
+}
 
 // tccAccessRecorder wraps the mock executor and records every path handed to a
 // filesystem call that stats/reads on a real machine — the calls that fire a
@@ -296,5 +353,40 @@ func TestDetect_HomeWalkRejectsSymlinkedAncestorRoot(t *testing.T) {
 	}
 	if hits := rec.accessedUnder(testHome + "/Documents"); len(hits) > 0 {
 		t.Errorf("no filesystem access may occur under ~/Documents, got: %v", hits)
+	}
+}
+
+// TestDetect_LinkIntoProtectedNeverFollowed closes the residual the old
+// handleSymlinkEntry documented: a symlink from a safe skill root into
+// ~/Documents used to be EvalSymlink'd (statting inside the protected tree)
+// before its target was guarded. The target is now read with Readlink and
+// guarded lexically first, so nothing under ~/Documents is touched — for an
+// absolute target and for a relative one that only resolves there once joined.
+func TestDetect_LinkIntoProtectedNeverFollowed(t *testing.T) {
+	protected := testHome + "/Documents"
+	for name, raw := range map[string]string{
+		"absolute target": protected + "/secret/skill",
+		"relative target": "../../Documents/secret/skill",
+	} {
+		t.Run(name, func(t *testing.T) {
+			m, fs := newSkillsMock()
+			fs.addSkill(protected+"/secret/skill", "SKILL.md", validFrontmatter("secret", "d"), nil)
+			link := testHome + "/.claude/skills/decoy"
+			fs.addSymlink(link, protected+"/secret/skill")
+			m.SetReadlink(link, raw)
+			fs.commit()
+
+			rec := &tccAccessRecorder{Mock: m}
+			records, info := NewSkillsDetector(rec).WithSkipper(tcc.New(testHome)).Detect(context.Background(), nil, nil)
+			if len(records) != 0 {
+				t.Errorf("a link into ~/Documents must not surface the protected skill, got %+v", records)
+			}
+			if len(info.Errors) != 0 {
+				t.Errorf("skipping a protected target is not an error: %v", info.Errors)
+			}
+			if hits := rec.accessedUnder(protected); len(hits) > 0 {
+				t.Errorf("no filesystem access may occur under %q (would fire a TCC prompt), got: %v", protected, hits)
+			}
+		})
 	}
 }

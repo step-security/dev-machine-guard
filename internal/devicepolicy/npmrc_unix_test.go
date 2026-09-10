@@ -82,12 +82,12 @@ func TestWrite_CreatesFile(t *testing.T) {
 func TestWrite_ThenConvergedTrue(t *testing.T) { // edge 15 on disk
 	home := t.TempDir()
 	w := newDiskWriter(t, home)
-	if _, err := w.Write(stdBody); err != nil {
+	if _, err := w.Write(stdSettingsBody); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	first := readFile(t, npmrcPath(home))
 
-	conv, err := w.Converged(stdBody)
+	conv, err := w.Converged(stdSettingsBody)
 	if err != nil {
 		t.Fatalf("Converged: %v", err)
 	}
@@ -95,11 +95,97 @@ func TestWrite_ThenConvergedTrue(t *testing.T) { // edge 15 on disk
 		t.Fatal("expected Converged=true after a fresh write")
 	}
 	// A second write is byte-identical.
-	if _, err := w.Write(stdBody); err != nil {
+	if _, err := w.Write(stdSettingsBody); err != nil {
 		t.Fatalf("second Write: %v", err)
 	}
 	if second := readFile(t, npmrcPath(home)); second != first {
 		t.Fatalf("second write not idempotent:\n%q\n%q", first, second)
+	}
+}
+
+func TestWrite_SettingsConvergesAndClearsExactly(t *testing.T) {
+	home := t.TempDir()
+	path := npmrcPath(home)
+	original := []byte("save-exact=false\r\n@example:registry=https://old.example/\r\n")
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w := newDiskWriter(t, home)
+	if _, err := w.Write(stdSettingsBody); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	converged, err := w.Converged(stdSettingsBody)
+	if err != nil {
+		t.Fatalf("Converged: %v", err)
+	}
+	if !converged {
+		t.Fatal("settings block did not converge")
+	}
+	if _, err := w.Clear(); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(original) {
+		t.Fatalf("cleared bytes = %q, want %q", got, original)
+	}
+}
+
+func TestWrite_RejectsStaleMDMBlocksWithoutMutation(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		body    string
+	}{
+		{name: "fixed block", content: mdmBlock(), body: stdBody},
+		{name: "bounded block", content: boundedMDMBlock(stdSettingsBody), body: stdSettingsBody},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			path := npmrcPath(home)
+			before := []byte(tc.content)
+			if err := os.WriteFile(path, before, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			beforeInfo, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			w := newDiskWriter(t, home)
+			if _, err := w.Write(tc.body); !isTargetUnusable(err) {
+				t.Fatalf("Write error = %v, want target unusable", err)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after) != string(before) {
+				t.Fatalf("content changed: %q != %q", after, before)
+			}
+			afterInfo, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !os.SameFile(beforeInfo, afterInfo) {
+				t.Fatal("file identity changed")
+			}
+			if afterInfo.Mode() != beforeInfo.Mode() {
+				t.Fatalf("mode = %v, want %v", afterInfo.Mode(), beforeInfo.Mode())
+			}
+			if !afterInfo.ModTime().Equal(beforeInfo.ModTime()) {
+				t.Fatalf("mtime = %v, want %v", afterInfo.ModTime(), beforeInfo.ModTime())
+			}
+			backups, err := filepath.Glob(path + ".dmg-*.bak")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(backups) != 0 {
+				t.Fatalf("backup residue = %v, want none", backups)
+			}
+		})
 	}
 }
 
@@ -324,7 +410,7 @@ func TestRestoreSnapshot(t *testing.T) {
 	if err := os.WriteFile(npmrcPath(home), []byte("registry=original\n"), 0o600); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	if _, err := w.Write(stdBody); err != nil {
+	if _, err := w.Write(stdSettingsBody); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if err := w.RestoreSnapshot(); err != nil {
@@ -684,22 +770,59 @@ func TestProbeContentNPM_OnDisk(t *testing.T) {
 	} else if len(entries) != 1 {
 		t.Fatalf("ProbeContentNPM left extra files behind: %v", entries)
 	}
+
+	settingsBefore := []byte(boundedMDMBlock(stdSettingsBody))
+	if err := os.WriteFile(npmrcPath(home), settingsBefore, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	present, observed, err = w.ProbeContentNPM(stdSettingsBody)
+	if err != nil {
+		t.Fatalf("settings MDM block: %v", err)
+	}
+	if !present {
+		t.Fatal("settings MDM block was not recognized")
+	}
+	if len(observed) != 4 {
+		t.Fatalf("settings observed = %v, want exactly 4 keys", observed)
+	}
+	settingsAfter, err := os.ReadFile(npmrcPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(settingsAfter) != string(settingsBefore) {
+		t.Fatalf("settings probe mutated the file: %q != %q", settingsAfter, settingsBefore)
+	}
 }
 
-func TestProbeContentNPM_LooseModeStillObserved(t *testing.T) {
-	// Deliberate divergence from ProbeExpected, which rejects loose metadata so the
-	// DMG lane enforces instead. In verify-only mode there is no write to fall back
-	// to, and perms are not part of the observed contract — so a
-	// correctly-deployed-but-0644 file must still report its real registry and auth
-	// status rather than be hidden behind a synthetic failure.
+func TestProbeContentNPM_LooseModeObserved(t *testing.T) {
 	home := t.TempDir()
 	if err := os.WriteFile(npmrcPath(home), []byte(mdmBlock()), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	w := newDiskWriter(t, home)
 	present, observed, err := w.ProbeContentNPM(stdBody)
-	if err != nil || !present || len(observed) != 3 {
-		t.Fatalf("a 0644 MDM block = (%v, %v, %v), want it observed", present, observed, err)
+	if err != nil {
+		t.Fatalf("base-only probe: %v", err)
+	}
+	if !present {
+		t.Fatal("base-only MDM block was not observed")
+	}
+	if len(observed) != 3 {
+		t.Fatalf("base-only observed keys = %d, want 3", len(observed))
+	}
+
+	if err := os.WriteFile(npmrcPath(home), []byte(boundedMDMBlock(stdSettingsBody)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	present, observed, err = w.ProbeContentNPM(stdSettingsBody)
+	if err != nil {
+		t.Fatalf("settings-aware probe: %v", err)
+	}
+	if !present {
+		t.Fatal("settings-aware MDM block was not observed")
+	}
+	if len(observed) != 4 {
+		t.Fatalf("settings-aware observed keys = %d, want 4", len(observed))
 	}
 }
 
@@ -847,4 +970,65 @@ func dmgBackups(t *testing.T, home string) []string {
 		}
 	}
 	return out
+}
+
+func TestWrite_SettingsOnlyTransitionsAndClearsExactly(t *testing.T) {
+	home := t.TempDir()
+	path := npmrcPath(home)
+	original := []byte("registry=https://old.example/\nsave-exact=false\n")
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w := newDiskWriter(t, home)
+	if _, err := w.Write(stdSettingsBody); err != nil {
+		t.Fatalf("StepSecurity write: %v", err)
+	}
+	if _, err := w.Write(stdSettingsOnlyBody); err != nil {
+		t.Fatalf("settings-only write: %v", err)
+	}
+	if got := readFile(t, path); got != string(original)+block(stdSettingsOnlyBody) {
+		t.Fatalf("settings-only file = %q, want restored registry line then block", got)
+	}
+	converged, err := w.Converged(stdSettingsOnlyBody)
+	if err != nil {
+		t.Fatalf("Converged: %v", err)
+	}
+	if !converged {
+		t.Fatal("settings-only block did not converge")
+	}
+	if converged, _ := w.Converged(stdBody); converged {
+		t.Fatal("settings-only block must not satisfy a StepSecurity-only body")
+	}
+	if _, err := w.Clear(); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+	if got := readFile(t, path); got != string(original) {
+		t.Fatalf("cleared bytes = %q, want %q", got, original)
+	}
+}
+
+func TestProbeContentNPM_SettingsOnlyOnDiskIsReadOnly(t *testing.T) {
+	home := t.TempDir()
+	w := newDiskWriter(t, home)
+	content := "engine-strict=true\n" + boundedMDMBlock(stdSettingsOnlyBody)
+	if err := os.WriteFile(npmrcPath(home), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	present, observed, err := w.ProbeContentNPM(stdSettingsOnlyBody)
+	if err != nil || !present {
+		t.Fatalf("settings-only MDM block = (%v, %v), want present with no error", present, err)
+	}
+	got := observedStrings(t, observed)
+	if len(got) != 2 || got[observedKeySettingsStatus] != settingsMatch {
+		t.Fatalf("observed = %v, want ecosystem and matching settings_status only", got)
+	}
+	if managed, _ := w.ProbeExpected(stdSettingsOnlyBody); !managed {
+		t.Fatal("ProbeExpected did not recognize the settings-only MDM block")
+	}
+	if after := readFile(t, npmrcPath(home)); after != content {
+		t.Fatalf("MDM probe mutated the file: %q", after)
+	}
+	if entries, _ := os.ReadDir(home); len(entries) != 1 {
+		t.Fatalf("MDM probe left extra files: %v", entries)
+	}
 }

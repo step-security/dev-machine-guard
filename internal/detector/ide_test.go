@@ -3,7 +3,11 @@ package detector
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
@@ -1023,5 +1027,312 @@ func TestIDEDetector_Linux_ExecguardAllowsCLIShimInsideBundle(t *testing.T) {
 	}
 	if found.Version != "1.12.4" {
 		t.Errorf("version = %q, want 1.12.4 from the CLI shim", found.Version)
+	}
+}
+
+// ideRunRecorder records every command the IDE detector launches and every
+// file it reads. Kiro resolves from metadata alone, so nothing it does may
+// exec — and on Windows, where the other specs' registry fallbacks
+// legitimately run `reg query`, no query may name Kiro.
+type ideRunRecorder struct {
+	*executor.Mock
+	runs  []string
+	reads []string
+}
+
+// Everything that follows a path — stat or read — lands in reads; Readlink,
+// which does not follow, deliberately does not.
+func (r *ideRunRecorder) ReadFile(path string) ([]byte, error) {
+	r.reads = append(r.reads, path)
+	return r.Mock.ReadFile(path)
+}
+
+func (r *ideRunRecorder) Stat(path string) (os.FileInfo, error) {
+	r.reads = append(r.reads, path)
+	return r.Mock.Stat(path)
+}
+
+func (r *ideRunRecorder) FileExists(path string) bool {
+	r.reads = append(r.reads, path)
+	return r.Mock.FileExists(path)
+}
+
+func (r *ideRunRecorder) DirExists(path string) bool {
+	r.reads = append(r.reads, path)
+	return r.Mock.DirExists(path)
+}
+
+func (r *ideRunRecorder) EvalSymlinks(path string) (string, error) {
+	r.reads = append(r.reads, path)
+	return r.Mock.EvalSymlinks(path)
+}
+
+func (r *ideRunRecorder) record(name string, args []string) {
+	r.runs = append(r.runs, name+" "+strings.Join(args, " "))
+}
+
+func (r *ideRunRecorder) Run(ctx context.Context, name string, args ...string) (string, string, int, error) {
+	r.record(name, args)
+	return r.Mock.Run(ctx, name, args...)
+}
+
+func (r *ideRunRecorder) RunWithTimeout(ctx context.Context, d time.Duration, name string, args ...string) (string, string, int, error) {
+	r.record(name, args)
+	return r.Mock.RunWithTimeout(ctx, d, name, args...)
+}
+
+const kiroIDEPackageJSON = `{"name":"Kiro","version":"1.0.437","private":true}`
+
+func TestIDEDetector_Kiro_Darwin(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetDir("/Applications/Kiro.app")
+	mock.SetFile("/Applications/Kiro.app/Contents/Info.plist", kiroPlist("dev.kiro.desktop", "1.0.437"))
+	mock.SetFile("/Applications/Kiro.app/Contents/Resources/app/bin/code", []byte{})
+
+	rec := &ideRunRecorder{Mock: mock}
+	results := NewIDEDetector(rec).Detect(context.Background())
+
+	kiro := findIDE(results, "kiro")
+	if kiro == nil {
+		t.Fatalf("Kiro not detected; results=%+v", results)
+	}
+	if kiro.Version != "1.0.437" || kiro.Vendor != "Amazon" || kiro.InstallPath != "/Applications/Kiro.app" || !kiro.IsInstalled {
+		t.Errorf("unexpected record %+v", kiro)
+	}
+	if len(rec.runs) != 0 {
+		t.Errorf("Kiro detection must launch nothing, ran %v", rec.runs)
+	}
+}
+
+func TestIDEDetector_Kiro_Darwin_IdentityRequired(t *testing.T) {
+	const shim = "/Applications/Kiro.app/Contents/Resources/app/bin/code"
+	cases := []struct {
+		name        string
+		setup       func(m *executor.Mock)
+		wantVersion string // "" = must not be detected
+	}{
+		{"wrong bundle identifier", func(m *executor.Mock) {
+			m.SetFile("/Applications/Kiro.app/Contents/Info.plist", kiroPlist("com.example.impostor", "1.0.437"))
+			m.SetFile(shim, []byte{})
+		}, ""},
+		{"bundle dir only", func(m *executor.Mock) {}, ""},
+		{"plist ok but no CLI shim", func(m *executor.Mock) {
+			m.SetFile("/Applications/Kiro.app/Contents/Info.plist", kiroPlist("dev.kiro.desktop", "1.0.437"))
+		}, ""},
+		{"plist without short version", func(m *executor.Mock) {
+			m.SetFile("/Applications/Kiro.app/Contents/Info.plist", kiroPlist("dev.kiro.desktop", ""))
+			m.SetFile(shim, []byte{})
+		}, "unknown"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := executor.NewMock()
+			mock.SetDir("/Applications/Kiro.app")
+			tc.setup(mock)
+			rec := &ideRunRecorder{Mock: mock}
+			kiro := findIDE(NewIDEDetector(rec).Detect(context.Background()), "kiro")
+			switch {
+			case tc.wantVersion == "" && kiro != nil:
+				t.Errorf("Kiro must not be accepted; got %+v", kiro)
+			case tc.wantVersion != "" && kiro == nil:
+				t.Errorf("Kiro not detected")
+			case kiro != nil && kiro.Version != tc.wantVersion:
+				t.Errorf("version=%q want %q", kiro.Version, tc.wantVersion)
+			}
+			if len(rec.runs) != 0 {
+				t.Errorf("must never be exec'd for a version, ran %v", rec.runs)
+			}
+		})
+	}
+}
+
+// TestIDEDetector_Kiro_LinkedComponentRejected: a link anywhere on a path
+// Kiro's resolver would touch — the root, an intermediate directory, the
+// metadata file, the binary — makes the layout unsupported. The link could
+// point anywhere, including a TCC-protected folder, so it must be seen with
+// Readlink and nothing at or below it may be followed (stat'd or read).
+func TestIDEDetector_Kiro_LinkedComponentRejected(t *testing.T) {
+	const winRoot = `C:\Users\testuser\AppData\Local\Programs\Kiro`
+	cases := []struct {
+		name, goos, link string
+		junction         bool
+		setup            func(m *executor.Mock)
+	}{
+		{"darwin root", "darwin", "/Applications/Kiro.app", false, kiroDarwinFixture},
+		{"darwin Contents dir", "darwin", "/Applications/Kiro.app/Contents", false, kiroDarwinFixture},
+		{"darwin Info.plist", "darwin", "/Applications/Kiro.app/Contents/Info.plist", false, kiroDarwinFixture},
+		{"darwin CLI shim", "darwin", "/Applications/Kiro.app/Contents/Resources/app/bin/code", false, kiroDarwinFixture},
+		{"windows root junction", "windows", winRoot, true, kiroWindowsFixture},
+		{"windows resources junction", "windows", filepath.Join(winRoot, "resources"), true, kiroWindowsFixture},
+		{"linux app dir", "linux", "/usr/share/kiro/resources/app", false, kiroLinuxFixture},
+		{"linux package.json", "linux", "/usr/share/kiro/resources/app/package.json", false, kiroLinuxFixture},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := executor.NewMock()
+			mock.SetGOOS(tc.goos)
+			mock.SetEnv("LOCALAPPDATA", `C:\Users\testuser\AppData\Local`)
+			tc.setup(mock)
+			target := "/Users/testuser/Downloads/elsewhere"
+			if tc.junction {
+				target = `\??\D:\elsewhere`
+			}
+			mock.SetReadlink(tc.link, target)
+
+			rec := &ideRunRecorder{Mock: mock}
+			if results := NewIDEDetector(rec).Detect(context.Background()); findIDE(results, "kiro") != nil {
+				t.Errorf("a linked %s must be rejected; results=%+v", tc.name, results)
+			}
+			for _, p := range rec.reads {
+				if p == tc.link || strings.HasPrefix(p, tc.link+"/") || strings.HasPrefix(p, tc.link+`\`) {
+					t.Errorf("followed %q at or below the link %q", p, tc.link)
+				}
+			}
+			// Other specs' registry fallbacks legitimately run on Windows.
+			for _, run := range rec.runs {
+				if tc.goos != "windows" || strings.Contains(run, "Kiro") {
+					t.Errorf("Kiro must launch nothing, ran %q", run)
+				}
+			}
+		})
+	}
+}
+
+func kiroDarwinFixture(m *executor.Mock) {
+	m.SetDir("/Applications/Kiro.app")
+	m.SetFile("/Applications/Kiro.app/Contents/Info.plist", kiroPlist("dev.kiro.desktop", "1.0.437"))
+	m.SetFile("/Applications/Kiro.app/Contents/Resources/app/bin/code", []byte{})
+}
+
+func kiroWindowsFixture(m *executor.Mock) {
+	dir := `C:\Users\testuser\AppData\Local\Programs\Kiro`
+	m.SetDir(dir)
+	m.SetFile(filepath.Join(dir, "Kiro.exe"), []byte{})
+	m.SetFile(filepath.Join(dir, "resources", "app", "package.json"), []byte(kiroIDEPackageJSON))
+}
+
+func kiroLinuxFixture(m *executor.Mock) {
+	m.SetDir("/usr/share/kiro")
+	m.SetFile("/usr/share/kiro/kiro", []byte{})
+	m.SetFile("/usr/share/kiro/resources/app/package.json", []byte(kiroIDEPackageJSON))
+}
+
+func TestIDEDetector_Kiro_Windows_RegistryNeverConsulted(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	mock.SetEnv("LOCALAPPDATA", `C:\Users\testuser\AppData\Local`)
+	mock.SetEnv("PROGRAMFILES", `C:\Program Files`)
+	dir := `C:\Users\testuser\AppData\Local\Programs\Kiro`
+	mock.SetDir(dir)
+	mock.SetFile(filepath.Join(dir, "Kiro.exe"), []byte{})
+	mock.SetFile(filepath.Join(dir, "resources", "app", "package.json"), []byte(kiroIDEPackageJSON))
+	// The machine also has the Kiro CLI, whose Uninstall row "Kiro CLI" is a
+	// substring match for "Kiro" and carries the CLI's version. It must never
+	// be read for the IDE.
+	for _, root := range []string{
+		`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`,
+		`HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall`,
+		`HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`,
+	} {
+		mock.SetCommand(root+"\\{kiro-cli}\n    DisplayName    REG_SZ    Kiro CLI\n    DisplayVersion    REG_SZ    2.21.1.0\n    InstallLocation    REG_SZ    \n", "", 0,
+			"reg", "query", root, "/s", "/f", "Kiro", "/d")
+	}
+
+	rec := &ideRunRecorder{Mock: mock}
+	results := NewIDEDetector(rec).Detect(context.Background())
+
+	kiro := findIDE(results, "kiro")
+	if kiro == nil {
+		t.Fatalf("Kiro not detected; results=%+v", results)
+	}
+	if kiro.Version != "1.0.437" || kiro.InstallPath != dir {
+		t.Errorf("version=%q install=%q, want 1.0.437 at %s", kiro.Version, kiro.InstallPath, dir)
+	}
+	for _, run := range rec.runs {
+		if strings.Contains(run, "Kiro") {
+			t.Errorf("Kiro must never reach the registry or an exec, ran %q", run)
+		}
+	}
+}
+
+func TestIDEDetector_Kiro_Windows_NoRegistryDiscovery(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	mock.SetEnv("LOCALAPPDATA", `C:\Users\testuser\AppData\Local`)
+	mock.SetEnv("PROGRAMFILES", `C:\Program Files`)
+	// No install dir. A registry row that would satisfy the generic Phase 2
+	// discovery exists at a custom path; Kiro's resolver never consults it.
+	custom := `D:\Tools\Kiro`
+	mock.SetDir(custom)
+	mock.SetFile(filepath.Join(custom, "Kiro.exe"), []byte{})
+	mock.SetFile(filepath.Join(custom, "resources", "app", "package.json"), []byte(kiroIDEPackageJSON))
+	mock.SetCommand("HKCU\\...\\{kiro}\n    DisplayName    REG_SZ    Kiro (User)\n    DisplayVersion    REG_SZ    1.0.437\n    InstallLocation    REG_SZ    "+custom+"\n", "", 0,
+		"reg", "query", `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`, "/s", "/f", "Kiro", "/d")
+
+	rec := &ideRunRecorder{Mock: mock}
+	results := NewIDEDetector(rec).Detect(context.Background())
+	if findIDE(results, "kiro") != nil {
+		t.Errorf("Kiro must not be discovered through the registry; results=%+v", results)
+	}
+	for _, run := range rec.runs {
+		if strings.Contains(run, "Kiro") {
+			t.Errorf("no registry query may name Kiro, ran %q", run)
+		}
+	}
+}
+
+func TestIDEDetector_Kiro_Windows_IdentityRequired(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	mock.SetEnv("LOCALAPPDATA", `C:\Users\testuser\AppData\Local`)
+	mock.SetEnv("PROGRAMFILES", `C:\Program Files`)
+	dir := `C:\Users\testuser\AppData\Local\Programs\Kiro`
+	mock.SetDir(dir)
+	mock.SetFile(filepath.Join(dir, "resources", "app", "package.json"), []byte(kiroIDEPackageJSON))
+	// package.json says Kiro, but there is no Kiro.exe: a leftover folder.
+	if results := NewIDEDetector(&ideRunRecorder{Mock: mock}).Detect(context.Background()); findIDE(results, "kiro") != nil {
+		t.Errorf("a root without Kiro.exe is not an install; results=%+v", results)
+	}
+}
+
+func TestIDEDetector_Kiro_Linux_InstallDir(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetDir("/usr/share/kiro")
+	mock.SetFile("/usr/share/kiro/kiro", []byte{})
+	mock.SetFile("/usr/share/kiro/resources/app/package.json", []byte(kiroIDEPackageJSON))
+
+	rec := &ideRunRecorder{Mock: mock}
+	results := NewIDEDetector(rec).Detect(context.Background())
+	kiro := findIDE(results, "kiro")
+	if kiro == nil {
+		t.Fatalf("Kiro not detected; results=%+v", results)
+	}
+	if kiro.Version != "1.0.437" || kiro.InstallPath != "/usr/share/kiro" {
+		t.Errorf("version=%q install=%q", kiro.Version, kiro.InstallPath)
+	}
+	if len(rec.runs) != 0 {
+		t.Errorf("Kiro detection must launch nothing, ran %v", rec.runs)
+	}
+}
+
+func TestIDEDetector_Kiro_Linux_PATHOnlyNotDiscovered(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	// A relocated tree reachable only through a PATH launcher: the .deb's
+	// /usr/share/kiro root is absent. Kiro is fixed-root only, so this is not
+	// discovered and, having no VersionFlag, is never launched.
+	mock.SetPath("kiro", "/usr/bin/kiro")
+	mock.SetSymlink("/usr/bin/kiro", "/opt/kiro/bin/kiro")
+	mock.SetDir("/opt/kiro")
+	mock.SetFile("/opt/kiro/kiro", []byte{})
+	mock.SetFile("/opt/kiro/resources/app/package.json", []byte(kiroIDEPackageJSON))
+
+	rec := &ideRunRecorder{Mock: mock}
+	if results := NewIDEDetector(rec).Detect(context.Background()); findIDE(results, "kiro") != nil {
+		t.Errorf("a PATH-only tree must not be accepted; results=%+v", results)
+	}
+	if len(rec.runs) != 0 {
+		t.Errorf("must launch nothing, ran %v", rec.runs)
 	}
 }

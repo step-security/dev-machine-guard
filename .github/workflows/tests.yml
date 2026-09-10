@@ -110,6 +110,12 @@ jobs:
   #     the registry hive
   #   - safepath: opening a leaf without following a reparse point and matching
   #     the kernel's own final path for the handle
+  #   - executor: Readlink on a real directory junction (ModeIrregular entry,
+  #     NT-namespace target), which the skills detector's junction folding
+  #     depends on
+  #   - detector TestReal_*: the Kiro CLI registry reader against a scratch
+  #     HKCU key, and skills junction folding over real junctions (the rest of
+  #     the detector suite assumes a POSIX host, hence the -run filter)
   # This job executes them natively; scoped to these packages so the rest of the
   # suite (which assumes a POSIX host) is untouched.
   test-windows-native:
@@ -125,7 +131,8 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
-      - run: go test -race -count=1 ./internal/devicepolicy/ ./internal/secureuserfile/ ./internal/detector/credentials/ ./internal/safepath/
+      - run: go test -race -count=1 ./internal/devicepolicy/ ./internal/secureuserfile/ ./internal/detector/credentials/ ./internal/safepath/ ./internal/executor/
+      - run: go test -race -count=1 -run '^TestReal_' ./internal/detector/
 
   smoke:
     name: Smoke Tests

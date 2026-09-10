@@ -53,6 +53,17 @@ func (npmLaneFetcher) Fetch(context.Context, string, string, string, string) (de
 	}, nil
 }
 
+type invalidNPMSettingsFetcher struct{}
+
+func (invalidNPMSettingsFetcher) Fetch(context.Context, string, string, string, string) (devicepolicy.EffectivePolicy, error) {
+	return devicepolicy.EffectivePolicy{
+		Category: devicepolicy.CategoryPackageConfig,
+		Target:   devicepolicy.TargetNPM,
+		Policy:   []byte(`{"ecosystem":"npm","registry_url":"https://registry-int.stepsecurity.io/javascript","auth":{"scheme":"stepsecurity_device_token","api_key":"device-secret"},"settings":null}`),
+		Hash:     "sha256:npm",
+	}, nil
+}
+
 type countingTargetExecutor struct {
 	*executor.Mock
 	user  *user.User
@@ -120,8 +131,20 @@ func TestNPMPackageConfigLanePersistsSecretFreeOwnership(t *testing.T) {
 	}
 }
 
+func TestNPMPackageConfigLane_ValidatesSettingsBeforeResolvingTargetUser(t *testing.T) {
+	exec := &countingTargetExecutor{Mock: executor.NewMock()}
+	err := runNPMPackageConfigLane(context.Background(), exec, progress.NewNoop(), invalidNPMSettingsFetcher{}, packageConfigReporter{}, "customer", "serial", "linux")
+	if err == nil {
+		t.Fatal("invalid settings must fail")
+	}
+	if got, want := exec.calls, 0; got != want {
+		t.Fatalf("LoggedInUser calls = %d, want %d", got, want)
+	}
+}
+
 func TestPackageConfigLanes_FailureDoesNotSuppressSibling(t *testing.T) {
-	t.Setenv("STEPSECURITY_HOME", t.TempDir())
+	logDir := t.TempDir()
+	t.Setenv("STEPSECURITY_HOME", logDir)
 	tests := []struct {
 		name       string
 		failTarget string
@@ -140,6 +163,9 @@ func TestPackageConfigLanes_FailureDoesNotSuppressSibling(t *testing.T) {
 
 			if got, want := strings.Join(fetcher.calls, ","), devicepolicy.TargetNPM+","+devicepolicy.TargetPyPI+","+devicepolicy.TargetGo; got != want {
 				t.Errorf("lane calls = %q, want %q", got, want)
+			}
+			if _, err := os.Stat(filepath.Join(logDir, "ai-agent-hook-errors.jsonl")); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("device-policy failure wrote to hook error log: stat error = %v", err)
 			}
 		})
 	}

@@ -57,3 +57,30 @@ func readRegistryVersion(ctx context.Context, exec executor.Executor, appName st
 	}
 	return "unknown"
 }
+
+// readKiroCLIRegistry is the non-Windows twin of the native reader: one
+// `reg query HKCU\SOFTWARE\Kiro\CLI` whose InstallPath / ProductVersion lines
+// are parsed. Only mock-based tests running with SetGOOS("windows") reach it.
+func readKiroCLIRegistry(ctx context.Context, exec executor.Executor) (installPath, productVersion string, ok bool) {
+	stdout, _, _, err := exec.Run(ctx, "reg", "query", `HKCU\SOFTWARE\Kiro\CLI`)
+	if err != nil {
+		return "", "", false
+	}
+	for _, line := range strings.Split(stdout, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 || fields[1] != "REG_SZ" {
+			continue
+		}
+		value := strings.TrimSpace(strings.SplitN(strings.TrimSpace(line), "REG_SZ", 2)[1])
+		switch fields[0] {
+		case "InstallPath":
+			installPath = value
+		case "ProductVersion":
+			productVersion = value
+		}
+	}
+	if installPath == "" {
+		return "", "", false
+	}
+	return installPath, productVersion, true
+}

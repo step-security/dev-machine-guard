@@ -250,18 +250,19 @@ func (d *SkillsDetector) resolveGlobalRoots(info *model.AgentSkillScanInfo) []sk
 	win := d.exec.GOOS() == model.PlatformWindows
 	var roots []skillsRoot
 
-	add := func(pathStr, source, agent, scope, excludeName string) {
+	addRoot := func(root skillsRoot) {
 		// WithinProtected before DirExists: DirExists stats, and a stat inside a
 		// protected tree fires the prompt. Defense-in-depth — today's global roots
 		// (~/.claude, /etc/codex, …) never live under a protected dir, but a future
 		// one might.
-		if pathStr == "" || d.skipper.WithinProtected(pathStr) || !d.exec.DirExists(pathStr) {
+		if root.path == "" || d.skipper.WithinProtected(root.path) || !d.exec.DirExists(root.path) {
 			return
 		}
-		roots = append(roots, skillsRoot{
-			path: pathStr, source: source, agent: agent, scope: scope, excludeName: excludeName,
-		})
-		info.RootsScanned = append(info.RootsScanned, pathStr)
+		roots = append(roots, root)
+		info.RootsScanned = append(info.RootsScanned, root.path)
+	}
+	add := func(pathStr, source, agent, scope, excludeName string) {
+		addRoot(skillsRoot{path: pathStr, source: source, agent: agent, scope: scope, excludeName: excludeName})
 	}
 
 	// claude_user: ~/.claude/skills, honoring CLAUDE_CONFIG_DIR when the env
@@ -319,10 +320,63 @@ func (d *SkillsDetector) resolveGlobalRoots(info *model.AgentSkillScanInfo) []sk
 	// opencode_user above.
 	add(filepath.Join(home, ".config", "amp", "skills"), "amp_user", "amp", "global", "")
 
-	// factory_agent_user: ~/.agent/skills — Factory's singular-.agent compat
-	// root. The plural ~/.agents/skills above is the shared convention, and the
-	// project-level .agent/skills is factory_agent_project.
-	add(filepath.Join(home, ".agent", "skills"), "factory_agent_user", "factory", "global", "")
+	// factory_agent_user: ~/.agent/skills — the singular-.agent compat root
+	// that Factory AND Antigravity both read, so the agent is "shared" (as
+	// for ~/.agents); the source label is kept for compatibility. The plural
+	// ~/.agents/skills above is the shared convention, and the project-level
+	// .agent/skills is factory_agent_project.
+	add(filepath.Join(home, ".agent", "skills"), "factory_agent_user", "shared", "global", "")
+
+	// kiro_user: ~/.kiro/skills — one root shared by the Kiro IDE and CLI.
+	add(filepath.Join(home, ".kiro", "skills"), "kiro_user", "kiro", "global", "")
+
+	// windsurf_user, and windsurf_system: the admin-managed root, per OS.
+	add(filepath.Join(home, ".codeium", "windsurf", "skills"), "windsurf_user", "windsurf", "global", "")
+	switch d.exec.GOOS() {
+	case model.PlatformDarwin:
+		add("/Library/Application Support/Windsurf/skills", "windsurf_system", "windsurf", "system", "")
+	case model.PlatformWindows:
+		add(resolveEnvPath(d.exec, `%ProgramData%\Windsurf\skills`), "windsurf_system", "windsurf", "system", "")
+	default:
+		add("/etc/windsurf/skills", "windsurf_system", "windsurf", "system", "")
+	}
+
+	// antigravity_user: Antigravity's own root plus the skills.sh destination,
+	// both under ~/.gemini and neither read by the Gemini CLI (gemini_user).
+	add(filepath.Join(home, ".gemini", "config", "skills"), "antigravity_user", "antigravity", "global", "")
+	add(filepath.Join(home, ".gemini", "antigravity", "skills"), "antigravity_user", "antigravity", "global", "")
+
+	// openclaw_user: the managed root; openclaw_project: the default agent
+	// workspace, with the workspace as the project path. Named
+	// (workspace-<id>) and relocated workspaces are not discovered.
+	openclaw := filepath.Join(home, ".openclaw")
+	add(filepath.Join(openclaw, "skills"), "openclaw_user", "openclaw", "global", "")
+	workspace := filepath.Join(openclaw, "workspace")
+	addRoot(skillsRoot{
+		path: filepath.Join(workspace, "skills"), source: "openclaw_project", agent: "openclaw",
+		scope: "project", projectPath: workspace,
+	})
+
+	// grok_user / kimi_user / muse_user: each agent's own global root. All
+	// three also read ~/.agents/skills, which stays attributed to agents_user.
+	add(filepath.Join(home, ".grok", "skills"), "grok_user", "grok-build", "global", "")
+	add(filepath.Join(home, ".kimi-code", "skills"), "kimi_user", "kimi-code", "global", "")
+	add(filepath.Join(home, ".config", "muse", "skills"), "muse_user", "muse-code", "global", "")
+
+	// hermes_user: ~/.hermes/skills holds the bundled skills the installer
+	// copies, nested one category deep (<category>/<skill>/SKILL.md), plus
+	// .bundled_manifest and .hub/ metadata that enumerateRoot ignores. Windows
+	// keeps HERMES_HOME under %LOCALAPPDATA%.
+	if win {
+		add(resolveEnvPath(d.exec, `%LOCALAPPDATA%\hermes\skills`), "hermes_user", "hermes-agent", "global", "")
+	} else {
+		add(filepath.Join(home, ".hermes", "skills"), "hermes_user", "hermes-agent", "global", "")
+	}
+
+	// omp_user / omp_managed_user: Oh My Pi's user skills and the managed
+	// skills it syncs, both under its ~/.omp/agent root.
+	add(filepath.Join(home, ".omp", "agent", "skills"), "omp_user", "oh-my-pi", "global", "")
+	add(filepath.Join(home, ".omp", "agent", "managed-skills"), "omp_managed_user", "oh-my-pi", "global", "")
 
 	return roots
 }
@@ -353,10 +407,17 @@ func (d *SkillsDetector) resolveProjectRoots(project string, info *model.AgentSk
 	add([]string{".cursor", "skills"}, "cursor_project", "cursor")
 	add([]string{".pi", "skills"}, "pi_project", "pi")
 	add([]string{".factory", "skills"}, "factory_project", "factory")
-	add([]string{".agent", "skills"}, "factory_agent_project", "factory") // singular .agent — Factory legacy, distinct from .agents
-	add([]string{".github", "skills"}, "github_project", "copilot")       // only .github/skills, never the rest of .github
+	add([]string{".agent", "skills"}, "factory_agent_project", "shared") // singular .agent — read by Factory and Antigravity, so shared; label kept for compatibility
+	add([]string{".github", "skills"}, "github_project", "copilot")      // only .github/skills, never the rest of .github
 	add([]string{".gemini", "skills"}, "gemini_project", "gemini-cli")
 	add([]string{".aider", "skills"}, "aider_project", "aider") // community convention: loaded manually, but on-disk state is inventoried
+	add([]string{".kiro", "skills"}, "kiro_project", "kiro")    // shared by Kiro IDE and CLI
+	add([]string{".windsurf", "skills"}, "windsurf_project", "windsurf")
+	add([]string{".codex", "skills"}, "codex_project", "codex") // Codex project skills (also the JetBrains Codex install target)
+	add([]string{".grok", "skills"}, "grok_project", "grok-build")
+	add([]string{".kimi-code", "skills"}, "kimi_project", "kimi-code")
+	add([]string{".hermes", "skills"}, "hermes_project", "hermes-agent")
+	add([]string{".omp", "skills"}, "omp_project", "oh-my-pi") // Muse has no agent-specific project root; it reads .agents/.codex/.claude
 	return roots
 }
 
@@ -367,16 +428,23 @@ func (d *SkillsDetector) resolveProjectRoots(project string, info *model.AgentSk
 // table is how walkForProjectRoots recognizes a project it was never told about.
 // A change to one MUST change the other.
 var projectMarkerDirs = map[string][]string{
-	".claude":   {"skills"},
-	".agents":   {"skills"},
-	".opencode": {"skills", "skill"}, // both spellings, same as resolveProjectRoots
-	".cursor":   {"skills"},
-	".pi":       {"skills"},
-	".factory":  {"skills"},
-	".agent":    {"skills"}, // singular — Factory legacy, distinct from .agents
-	".github":   {"skills"}, // only .github/skills, never the rest of .github
-	".gemini":   {"skills"}, // Gemini CLI workspace skills
-	".aider":    {"skills"}, // Aider community convention (skills loaded manually)
+	".claude":    {"skills"},
+	".agents":    {"skills"},
+	".opencode":  {"skills", "skill"}, // both spellings, same as resolveProjectRoots
+	".cursor":    {"skills"},
+	".pi":        {"skills"},
+	".factory":   {"skills"},
+	".agent":     {"skills"}, // singular — Factory legacy, distinct from .agents
+	".github":    {"skills"}, // only .github/skills, never the rest of .github
+	".gemini":    {"skills"}, // Gemini CLI workspace skills
+	".aider":     {"skills"}, // Aider community convention (skills loaded manually)
+	".grok":      {"skills"},
+	".kimi-code": {"skills"},
+	".hermes":    {"skills"},
+	".omp":       {"skills"},
+	".kiro":      {"skills"},
+	".windsurf":  {"skills"},
+	".codex":     {"skills"},
 }
 
 // walkForProjectRoots sweeps each search dir for projectMarkerDirs and returns
@@ -796,8 +864,15 @@ func (d *SkillsDetector) enumerateRoot(ctx context.Context, root skillsRoot, inf
 				continue
 			}
 
-			if ent.Type()&os.ModeSymlink != 0 {
-				d.handleSymlinkEntry(ctx, &records, root, childDir, childRel, info, memo, &rootTruncated)
+			// A Windows directory junction (what skills.sh creates there) is
+			// reported by ReadDir as ModeIrregular with IsDir false; without
+			// this it would be skipped as a plain file and the linking root's
+			// association lost. Readlink reads a junction's target as it does
+			// a symlink's, so both take the one link path.
+			isSymlink := ent.Type()&os.ModeSymlink != 0
+			isJunction := ent.Type()&os.ModeIrregular != 0 && d.exec.GOOS() == model.PlatformWindows
+			if isSymlink || isJunction {
+				d.handleSymlinkEntry(ctx, &records, root, childDir, childRel, isSymlink, info, memo, &rootTruncated)
 				continue
 			}
 			if !ent.IsDir() {
@@ -811,31 +886,46 @@ func (d *SkillsDetector) enumerateRoot(ctx context.Context, root skillsRoot, inf
 	return records
 }
 
-// handleSymlinkEntry resolves a symlinked directory entry; if its target is a
-// skill dir it is recorded as a symlink shadow (the skills.sh layout) with the
-// root-relative path as the link location and the resolved target as the skill
-// dir path. The shadow is later folded into the physical skill's record by
-// collapseSymlinkShadows. Symlinks are never descended through — cycles and ~/
-// escapes are impossible.
-func (d *SkillsDetector) handleSymlinkEntry(ctx context.Context, records *[]discoveredSkill, root skillsRoot, linkPath, rel string, info *model.AgentSkillScanInfo, memo map[string]*skillScan, rootTruncated *bool) {
-	target, err := d.exec.EvalSymlinks(linkPath)
-	if err != nil || target == "" {
-		d.addError(info, fmt.Sprintf("dangling symlink %s: %v", linkPath, err))
+// handleSymlinkEntry resolves a linked directory entry — a symlink, or on
+// Windows a directory junction (isSymlink false) — and if its target is a
+// skill dir records it as a symlink shadow (the skills.sh layout), later folded
+// into the physical skill's record by collapseSymlinkShadows. Links are never
+// descended through — cycles and ~/ escapes are impossible.
+//
+// Linked targets are resolved and read through safepath, checking each link's
+// destination before traversal. Normal shared links inside the user's home or
+// declared project remain supported; unrelated external targets are refused.
+func (d *SkillsDetector) handleSymlinkEntry(ctx context.Context, records *[]discoveredSkill, root skillsRoot, linkPath, rel string, isSymlink bool, info *model.AgentSkillScanInfo, memo map[string]*skillScan, rootTruncated *bool) {
+	target, ok := linkTarget(d.exec, linkPath)
+	if !ok {
+		if isSymlink {
+			d.addError(info, fmt.Sprintf("unreadable symlink %s", linkPath))
+		}
+		// An irregular entry whose target cannot be read is not a junction
+		// (a socket, a device, a reparse point of another kind): not a skill,
+		// not an error.
 		return
 	}
 	if d.skipper.WithinProtected(target) {
-		// Symlink target escapes into a TCC-protected tree — skip it before the
-		// DirExists/ReadDir below stat inside that tree. Residual: EvalSymlinks
-		// above already statted the target, so a symlink pointing directly into a
-		// protected dir can still prompt before this guard. Fully closing that
-		// needs a raw Readlink + ancestor-check before following; rare (a symlink
-		// from a safe skill root into a protected dir), tracked as a follow-up.
 		return
 	}
-	if !d.exec.DirExists(target) {
+	guarded := *d
+	guarded.exec = d.exec.GuardedFiles([]string{getHomeDir(d.exec), root.path, root.projectPath}, func(p string) string {
+		if d.skipper.WithinProtected(p) {
+			return "tcc_protected"
+		}
+		return ""
+	}, maxSkillMDReadBytes)
+	resolved, err := guarded.exec.EvalSymlinks(target)
+	if err != nil || resolved == "" {
+		d.addError(info, fmt.Sprintf("dangling symlink %s: %v", linkPath, err))
 		return
 	}
-	entries, err := d.exec.ReadDir(target)
+	target = resolved
+	if d.skipper.WithinProtected(target) {
+		return
+	}
+	entries, err := guarded.exec.ReadDir(target)
 	if err != nil {
 		d.addError(info, fmt.Sprintf("read symlink target %s: %v", target, err))
 		return
@@ -844,9 +934,43 @@ func (d *SkillsDetector) handleSymlinkEntry(ctx context.Context, records *[]disc
 	if !ok {
 		return // symlink to a non-skill dir — not descended
 	}
-	if !d.emitSkill(ctx, records, root, target, rel, mdName, true, info, memo) {
+	if !guarded.emitSkill(ctx, records, root, target, rel, mdName, true, info, memo) {
 		*rootTruncated = true
 	}
+}
+
+// linkTarget returns the absolute target a symlink or Windows junction
+// stores, without following it. Relative targets are joined to the link's
+// parent but never cleaned: a `..` after a symlinked component resolves
+// through that link's target, so collapsing it lexically would name a
+// different directory than EvalSymlinks reaches (the TCC guard cleans its own
+// copy). Off Windows the target is taken literally (a backslash is an
+// ordinary character there). On Windows the NT-namespace prefix junctions
+// carry (`\??\`, `\\?\`) is dropped, and the volume-GUID, `UNC\` and
+// `\\server\share` forms, which cannot be guarded lexically, are rejected. ok
+// is false for a non-link and every rejected target.
+func linkTarget(exec executor.Executor, linkPath string) (string, bool) {
+	raw, err := exec.Readlink(linkPath)
+	if err != nil || raw == "" {
+		return "", false
+	}
+	if exec.GOOS() != model.PlatformWindows {
+		if !path.IsAbs(raw) {
+			raw = path.Dir(linkPath) + "/" + raw
+		}
+		return raw, true
+	}
+	stripped := strings.TrimPrefix(strings.TrimPrefix(raw, `\??\`), `\\?\`)
+	switch {
+	case strings.HasPrefix(stripped, `\\`), strings.HasPrefix(stripped, "//"),
+		strings.HasPrefix(stripped, "Volume{"), strings.HasPrefix(stripped, `UNC\`), strings.HasPrefix(stripped, "GLOBALROOT"):
+		return "", false
+	case stripped != raw && !isAbsPath(stripped):
+		return "", false // a namespace prefix on a relative spelling is not a path
+	case !isAbsPath(stripped):
+		stripped = joinPath(pathDir(linkPath), stripped)
+	}
+	return stripped, true
 }
 
 // emitSkill appends one discoveredSkill for a skill directory, applying the

@@ -13,12 +13,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/safepath"
 	"github.com/step-security/dev-machine-guard/internal/winproc"
 )
 
 // Executor defines the interface for all OS interactions.
 // Every detector depends on this interface, enabling full unit-test coverage via mocks.
 type Executor interface {
+	// GuardedFiles restricts ReadFile, ReadDir, Stat and EvalSymlinks to roots
+	// and guard. Other operations retain their original behavior.
+	GuardedFiles(roots []string, guard func(string) string, maxReadBytes int64) Executor
 	// Run executes a command and returns stdout, stderr, and exit code.
 	Run(ctx context.Context, name string, args ...string) (stdout, stderr string, exitCode int, err error)
 	// RunWithTimeout executes a command with a timeout.
@@ -62,6 +66,10 @@ type Executor interface {
 	// EvalSymlinks resolves symbolic links in a path. Returns the resolved
 	// canonical path. If the path is not a symlink, returns it unchanged.
 	EvalSymlinks(path string) (string, error)
+	// Readlink returns the stored target of the symlink (or Windows directory
+	// junction) at path without following it — possibly relative, possibly an
+	// NT-namespace spelling (\??\C:\...). A non-link path is an error.
+	Readlink(path string) (string, error)
 	// LoggedInUser returns the actual logged-in console user.
 	// When running as root on macOS (e.g., via LaunchDaemon), this detects the
 	// real console user via /dev/console rather than returning root.
@@ -88,6 +96,32 @@ type Real struct {
 }
 
 func NewReal() *Real { return &Real{} }
+
+func (r *Real) GuardedFiles(roots []string, guard func(string) string, maxReadBytes int64) Executor {
+	return &guardedFiles{Executor: r, resolver: safepath.NewReader(roots, guard), maxReadBytes: maxReadBytes}
+}
+
+type guardedFiles struct {
+	Executor
+	resolver     *safepath.Reader
+	maxReadBytes int64
+}
+
+func (g *guardedFiles) EvalSymlinks(path string) (string, error) {
+	return g.resolver.Resolve(path)
+}
+
+func (g *guardedFiles) Stat(path string) (os.FileInfo, error) {
+	return g.resolver.Stat(path)
+}
+
+func (g *guardedFiles) ReadFile(path string) ([]byte, error) {
+	return g.resolver.ReadFile(path, g.maxReadBytes)
+}
+
+func (g *guardedFiles) ReadDir(path string) ([]os.DirEntry, error) {
+	return g.resolver.ReadDir(path)
+}
 
 // StartDetached starts the process and lets it go. It deliberately does not
 // Wait: the child must outlive this process.
@@ -228,6 +262,10 @@ func (r *Real) Glob(pattern string) ([]string, error) {
 
 func (r *Real) EvalSymlinks(path string) (string, error) {
 	return filepath.EvalSymlinks(path)
+}
+
+func (r *Real) Readlink(path string) (string, error) {
+	return os.Readlink(path)
 }
 
 func (r *Real) LoggedInUser() (*user.User, error) {

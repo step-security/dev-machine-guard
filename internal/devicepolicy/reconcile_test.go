@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1361,6 +1362,48 @@ func TestReconcileMDMProbeErrorVerificationFailed(t *testing.T) {
 	}
 	if len(w.writes) != 0 || w.clears != 0 {
 		t.Fatal("must not write on probe error")
+	}
+}
+
+func TestReconcileFailureWarnings(t *testing.T) {
+	for _, mode := range []string{"probe_failure", "readback_mismatch", "success"} {
+		t.Run(mode, func(t *testing.T) {
+			w := &fakeWriter{}
+			ep := policyEP("sha256:H")
+			switch mode {
+			case "probe_failure":
+				ep = mdmEP("sha256:H")
+			case "readback_mismatch":
+				w.readbackOverride = `{"unexpected":"private-file-content"}`
+			}
+			r, _ := newRec(t, ep, nil, w)
+			r.ProbeContent = func(string) (bool, map[string]json.RawMessage, error) {
+				return false, nil, errors.New("read policy: permission denied; https://user:secret@registry.example.com/")
+			}
+			var warnings []string
+			r.Warnf = func(format string, args ...any) { warnings = append(warnings, fmt.Sprintf(format, args...)) }
+			if err := r.Reconcile(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if mode == "success" {
+				if len(warnings) != 0 {
+					t.Fatalf("success emitted warnings: %v", warnings)
+				}
+				return
+			}
+			if len(warnings) != 1 {
+				t.Fatalf("warnings = %v, want one failure diagnostic", warnings)
+			}
+			message := warnings[0]
+			for _, secret := range []string{"user:secret", "private-file-content", samplePolicy} {
+				if strings.Contains(message, secret) {
+					t.Fatalf("warning contains sensitive content")
+				}
+			}
+			if !strings.Contains(message, "target=vscode") || (mode == "probe_failure" && !strings.Contains(message, "permission denied")) {
+				t.Fatalf("warning lacks failure context: %s", message)
+			}
+		})
 	}
 }
 

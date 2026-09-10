@@ -28,10 +28,10 @@ func TestNPMRCWriterWindowsAppliesTargetUserSecurity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer w.Close()
-	if _, err := w.Write(stdBody); err != nil {
+	if _, err := w.Write(stdSettingsBody); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.Write(stdBody); err != nil {
+	if _, err := w.Write(stdSettingsBody); err != nil {
 		t.Fatal(err)
 	}
 	paths, err := filepath.Glob(filepath.Join(homeDir, ".npmrc*"))
@@ -107,7 +107,7 @@ func TestNPMRCWriterWindowsBackupAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer w.Close()
-	if _, err := w.Write(stdBody); err != nil {
+	if _, err := w.Write(stdSettingsBody); err != nil {
 		t.Fatal(err)
 	}
 	backups, err := filepath.Glob(path + ".dmg-*.bak")
@@ -127,12 +127,14 @@ func TestNPMRCWriterWindowsClearRestoresGeneratedLifecycle(t *testing.T) {
 	tests := []struct {
 		name        string
 		initial     []byte
+		body        string
 		wantAbsent  bool
 		wantContent []byte
 	}{
 		{name: "agent-created file returns to absent", wantAbsent: true},
 		{name: "pre-existing empty file remains empty", initial: []byte{}, wantContent: []byte{}},
 		{name: "pre-existing CRLF config restores exactly", initial: []byte("registry=https://registry.npmjs.org/\r\n"), wantContent: []byte("registry=https://registry.npmjs.org/\r\n")},
+		{name: "pre-existing settings conflict restores exactly", initial: []byte("save-exact=false\r\n"), body: stdSettingsBody, wantContent: []byte("save-exact=false\r\n")},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -154,7 +156,11 @@ func TestNPMRCWriterWindowsClearRestoresGeneratedLifecycle(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer w.Close()
-			if _, err := w.Write(stdBody); err != nil {
+			body := tc.body
+			if body == "" {
+				body = stdBody
+			}
+			if _, err := w.Write(body); err != nil {
 				t.Fatal(err)
 			}
 			state := AppliedTargetState{}
@@ -228,6 +234,53 @@ func TestNPMRCWriterWindowsRepairsWeakExpectedPrincipalACL(t *testing.T) {
 	_ = file.Close()
 	if err != nil || !secure {
 		t.Fatalf("repaired metadata = %v, %v, want secure", secure, err)
+	}
+}
+
+func TestNPMRCWriterWindowsObservesSettingsWithWeakMDMACL(t *testing.T) {
+	homeDir := t.TempDir()
+	path := filepath.Join(homeDir, ".npmrc")
+	if err := os.WriteFile(path, []byte(boundedMDMBlock(stdSettingsBody)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	u, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.HomeDir = homeDir
+	normalizeSecureTestUser(t, u)
+	targetSID, err := windows.StringToSid(u.Uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	systemSID, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{
+		npmTestExplicitAccess(targetSID, windows.GENERIC_READ, windows.TRUSTEE_IS_USER),
+		npmTestExplicitAccess(systemSID, windows.GENERIC_READ, windows.TRUSTEE_IS_WELL_KNOWN_GROUP),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, acl, nil); err != nil {
+		t.Fatal(err)
+	}
+	w, err := NewNPMRCWriter(secureTestExecutor{Executor: executor.NewReal(), user: u})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	present, observed, err := w.ProbeContentNPM(stdSettingsBody)
+	if err != nil {
+		t.Fatalf("ProbeContentNPM: %v", err)
+	}
+	if !present {
+		t.Fatal("weak-ACL settings MDM block was not observed")
+	}
+	if len(observed) != 4 {
+		t.Fatalf("weak-ACL settings observed keys = %d, want 4", len(observed))
 	}
 }
 

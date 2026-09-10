@@ -121,12 +121,15 @@ func pnpmGlobalHomes(exec executor.Executor, home string) []string {
 }
 
 // nodeHomeDir returns the user's home directory via the platform-appropriate
-// environment variable. Uses the env rather than user.Current so that, under a
-// root daemon delegating to a logged-in user, callers that pre-set HOME resolve
-// the user's tree.
+// source: macOS resolves the console user; Windows keeps USERPROFILE;
+// other platforms keep HOME.
 func nodeHomeDir(exec executor.Executor) string {
-	if exec.GOOS() == model.PlatformWindows {
+	switch exec.GOOS() {
+	case model.PlatformWindows:
 		return exec.Getenv("USERPROFILE")
+	case model.PlatformDarwin:
+		return executor.ResolveHome(exec)
+	default:
+		return exec.Getenv("HOME")
 	}
-	return exec.Getenv("HOME")
 }

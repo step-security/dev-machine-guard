@@ -19,10 +19,10 @@ import (
 )
 
 const (
-	dmgPipBegin = "# BEGIN StepSecurity PyPI Secure Registry pip -- managed by dmg"
-	dmgPipEnd   = "# END StepSecurity PyPI Secure Registry pip"
-	mdmPipBegin = "# BEGIN StepSecurity PyPI Secure Registry pip -- managed by mdm"
-	mdmPipEnd   = "# END StepSecurity PyPI Secure Registry pip"
+	dmgPipBegin = "# BEGIN StepSecurity Package Configuration pip -- managed by dmg"
+	dmgPipEnd   = "# END StepSecurity Package Configuration pip"
+	mdmPipBegin = "# BEGIN StepSecurity Package Configuration pip -- managed by mdm"
+	mdmPipEnd   = "# END StepSecurity Package Configuration pip"
 
 	dmgPipDisabledPrefix         = "# [stepsecurity-pypi-pip-dmg] "
 	pipBackupPrefix              = ".dmg-"

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
+	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
@@ -466,4 +467,48 @@ func withFastBackoff(t *testing.T) {
 	orig := s3UploadBackoffUnit
 	s3UploadBackoffUnit = 5 * time.Millisecond
 	t.Cleanup(func() { s3UploadBackoffUnit = orig })
+}
+
+// The tenant's "off" must mean the detector is never invoked and no phase is
+// recorded, not merely that an empty section is dropped from the payload.
+func TestCollectCredentialsHonoursTenantSetting(t *testing.T) {
+	log := progress.NewNoop()
+	detects, posts := 0, 0
+	detect := func(context.Context) *model.CredentialScanInfo {
+		detects++
+		return &model.CredentialScanInfo{}
+	}
+	postPhase := func() { posts++ }
+
+	tracker := NewPhaseTracker()
+	got := collectCredentials(context.Background(), tracker, log, true, detect, postPhase)
+	if got != nil {
+		t.Fatalf("disabled: got %+v, want nil", got)
+	}
+	if detects != 0 || posts != 0 {
+		t.Fatalf("disabled: detector called %d times, postPhase %d times; want 0 and 0", detects, posts)
+	}
+	if n := len(tracker.Snapshot().PhasesCompleted); n != 0 {
+		t.Fatalf("disabled: %d phases recorded, want 0", n)
+	}
+	raw, err := json.Marshal(Payload{CredentialScan: got})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(`"credential_scan"`)) {
+		t.Fatalf("disabled: payload still carries credential_scan: %s", raw)
+	}
+
+	tracker = NewPhaseTracker()
+	got = collectCredentials(context.Background(), tracker, log, false, detect, postPhase)
+	if got == nil {
+		t.Fatal("enabled: got nil result")
+	}
+	if detects != 1 || posts != 1 {
+		t.Fatalf("enabled: detector called %d times, postPhase %d times; want 1 and 1", detects, posts)
+	}
+	phases := tracker.Snapshot().PhasesCompleted
+	if len(phases) != 1 || phases[0].Name != "credentials_scan" {
+		t.Fatalf("enabled: phases = %+v, want exactly credentials_scan", phases)
+	}
 }

@@ -2,10 +2,13 @@ package detector
 
 import (
 	"context"
+	"os/user"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
@@ -38,6 +41,77 @@ func TestNodeGlobalRoots_PrefixOverride(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected npm global root %q from prefix override", nm)
+	}
+}
+
+type nodeConsoleExecutor struct {
+	*executor.Mock
+	consoleHome string
+}
+
+func (e nodeConsoleExecutor) LoggedInUser() (*user.User, error) {
+	return &user.User{HomeDir: e.consoleHome}, nil
+}
+
+func TestNodeHomeDir_Linux(t *testing.T) {
+	for _, tc := range []struct {
+		name, home, accountHome, want string
+		root                          bool
+	}{
+		{"user home", "/home/testuser", "/home/testuser", "/home/testuser", false},
+		{"user override", "/custom/home", "/home/testuser", "/custom/home", false},
+		{"root override", "/home/testuser", "/root", "/home/testuser", true},
+		{"root home", "/root", "/root", "/root", true},
+		{"user unset home", "", "/home/testuser", "", false},
+		{"root unset home", "", "/root", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := executor.NewMock()
+			mock.SetGOOS(model.PlatformLinux)
+			mock.SetIsRoot(tc.root)
+			mock.SetEnv("HOME", tc.home)
+			mock.SetHomeDir(tc.accountHome)
+			if got := nodeHomeDir(mock); got != tc.want {
+				t.Fatalf("nodeHomeDir() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNodeGlobalRoots_MacOSUsesLoggedInUserHome(t *testing.T) {
+	serviceHome := "/root"
+	userHome := "/home/testuser"
+	npmRoot := filepath.Join(userHome, ".npm-global", "lib", "node_modules")
+	pnpmRoot := filepath.Join(userHome, "Library", "pnpm", "global", "5", "node_modules")
+	yarnRoot := filepath.Join(userHome, ".config", "yarn", "global", "node_modules")
+	serviceNPMRoot := filepath.Join(serviceHome, ".npm-global", "lib", "node_modules")
+	servicePNPMRoot := filepath.Join(serviceHome, "Library", "pnpm", "global", "5", "node_modules")
+	serviceYarnRoot := filepath.Join(serviceHome, ".config", "yarn", "global", "node_modules")
+	want := []nodeGlobalRoot{
+		{pm: "npm", dir: npmRoot},
+		{pm: "pnpm", dir: pnpmRoot},
+		{pm: "yarn", dir: yarnRoot},
+	}
+	mock := executor.NewMock()
+	mock.SetGOOS(model.PlatformDarwin)
+	mock.SetIsRoot(true)
+	mock.SetEnv("HOME", serviceHome)
+	mock.SetHomeDir(serviceHome)
+	for _, dir := range []string{
+		npmRoot,
+		pnpmRoot,
+		yarnRoot,
+		serviceNPMRoot,
+		servicePNPMRoot,
+		serviceYarnRoot,
+	} {
+		mock.SetDir(dir)
+	}
+	mock.SetGlob(filepath.Join(userHome, "Library", "pnpm", "global", "*", "node_modules"), []string{pnpmRoot})
+	mock.SetGlob(filepath.Join(serviceHome, "Library", "pnpm", "global", "*", "node_modules"), []string{servicePNPMRoot})
+
+	if got := NodeGlobalRoots(nodeConsoleExecutor{Mock: mock, consoleHome: userHome}); !slices.Equal(got, want) {
+		t.Fatalf("NodeGlobalRoots() = %+v, want %+v", got, want)
 	}
 }
 

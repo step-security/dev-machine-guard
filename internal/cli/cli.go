@@ -61,6 +61,13 @@ type Config struct {
 	// reach the downloadable log without this.
 	GateProceedReason string
 
+	// CredentialScanningDisabled is populated at runtime (not a CLI flag) by
+	// the run gate from this invocation's dashboard check-in. True means
+	// telemetry.Run must not build, probe with, or run the credential detector.
+	// The zero value scans, so a caller that never consulted the gate, or one
+	// whose check-in failed, behaves as before.
+	CredentialScanningDisabled bool
+
 	// WSLScanEnabled and WSLScanReason are populated at runtime (not CLI flags)
 	// from the run-config check-in's wsl_directive. They gate scanning INSIDE
 	// WSL distros — a tenant-wide switch with no per-device granularity. Both
@@ -119,6 +126,9 @@ type Config struct {
 	// exactly like scheduler-fired ones (an MDM-launched run detects as
 	// one_time too, so invocation method deliberately can't exempt manual
 	// use). Equivalent env var: STEPSEC_FORCE_SCAN=1.
+	// The check-in itself still happens (bounded by its own timeout), because
+	// it also carries the tenant's credential-scanning setting, which a forced
+	// run must honour.
 	ForceScan bool
 
 	// RulesFile makes the malicious-file detection engine load its RuleSet
