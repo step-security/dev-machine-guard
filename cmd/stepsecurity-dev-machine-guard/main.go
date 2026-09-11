@@ -33,6 +33,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/rungate"
 	"github.com/step-security/dev-machine-guard/internal/scan"
 	"github.com/step-security/dev-machine-guard/internal/schtasks"
+	"github.com/step-security/dev-machine-guard/internal/selfupdate"
 	"github.com/step-security/dev-machine-guard/internal/systemd"
 	"github.com/step-security/dev-machine-guard/internal/tcc"
 	"github.com/step-security/dev-machine-guard/internal/telemetry"
@@ -73,8 +74,9 @@ func main() {
 		os.Exit(aiagentscli.RunHook(os.Stdin, os.Stdout, os.Stderr, os.Args[2:]))
 	}
 
-	// Load persisted config (~/.stepsecurity/config.json) before parsing CLI
-	// --config must be honoured before Load(), which runs ahead of flag
+	// Load persisted config (config.json from the install dir, falling back to
+	// ~/.stepsecurity — see internal/config.readConfigDir) before parsing CLI
+	// flags. --config must be honoured before Load(), which runs ahead of flag
 	// parsing and keeps the first values it reads.
 	if p := cli.ConfigPathFromArgs(os.Args[1:]); p != "" {
 		config.SetFileOverride(p)
@@ -270,6 +272,12 @@ func main() {
 			log.Error("Enterprise configuration not found. Run '%s configure' or download the script from your StepSecurity dashboard.", os.Args[0])
 			os.Exit(1)
 		}
+		// Self-update BEFORE the run gate so a gated-skip tick still keeps
+		// the binary current, exactly like the loader-periodic flow updated
+		// on every tick regardless of whether a scan ran. No-op unless the
+		// install opted in (config auto_update, written by the auto-loader);
+		// a swapped binary takes effect on the NEXT scheduled fire.
+		selfupdate.Run(context.Background(), exec, log)
 		// Server-driven run gate: exit 0 quietly when the backend says this
 		// invocation isn't due (or another instance is mid-scan). Sits before
 		// the watchdog and telemetry.Run so a skipped wakeup posts no beacon,
@@ -667,8 +675,9 @@ func scanJSONEncoder(w io.Writer) *json.Encoder {
 // findLegacyLeftovers checks the legacy ~/.stepsecurity dir for agent
 // files the operator may have moved (intentionally) to a new install
 // dir. Returns basenames of present diagnostic files (config.json is
-// excluded — it must stay at the legacy path as the bootstrap, so its
-// presence there is expected and not a leftover to migrate).
+// excluded — loaders keep a compatibility copy refreshed there for
+// binaries that predate the binary-relative config lookup, so its
+// presence is expected and not a leftover to migrate).
 func findLegacyLeftovers(legacy string) []string {
 	candidates := []string{
 		"agent.error.log",

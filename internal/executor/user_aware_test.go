@@ -2,8 +2,10 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -254,9 +256,15 @@ func TestUserAwareExecutor_LookPathHasDeadline(t *testing.T) {
 	service.SetGOOS("linux")
 	inner := &userContextExecutor{
 		Executor: service,
-		runAsUser: func(ctx context.Context, _, _ string) (string, error) {
+		runAsUser: func(ctx context.Context, _, command string) (string, error) {
 			if _, ok := ctx.Deadline(); !ok {
 				t.Fatal("LookPath RunAsUser context has no deadline")
+			}
+			// Fail the one-time $PATH fetch so LookPath exercises the
+			// legacy `which` fallback — both RunAsUser paths must carry
+			// a deadline.
+			if strings.Contains(command, "$PATH") {
+				return "", errMockPathFetch
 			}
 			return "/usr/bin/uv", nil
 		},
@@ -266,3 +274,71 @@ func TestUserAwareExecutor_LookPathHasDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestUserAwareExecutor_LookPathNativePATH pins the native resolution design:
+// ONE login-shell $PATH fetch per process, then stat-based candidate walks —
+// no per-tool `which` login shell. Each of those shells re-sourced the user's
+// rc files, where zsh compinit's interactive "insecure directories" prompt
+// hung a customer's ai_tools_scan until they chmod'ed the offending dirs.
+func TestUserAwareExecutor_LookPathNativePATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("UserAwareExecutor wraps only on non-Windows; the native PATH walk (filepath.Join + Stat) never runs on Windows")
+	}
+	mock := NewMock()
+	mock.SetGOOS("darwin") // UserAwareExecutor only wraps on non-Windows; native PATH walk is Unix-only
+	mock.SetCommand("/fake/bin:/other/bin", "", 0, "bash", "-c", `printf '%s' "$PATH"`)
+	mock.SetExecutable("/other/bin/claude")
+	e := NewUserAwareExecutor(mock, "someuser")
+
+	got, err := e.LookPath("claude")
+	if err != nil {
+		t.Fatalf("LookPath(claude) error: %v", err)
+	}
+	if got != "/other/bin/claude" {
+		t.Errorf("LookPath(claude) = %q, want /other/bin/claude", got)
+	}
+
+	if _, err := e.LookPath("missing-tool"); err == nil {
+		t.Error("LookPath(missing-tool) = nil error, want not-found")
+	}
+}
+
+// A file that exists on PATH but without the executable bit must not resolve —
+// matching exec.LookPath semantics rather than `which`'s looser matching.
+func TestUserAwareExecutor_LookPathSkipsNonExecutable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("UserAwareExecutor wraps only on non-Windows; the native PATH walk (filepath.Join + Stat) never runs on Windows")
+	}
+	mock := NewMock()
+	mock.SetGOOS("darwin")
+	mock.SetCommand("/fake/bin", "", 0, "bash", "-c", `printf '%s' "$PATH"`)
+	mock.SetFileMtime("/fake/bin/readme", 100) // exists, default mode 0644
+	e := NewUserAwareExecutor(mock, "someuser")
+
+	if _, err := e.LookPath("readme"); err == nil {
+		t.Error("LookPath(readme) resolved a non-executable file")
+	}
+}
+
+// When the one-time $PATH fetch fails, LookPath degrades to the legacy
+// per-tool `which` probe instead of reporting every tool missing.
+func TestUserAwareExecutor_LookPathFallsBackToWhich(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("UserAwareExecutor wraps only on non-Windows; the native PATH walk (filepath.Join + Stat) never runs on Windows")
+	}
+	mock := NewMock()
+	mock.SetGOOS("darwin")
+	mock.SetCommandError(errMockPathFetch, "bash", "-c", `printf '%s' "$PATH"`)
+	mock.SetCommand("/usr/local/bin/claude\n", "", 0, "bash", "-c", "which 'claude'")
+	e := NewUserAwareExecutor(mock, "someuser")
+
+	got, err := e.LookPath("claude")
+	if err != nil {
+		t.Fatalf("LookPath fallback error: %v", err)
+	}
+	if got != "/usr/local/bin/claude" {
+		t.Errorf("LookPath fallback = %q, want /usr/local/bin/claude", got)
+	}
+}
+
+var errMockPathFetch = fmt.Errorf("mock: PATH fetch failed")
