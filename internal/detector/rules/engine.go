@@ -2,8 +2,6 @@ package rules
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -94,7 +92,7 @@ func (e *Engine) Scan(ctx context.Context, rs RuleSet, searchDirs []string) mode
 	ctx, cancel := context.WithTimeout(ctx, e.caps.PerRunBudget)
 	defer cancel()
 
-	st := &scanState{cache: newFileCache()}
+	st := &scanState{cache: newAbsoluteFileCache(e.caps.MaxFileSize)}
 	st.states = make([]*ruleState, len(rs.Rules))
 	for i := range rs.Rules {
 		st.states[i] = &ruleState{rule: &rs.Rules[i], seen: make(map[string]bool)}
@@ -102,6 +100,8 @@ func (e *Engine) Scan(ctx context.Context, rs RuleSet, searchDirs []string) mode
 
 	// Absolute globs name exact paths — resolve them directly (no walk needed).
 	e.resolveAbsolute(ctx, st)
+	// Relative candidates are already visited file-first; retain only one file.
+	st.cache = newFileCache()
 
 	// Relative globs are matched against paths relative to each search root
 	// during a single TCC-aware walk per root.
@@ -150,21 +150,22 @@ func (e *Engine) Scan(ctx context.Context, rs RuleSet, searchDirs []string) mode
 // when a GLOBAL file budget was exhausted, signalling the caller to stop the
 // whole scan (and mark ScanComplete=false).
 func (e *Engine) evaluate(st *scanState, rstate *ruleState, path, matchedGlob string) (globalStop bool) {
-	if rstate.seen[path] {
+	if rstate.truncated || rstate.seen[path] {
 		return false
 	}
-	rstate.seen[path] = true
 
 	if len(rstate.matches) >= e.caps.MaxMatchesPerRule {
 		rstate.truncated = true
+		rstate.seen = nil // no future candidate can change this rule
 		return false
 	}
 	if st.filesScanned >= e.caps.MaxFiles {
 		return true
 	}
+	rstate.seen[path] = true
 	st.filesScanned++
 
-	info, err := e.exec.Stat(path)
+	info, err := st.cache.stat(e.exec, path)
 	if err != nil || info.IsDir() {
 		return false
 	}
@@ -193,56 +194,14 @@ func (e *Engine) evaluate(st *scanState, rstate *ruleState, path, matchedGlob st
 		rstate.matches = append(rstate.matches, fm)
 		return false
 	}
-	fm.FileSHA256 = hash
-	// A rule with no groups is existence-only: any matched file is reported.
-	// Otherwise the file is reported only if at least one group is satisfied
-	// (all its mandatory conditions matched) — so a rule targeting a file that
-	// legitimately exists won't flag it unless its required indicators are present.
-	reported := len(rstate.rule.Groups) == 0
-	for _, g := range rstate.rule.Groups {
-		gr, satisfied := evalGroup(g, data, hash)
-		fm.Groups = append(fm.Groups, gr)
-		if satisfied {
-			reported = true
-		}
+	if !satisfiesRule(rstate.rule, data, hash) {
+		return false
 	}
-	if !reported {
-		return false // mandatory conditions unmet in every group — not a finding
+	fm.FileSHA256 = hash
+	for _, g := range rstate.rule.Groups {
+		gr, _ := evalGroup(g, data, hash)
+		fm.Groups = append(fm.Groups, gr)
 	}
 	rstate.matches = append(rstate.matches, fm)
 	return false
-}
-
-// fileCache memoizes the bytes + whole-file SHA-256 of the single file
-// currently being processed. Every rule whose globs match a given path is
-// evaluated consecutively (within one WalkDir callback, or one resolveAbsolute
-// path), so a file matched by several rules is still read and hashed only once.
-// As soon as processing moves to a new path, the previous file's bytes are
-// released — bounding peak memory to one file (<= MaxFileSize) instead of
-// retaining every matched file's bytes for the whole scan.
-type fileCache struct {
-	path   string
-	data   []byte
-	hash   string
-	ok     bool
-	loaded bool // path/data/hash/ok are populated for the current path
-}
-
-func newFileCache() *fileCache { return &fileCache{} }
-
-func (fc *fileCache) read(exec executor.Executor, path string) (data []byte, hash string, ok bool) {
-	if fc.loaded && fc.path == path {
-		return fc.data, fc.hash, fc.ok
-	}
-	b, err := exec.ReadFile(path)
-	if err != nil {
-		// Cache the failure for this path (a sibling rule matching the same file
-		// must not re-attempt the read) while releasing any prior file's bytes.
-		*fc = fileCache{path: path, loaded: true}
-		return nil, "", false
-	}
-	sum := sha256.Sum256(b)
-	h := hex.EncodeToString(sum[:])
-	*fc = fileCache{path: path, data: b, hash: h, ok: true, loaded: true}
-	return b, h, true
 }
