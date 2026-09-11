@@ -127,21 +127,37 @@ func pythonRecordsFromResults(results []model.ProjectInfo) []state.ScanRecord {
 	return out
 }
 
+// globalRecordsFromNode reduces the global results to one record per package
+// manager, which is how state keys them. The disk scan emits one result per
+// root, so a PM with several roots folds into one hash and counts as changed
+// if any root failed.
 func globalRecordsFromNode(results []model.NodeScanResult) []state.GlobalRecord {
 	out := make([]state.GlobalRecord, 0, len(results))
+	idx := make(map[string]int, len(results))
 	for _, r := range results {
 		if r.PackageManager == "" {
 			continue
 		}
 		var hash string
 		if isDiskScanResult(r) {
-			// Disk-parse globals: hash the parsed packages (see
-			// npmRecordsFromResults). ScanRecordFromValue gives the same
-			// canonical hash used everywhere else for structured values.
-			hash = state.ScanRecordFromValue("", r.PackageManager, "", r.Packages, r.ExitCode).Hash
+			// Root is hashed with the packages — ScanRecordFromValue keeps its
+			// path argument out of the digest — so a global moving between
+			// prefixes re-uploads instead of stranding a stale path.
+			hash = state.ScanRecordFromValue("", r.PackageManager, "", struct {
+				Root     string              `json:"root"`
+				Packages []model.NodePackage `json:"packages"`
+			}{r.ProjectPath, r.Packages}, r.ExitCode).Hash
 		} else {
 			hash, _ = state.CanonicalHashJSON(decodeBase64OrRaw(r.RawStdoutBase64))
 		}
+		if i, ok := idx[r.PackageManager]; ok {
+			out[i].Hash = state.CombineHashes(out[i].Hash, hash)
+			if r.ExitCode != 0 {
+				out[i].ExitCode = r.ExitCode
+			}
+			continue
+		}
+		idx[r.PackageManager] = len(out)
 		out = append(out, state.GlobalRecord{PM: r.PackageManager, Hash: hash, ExitCode: r.ExitCode})
 	}
 	return out
@@ -227,12 +243,19 @@ func splitNodeGlobals(
 
 	changed := make([]model.NodeScanResult, 0, len(changedPMs))
 	unchanged := make([]model.UnchangedGlobalRef, 0, len(unchangedPMs))
+	emitted := make(map[string]struct{}, len(unchangedPMs))
 	for _, r := range results {
 		if _, ok := changedSet[r.PackageManager]; ok {
 			changed = append(changed, r)
 			continue
 		}
+		// One ref per PM — the backend keys the unchanged ref by PM, so
+		// several roots would repeat it.
 		if _, ok := unchangedSet[r.PackageManager]; ok {
+			if _, dup := emitted[r.PackageManager]; dup {
+				continue
+			}
+			emitted[r.PackageManager] = struct{}{}
 			unchanged = append(unchanged, model.UnchangedGlobalRef{
 				PackageManager:          r.PackageManager,
 				ScanOutputHash:          hashByPM[r.PackageManager],

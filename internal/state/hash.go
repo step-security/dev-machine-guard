@@ -34,3 +34,16 @@ func sum(b []byte) string {
 	h := sha256.Sum256(b)
 	return hashPrefix + hex.EncodeToString(h[:])
 }
+
+// CombineHashes folds b into a for state keys that cover several scan results
+// (a package manager whose globals span more than one root). Callers fold in a
+// stable order so an unchanged host re-hashes the same.
+func CombineHashes(a, b string) string {
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	return sum([]byte(a + "\x00" + b))
+}
