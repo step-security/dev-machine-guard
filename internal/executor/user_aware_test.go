@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -280,7 +281,11 @@ func TestUserAwareExecutor_LookPathHasDeadline(t *testing.T) {
 // rc files, where zsh compinit's interactive "insecure directories" prompt
 // hung a customer's ai_tools_scan until they chmod'ed the offending dirs.
 func TestUserAwareExecutor_LookPathNativePATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("UserAwareExecutor wraps only on non-Windows; the native PATH walk (filepath.Join + Stat) never runs on Windows")
+	}
 	mock := NewMock()
+	mock.SetGOOS("darwin") // UserAwareExecutor only wraps on non-Windows; native PATH walk is Unix-only
 	mock.SetCommand("/fake/bin:/other/bin", "", 0, "bash", "-c", `printf '%s' "$PATH"`)
 	mock.SetExecutable("/other/bin/claude")
 	e := NewUserAwareExecutor(mock, "someuser")
@@ -301,7 +306,11 @@ func TestUserAwareExecutor_LookPathNativePATH(t *testing.T) {
 // A file that exists on PATH but without the executable bit must not resolve —
 // matching exec.LookPath semantics rather than `which`'s looser matching.
 func TestUserAwareExecutor_LookPathSkipsNonExecutable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("UserAwareExecutor wraps only on non-Windows; the native PATH walk (filepath.Join + Stat) never runs on Windows")
+	}
 	mock := NewMock()
+	mock.SetGOOS("darwin")
 	mock.SetCommand("/fake/bin", "", 0, "bash", "-c", `printf '%s' "$PATH"`)
 	mock.SetFileMtime("/fake/bin/readme", 100) // exists, default mode 0644
 	e := NewUserAwareExecutor(mock, "someuser")
@@ -314,7 +323,11 @@ func TestUserAwareExecutor_LookPathSkipsNonExecutable(t *testing.T) {
 // When the one-time $PATH fetch fails, LookPath degrades to the legacy
 // per-tool `which` probe instead of reporting every tool missing.
 func TestUserAwareExecutor_LookPathFallsBackToWhich(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("UserAwareExecutor wraps only on non-Windows; the native PATH walk (filepath.Join + Stat) never runs on Windows")
+	}
 	mock := NewMock()
+	mock.SetGOOS("darwin")
 	mock.SetCommandError(errMockPathFetch, "bash", "-c", `printf '%s' "$PATH"`)
 	mock.SetCommand("/usr/local/bin/claude\n", "", 0, "bash", "-c", "which 'claude'")
 	e := NewUserAwareExecutor(mock, "someuser")
