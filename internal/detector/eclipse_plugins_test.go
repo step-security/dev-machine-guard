@@ -336,3 +336,190 @@ func TestFilterUserInstalledExtensions(t *testing.T) {
 		}
 	}
 }
+
+// ---------- macOS shared-bundle-pool detection ----------
+
+func TestReadEclipseP2DataArea(t *testing.T) {
+	mock := executor.NewMock()
+	configINI := "/Applications/Eclipse.app/Contents/Eclipse/configuration/config.ini"
+	mock.SetFile(configINI, []byte(`#This configuration file was written by: org.eclipse.oomph.p2.internal.core.AgentImpl
+eclipse.application=org.eclipse.ui.ide.workbench
+eclipse.p2.data.area=file\:/Users/testuser/.p2/
+eclipse.p2.profile=_Applications_Eclipse.app_Contents_Eclipse
+`))
+
+	det := &ExtensionDetector{exec: mock}
+	if got := det.readEclipseP2DataArea(configINI); got != filepath.Clean("/Users/testuser/.p2") {
+		t.Errorf("expected /Users/testuser/.p2, got %q", got)
+	}
+}
+
+func TestReadEclipseP2DataArea_Missing(t *testing.T) {
+	mock := executor.NewMock()
+	configINI := "/eclipse/configuration/config.ini"
+	mock.SetFile(configINI, []byte("eclipse.application=org.eclipse.ui.ide.workbench\n"))
+
+	det := &ExtensionDetector{exec: mock}
+	if got := det.readEclipseP2DataArea(configINI); got != "" {
+		t.Errorf("expected empty when property absent, got %q", got)
+	}
+}
+
+func TestResolveEclipsePoolDir_FromConfigINI(t *testing.T) {
+	mock := executor.NewMock()
+	installDir := eclipseInstallRootDarwin
+	mock.SetFile(filepath.Join(installDir, "configuration", "config.ini"),
+		[]byte(`eclipse.p2.data.area=file\:/Users/testuser/.p2/`+"\n"))
+	mock.SetDir("/Users/testuser/.p2/pool")
+
+	det := &ExtensionDetector{exec: mock}
+	if got := det.resolveEclipsePoolDir(installDir); got != filepath.Clean("/Users/testuser/.p2/pool") {
+		t.Errorf("expected pool from config.ini, got %q", got)
+	}
+}
+
+func TestResolveEclipsePoolDir_FallsBackToHome(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetHomeDir("/Users/testuser")
+	mock.SetDir("/Users/testuser/.p2/pool")
+
+	det := &ExtensionDetector{exec: mock}
+	// No config.ini — should fall back to ~/.p2/pool.
+	if got := det.resolveEclipsePoolDir(eclipseInstallRootDarwin); got != filepath.Join("/Users/testuser", ".p2", "pool") {
+		t.Errorf("expected ~/.p2/pool fallback, got %q", got)
+	}
+}
+
+func TestResolveEclipsePoolDir_NoPool(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetHomeDir("/Users/testuser")
+
+	det := &ExtensionDetector{exec: mock}
+	if got := det.resolveEclipsePoolDir(eclipseInstallRootDarwin); got != "" {
+		t.Errorf("expected empty when no pool exists, got %q", got)
+	}
+}
+
+// A macOS install created by the Eclipse Installer keeps its units in a shared
+// p2 pool: features/ is absent under the app bundle and plugins/ holds only the
+// launcher, so installed products are visible solely via the pool's features.
+func TestDetectEclipsePluginsDarwin_SharedBundlePool(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+	mock.SetHomeDir("/Users/testuser")
+
+	installDir := eclipseInstallRootDarwin
+	pool := "/Users/testuser/.p2/pool"
+	mock.SetDir(installDir)
+	mock.SetFile(filepath.Join(installDir, "configuration", "config.ini"),
+		[]byte(`eclipse.p2.data.area=file\:/Users/testuser/.p2/`+"\n"))
+	mock.SetDir(pool)
+
+	// Feature groups live in the pool. No install-local features/ dir exists.
+	mock.SetDir(filepath.Join(pool, "features"))
+	mock.SetDirEntries(filepath.Join(pool, "features"), []os.DirEntry{
+		executor.MockDirEntry("software.aws.toolkits.eclipse.amazonq.feature_2.7.5.202607231906", true),
+		executor.MockDirEntry("org.eclipse.jdt_3.20.500", true),
+	})
+
+	det := &ExtensionDetector{exec: mock}
+	results := det.DetectEclipsePlugins(context.Background(), nil)
+
+	byID := make(map[string]model.Extension, len(results))
+	for _, r := range results {
+		byID[r.ID] = r
+	}
+
+	feature, ok := byID["software.aws.toolkits.eclipse.amazonq.feature"]
+	if !ok {
+		t.Fatalf("expected the Amazon Q feature group from the pool, got %v", byID)
+	}
+	if feature.Source != "user_installed" {
+		t.Errorf("expected user_installed feature, got %s", feature.Source)
+	}
+	if feature.Version != "2.7.5.202607231906" {
+		t.Errorf("expected version 2.7.5.202607231906, got %s", feature.Version)
+	}
+	wantPath := filepath.Join(pool, "features", "software.aws.toolkits.eclipse.amazonq.feature_2.7.5.202607231906")
+	if feature.InstallPath != wantPath {
+		t.Errorf("expected %s, got %s", wantPath, feature.InstallPath)
+	}
+
+	// Platform features are still collected, tagged bundled for the scanner filter.
+	if ext, ok := byID["org.eclipse.jdt"]; !ok || ext.Source != "bundled" {
+		t.Errorf("expected pool feature org.eclipse.jdt tagged bundled, got %+v", ext)
+	}
+
+	// Individual OSGi bundles are deliberately not reported — only feature groups.
+	if _, ok := byID["amazon-q-eclipse"]; ok {
+		t.Error("did not expect individual bundles from bundles.info")
+	}
+}
+
+func TestDetectEclipsePluginsDarwin_NoInstall(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+
+	det := &ExtensionDetector{exec: mock}
+	if results := det.DetectEclipsePlugins(context.Background(), nil); len(results) != 0 {
+		t.Errorf("expected 0 when Eclipse.app is absent, got %d", len(results))
+	}
+}
+
+// A self-contained install (tarball layout) keeps everything under the app
+// bundle with no p2 pool.
+func TestDetectEclipsePluginsDarwin_SelfContained(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+	mock.SetHomeDir("/Users/testuser")
+
+	installDir := eclipseInstallRootDarwin
+	mock.SetDir(installDir)
+	mock.SetDir(filepath.Join(installDir, "features"))
+	mock.SetDirEntries(filepath.Join(installDir, "features"), []os.DirEntry{
+		executor.MockDirEntry("net.sourceforge.pmd.eclipse_7.26.0", true),
+	})
+
+	det := &ExtensionDetector{exec: mock}
+	results := det.DetectEclipsePlugins(context.Background(), nil)
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 feature, got %d (%v)", len(results), results)
+	}
+	if results[0].ID != "net.sourceforge.pmd.eclipse" || results[0].Source != "user_installed" {
+		t.Errorf("unexpected result: %+v", results[0])
+	}
+}
+
+// A feature can be present both install-locally and in the pool; report it once.
+func TestDetectEclipsePluginsDarwin_DedupesAcrossSources(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+	mock.SetHomeDir("/Users/testuser")
+
+	installDir := eclipseInstallRootDarwin
+	pool := "/Users/testuser/.p2/pool"
+	mock.SetDir(installDir)
+	mock.SetDir(pool)
+
+	installFeatures := filepath.Join(installDir, "features")
+	mock.SetDir(installFeatures)
+	mock.SetDirEntries(installFeatures, []os.DirEntry{
+		executor.MockDirEntry("com.example.plugin_1.0.0", true),
+	})
+	mock.SetDir(filepath.Join(pool, "features"))
+	mock.SetDirEntries(filepath.Join(pool, "features"), []os.DirEntry{
+		executor.MockDirEntry("com.example.plugin_1.0.0", true),
+	})
+
+	det := &ExtensionDetector{exec: mock}
+	results := det.DetectEclipsePlugins(context.Background(), nil)
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 deduped unit, got %d (%v)", len(results), results)
+	}
+	// The install-local copy is scanned first and wins.
+	if results[0].InstallPath != filepath.Join(installFeatures, "com.example.plugin_1.0.0") {
+		t.Errorf("expected install-local path to win, got %s", results[0].InstallPath)
+	}
+}
