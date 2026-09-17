@@ -23,15 +23,28 @@ import (
 // forever — the deadline is effectively ignored. Seen in production as
 // node_scan hangs averaging 3.6 min per project under a 30s per-call ceiling.
 //
-// Setpgid: true makes cmd its own process group leader, so kill(-pid, SIGKILL)
-// reaches the whole subtree. cmd.Cancel runs on ctx cancel/deadline.
-// WaitDelay bounds the pipe-copy wait independently of the kill — if a child
-// somehow survives the group kill (e.g. PID reused), Wait still returns.
+// Setsid: true makes cmd a session leader of a NEW session with NO controlling
+// terminal, which covers two failure classes at once:
+//   - it is its own process group leader, so kill(-pid, SIGKILL) reaches the
+//     whole subtree (the original reason this hook exists);
+//   - children can never read the agent's controlling TTY. Login shells that
+//     source user rc files can hit interactive prompts that read /dev/tty
+//     directly — seen in the field: zsh compinit's "insecure directories,
+//     run compaudit ... continue [y] or abort [n]?" blocked a `which claude`
+//     probe forever when send-telemetry was run from a terminal, because the
+//     child inherited the terminal's TTY. With no controlling terminal the
+//     /dev/tty open fails and zsh takes the non-interactive default instead
+//     of waiting. (Under launchd there is no TTY, which is why the hang only
+//     reproduced on manual runs.)
+//
+// cmd.Cancel runs on ctx cancel/deadline. WaitDelay bounds the pipe-copy wait
+// independently of the kill — if a child somehow survives the group kill
+// (e.g. PID reused), Wait still returns.
 func setupKillgroupOnCancel(cmd *exec.Cmd) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
-	cmd.SysProcAttr.Setpgid = true
+	cmd.SysProcAttr.Setsid = true
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
 			return nil
