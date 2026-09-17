@@ -16,23 +16,53 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
-// stageSeams wires every package seam at a fake install: a scratch "current
-// binary", an httptest server serving both the latest-binary metadata and the
-// release asset, the throwaway fixture signing key, and enterprise config.
-// Returns the scratch exe path and a download-hit counter.
+// stage is a fake install with every package seam wired to it.
+type stage struct {
+	exe      string
+	launcher string // windows only; "" elsewhere
+	// downloads / launcherDownloads count hits on the agent and launcher
+	// release assets separately, so a test can assert which artifact moved.
+	downloads         *atomic.Int32
+	launcherDownloads *atomic.Int32
+}
+
+// stageSeams is the agent-only view of stageAll, kept for the tests that only
+// care about the agent artifact.
 func stageSeams(t *testing.T, metaJSON, assetBody string) (string, *atomic.Int32) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("self-update is darwin/linux only (windows uses the task.exe + loader architecture)")
-	}
+	st := stageAll(t, metaJSON, assetBody)
+	return st.exe, st.downloads
+}
+
+// stageAll wires every package seam at a fake install: a scratch "current
+// binary", an httptest server serving the latest-binary metadata and the
+// release assets, the throwaway fixture signing key, and enterprise config.
+//
+// On Windows the install is the two-artifact layout the loader produces — an
+// agent plus the GUI launcher beside it. The launcher is staged ALREADY
+// up-to-date so the shared tests below observe the agent artifact alone; the
+// launcher's own update path is covered in selfupdate_windows_test.go.
+func stageAll(t *testing.T, metaJSON, assetBody string) *stage {
+	t.Helper()
 
 	dir := t.TempDir()
-	exe := filepath.Join(dir, binaryName)
+	exeName := binaryName
+	if runtime.GOOS == "windows" {
+		exeName += ".exe"
+	}
+	exe := filepath.Join(dir, exeName)
 	if err := os.WriteFile(exe, []byte("old-binary-content\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	st := &stage{exe: exe, downloads: &atomic.Int32{}, launcherDownloads: &atomic.Int32{}}
+	if runtime.GOOS == "windows" {
+		st.launcher = launcherPath(exe)
+		if err := os.WriteFile(st.launcher, []byte(fixturePayload), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 
-	var downloads atomic.Int32
+	downloads := st.downloads
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/testcust/developer-mdm-agent/latest-binary", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(metaJSON))
@@ -41,6 +71,12 @@ func stageSeams(t *testing.T, metaJSON, assetBody string) (string, *atomic.Int32
 		downloads.Add(1)
 		_, _ = w.Write([]byte(assetBody))
 	})
+	if runtime.GOOS == "windows" {
+		mux.HandleFunc("/v9.9.9/"+launcherAssetName("9.9.9"), func(w http.ResponseWriter, _ *http.Request) {
+			st.launcherDownloads.Add(1)
+			_, _ = w.Write([]byte(fixturePayload))
+		})
+	}
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
@@ -60,14 +96,29 @@ func stageSeams(t *testing.T, metaJSON, assetBody string) (string, *atomic.Int32
 		config.APIEndpoint, config.APIKey, config.CustomerID = origEndpoint, origKeyCfg, origCust
 		config.AutoUpdate = origAuto
 	})
-	return exe, &downloads
+	return st
 }
 
 func validMeta() string {
 	// signed_checksum is base64-wrapped on the wire (single-line JSON
 	// transport of the multi-line armored block), matching the real API.
 	wrapped := base64.StdEncoding.EncodeToString([]byte(fixturePayloadSig))
-	return `{"version":"9.9.9","checksum":"` + fixturePayloadChecksum + `","signed_checksum":"` + wrapped + `"}`
+	return metaJSON("9.9.9", fixturePayloadChecksum, `"`+wrapped+`"`)
+}
+
+// metaJSON builds a latest-binary response body. signedChecksum arrives
+// pre-encoded as a JSON value (the tests pass both a quoted base64 wrapper
+// and a raw armored block). On Windows the launcher fields are always
+// included — the real endpoint requires them above v1.11.4 and
+// fetchLatestBinary rejects a response without them. The fixture payload
+// backs both artifacts, so they share a checksum and signature.
+func metaJSON(version, checksum, signedChecksum string) string {
+	out := `{"version":"` + version + `","checksum":"` + checksum + `","signed_checksum":` + signedChecksum
+	if runtime.GOOS == "windows" {
+		out += `,"launcher_checksum":"` + fixturePayloadChecksum + `","signed_launcher_checksum":"` +
+			base64.StdEncoding.EncodeToString([]byte(fixturePayloadSig)) + `"`
+	}
+	return out + `}`
 }
 
 // jsonString encodes s as a JSON string literal (the signature is multi-line).
@@ -122,7 +173,7 @@ func TestRun_ChecksumMismatchDiscardsDownload(t *testing.T) {
 	if string(got) != "old-binary-content\n" {
 		t.Errorf("binary was replaced by a checksum-mismatched download: %q", got)
 	}
-	leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(exe), "."+binaryName+".new-*"))
+	leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(exe), "."+filepath.Base(exe)+".new-*"))
 	if len(leftovers) != 0 {
 		t.Errorf("temp download not cleaned up: %v", leftovers)
 	}
@@ -131,7 +182,7 @@ func TestRun_ChecksumMismatchDiscardsDownload(t *testing.T) {
 func TestRun_BadSignatureAbortsBeforeDownload(t *testing.T) {
 	// Signature is valid SSHSIG but over a DIFFERENT message than the
 	// advertised checksum — verification must fail and nothing downloads.
-	meta := `{"version":"9.9.9","checksum":"` + fixturePayloadChecksum + `","signed_checksum":` + jsonString(fixtureSig) + `}`
+	meta := metaJSON("9.9.9", fixturePayloadChecksum, jsonString(fixtureSig))
 	exe, downloads := stageSeams(t, meta, fixturePayload)
 
 	if Run(context.Background(), executor.NewMock(), progress.NewLogger(progress.LevelInfo)) {
@@ -184,7 +235,7 @@ func TestRun_RefusesDowngradeBelowSelfUpdateFloor(t *testing.T) {
 	// let a binary-periodic install downgrade itself into a binary with no
 	// self-update code (= no update path at all). The floor check runs
 	// before signature verification and before any download.
-	meta := `{"version":"1.16.0","checksum":"` + fixturePayloadChecksum + `","signed_checksum":"ZHVtbXk="}`
+	meta := metaJSON("1.16.0", fixturePayloadChecksum, `"ZHVtbXk="`)
 	exe, downloads := stageSeams(t, meta, fixturePayload)
 
 	if Run(context.Background(), executor.NewMock(), progress.NewLogger(progress.LevelInfo)) {
@@ -196,6 +247,29 @@ func TestRun_RefusesDowngradeBelowSelfUpdateFloor(t *testing.T) {
 	got, _ := os.ReadFile(exe)
 	if string(got) != "old-binary-content\n" {
 		t.Error("binary was replaced despite the self-update floor")
+	}
+}
+
+// Asset names must match the release pipeline's output byte for byte (and
+// windowsBinaryAssetName / windowsLauncherAssetName on the agent-api side) —
+// a typo here 404s every update on the affected platform. Asserted for the
+// host platform, so the CI matrix covers all three.
+func TestAssetNames(t *testing.T) {
+	const version = "1.17.0"
+	want := map[string]string{
+		"darwin":  "stepsecurity-dev-machine-guard-1.17.0-darwin",
+		"linux":   "stepsecurity-dev-machine-guard-1.17.0-linux_" + runtime.GOARCH,
+		"windows": "stepsecurity-dev-machine-guard-1.17.0-windows_" + runtime.GOARCH + ".exe",
+	}
+	if got := assetName(version); got != want[runtime.GOOS] {
+		t.Errorf("assetName() = %q, want %q", got, want[runtime.GOOS])
+	}
+	if runtime.GOOS != "windows" {
+		return
+	}
+	wantLauncher := "stepsecurity-dev-machine-guard-task-1.17.0-windows_" + runtime.GOARCH + ".exe"
+	if got := launcherAssetName(version); got != wantLauncher {
+		t.Errorf("launcherAssetName() = %q, want %q", got, wantLauncher)
 	}
 }
 

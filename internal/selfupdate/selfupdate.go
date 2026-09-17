@@ -1,10 +1,11 @@
 // Package selfupdate keeps a scheduler-launched binary current without the
 // loader script: it asks the backend's latest-binary endpoint for the release
 // the tenant should run, verifies the checksum's Ed25519 SSHSIG natively,
-// downloads the asset, verifies its sha256, and atomically swaps its own
-// executable. The running process keeps executing the old image; the NEW
-// binary takes effect on the next scheduled fire (deliberate: no re-exec
-// edge cases).
+// downloads the asset, verifies its sha256, and swaps its own executable in
+// place (see swapBinary — one atomic rename on Unix, rename-aside on
+// Windows, whose loader also owns the GUI launcher next to the agent). The
+// running process keeps executing the old image; the NEW binary takes effect
+// on the next scheduled fire (deliberate: no re-exec edge cases).
 //
 // Enabled only when config.AutoUpdate is true — the auto-loader install flow
 // writes `auto_update: true` into config.json when it registers the scheduler
@@ -48,6 +49,12 @@ const (
 	maxMetaBytes    = 64 << 10
 	binaryName      = "stepsecurity-dev-machine-guard"
 
+	// launcherName is the Windows GUI-subsystem launcher that the scheduled
+	// task actually invokes; it spawns the agent with no console flash (see
+	// internal/launcher). Windows-only, and updated in lockstep with the
+	// agent so a tick never runs a mixed-version pair.
+	launcherName = "stepsecurity-dev-machine-guard-task"
+
 	// minSelfUpdateVersion is the first release that ships this package.
 	// Self-update refuses to install anything OLDER: on a binary-periodic
 	// install (scheduler fires the binary directly, no loader tick) a
@@ -55,6 +62,12 @@ const (
 	// code and no other update mechanism — permanently frozen. A backend
 	// that wants such a fleet on an older release must go through a loader
 	// re-push, which re-installs script-periodic scheduling for it.
+	//
+	// Every platform shares one floor because every platform's arm of this
+	// package ships in the same release. If the Windows arm ever slips to a
+	// later release than the Unix one, Windows needs its own (higher) floor —
+	// otherwise a Windows box could be updated down onto a release whose
+	// binary has no Windows self-update code.
 	minSelfUpdateVersion = "1.17.0"
 )
 
@@ -71,17 +84,41 @@ type latestBinaryResponse struct {
 	Version        string `json:"version"`
 	Checksum       string `json:"checksum"`
 	SignedChecksum string `json:"signed_checksum"`
+	// Launcher fields are present only on windows responses whose resolved
+	// version ships a launcher artifact (v1.11.4+). The self-update floor is
+	// far above that, so on Windows both are required — see
+	// fetchLatestBinary.
+	LauncherChecksum       string `json:"launcher_checksum"`
+	SignedLauncherChecksum string `json:"signed_launcher_checksum"`
 }
 
-// assetName returns the release asset for this platform, matching the
-// loaders' naming: darwin ships a single universal binary, linux is
-// per-arch. Windows is never self-updated (its task.exe launcher + loader
-// architecture owns updates there); callers gate on GOOS first.
+// assetName returns the agent's release asset for this platform, matching
+// the loaders' naming: darwin ships a single universal binary; linux and
+// windows are per-arch. The windows form is the Authenticode-signed
+// `.exe` — the older `_signed.exe` spelling only exists below v1.11.4, far
+// under minSelfUpdateVersion, so it can never be selected here. Mirrors
+// windowsBinaryAssetName in agent-api.
 func assetName(version string) string {
-	if runtime.GOOS == model.PlatformDarwin {
+	switch runtime.GOOS {
+	case model.PlatformDarwin:
 		return fmt.Sprintf("%s-%s-darwin", binaryName, version)
+	case model.PlatformWindows:
+		return fmt.Sprintf("%s-%s-windows_%s.exe", binaryName, version, runtime.GOARCH)
 	}
 	return fmt.Sprintf("%s-%s-linux_%s", binaryName, version, runtime.GOARCH)
+}
+
+// launcherAssetName returns the Windows launcher's release asset. Mirrors
+// windowsLauncherAssetName in agent-api.
+func launcherAssetName(version string) string {
+	return fmt.Sprintf("%s-%s-windows_%s.exe", launcherName, version, runtime.GOARCH)
+}
+
+// launcherPath returns the launcher that sits beside the agent executable.
+// The loader installs both into the same <install_dir>/bin, and the
+// scheduled task's action references the launcher by that path.
+func launcherPath(exe string) string {
+	return filepath.Join(filepath.Dir(exe), launcherName+".exe")
 }
 
 // Run performs one self-update check. Returns true only when a new binary
@@ -89,9 +126,6 @@ func assetName(version string) string {
 // failures are logged and swallowed so the scan proceeds regardless.
 func Run(ctx context.Context, exec executor.Executor, log *progress.Logger) bool {
 	if !config.AutoUpdate {
-		return false
-	}
-	if runtime.GOOS == model.PlatformWindows {
 		return false
 	}
 	if exec.Getenv(EnvDisable) == "1" {
@@ -108,6 +142,18 @@ func Run(ctx context.Context, exec executor.Executor, log *progress.Logger) bool
 		exe = resolved
 	}
 
+	// Windows also keeps the launcher current: the scheduled task's action
+	// invokes it, not the agent, so leaving it on the old release would run a
+	// mixed-version pair indefinitely.
+	onWindows := runtime.GOOS == model.PlatformWindows
+	launcher := ""
+	if onWindows {
+		launcher = launcherPath(exe)
+		// Clear the images previous updates renamed aside before adding
+		// another one.
+		sweepLeftovers(exe, launcher)
+	}
+
 	meta, err := fetchLatestBinary(ctx)
 	if err != nil {
 		log.Warn("self-update: check failed (%v) — continuing on v%s", err, buildinfo.Version)
@@ -120,63 +166,118 @@ func Run(ctx context.Context, exec executor.Executor, log *progress.Logger) bool
 		return false
 	}
 
-	// The signature covers the checksum string exactly as the release
-	// pipeline signed it (no trailing newline; the loaders verify the same
-	// bytes). A bad or missing signature aborts BEFORE any download.
-	armored, err := decodeSignedChecksum(meta.SignedChecksum)
-	if err != nil {
-		log.Warn("self-update: signed_checksum for v%s is malformed: %v", meta.Version, err)
-		return false
+	// The launcher is installed FIRST so the agent — the one artifact that
+	// can retry on the next tick — is the last thing swapped.
+	var targets []target
+	if onWindows {
+		targets = append(targets, target{
+			label: "launcher", path: launcher, asset: launcherAssetName,
+			checksum: meta.LauncherChecksum, signed: meta.SignedLauncherChecksum,
+		})
 	}
-	if err := verifySSHSig(armored, []byte(meta.Checksum), allowedReleaseKeyB64, signatureNamespace); err != nil {
-		log.Warn("self-update: checksum signature verification failed for v%s: %v", meta.Version, err)
+	targets = append(targets, target{
+		label: "binary", path: exe, asset: assetName,
+		checksum: meta.Checksum, signed: meta.SignedChecksum,
+	})
+
+	// Verify every signature BEFORE any download: one unverifiable artifact
+	// rejects the whole release rather than landing half of it.
+	for _, t := range targets {
+		if err := verifyChecksumSignature(t.checksum, t.signed); err != nil {
+			log.Warn("self-update: %s checksum signature verification failed for v%s: %v", t.label, meta.Version, err)
+			return false
+		}
+	}
+
+	installed := false
+	for _, t := range targets {
+		current, err := fileSHA256(t.path)
+		// A target that isn't there yet is installed, not an error: it is how
+		// a half-finished earlier update recovers.
+		if err != nil && !os.IsNotExist(err) {
+			log.Warn("self-update: cannot hash current %s: %v", t.label, err)
+			return false
+		}
+		if err == nil && current == t.checksum {
+			log.Debug("self-update: %s is current (v%s)", t.label, meta.Version)
+			continue
+		}
+		if !install(ctx, log, t, meta.Version) {
+			return false
+		}
+		installed = true
+	}
+	if !installed {
 		return false
 	}
 
-	current, err := fileSHA256(exe)
-	if err != nil {
-		log.Warn("self-update: cannot hash current binary: %v", err)
-		return false
-	}
-	if current == meta.Checksum {
-		log.Debug("self-update: binary is current (v%s)", meta.Version)
-		return false
-	}
-
-	log.Progress("Self-update: v%s available (checksum differs from installed binary), downloading...", meta.Version)
-	tmp, err := downloadAsset(ctx, meta.Version, exe)
-	if err != nil {
-		log.Warn("self-update: download failed: %v", err)
-		return false
-	}
-	defer os.Remove(tmp) // no-op after the successful rename
-
-	got, err := fileSHA256(tmp)
-	if err != nil || got != meta.Checksum {
-		log.Warn("self-update: downloaded binary checksum mismatch (got %.12s, want %.12s) — discarding", got, meta.Checksum)
-		return false
-	}
-	// #nosec G302 -- this IS the agent executable being installed; it must
-	// carry the same 0755 the loaders have always set on the binary.
-	if err := os.Chmod(tmp, 0o755); err != nil {
-		log.Warn("self-update: chmod failed: %v", err)
-		return false
-	}
-	// Atomic same-directory rename: the running process keeps its (now
-	// unlinked) old image; the next scheduled fire executes the new one.
-	if err := os.Rename(tmp, exe); err != nil {
-		log.Warn("self-update: install failed: %v", err)
-		return false
-	}
 	writeVersionMarker(meta.Version)
 	log.Progress("Self-update: installed v%s (replacing v%s); it takes effect on the next scheduled run", meta.Version, buildinfo.Version)
 	return true
 }
 
+// target is one artifact self-update keeps current: where it lives on disk,
+// which release asset supplies it, and the signed checksum it must match.
+type target struct {
+	label    string
+	path     string
+	asset    func(version string) string
+	checksum string
+	signed   string
+}
+
+// verifyChecksumSignature checks that checksum carries a valid release
+// signature. The signature covers the checksum string exactly as the release
+// pipeline signed it (no trailing newline; the loaders verify the same
+// bytes).
+func verifyChecksumSignature(checksum, signed string) error {
+	if checksum == "" {
+		return fmt.Errorf("checksum is empty")
+	}
+	armored, err := decodeSignedChecksum(signed)
+	if err != nil {
+		return fmt.Errorf("malformed signature: %w", err)
+	}
+	return verifySSHSig(armored, []byte(checksum), allowedReleaseKeyB64, signatureNamespace)
+}
+
+// install downloads one target, verifies its sha256 against the (already
+// signature-verified) expected checksum, and swaps it into place. Returns
+// false on any failure, having left the on-disk artifact untouched.
+func install(ctx context.Context, log *progress.Logger, t target, version string) bool {
+	log.Progress("Self-update: v%s available (installed %s does not match it), downloading...", version, t.label)
+	tmp, err := downloadAsset(ctx, version, t.asset(version), t.path)
+	if err != nil {
+		log.Warn("self-update: %s download failed: %v", t.label, err)
+		return false
+	}
+	defer os.Remove(tmp) // no-op after a successful swap
+
+	got, err := fileSHA256(tmp)
+	if err != nil || got != t.checksum {
+		log.Warn("self-update: downloaded %s checksum mismatch (got %.12s, want %.12s) — discarding", t.label, got, t.checksum)
+		return false
+	}
+	// #nosec G302 -- this IS an agent executable being installed; it must
+	// carry the same 0755 the loaders have always set on the binary.
+	if err := os.Chmod(tmp, 0o755); err != nil {
+		log.Warn("self-update: %s chmod failed: %v", t.label, err)
+		return false
+	}
+	if err := swapBinary(tmp, t.path); err != nil {
+		log.Warn("self-update: %s install failed: %v", t.label, err)
+		return false
+	}
+	return true
+}
+
 func fetchLatestBinary(ctx context.Context) (*latestBinaryResponse, error) {
 	q := url.Values{}
-	if runtime.GOOS == model.PlatformLinux {
-		q.Set("os", "linux")
+	// darwin is the endpoint's default (universal binary, no params); the
+	// per-arch platforms must ask for their own artifact or they would get
+	// the macOS checksum and reject every download.
+	if runtime.GOOS == model.PlatformLinux || runtime.GOOS == model.PlatformWindows {
+		q.Set("os", runtime.GOOS)
 		q.Set("arch", runtime.GOARCH)
 	}
 	// Script-baked update-policy overrides ride config.json in the
@@ -220,14 +321,23 @@ func fetchLatestBinary(ctx context.Context) (*latestBinaryResponse, error) {
 	if meta.Version == "" || meta.Checksum == "" || meta.SignedChecksum == "" {
 		return nil, fmt.Errorf("latest-binary response missing version/checksum/signed_checksum")
 	}
+	// A windows response without both launcher fields is a hard error, not a
+	// degraded install: the scheduled task's action references the launcher,
+	// so updating the agent alone would leave the pair out of step. The
+	// endpoint omits them only below v1.11.4 (impossible here — that is well
+	// under minSelfUpdateVersion) and leaves them empty on a transient
+	// signature-sidecar fetch failure, which the next tick retries.
+	if runtime.GOOS == model.PlatformWindows && (meta.LauncherChecksum == "" || meta.SignedLauncherChecksum == "") {
+		return nil, fmt.Errorf("latest-binary response for v%s is missing launcher_checksum/signed_launcher_checksum", meta.Version)
+	}
 	return &meta, nil
 }
 
-// downloadAsset streams the release asset to a temp file in the same
-// directory as the target executable (same filesystem, so the final rename
-// is atomic). Returns the temp path.
-func downloadAsset(ctx context.Context, version, exe string) (string, error) {
-	assetURL := fmt.Sprintf("%s/v%s/%s", releaseBaseURL, version, assetName(version))
+// downloadAsset streams a release asset to a temp file beside dst — the
+// target executable's own directory, so it lands on the same filesystem and
+// the swap that follows is a rename rather than a copy. Returns the temp path.
+func downloadAsset(ctx context.Context, version, asset, dst string) (string, error) {
+	assetURL := fmt.Sprintf("%s/v%s/%s", releaseBaseURL, version, asset)
 
 	ctx, cancel := context.WithTimeout(ctx, downloadTimeout)
 	defer cancel()
@@ -244,7 +354,7 @@ func downloadAsset(ctx context.Context, version, exe string) (string, error) {
 		return "", fmt.Errorf("download %s returned HTTP %d", assetURL, resp.StatusCode)
 	}
 
-	f, err := os.CreateTemp(filepath.Dir(exe), "."+binaryName+".new-*")
+	f, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".new-*")
 	if err != nil {
 		return "", err
 	}
@@ -253,7 +363,7 @@ func downloadAsset(ctx context.Context, version, exe string) (string, error) {
 		_ = os.Remove(f.Name())
 		return "", err
 	}
-	// Flush data blocks to disk before the caller renames this over the live
+	// Flush data blocks to disk before the caller swaps this in for the live
 	// executable: on a power loss, journaled-metadata filesystems can persist
 	// the rename without the data, leaving a truncated binary that the
 	// scheduler then execs directly (no loader tick exists to re-download).
