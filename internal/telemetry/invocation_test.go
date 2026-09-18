@@ -57,7 +57,7 @@ func TestDetectInvocationMethod_HostMachine(t *testing.T) {
 
 // TestDetectInvocationMethod_RespondsToFilesystem covers the darwin/linux
 // path that stats a scheduler artifact. On Windows the check shells out to
-// schtasks, which we can't safely stub without an executor seam — skip there.
+// schtasks; the Windows cases below exercise that path with a mock.
 //
 // Sandboxes HOME (Unix) and USERPROFILE (Windows-safe no-op on Unix) under
 // t.TempDir() so launchd.UserPlistPath / systemd.TimerUnitPath compute paths
@@ -96,6 +96,7 @@ func TestDetectInvocationMethod_RespondsToFilesystem(t *testing.T) {
 	// → "inconclusive" → detection falls back to the footprint, which is what
 	// this test exercises.
 	mock := executor.NewMock()
+	mock.SetGOOS(runtime.GOOS)
 
 	// Fresh temp home — detector starts at one_time, flips to install when
 	// the marker appears, flips back when it's removed.
@@ -174,5 +175,35 @@ func TestDetectInvocationMethod_RunningState(t *testing.T) {
 	// Inconclusive probe (unstubbed → error) → keep install, never mislabel.
 	if got := DetectInvocationMethod(executor.NewMock(), invLogger()); got != InvocationInstall {
 		t.Errorf("inconclusive probe: got %q, want %q", got, InvocationInstall)
+	}
+}
+
+func TestDetectInvocationMethod_Windows(t *testing.T) {
+	tests := []struct {
+		name       string
+		registered bool
+		state      string
+		want       string
+	}{
+		{"missing task", false, "", InvocationOneTime},
+		{"running task", true, "Running", InvocationInstall},
+		{"idle task", true, "Ready", InvocationOneTime},
+		{"unknown state", true, "", InvocationInstall},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := executor.NewMock()
+			mock.SetGOOS("windows")
+			if tc.registered {
+				mock.SetCommand("", "", 0, "schtasks", "/query", "/tn", "StepSecurity Dev Machine Guard")
+			}
+			if tc.state != "" {
+				mock.SetCommand(tc.state, "", 0, "powershell", "-NoProfile", "-NonInteractive", "-Command",
+					"(Get-ScheduledTask -TaskName 'StepSecurity Dev Machine Guard').State")
+			}
+			if got := DetectInvocationMethod(mock, invLogger()); got != tc.want {
+				t.Errorf("DetectInvocationMethod() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

@@ -6,10 +6,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
-	osexec "os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf16"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
@@ -39,9 +39,10 @@ const logonTaskName = taskName + " (Logon)"
 // from a scheduler-triggered one. Any error or non-zero schtasks exit is
 // treated as "not registered" so a transient Schedule-service hiccup
 // degrades to "one_time" rather than erroring the run.
-func IsTaskRegistered() bool {
-	cmd := osexec.Command("schtasks", "/query", "/tn", taskName)
-	return cmd.Run() == nil
+func IsTaskRegistered(ctx context.Context, exec executor.Executor) bool {
+	// The executor suppresses child consoles even when the agent has no console.
+	_, _, code, err := exec.RunWithTimeout(ctx, 3*time.Second, "schtasks", "/query", "/tn", taskName)
+	return err == nil && code == 0
 }
 
 // Install configures Windows Task Scheduler for periodic scanning.

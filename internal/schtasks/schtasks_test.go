@@ -2,9 +2,11 @@ package schtasks
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/progress"
@@ -458,5 +460,53 @@ func TestBuildCreateArgs_HourlyUnchanged(t *testing.T) {
 		if !argPairPresent(args, "/mo", strconv.Itoa(h)) {
 			t.Errorf("hours=%d: expected /mo %d: %v", h, h, args)
 		}
+	}
+}
+
+// Embedding the interface makes an accidental call to bare Run fail the test.
+type registrationExecutor struct {
+	executor.Executor
+	ctx  context.Context
+	code int
+	err  error
+	t    *testing.T
+}
+
+func (e registrationExecutor) RunWithTimeout(ctx context.Context, timeout time.Duration, name string, args ...string) (string, string, int, error) {
+	e.t.Helper()
+	if ctx != e.ctx {
+		e.t.Error("registration probe did not forward its context")
+	}
+	if timeout != 3*time.Second {
+		e.t.Errorf("timeout = %v, want 3s", timeout)
+	}
+	if got := strings.Join(append([]string{name}, args...), " "); got != "schtasks /query /tn StepSecurity Dev Machine Guard" {
+		e.t.Errorf("unexpected registration command: %q", got)
+	}
+	return "", "", e.code, e.err
+}
+
+func TestIsTaskRegistered(t *testing.T) {
+	tests := []struct {
+		name string
+		code int
+		err  error
+		want bool
+	}{
+		{"registered", 0, nil, true},
+		{"missing", 1, nil, false},
+		{"launch failure", 0, errors.New("start failed"), false},
+		{"timeout", 124, context.DeadlineExceeded, false},
+		{"canceled", 0, context.Canceled, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			exec := registrationExecutor{ctx: ctx, code: tc.code, err: tc.err, t: t}
+			if got := IsTaskRegistered(ctx, exec); got != tc.want {
+				t.Errorf("IsTaskRegistered() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

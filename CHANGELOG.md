@@ -11,6 +11,8 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
 ### Fixed
 
+- Suppress Windows scheduler-registration probe console flashes during heartbeat, telemetry initialization, and scheduler diagnostics; bound each probe to three seconds.
+
 - **The scan no longer opens LM Studio's window on Linux.** `lm-studio` names the desktop application's launcher, not a CLI (LM Studio's CLI is a separate binary, `lms`), and a packaged Electron app does not implement `--version`, so the flag was ignored and the app booted. An Ubuntu 22.04 customer running the agent from a systemd timer had LM Studio appear on their desktop mid-scan, with the probe of `/usr/bin/lm-studio` sitting on the full 10s exec deadline before being killed. Framework specs now carry a per-tool `GUIApp` flag that suppresses the `--version` fallback, so a GUI entry point is reported as installed with whatever on-disk metadata yields and `unknown` otherwise. The flag is opt-in per entry: ollama, LocalAI and Text Generation WebUI are real CLIs and are still exec'd exactly as before.
 - **IDE version probes on Linux are static-first and shim-only.** `<installDir>/<LinuxBinary>` was an exec candidate ahead of `product-info.json` and `.eclipseproduct` — and for every VS Code fork that path is the Electron GUI binary, not the CLI (`/opt/Cursor/cursor` launches Cursor; the CLI is `bin/cursor`), so an install whose `package.json` had moved would launch the app. It is no longer a candidate. Separately, an IDE found only as a name on `$PATH` went straight to `<binary> --version`; it now resolves the symlink and walks up to the install root's `package.json`/`product-info.json` first, which also yields a better version than the shim prints.
 

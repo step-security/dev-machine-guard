@@ -133,6 +133,8 @@ jobs:
           go-version-file: go.mod
       - run: go test -race -count=1 ./internal/devicepolicy/ ./internal/secureuserfile/ ./internal/detector/credentials/ ./internal/safepath/ ./internal/executor/
       - run: go test -race -count=1 -run '^TestReal_' ./internal/detector/
+      - name: Test scheduled scan console suppression
+        run: go test -race -count=1 -run 'Test(IsTaskRegistered|DetectInvocationMethod_Windows|HideWindow)' ./internal/schtasks/ ./internal/telemetry/ ./internal/winproc/
 
   smoke:
     name: Smoke Tests

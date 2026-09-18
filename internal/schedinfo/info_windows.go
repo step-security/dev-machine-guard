@@ -25,7 +25,7 @@ func gather(ctx context.Context, exec executor.Executor) Info {
 		info.IntervalSeconds = info.ConfiguredHours * 3600
 	}
 
-	info.Scheduled = schtasks.IsTaskRegistered()
+	info.Scheduled = schtasks.IsTaskRegistered(ctx, exec)
 	if !info.Scheduled {
 		// No task registered → skip the /query probe and return a clean "not
 		// configured" Info (Log renders it as one line).
