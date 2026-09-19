@@ -88,6 +88,8 @@ func (f *fakeFS) addSkill(dir, mdName, frontmatter string, extra map[string]stri
 
 func (f *fakeFS) commit() {
 	for dir, kids := range f.children {
+		info, _ := executor.MockDirEntry(filepath.Base(dir), true).Info()
+		f.m.SetFileInfo(dir, info)
 		ents := make([]os.DirEntry, 0, len(kids))
 		for _, e := range kids {
 			ents = append(ents, e)
@@ -1106,6 +1108,7 @@ func TestDetect_SkillsShSymlinkLayout(t *testing.T) {
 	real := testHome + "/.agents/skills/foo"
 	fs.addSkill(real, "SKILL.md", validFrontmatter("foo", "d"), map[string]string{"tool.py": "x=1\n"})
 	fs.addSymlink(testHome+"/.claude/skills/foo", real)
+	fs.addFile(testHome+"/.claude.json", `{"skillUsage":{"foo":{"usageCount":7,"lastUsedAt":1000}}}`)
 	fs.addFile(testHome+"/.agents/.skill-lock.json",
 		`{"skills":{"foo":{"source":"acme/foo","sourceType":"github","sourceUrl":"https://github.com/acme/foo","ref":"main","skillFolderHash":"tree123"}}}`)
 	fs.commit()
@@ -1124,6 +1127,9 @@ func TestDetect_SkillsShSymlinkLayout(t *testing.T) {
 	}
 	if !equalStrings(agents.SymlinkSources, []string{"claude_user"}) {
 		t.Errorf("symlink_sources = %v, want [claude_user]", agents.SymlinkSources)
+	}
+	if agents.Usage == nil || agents.Usage.RecordedUses == nil || *agents.Usage.RecordedUses != 7 {
+		t.Fatalf("shared Claude skill lost usage: %+v", agents.Usage)
 	}
 	if agents.SkillMDHash == "" {
 		t.Error("expected non-empty skill_md_hash")
@@ -1660,7 +1666,7 @@ func TestDiscoverProjects_Truncation(t *testing.T) {
 		extra = append(extra, p)
 	}
 	info := &model.AgentSkillScanInfo{}
-	got := NewSkillsDetector(m).discoverProjects(extra, nil, info)
+	got := NewSkillsDetector(m).discoverProjects(discoverClaudeProjects(m), extra, nil, info)
 	if len(got) != maxProjects {
 		t.Errorf("discoverProjects len = %d, want %d", len(got), maxProjects)
 	}
@@ -1838,6 +1844,7 @@ func TestDetect_OpenClawDefaultWorkspace(t *testing.T) {
 // and even Claude's association was lost.
 func TestDetect_WindowsJunctionFolds(t *testing.T) {
 	m, fs := newSkillsMock()
+	fs.addFile(filepath.Join(testHome, ".claude.json"), "{}")
 	m.SetGOOS(model.PlatformWindows)
 	real := testHome + "/.agents/skills/pptx"
 	fs.addSkill(real, "SKILL.md", validFrontmatter("pptx", "d"), nil)
@@ -1866,6 +1873,7 @@ func TestDetect_WindowsJunctionFolds(t *testing.T) {
 // never Readlink'd.
 func TestDetect_IrregularEntryOffWindowsIgnored(t *testing.T) {
 	m, fs := newSkillsMock()
+	fs.addFile(filepath.Join(testHome, ".claude.json"), "{}")
 	m.SetGOOS(model.PlatformLinux)
 	real := testHome + "/.agents/skills/pptx"
 	fs.addSkill(real, "SKILL.md", validFrontmatter("pptx", "d"), nil)
@@ -1887,6 +1895,7 @@ func TestDetect_IrregularEntryOffWindowsIgnored(t *testing.T) {
 // junction at all. Neither is an error.
 func TestDetect_JunctionTargetsRejected(t *testing.T) {
 	m, fs := newSkillsMock()
+	fs.addFile(filepath.Join(testHome, ".claude.json"), "{}")
 	m.SetGOOS(model.PlatformWindows)
 	fs.mkdir(testHome + "/.claude/skills")
 	fs.addJunction(testHome+"/.claude/skills/vol", `\??\Volume{6f2a1c3e-0000-0000-0000-000000000000}\skills\x`)

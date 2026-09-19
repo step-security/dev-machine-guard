@@ -2,12 +2,15 @@ package detector
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,13 +77,21 @@ var hashExcludedNames = map[string]bool{
 // root (global, project, and skills.sh lock-managed). It performs pure
 // filesystem reads only — no subprocesses — so it needs no user shell.
 type SkillsDetector struct {
-	exec    executor.Executor
-	skipper *tcc.Skipper
+	exec          executor.Executor
+	skipper       *tcc.Skipper
+	now           func() time.Time  // observation time for plugins and skill usage
+	agentVersions map[string]string // model.Agent* name → already-collected version
 }
 
 // NewSkillsDetector constructs a SkillsDetector.
 func NewSkillsDetector(exec executor.Executor) *SkillsDetector {
-	return &SkillsDetector{exec: exec}
+	return &SkillsDetector{exec: exec, now: time.Now}
+}
+
+// WithAgentVersions supplies versions from the AI CLI inventory, keyed by agent name.
+func (d *SkillsDetector) WithAgentVersions(v map[string]string) *SkillsDetector {
+	d.agentVersions = v
+	return d
 }
 
 // WithSkipper attaches a TCC skipper so discovery skips macOS-protected
@@ -143,34 +154,40 @@ type discoveredSkill struct {
 // for project-convention marker dirs so projects the user never registered in
 // ~/.claude.json and that no node/python scanner surfaced are still inventoried;
 // passing nil disables the walk (the registry + extra roots still apply).
-func (d *SkillsDetector) Detect(ctx context.Context, extraProjectRoots []string, searchDirs []string) (skills []model.AgentSkill, info *model.AgentSkillScanInfo) {
+func (d *SkillsDetector) Detect(ctx context.Context, extraProjectRoots []string, searchDirs []string) ([]model.AgentSkill, *model.AgentSkillScanInfo) {
+	r := d.DetectSkills(ctx, extraProjectRoots, searchDirs)
+	return r.Skills, r.Info
+}
+
+// DetectAll collects both phases for callers that do not track phase progress.
+func (d *SkillsDetector) DetectAll(ctx context.Context, extraProjectRoots []string, searchDirs []string) SkillsResult {
+	result := d.DetectSkills(ctx, extraProjectRoots, searchDirs)
+	if err := d.DetectPlugins(ctx, &result); err != nil {
+		d.addError(result.Info, err.Error())
+	}
+	return result
+}
+
+// DetectSkills collects ordinary skills, standalone commands and recorded usage.
+// Project discovery and parsed definitions are retained for DetectPlugins.
+func (d *SkillsDetector) DetectSkills(ctx context.Context, extraProjectRoots []string, searchDirs []string) (result SkillsResult) {
 	start := time.Now()
-	info = &model.AgentSkillScanInfo{}
+	info := &model.AgentSkillScanInfo{}
+	result.Info = info
 
 	ctx, cancel := context.WithTimeout(ctx, skillsPhaseBudget)
 	defer cancel()
 
-	// Defense-in-depth: the walk is designed panic-free — every per-root and
-	// per-skill failure degrades to an Errors entry rather than a panic — but if
-	// one still escapes we must NOT leave AgentSkillScan nil. A nil scan info
-	// means "no information" and would strand the device's skill state; a non-nil
-	// info (even with partial or zero records) means "scan ran". Record the panic
-	// and finalize whatever we gathered. Registered after `defer cancel()` so it
-	// runs first (LIFO), recovering before the context is torn down; the recovery
-	// re-collapses whatever `discovered` accumulated, so partial discovery
-	// survives the unwind. Containing the panic here keeps a skills bug from
-	// failing the whole telemetry run via telemetry.Run. The recorded error also
-	// marks an early-panic "scan ran, 0 skills" result as partial rather than
-	// complete.
+	// Preserve partial discoveries and scan status if a read panics.
 	var discovered []discoveredSkill
 	defer func() {
 		if r := recover(); r != nil {
+			result.pendingPlugins = nil
 			d.addError(info, fmt.Sprintf("panic in skills detect: %v", r))
-			// A panic aborted the walk mid-flight — the inventory is partial. Mark it
-			// so the backend keeps the scan non-authoritative and suppresses deletions.
+			// Partial coverage prevents the backend from deleting unseen skills.
 			info.Truncated = true
-			skills = d.finalizeSkills(discovered, info)
-			info.SkillsFound = len(skills)
+			result.Skills = d.finalizeSkills(discovered, info)
+			info.SkillsFound = len(result.Skills)
 			info.DurationMs = time.Since(start).Milliseconds()
 		}
 	}()
@@ -178,20 +195,44 @@ func (d *SkillsDetector) Detect(ctx context.Context, extraProjectRoots []string,
 	// Per-resolved-path census+hash memo: a skill linked from N roots is hashed
 	// exactly once and all N records share the result (symlink dedup).
 	memo := map[string]*skillScan{}
+	home := getHomeDir(d.exec)
+	definitions := 0
+	now := time.Now()
+	if d.now != nil {
+		now = d.now()
+	}
+	ps := &pluginScan{
+		d: d, ctx: ctx, home: home, goos: d.exec.GOOS(), now: now, searchDirs: searchDirs,
+		memo: memo, definitions: &definitions, evidence: newPluginEvidence(),
+	}
+	result.pendingPlugins = ps
 
 	// Global + system roots.
 	for _, root := range d.resolveGlobalRoots(info) {
 		discovered = append(discovered, d.enumerateRoot(ctx, root, info, memo)...)
 	}
 
-	// Project roots: Claude Code registry ∪ node/python roots ∪ home-walk
-	// discoveries, deduped, capped, then the candidate skill dirs are probed on
-	// each. The walk is the only source that finds a project the user never
-	// registered in ~/.claude.json and that no node/python scanner surfaced;
-	// every candidate still flows through discoverProjects' shared TCC / home /
-	// dedupe / cap choke point.
-	walkRoots := d.walkForProjectRoots(ctx, searchDirs, info)
-	projects := d.discoverProjects(extraProjectRoots, walkRoots, info)
+	// One state read supplies project roots and usage counters. Project discovery
+	// also includes package-scanner roots and bounded filesystem discovery.
+	state := readClaudeState(d.exec, d.skipper, home)
+	projectInfo := &model.AgentSkillScanInfo{}
+	projectCode := state.code
+	if projectCode == "" {
+		projectCode = state.projectsCode
+	}
+	if projectCode != "" {
+		projectInfo.Truncated = true
+		d.addError(projectInfo, fmt.Sprintf("Claude project registry %s: %s", state.path, projectCode))
+	}
+	walkRoots := d.walkForProjectRoots(ctx, searchDirs, projectInfo)
+	projects := d.discoverProjects(state.projects, extraProjectRoots, walkRoots, projectInfo)
+	ps.projects = projects
+	ps.projectsIncomplete = projectInfo.Truncated || len(projectInfo.Errors) > 0
+	info.Truncated = info.Truncated || projectInfo.Truncated
+	info.WalkDirsVisited, info.WalkRootsFound = projectInfo.WalkDirsVisited, projectInfo.WalkRootsFound
+	for _, err := range projectInfo.Errors {
+		d.addError(info, err)
+	}
 	info.ProjectsScanned = len(projects)
 	for _, proj := range projects {
 		for _, root := range d.resolveProjectRoots(proj, info) {
@@ -204,9 +245,17 @@ func (d *SkillsDetector) Detect(ctx context.Context, extraProjectRoots []string,
 	// disk is not an install and is dropped — the inventory is on-disk skills only.
 	discovered = d.applyLocks(discovered, projects, info)
 
+	commands := d.enumerateCommands(ctx, home, projects, info, ps)
+	if projectInfo.Truncated || len(projectInfo.Errors) > 0 {
+		degrade(&info.CommandsStatus, model.AgentScanStatusPartial)
+	}
+	result.usage = ps.collectClaudeUsage(state)
+
 	// Collapse symlink shadows, sort, and apply the aggregate cap — shared with
 	// the panic-recovery path so both return identically bounded, ordered records.
-	skills = d.finalizeSkills(discovered, info)
+	// Standalone commands are bounded separately and never evict an ordinary skill.
+	result.Skills = append(d.finalizeSkills(discovered, info), commands...)
+	associateSkillUsage(&result)
 
 	// A deadline or parent cancellation short-circuits the walk, yielding a
 	// partial inventory. Mark it truncated so the backend does not treat this scan
@@ -216,9 +265,399 @@ func (d *SkillsDetector) Detect(ctx context.Context, extraProjectRoots []string,
 		d.addError(info, fmt.Sprintf("skills phase incomplete: %v", ctx.Err()))
 	}
 
-	info.SkillsFound = len(skills)
+	info.SkillsFound = len(result.Skills)
 	info.DurationMs = time.Since(start).Milliseconds()
-	return skills, info
+	return result
+}
+
+var strictUintRE = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
+
+type skillUsageObservations struct {
+	CollectedAtMs int64
+	Sources       []skillUsageSource
+}
+
+type skillUsageSource struct {
+	SourceID     string
+	Agent        string
+	SourcePath   string
+	Status       string
+	AgentVersion string
+	Counters     []skillUsageCounter
+	Errors       []model.AgentScanError
+}
+
+type skillUsageCounter struct {
+	RawKey              string
+	RecordedUses        int64
+	LastRecordedUseAtMs *int64
+}
+
+// associateSkillUsage matches native names only when they identify one definition.
+// Multiple installation scopes of the same plugin definition share a snapshot.
+func associateSkillUsage(result *SkillsResult) {
+	if result.usage == nil {
+		return
+	}
+	type candidate struct {
+		identity string
+		names    []string
+		plugin   bool
+		usage    **model.SkillUsage
+	}
+	var candidates []candidate
+	for i := range result.Skills {
+		s := &result.Skills[i]
+		claude := s.Agent == model.AgentClaudeCode || strings.HasPrefix(s.Source, "claude_")
+		for _, source := range s.SymlinkSources {
+			claude = claude || strings.HasPrefix(source, "claude_")
+		}
+		if !claude {
+			continue
+		}
+		names := s.CallableNames
+		if len(names) == 0 {
+			names = []string{s.SkillName}
+		}
+		definition := s.SkillMDPath
+		if s.DefinitionPath != "" {
+			definition = s.DefinitionPath
+		}
+		candidates = append(candidates, candidate{identity: definition, names: names, usage: &s.Usage})
+	}
+	if result.Plugins != nil {
+		for _, context := range result.Plugins.Contexts {
+			if context.Agent != model.AgentClaudeCode {
+				continue
+			}
+			for _, plugin := range context.Plugins {
+				for _, component := range plugin.Components {
+					var usage **model.SkillUsage
+					if component.Skill != nil {
+						usage = &component.Skill.Usage
+					}
+					if component.Command != nil {
+						usage = &component.Command.Usage
+					}
+					if usage == nil {
+						continue
+					}
+					origin := plugin.MarketplaceID
+					if origin == "" {
+						origin = plugin.InstallPath
+					}
+					identity := inventoryHash(origin, plugin.NativeID, component.Kind, component.RelativePath, component.Name)
+					names := component.CallableNames
+					if len(names) == 0 {
+						names = []string{plugin.Name + ":" + component.Name}
+					}
+					candidates = append(candidates, candidate{identity: identity, names: names, plugin: true, usage: usage})
+				}
+			}
+		}
+	}
+	available := map[string]*model.SkillUsage{}
+	for _, source := range result.usage.Sources {
+		for _, counter := range source.Counters {
+			if prev := available[counter.RawKey]; prev != nil && prev.SourceID <= source.SourceID {
+				continue
+			}
+			count := counter.RecordedUses
+			available[counter.RawKey] = &model.SkillUsage{Availability: "available", RecordedUses: &count,
+				LastRecordedUseAtMs: counter.LastRecordedUseAtMs, RawKey: counter.RawKey, SourceID: source.SourceID, ObservedAtMs: result.usage.CollectedAtMs}
+		}
+	}
+	owners := map[string]map[string]bool{}
+	matched := make([][]string, len(candidates))
+	for i, candidate := range candidates {
+		for _, name := range candidate.names {
+			name = strings.TrimPrefix(name, "/")
+			if available[name] != nil {
+				matched[i] = append(matched[i], name)
+			}
+		}
+		if len(matched[i]) == 0 && candidate.plugin {
+			for _, name := range candidate.names {
+				name = name[strings.LastIndex(name, ":")+1:]
+				if available[name] != nil {
+					matched[i] = append(matched[i], name)
+				}
+			}
+		}
+		for _, name := range matched[i] {
+			if owners[name] == nil {
+				owners[name] = map[string]bool{}
+			}
+			owners[name][candidate.identity] = true
+		}
+	}
+	for i, candidate := range candidates {
+		selected := &model.SkillUsage{Availability: "unavailable", ObservedAtMs: result.usage.CollectedAtMs}
+		for _, name := range matched[i] {
+			if len(owners[name]) != 1 {
+				if selected.RecordedUses == nil {
+					selected.Availability = "ambiguous"
+				}
+				continue
+			}
+			counter := available[name]
+			if selected.RecordedUses == nil || *counter.RecordedUses > *selected.RecordedUses ||
+				(*counter.RecordedUses == *selected.RecordedUses && counter.RawKey < selected.RawKey) {
+				selected = counter
+			}
+		}
+		*candidate.usage = selected
+	}
+}
+
+// strictUint parses a JSON number that is a plain non-negative integer no
+// larger than max. Fractions, exponents, strings and negatives are rejected.
+func strictUint(raw json.RawMessage, max int64) (int64, bool) {
+	if !strictUintRE.Match(raw) {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(string(raw), 10, 64)
+	if err != nil || n > max {
+		return 0, false
+	}
+	return n, true
+}
+
+// usageSource projects one state file's skillUsage map into validated observations. Each
+// entry is validated on its own; a rejected entry makes the source partial
+// without touching the valid keys beside it.
+func (s *pluginScan) usageSource(st claudeState, status string) skillUsageSource {
+	src := skillUsageSource{
+		SourceID: s.usageSourceID(model.AgentClaudeCode, st.path), Agent: model.AgentClaudeCode, SourcePath: st.path,
+		Status: status, AgentVersion: s.d.agentVersions[model.AgentClaudeCode],
+		Counters: []skillUsageCounter{}, Errors: []model.AgentScanError{},
+	}
+	code := st.code
+	if code == "" {
+		code = st.usageCode
+	}
+	if code != "" {
+		src.Status = model.AgentScanStatusError
+		scanError(&src.Errors, model.AgentScanError{Code: code, SourcePath: st.path})
+		return src
+	}
+	keys := make([]string, 0, len(st.skillUsage))
+	for k := range st.skillUsage {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if len(src.Counters) >= maxUsageCounters {
+			degrade(&src.Status, model.AgentScanStatusPartial)
+			scanError(&src.Errors, model.AgentScanError{Code: model.AgentScanErrLimitExceeded, SourcePath: st.path})
+			break
+		}
+		var entry struct {
+			UsageCount json.RawMessage `json:"usageCount"`
+			LastUsedAt json.RawMessage `json:"lastUsedAt"`
+		}
+		count, ok := int64(0), key != "" && len(key) <= maxNameBytes && json.Unmarshal(st.skillUsage[key], &entry) == nil
+		if ok {
+			count, ok = strictUint(entry.UsageCount, maxRecordedUses)
+		}
+		var last *int64
+		if ok && len(entry.LastUsedAt) > 0 && string(entry.LastUsedAt) != "null" {
+			var ms int64
+			if ms, ok = strictUint(entry.LastUsedAt, maxRecordedUses); ok {
+				last = &ms
+			}
+		}
+		if !ok {
+			degrade(&src.Status, model.AgentScanStatusPartial)
+			scanError(&src.Errors, model.AgentScanError{Code: model.AgentScanErrParseFailed, SourcePath: st.path})
+			continue
+		}
+		src.Counters = append(src.Counters, skillUsageCounter{RawKey: key, RecordedUses: count, LastRecordedUseAtMs: last})
+	}
+	return src
+}
+
+// collectClaudeUsage collects usage observations from the home state file and,
+// when a custom configuration root is visible, that root's state file. The
+// custom layout is not a verified client fixture, so its coverage stays partial.
+func (s *pluginScan) collectClaudeUsage(homeState claudeState) *skillUsageObservations {
+	var sources []skillUsageSource
+	if !homeState.absent {
+		sources = append(sources, s.usageSource(homeState, model.AgentScanStatusComplete))
+	}
+	if cfg := s.d.exec.Getenv("CLAUDE_CONFIG_DIR"); cfg != "" {
+		if st := readClaudeState(s.d.exec, s.d.skipper, filepath.Clean(cfg)); !st.absent && st.path != homeState.path {
+			sources = append(sources, s.usageSource(st, model.AgentScanStatusPartial))
+		}
+	}
+	if len(sources) == 0 {
+		return nil
+	}
+	sort.SliceStable(sources, func(i, j int) bool { return sources[i].SourcePath < sources[j].SourcePath })
+	if len(sources) > maxUsageSources {
+		sources = sources[:maxUsageSources]
+	}
+	remaining, errors := maxUsageCounters, 0
+	for i := range sources {
+		source := &sources[i]
+		if len(source.Counters) > remaining {
+			source.Counters = source.Counters[:remaining]
+			degrade(&source.Status, model.AgentScanStatusPartial)
+			scanError(&source.Errors, model.AgentScanError{Code: model.AgentScanErrLimitExceeded, SourcePath: source.SourcePath})
+		}
+		remaining -= len(source.Counters)
+		errors = capErrors(&source.Errors, errors)
+	}
+	scan := &skillUsageObservations{CollectedAtMs: s.now.UnixMilli(), Sources: sources}
+	if encodedSize(scan) > maxEnvelopeBytes {
+		for i := len(scan.Sources) - 1; i >= 0 && encodedSize(scan) > maxEnvelopeBytes; i-- {
+			source := &scan.Sources[i]
+			degrade(&source.Status, model.AgentScanStatusPartial)
+			scanError(&source.Errors, model.AgentScanError{Code: model.AgentScanErrLimitExceeded, SourcePath: source.SourcePath})
+			for len(source.Counters) > 0 && encodedSize(scan) > maxEnvelopeBytes {
+				source.Counters = source.Counters[:len(source.Counters)/2]
+			}
+		}
+	}
+	errors = 0
+	for i := range scan.Sources {
+		errors = capErrors(&scan.Sources[i].Errors, errors)
+	}
+	return scan
+}
+
+// claudeConfigRoot is ~/.claude, or CLAUDE_CONFIG_DIR when visible to this process.
+func (d *SkillsDetector) claudeConfigRoot(home string) string {
+	if cfg := d.exec.Getenv("CLAUDE_CONFIG_DIR"); cfg != "" {
+		return cfg
+	}
+	return filepath.Join(home, ".claude")
+}
+
+// enumerateCommands inventories standalone Claude command Markdown files under
+// the user commands root and each discovered project's .claude/commands. Each
+// file is one AgentSkill row of definition kind "command"; the callable name
+// comes from the path, and no skill-directory fields are invented. Coverage is
+// reported through info.CommandsStatus.
+func (d *SkillsDetector) enumerateCommands(ctx context.Context, home string, projects []string, info *model.AgentSkillScanInfo, ps *pluginScan) []model.AgentSkill {
+	type cmdRoot struct{ dir, source, scope, project string }
+	roots := []cmdRoot{{filepath.Join(d.claudeConfigRoot(home), "commands"), "claude_user", "global", ""}}
+	for _, proj := range projects {
+		roots = append(roots, cmdRoot{filepath.Join(proj, ".claude", "commands"), "claude_project", "project", proj})
+	}
+	status := model.AgentScanStatusComplete
+	var out []model.AgentSkill
+	for _, root := range roots {
+		budget := min(maxNewDefinitions-*ps.definitions, maxNewDefinitions-len(out))
+		if budget <= 0 {
+			status = model.AgentScanStatusPartial
+			break
+		}
+		if d.skipper.WithinProtected(root.dir) {
+			status = model.AgentScanStatusPartial
+			continue
+		}
+		guarded := *d
+		guarded.exec = d.exec.GuardedFiles([]string{home, root.dir, root.project}, func(p string) string {
+			if d.skipper.WithinProtected(p) {
+				return "tcc_protected"
+			}
+			return ""
+		}, maxSkillMDReadBytes)
+		if state, _, _ := ps.stat(&guarded, root.dir); state != fileDir {
+			if state != fileAbsent {
+				status = model.AgentScanStatusPartial
+			}
+			continue
+		}
+
+		var files []string
+		dirs := 0
+		stopped := false
+		var walk func(dir string, depth int)
+		walk = func(dir string, depth int) {
+			if stopped {
+				return
+			}
+			if ctx.Err() != nil || depth > maxSkillWalkDepth {
+				status = model.AgentScanStatusPartial
+				return
+			}
+			if dirs++; dirs > maxDirsPerRoot {
+				status = model.AgentScanStatusPartial
+				return
+			}
+			entries, err := guarded.exec.ReadDir(dir)
+			if err != nil {
+				status = model.AgentScanStatusPartial
+				d.addError(info, fmt.Sprintf("read commands dir %s: %v", dir, err))
+				return
+			}
+			for _, name := range sortedEntryNames(entries) {
+				if stopped {
+					return
+				}
+				ent := dirEntryByName(entries, name)
+				switch {
+				case ent.Type()&os.ModeSymlink != 0:
+				case ent.IsDir():
+					walk(filepath.Join(dir, name), depth+1)
+				case ent.Type().IsRegular() && strings.HasSuffix(name, ".md"):
+					if len(files) >= budget {
+						status = model.AgentScanStatusPartial
+						stopped = true
+						return
+					}
+					files = append(files, filepath.Join(dir, name))
+				}
+			}
+		}
+		walk(root.dir, 0)
+
+		for _, file := range files {
+
+			rel, _ := relSlash(root.dir, file)
+			stem := strings.TrimSuffix(path.Base(rel), ".md")
+			rec := model.AgentSkill{
+				SkillSlug: stem, SkillName: stem, Agent: model.AgentClaudeCode, Source: root.source, Scope: root.scope, ProjectPath: root.project,
+				DefinitionKind: model.AgentDefinitionCommand, DefinitionPath: file, CallableNames: []string{"/" + commandCallable(rel)},
+			}
+			meta := ps.commandMetadata(&guarded, file)
+			if meta.frontmatterError == "invalid_yaml" {
+				status = model.AgentScanStatusPartial
+			}
+			switch meta.readError {
+			case "":
+				rec.DefinitionHash = meta.hash
+				rec.HasFrontmatter, rec.FrontmatterError = meta.hasFrontmatter, meta.frontmatterError
+				rec.Description, rec.Version, rec.License, rec.AllowedTools = meta.description, meta.version, meta.license, meta.allowedTools
+				rec.DisableModelInvocation, rec.UserInvocableDisabled = meta.disableModelInvoc, meta.userInvocDisabled
+				rec.HasHooks, rec.HasShellInjection = meta.hasHooks, meta.hasShellInjection
+			case model.AgentScanErrLimitExceeded:
+				rec.FrontmatterError = "file_too_large"
+				status = model.AgentScanStatusPartial
+			default:
+				rec.FrontmatterError = "unreadable"
+				status = model.AgentScanStatusPartial
+			}
+			out = append(out, rec)
+		}
+	}
+	if ctx.Err() != nil {
+		status = model.AgentScanStatusPartial
+	}
+	info.CommandsStatus = status
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Source != b.Source {
+			return a.Source < b.Source
+		}
+		if a.ProjectPath != b.ProjectPath {
+			return a.ProjectPath < b.ProjectPath
+		}
+		return a.DefinitionPath < b.DefinitionPath
+	})
+	return out
 }
 
 // finalizeSkills projects the accumulated discoveries into the final record
@@ -267,11 +706,7 @@ func (d *SkillsDetector) resolveGlobalRoots(info *model.AgentSkillScanInfo) []sk
 
 	// claude_user: ~/.claude/skills, honoring CLAUDE_CONFIG_DIR when the env
 	// var is visible to this process (not under a daemon that can't see it).
-	claudeBase := filepath.Join(home, ".claude")
-	if cfg := d.exec.Getenv("CLAUDE_CONFIG_DIR"); cfg != "" {
-		claudeBase = cfg
-	}
-	add(filepath.Join(claudeBase, "skills"), "claude_user", "claude-code", "global", "")
+	add(filepath.Join(d.claudeConfigRoot(home), "skills"), "claude_user", "claude-code", "global", "")
 
 	// agents_user: ~/.agents/skills — the shared cross-client convention read by
 	// skills.sh, Zed, and the Gemini CLI (~/.agents is Gemini's alias for its own
@@ -739,7 +1174,7 @@ func isWindowsNoiseDir(name string) bool {
 // discovery, so they are admitted first (sorted) and the walk fills only the
 // capacity they leave (also sorted). With no walkRoots the result is identical
 // to registry∪extra alone — the walk can add projects but never displace one.
-func (d *SkillsDetector) discoverProjects(extra, walkRoots []string, info *model.AgentSkillScanInfo) []string {
+func (d *SkillsDetector) discoverProjects(registry, extra, walkRoots []string, info *model.AgentSkillScanInfo) []string {
 	seen := map[string]bool{}
 	home := d.resolvePath(getHomeDir(d.exec))
 	consider := func(p string, out *[]string) {
@@ -771,7 +1206,7 @@ func (d *SkillsDetector) discoverProjects(extra, walkRoots []string, info *model
 	}
 	// Tier 1: registry ∪ node/python roots (authoritative, sorted).
 	var primary []string
-	for _, p := range discoverClaudeProjects(d.exec) {
+	for _, p := range registry {
 		consider(p, &primary)
 	}
 	for _, p := range extra {

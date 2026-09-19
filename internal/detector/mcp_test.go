@@ -6,11 +6,37 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 )
+
+func TestDiscoverClaudeProjectsPreservesProjectKeys(t *testing.T) {
+	for _, tc := range []struct {
+		name, contents string
+		want           []string
+	}{
+		{"projects only", `{"projects":{"/Users/testuser/repo":{}}}`, []string{"/Users/testuser/repo"}},
+		{"invalid usage is independent", `{"projects":{"/Users/testuser/repo":{}},"skillUsage":42}`, []string{"/Users/testuser/repo"}},
+		{"paths are not normalized", `{"projects":{"/Users/testuser/project space/":null,"relative-project":{}}}`, []string{"/Users/testuser/project space/", "relative-project"}},
+		{"missing projects", `{"skillUsage":{}}`, nil},
+		{"null projects", `{"projects":null}`, nil},
+		{"invalid projects", `{"projects":42}`, nil},
+		{"malformed file", `{`, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := executor.NewMock()
+			mock.SetFile(filepath.Join(testHome, ".claude.json"), []byte(tc.contents))
+			got := discoverClaudeProjects(mock)
+			slices.Sort(got)
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("projects = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
 
 func TestMCPDetector_FindsConfigs(t *testing.T) {
 	mock := executor.NewMock()

@@ -8,6 +8,33 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
+func TestCommunityInventoryDeduplicatesWithoutChangingWireRows(t *testing.T) {
+	skill := model.AgentSkill{SkillName: "check", SkillDirPath: "/plugins/test/skills/check"}
+	mcp := model.MCPConfig{ConfigSource: "test", ConfigPath: "/plugins/test/mcp.json", Vendor: "example"}
+	components := []model.PluginComponent{
+		{Kind: model.PluginComponentSkill, Skill: &skill},
+		{Kind: model.PluginComponentMCP, MCPConfig: &model.MCPConfigEnterprise{ConfigSource: mcp.ConfigSource, ConfigPath: mcp.ConfigPath, Vendor: mcp.Vendor, ConfigContentBase64: "private-body"}},
+		{Kind: model.PluginComponentMCP, Name: "second-server", MCPConfig: &model.MCPConfigEnterprise{ConfigPath: mcp.ConfigPath}},
+		{Kind: model.PluginComponentCommand, Command: &model.AgentCommandDefinition{Name: "run", DefinitionPath: "/plugins/test/commands/run.md"}},
+	}
+	result := &model.ScanResult{AgentSkills: []model.AgentSkill{skill}, MCPConfigs: []model.MCPConfig{mcp}, Summary: model.Summary{AgentSkillsCount: 1, MCPConfigsCount: 1},
+		AgentPluginScan: &model.AgentPluginScan{Contexts: []model.AgentPluginContext{{Agent: model.AgentClaudeCode, Plugins: []model.PluginObservation{{Components: components}, {Components: components}}}}}}
+	view := communityInventory(result)
+	if len(view.AgentSkills) != 2 || len(view.MCPConfigs) != 1 || view.Summary.AgentSkillsCount != 2 || view.Summary.MCPConfigsCount != 1 {
+		t.Fatalf("duplicate display rows or changed count semantics: %+v", view)
+	}
+	if len(result.AgentSkills) != 1 || len(result.MCPConfigs) != 1 || result.Summary.AgentSkillsCount != 1 || components[1].MCPConfig.ConfigContentBase64 != "private-body" {
+		t.Fatal("display projection changed the original inventory")
+	}
+	var rendered bytes.Buffer
+	if err := Pretty(&rendered, result, "never"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(rendered.String(), "private-body") {
+		t.Fatal("community output exposed MCP content")
+	}
+}
+
 func TestPretty_ContainsHeaders(t *testing.T) {
 	result := &model.ScanResult{
 		AgentVersion:     "1.9.1",

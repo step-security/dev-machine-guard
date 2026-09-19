@@ -156,13 +156,14 @@ func TestAppendHistoryUnwritablePathErrors(t *testing.T) {
 }
 
 // enterpriseRecord mirrors the largest shape a real run produces: the
-// 14 phases an enterprise telemetry run tracks, every usage field
+// 15 phases an enterprise telemetry run tracks, every usage field
 // populated. Community records are ~3x smaller.
 func enterpriseRecord(id string) Record {
 	names := []string{
 		"scheduler_info", "device_info", "ide_scan", "extension_scan",
 		"ai_tools_scan", "mcp_config_scan", "malicious_file_scan", "brew_scan",
 		"python_scan", "syspkg_scan", "node_scan", "agent_skills_scan",
+		"agent_plugins_scan",
 		"credentials_scan", "browser_extensions_scan",
 	}
 	phases := make([]Phase, 0, len(names))

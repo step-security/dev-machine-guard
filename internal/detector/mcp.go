@@ -114,9 +114,7 @@ func (d *MCPDetector) DetectEnterprise(_ context.Context, searchDirs []string) [
 	return results
 }
 
-// discoverProjectMCPConfigs finds project-level .mcp.json files in the roots
-// from Claude Code's project registry (~/.claude.json). Project-root discovery
-// is shared with the skills detector via discoverClaudeProjects.
+// discoverProjectMCPConfigs finds .mcp.json files in Claude Code's recorded projects.
 func (d *MCPDetector) discoverProjectMCPConfigs() []mcpConfigSpec {
 	var specs []mcpConfigSpec
 	seen := make(map[string]bool)

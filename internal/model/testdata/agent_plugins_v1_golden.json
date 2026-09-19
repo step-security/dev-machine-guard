@@ -1,0 +1,1176 @@
+{
+  "agent_plugin_scan": {
+    "schema_version": 1,
+    "collected_at_ms": 1789600000000,
+    "contexts": [
+      {
+        "context_id": "ctx_7129628628f87f780d529f8add895de1c7e4442964f00c169c26084b72c62943",
+        "agent": "claude-code",
+        "config_root": "/Users/example-user/.claude",
+        "plugin_root": "/Users/example-user/.claude/plugins",
+        "agent_version": "2.1.273",
+        "marketplace_status": "complete",
+        "installation_status": "complete",
+        "marketplaces": [
+          {
+            "marketplace_id": "market_0ef66680f36f77c50c412ba48f952dda38ca01ed0961765a40fa1fe8c5c1cd11",
+            "name": "example-catalog",
+            "source": {
+              "kind": "github",
+              "native_kind": "github",
+              "location": "https://github.com/example-org/example-catalog"
+            },
+            "catalog_path": "/Users/example-user/.claude/plugins/marketplaces/example-catalog",
+            "revision": "0123456789abcdef0123456789abcdef01234567",
+            "registered": true,
+            "last_refreshed_at_ms": 1789590000000,
+            "auto_update_enabled": false,
+            "auto_update_preferences": [
+              {
+                "scope": "user",
+                "source_path": "/Users/example-user/.claude/settings.json",
+                "enabled": false
+              }
+            ]
+          },
+          {
+            "marketplace_id": "market_be6d241ebc7c5c411fcd7458c6132c64d34a1362d8488c16ec0bdb7423cc8ae9",
+            "name": "community-catalog",
+            "source": {
+              "kind": "git",
+              "native_kind": "git",
+              "location": "https://git.example.com/example-org/community-catalog.git",
+              "requested_ref": "release"
+            },
+            "catalog_path": "/Users/example-user/.claude/plugins/marketplaces/community-catalog",
+            "registered": true,
+            "last_refreshed_at_ms": 1789590001000,
+            "auto_update_enabled": true,
+            "auto_update_preferences": [
+              {
+                "scope": "user",
+                "source_path": "/Users/example-user/.claude/settings.json",
+                "enabled": true
+              },
+              {
+                "scope": "project",
+                "source_path": "/Users/example-user/src/example-repo/.claude/settings.json",
+                "enabled": false,
+                "project_path": "/Users/example-user/src/example-repo"
+              }
+            ]
+          },
+          {
+            "marketplace_id": "market_a7955ae162a1e8963ba8b54b9925c8eef22c61a6533748d612a7282e223ff848",
+            "name": "removed-catalog",
+            "registered": false
+          },
+          {
+            "marketplace_id": "market_9100ad39d59ea939d0eef4f548ce5ec92168fa7f9740533b2b9c5a326d96d575",
+            "name": "inline-catalog",
+            "source": {
+              "kind": "settings",
+              "native_kind": "settings",
+              "location": "/Users/example-user/.claude/settings.json"
+            },
+            "catalog_path": "/Users/example-user/.claude/settings.json",
+            "registered": true
+          },
+          {
+            "marketplace_id": "market_5ec2b46ab439c32d46354ee96562c138d406d4a3797860b93e00090e71525f06",
+            "name": "hosted-catalog",
+            "source": {
+              "kind": "url",
+              "native_kind": "url",
+              "location": "https://plugins.example.com/catalog"
+            },
+            "catalog_path": "/Users/example-user/.claude/plugins/marketplaces/hosted-catalog",
+            "registered": true,
+            "last_refreshed_at_ms": 1789590002000
+          },
+          {
+            "marketplace_id": "market_fc516e32ea0c3854c3e3a542411ba7105a0f268245c8b2a47a2e344354b49235",
+            "name": "local-dir-catalog",
+            "source": {
+              "kind": "local",
+              "native_kind": "directory",
+              "location": "/Users/example-user/src/local-catalog"
+            },
+            "catalog_path": "/Users/example-user/src/local-catalog",
+            "registered": true
+          }
+        ],
+        "plugins": [
+          {
+            "instance_id": "inst_84a797a2dd513c8b3e0f491d32c54c7223acf72809188886d1c23428c9bcd3e7",
+            "native_id": "team-tools@example-catalog",
+            "name": "team-tools",
+            "installation_kind": "marketplace",
+            "scope": "user",
+            "marketplace_id": "market_0ef66680f36f77c50c412ba48f952dda38ca01ed0961765a40fa1fe8c5c1cd11",
+            "manifest_name": "team-tools",
+            "install_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0",
+            "manifest_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/.claude-plugin/plugin.json",
+            "source": {
+              "kind": "github",
+              "native_kind": "github",
+              "location": "https://github.com/example-org/team-tools",
+              "resolved_revision": "89abcdef0123456789abcdef0123456789abcdef"
+            },
+            "manifest_format": "claude",
+            "manifest_version": "1.4.0",
+            "cache_version": "1.4.0",
+            "description": "Team review and deploy helpers",
+            "publisher": "Example Org",
+            "homepage": "https://example.com/team-tools",
+            "installed_at_ms": 1789500000000,
+            "last_updated_at_ms": 1789580000000,
+            "installed": true,
+            "files_present": true,
+            "configured_enabled": true,
+            "effective_enabled": true,
+            "enablement": [
+              {
+                "scope": "user",
+                "source_path": "/Users/example-user/.claude/settings.json",
+                "enabled": true
+              }
+            ],
+            "installation_evidence": "registry",
+            "component_status": "complete",
+            "components": [
+              {
+                "component_id": "comp_2ab99859473e63cbe358fadd2e3147a870b020bdad92f90d2f7dec746abe17d2",
+                "kind": "skill",
+                "name": "review",
+                "relative_path": "skills/review",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/skills/review/SKILL.md",
+                "resolved_definition_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/skills/review/SKILL.md",
+                "callable_names": [
+                  "team-tools:review"
+                ],
+                "skill": {
+                  "skill_slug": "review",
+                  "skill_name": "review",
+                  "description": "review skill",
+                  "agent": "claude-code",
+                  "source": "claude_plugin",
+                  "scope": "global",
+                  "skill_dir_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/skills/review",
+                  "root_rel_path": "review",
+                  "skill_md_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/skills/review/SKILL.md",
+                  "skill_md_hash": "302031584bade4996c0fdc89fe695744b49e2d2622d1917e9c51ad292da4fa09",
+                  "file_count": 1,
+                  "total_size_bytes": 512,
+                  "has_frontmatter": true,
+                  "definition_kind": "skill",
+                  "definition_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/skills/review/SKILL.md",
+                  "definition_hash": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84",
+                  "callable_names": [
+                    "team-tools:review"
+                  ],
+                  "version": "1.4.0",
+                  "allowed_tools": [
+                    "Read",
+                    "Grep"
+                  ],
+                  "usage": {
+                    "availability": "available",
+                    "raw_key": "team-tools:review",
+                    "recorded_uses": 12,
+                    "last_recorded_use_at_ms": 1789599000123,
+                    "source_id": "usage_48d5dc7c5b25ec3eb224159273e368bb9f8ba28f2978cc40ebc9705c358a98df",
+                    "observed_at_ms": 1789600000000
+                  }
+                }
+              },
+              {
+                "component_id": "comp_23d64f2dcfe72fabd6a8b7426dc0ee5b311c93b38c018c0823ca91eb6aa5e1cd",
+                "kind": "command",
+                "name": "deploy",
+                "relative_path": "commands/deploy.md",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/commands/deploy.md",
+                "callable_names": [
+                  "/team-tools:deploy"
+                ],
+                "command": {
+                  "name": "deploy",
+                  "definition_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/commands/deploy.md",
+                  "definition_hash": "7643320533fb063fb994263b69656084103ba076cd767f159a239cca70279801",
+                  "disable_model_invocation": true,
+                  "user_invocable_disabled": false,
+                  "has_hooks": true,
+                  "has_shell_injection": false,
+                  "description": "Deploy the current branch",
+                  "version": "1.4.0",
+                  "license": "MIT",
+                  "allowed_tools": [
+                    "Bash"
+                  ],
+                  "usage": {
+                    "availability": "unavailable",
+                    "observed_at_ms": 1789600000000
+                  }
+                }
+              },
+              {
+                "component_id": "comp_17e1d646a12758ae6c95b8e963d3ea543d1c9f726983dd2a0da5a94129404ed8",
+                "kind": "mcp",
+                "name": "team-tools",
+                "relative_path": ".mcp.json",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/.mcp.json",
+                "callable_names": [],
+                "mcp_config": {
+                  "config_source": "claude_plugin",
+                  "config_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/.mcp.json",
+                  "vendor": "Anthropic",
+                  "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7InRlYW0tdG9vbHMiOnsidXJsIjoiaHR0cHM6Ly9tY3AuZXhhbXBsZS5jb20vbWNwIn19fQ=="
+                }
+              },
+              {
+                "component_id": "comp_13f9228b71269c2c540224adb0c5723cdf3303bb4ef4d6956cb9910e50199248",
+                "kind": "agent",
+                "name": "reviewer",
+                "relative_path": "agents/reviewer.md",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/agents/reviewer.md",
+                "callable_names": []
+              },
+              {
+                "component_id": "comp_fe15ecb8130379de86e92f28e5a9b84b0429273381e5db8676a2afe6caa47c3e",
+                "kind": "hook",
+                "name": "hooks",
+                "relative_path": "hooks/hooks.json",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/hooks/hooks.json",
+                "callable_names": []
+              },
+              {
+                "component_id": "comp_6f9d12d479aa436c1fc40dcc0e5ed7f6667eb69d604548e143b917bbcf4a1a98",
+                "kind": "lsp",
+                "name": "gopls",
+                "relative_path": ".lsp.json",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/.lsp.json",
+                "callable_names": []
+              },
+              {
+                "component_id": "comp_f4a6b8a6544ebcc196322108ff038192d2da588093eba154f2419b42542f7e26",
+                "kind": "app",
+                "name": "team-app",
+                "relative_path": ".app.json",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/.app.json",
+                "callable_names": []
+              },
+              {
+                "component_id": "comp_f4f5542ecca027d8aa758167141af1812032cd3c16e3e86fa0c6aad58dac61e8",
+                "kind": "skill",
+                "name": "broken",
+                "relative_path": "skills/broken",
+                "status": "error",
+                "definition_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/skills/broken/SKILL.md",
+                "callable_names": [
+                  "team-tools:broken"
+                ]
+              }
+            ],
+            "errors": [
+              {
+                "code": "read_failed",
+                "source_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/skills/broken/SKILL.md",
+                "instance_id": "inst_84a797a2dd513c8b3e0f491d32c54c7223acf72809188886d1c23428c9bcd3e7",
+                "component_id": "comp_f4f5542ecca027d8aa758167141af1812032cd3c16e3e86fa0c6aad58dac61e8"
+              }
+            ]
+          },
+          {
+            "instance_id": "inst_31a9665011fd9867e5db73decbf3cc99f88bc931fb070e20bc428f822e946dad",
+            "native_id": "team-tools@example-catalog",
+            "name": "team-tools",
+            "installation_kind": "marketplace",
+            "scope": "local",
+            "project_path": "/Users/example-user/src/example-repo",
+            "marketplace_id": "market_0ef66680f36f77c50c412ba48f952dda38ca01ed0961765a40fa1fe8c5c1cd11",
+            "install_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0",
+            "manifest_format": "claude",
+            "manifest_version": "1.4.0",
+            "cache_version": "1.4.0",
+            "installed": true,
+            "files_present": true,
+            "configured_enabled": false,
+            "effective_enabled": false,
+            "enablement": [
+              {
+                "scope": "local",
+                "source_path": "/Users/example-user/src/example-repo/.claude/settings.local.json",
+                "enabled": false,
+                "project_path": "/Users/example-user/src/example-repo"
+              },
+              {
+                "scope": "user",
+                "source_path": "/Users/example-user/.claude/settings.json",
+                "enabled": true
+              }
+            ],
+            "installation_evidence": "registry",
+            "component_status": "complete",
+            "components": [],
+            "errors": []
+          },
+          {
+            "instance_id": "inst_d853340a22d21cecb1daceadb5de489007c84059f2cf4dd08605a463d8a22a3e",
+            "native_id": "team-tools@example-catalog",
+            "name": "team-tools",
+            "installation_kind": "marketplace",
+            "scope": "system",
+            "marketplace_id": "market_0ef66680f36f77c50c412ba48f952dda38ca01ed0961765a40fa1fe8c5c1cd11",
+            "install_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0",
+            "manifest_format": "claude",
+            "manifest_version": "1.4.0",
+            "cache_version": "1.4.0",
+            "installed": true,
+            "files_present": true,
+            "configured_enabled": true,
+            "enablement": [
+              {
+                "scope": "system",
+                "source_path": "/Library/Application Support/ClaudeCode/managed-settings.json",
+                "enabled": true
+              }
+            ],
+            "installation_evidence": "registry",
+            "component_status": "complete",
+            "components": [],
+            "errors": []
+          },
+          {
+            "instance_id": "inst_d7502727eb7ec81be6cca1f45b6f33de955081096218cded68233ae0a6feafee",
+            "native_id": "team-tools@community-catalog",
+            "name": "team-tools",
+            "installation_kind": "marketplace",
+            "scope": "user",
+            "marketplace_id": "market_be6d241ebc7c5c411fcd7458c6132c64d34a1362d8488c16ec0bdb7423cc8ae9",
+            "manifest_name": "tools",
+            "install_path": "/Users/example-user/.claude/plugins/cache/community-catalog/team-tools/2.0.0",
+            "manifest_path": "/Users/example-user/.claude/plugins/cache/community-catalog/team-tools/2.0.0/.claude-plugin/plugin.json",
+            "source": {
+              "kind": "git",
+              "native_kind": "git-subdir",
+              "location": "https://git.example.com/example-org/monorepo.git",
+              "subdirectory": "plugins/team-tools",
+              "requested_ref": "main",
+              "requested_sha": "fedcba9876543210fedcba9876543210fedcba98",
+              "resolved_revision": "fedcba9876543210fedcba9876543210fedcba98",
+              "sparse_paths": [
+                "plugins/team-tools"
+              ]
+            },
+            "manifest_format": "claude",
+            "manifest_version": "2.0.0",
+            "cache_version": "2.0.0",
+            "installed_at_ms": 1789510000000,
+            "last_updated_at_ms": 1789510000000,
+            "installed": true,
+            "files_present": true,
+            "configured_enabled": true,
+            "effective_enabled": true,
+            "enablement": [
+              {
+                "scope": "user",
+                "source_path": "/Users/example-user/.claude/settings.json",
+                "enabled": true
+              }
+            ],
+            "installation_evidence": "registry",
+            "component_status": "complete",
+            "components": [
+              {
+                "component_id": "comp_61fb6c84f57d4fb545b51aa7c257550551f327c1f1de978329c8c2363f4d5534",
+                "kind": "skill",
+                "name": "review",
+                "relative_path": "skills/review",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.claude/plugins/cache/community-catalog/team-tools/2.0.0/skills/review/SKILL.md",
+                "callable_names": [
+                  "tools:review"
+                ],
+                "skill": {
+                  "skill_slug": "review",
+                  "skill_name": "review",
+                  "description": "review skill",
+                  "agent": "claude-code",
+                  "source": "claude_plugin",
+                  "scope": "global",
+                  "skill_dir_path": "/Users/example-user/.claude/plugins/cache/community-catalog/team-tools/2.0.0/skills/review",
+                  "root_rel_path": "review",
+                  "skill_md_path": "/Users/example-user/.claude/plugins/cache/community-catalog/team-tools/2.0.0/skills/review/SKILL.md",
+                  "skill_md_hash": "2ad3250d3df274ad662f35a3a5ba2088fa835ba6f64629adee9b691c6b16412f",
+                  "file_count": 1,
+                  "total_size_bytes": 512,
+                  "has_frontmatter": true,
+                  "callable_names": [
+                    "tools:review"
+                  ],
+                  "usage": {
+                    "availability": "unavailable",
+                    "observed_at_ms": 1789600000000
+                  }
+                }
+              },
+              {
+                "component_id": "comp_985e33484b92d6c3b7bb563118455dca8b5fa75792edc03ca477b173d6907244",
+                "kind": "mcp",
+                "name": "team-tools",
+                "relative_path": ".mcp.json",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.claude/plugins/cache/community-catalog/team-tools/2.0.0/.mcp.json",
+                "callable_names": [],
+                "mcp_config": {
+                  "config_source": "claude_plugin",
+                  "config_path": "/Users/example-user/.claude/plugins/cache/community-catalog/team-tools/2.0.0/.mcp.json",
+                  "vendor": "Anthropic",
+                  "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7InRlYW0tdG9vbHMiOnsidXJsIjoiaHR0cHM6Ly9tY3AuZXhhbXBsZS5jb20vbWNwIn19fQ=="
+                }
+              }
+            ],
+            "errors": []
+          },
+          {
+            "instance_id": "inst_9389ac90a6c683a0803d76066c991d947cf25a93df62a4f5e7f1c6b57a914bc4",
+            "native_id": "legacy-lsp@example-catalog",
+            "name": "legacy-lsp",
+            "installation_kind": "marketplace",
+            "scope": "user",
+            "marketplace_id": "market_0ef66680f36f77c50c412ba48f952dda38ca01ed0961765a40fa1fe8c5c1cd11",
+            "install_path": "/Users/example-user/.claude/plugins/cache/example-catalog/legacy-lsp/1.0.0",
+            "source": {
+              "kind": "local",
+              "native_kind": "path",
+              "location": "plugins/legacy-lsp"
+            },
+            "manifest_format": "catalog",
+            "cache_version": "1.0.0",
+            "description": "Language server only",
+            "installed": true,
+            "files_present": true,
+            "configured_enabled": true,
+            "effective_enabled": true,
+            "enablement": [
+              {
+                "scope": "user",
+                "source_path": "/Users/example-user/.claude/settings.json",
+                "enabled": true
+              }
+            ],
+            "installation_evidence": "registry",
+            "component_status": "complete",
+            "components": [
+              {
+                "component_id": "comp_25dc47843fbafeb01601e7829ee6cbb68a12ed0cee4e9880bf03f144d6ceea15",
+                "kind": "lsp",
+                "name": "gopls",
+                "relative_path": ".",
+                "status": "complete",
+                "declaration_pointer": "/plugins/3/lspServers/gopls",
+                "callable_names": []
+              }
+            ],
+            "errors": []
+          },
+          {
+            "instance_id": "inst_5e3fccfbcfa5330ffbfbf14cdd4ddbb51452b9ee54cf0b14cf59aa0ac599f68d",
+            "native_id": "local-dev-plugin@skills-dir",
+            "name": "local-dev-plugin",
+            "installation_kind": "directory",
+            "scope": "project",
+            "project_path": "/Users/example-user/src/example-repo",
+            "manifest_name": "local-dev-plugin",
+            "install_path": "/Users/example-user/.claude/plugins/cache/skills-dir/local-dev-plugin/local",
+            "source_path": "/Users/example-user/src/example-repo/.claude/skills/local-dev-plugin",
+            "manifest_path": "/Users/example-user/src/example-repo/.claude/skills/local-dev-plugin/.claude-plugin/plugin.json",
+            "source": {
+              "kind": "local",
+              "native_kind": "directory",
+              "location": "/Users/example-user/src/example-repo/.claude/skills/local-dev-plugin"
+            },
+            "manifest_format": "claude",
+            "manifest_version": "0.1.0",
+            "installed": true,
+            "files_present": true,
+            "configured_enabled": false,
+            "effective_enabled": false,
+            "enablement": [
+              {
+                "scope": "project",
+                "source_path": "/Users/example-user/src/example-repo/.claude/settings.json",
+                "enabled": false,
+                "project_path": "/Users/example-user/src/example-repo"
+              }
+            ],
+            "installation_evidence": "skill_directory",
+            "component_status": "complete",
+            "components": [
+              {
+                "component_id": "comp_5a6e2dcf46b7bed522875d08dbcfb3297cb4c64c9210a0384e2d1e5c8503c147",
+                "kind": "skill",
+                "name": "local-dev-plugin",
+                "relative_path": ".",
+                "status": "complete",
+                "definition_path": "/Users/example-user/src/example-repo/.claude/skills/local-dev-plugin/SKILL.md",
+                "resolved_definition_path": "/Users/example-user/src/example-repo/.claude/skills/local-dev-plugin/SKILL.md",
+                "callable_names": [
+                  "local-dev-plugin:local-dev-plugin"
+                ],
+                "skill": {
+                  "skill_slug": "local-dev-plugin",
+                  "skill_name": "local-dev-plugin",
+                  "description": "local-dev-plugin skill",
+                  "agent": "claude-code",
+                  "source": "claude_plugin",
+                  "scope": "project",
+                  "skill_dir_path": "/Users/example-user/src/example-repo/.claude/skills/local-dev-plugin",
+                  "root_rel_path": "local-dev-plugin",
+                  "skill_md_path": "/Users/example-user/src/example-repo/.claude/skills/local-dev-plugin/SKILL.md",
+                  "skill_md_hash": "4f03e87034b23ca7098682c86ed1df727072fb71ee9489503d99d25bc6ac752d",
+                  "file_count": 1,
+                  "total_size_bytes": 512,
+                  "has_frontmatter": true,
+                  "project_path": "/Users/example-user/src/example-repo",
+                  "has_plugin_manifest": true,
+                  "usage": {
+                    "availability": "unavailable",
+                    "observed_at_ms": 1789600000000
+                  }
+                }
+              }
+            ],
+            "errors": []
+          },
+          {
+            "instance_id": "inst_0ee50aa49753ee65a16db9218ebcaa42a15e9c6bf387201544d5d61f938348c6",
+            "native_id": "synced-plugin@synced",
+            "name": "synced-plugin",
+            "installation_kind": "synced",
+            "scope": "user",
+            "install_path": "/Users/example-user/.claude/plugins/synced/synced-plugin@synced",
+            "manifest_path": "/Users/example-user/.claude/plugins/synced/synced-plugin@synced/.claude-plugin/plugin.json",
+            "source": {
+              "kind": "account",
+              "native_kind": "synced"
+            },
+            "manifest_format": "claude",
+            "manifest_version": "3.2.1",
+            "files_present": true,
+            "component_status": "partial",
+            "installation_evidence": "synced_directory",
+            "enablement": [],
+            "components": [
+              {
+                "component_id": "comp_80b83d694524c36af6677e46e8da65376e0b7f35dc370ccc5e6922cee73d50b3",
+                "kind": "skill",
+                "name": "notes",
+                "relative_path": "skills/notes",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.claude/plugins/synced/synced-plugin@synced/skills/notes/SKILL.md",
+                "callable_names": [
+                  "synced-plugin:notes"
+                ],
+                "skill": {
+                  "skill_slug": "notes",
+                  "skill_name": "notes",
+                  "description": "notes skill",
+                  "agent": "claude-code",
+                  "source": "claude_plugin",
+                  "scope": "global",
+                  "skill_dir_path": "/Users/example-user/.claude/plugins/synced/synced-plugin@synced/skills/notes",
+                  "root_rel_path": "notes",
+                  "skill_md_path": "/Users/example-user/.claude/plugins/synced/synced-plugin@synced/skills/notes/SKILL.md",
+                  "skill_md_hash": "51ad0d5651f3c53c11eef5546a2d906f80a34fb3f86b9c8836a53372b39b08fc",
+                  "file_count": 1,
+                  "total_size_bytes": 512,
+                  "has_frontmatter": true,
+                  "usage": {
+                    "availability": "unavailable",
+                    "observed_at_ms": 1789600000000
+                  }
+                }
+              }
+            ],
+            "errors": [
+              {
+                "code": "limit_exceeded",
+                "source_path": "/Users/example-user/.claude/plugins/synced/synced-plugin@synced/skills",
+                "instance_id": "inst_0ee50aa49753ee65a16db9218ebcaa42a15e9c6bf387201544d5d61f938348c6"
+              }
+            ]
+          },
+          {
+            "instance_id": "inst_1b204966863a95502c93f8be18fa43030a62df4e457ce66f4cf807d8e4b296b6",
+            "native_id": "npm-plugin@example-catalog",
+            "name": "npm-plugin",
+            "installation_kind": "marketplace",
+            "scope": "user",
+            "marketplace_id": "market_0ef66680f36f77c50c412ba48f952dda38ca01ed0961765a40fa1fe8c5c1cd11",
+            "install_path": "/Users/example-user/.claude/plugins/cache/example-catalog/npm-plugin/1.2.3",
+            "source": {
+              "kind": "npm",
+              "native_kind": "npm",
+              "location": "https://registry.npmjs.org",
+              "package_name": "@example-org/npm-plugin",
+              "package_version": "^1.2.0"
+            },
+            "manifest_format": "claude",
+            "manifest_version": "1.2.3",
+            "cache_version": "1.2.3",
+            "installed": true,
+            "files_present": true,
+            "installation_evidence": "registry",
+            "enablement": [],
+            "component_status": "complete",
+            "components": [],
+            "errors": []
+          },
+          {
+            "instance_id": "inst_f727772be5b9641e38b2a477ebb7a60b80bda5073578557857ee8946790e4141",
+            "native_id": "archive-plugin@example-catalog",
+            "name": "archive-plugin",
+            "installation_kind": "marketplace",
+            "scope": "user",
+            "marketplace_id": "market_0ef66680f36f77c50c412ba48f952dda38ca01ed0961765a40fa1fe8c5c1cd11",
+            "install_path": "/Users/example-user/.claude/plugins/cache/example-catalog/archive-plugin/1.5.2",
+            "source": {
+              "kind": "archive",
+              "native_kind": "archive",
+              "location": "https://example.com/archive-plugin-1.5.2.zip",
+              "integrity": "sha256-0eb3e36bfb24dcd9bb1d1bece1531216b59539a8fde17ee80224af0653c92aa3"
+            },
+            "manifest_format": "claude",
+            "manifest_version": "1.5.2",
+            "cache_version": "1.5.2",
+            "installed": true,
+            "files_present": true,
+            "installation_evidence": "registry",
+            "enablement": [],
+            "component_status": "complete",
+            "components": [],
+            "errors": []
+          },
+          {
+            "instance_id": "inst_bda2a5560850d47bf93ecff22c66d0c7eccea9cc05e4a6c57872958ca3840b86",
+            "native_id": "command-plugin@example-catalog",
+            "name": "command-plugin",
+            "installation_kind": "marketplace",
+            "scope": "user",
+            "marketplace_id": "market_0ef66680f36f77c50c412ba48f952dda38ca01ed0961765a40fa1fe8c5c1cd11",
+            "install_path": "/Users/example-user/.claude/plugins/cache/example-catalog/command-plugin/0.2.0-0776c7a735ed",
+            "source": {
+              "kind": "command",
+              "native_kind": "command",
+              "command_mode": "copy"
+            },
+            "manifest_format": "claude",
+            "manifest_version": "0.2.0",
+            "cache_version": "0.2.0-0776c7a735ed",
+            "installed": true,
+            "files_present": true,
+            "installation_evidence": "registry",
+            "enablement": [],
+            "component_status": "complete",
+            "components": [],
+            "errors": []
+          },
+          {
+            "instance_id": "inst_5cbb1561352bf67d90f8788ba9ac5fb53f654af5b4019888f426eff0eff260c7",
+            "native_id": "command-plugin-linked@example-catalog",
+            "name": "command-plugin-linked",
+            "installation_kind": "marketplace",
+            "scope": "user",
+            "marketplace_id": "market_0ef66680f36f77c50c412ba48f952dda38ca01ed0961765a40fa1fe8c5c1cd11",
+            "install_path": "/Users/example-user/.claude/plugins/cache/example-catalog/command-plugin-linked/0.2.0-4cce831ef1d2",
+            "source": {
+              "kind": "command",
+              "native_kind": "command",
+              "command_mode": "link"
+            },
+            "manifest_format": "none",
+            "cache_version": "0.2.0-4cce831ef1d2",
+            "installed": true,
+            "installation_evidence": "registry",
+            "enablement": [],
+            "component_status": "complete",
+            "components": [],
+            "errors": []
+          },
+          {
+            "instance_id": "inst_edd253cd33f3de61312806de2dedeaf1b020921be12b071e2c337e01d9341e1f",
+            "native_id": "mystery-plugin@removed-catalog",
+            "name": "mystery-plugin",
+            "installation_kind": "marketplace",
+            "scope": "user",
+            "marketplace_id": "market_a7955ae162a1e8963ba8b54b9925c8eef22c61a6533748d612a7282e223ff848",
+            "install_path": "/Users/example-user/.claude/plugins/cache/removed-catalog/mystery-plugin/9.9.9",
+            "source": {
+              "kind": "unknown",
+              "native_kind": "future-source"
+            },
+            "manifest_format": "unknown",
+            "cache_version": "9.9.9",
+            "installed": true,
+            "files_present": false,
+            "component_status": "error",
+            "installation_evidence": "registry",
+            "enablement": [],
+            "components": [],
+            "errors": [
+              {
+                "code": "read_failed",
+                "source_path": "/Users/example-user/.claude/plugins/cache/removed-catalog/mystery-plugin/9.9.9",
+                "instance_id": "inst_edd253cd33f3de61312806de2dedeaf1b020921be12b071e2c337e01d9341e1f"
+              }
+            ]
+          },
+          {
+            "instance_id": "inst_8757e076f85467f73f3d351cfb0f3956f1407d36d9aee8f7ad2e688b88e2cfb1",
+            "native_id": "legacy-entry",
+            "name": "legacy-entry",
+            "installation_kind": "unknown",
+            "scope": "unknown",
+            "install_path": "/Users/example-user/.claude/plugins/cache/legacy-entry",
+            "manifest_format": "none",
+            "installed": true,
+            "files_present": false,
+            "configured_enabled": true,
+            "enablement": [
+              {
+                "scope": "user",
+                "source_path": "/Users/example-user/.claude/settings.json",
+                "enabled": true
+              }
+            ],
+            "component_status": "unsupported",
+            "installation_evidence": "registry",
+            "components": [],
+            "errors": []
+          }
+        ],
+        "errors": [
+          {
+            "code": "unsafe_path",
+            "source_path": "/Users/example-user/.claude/plugins/marketplaces/hosted-catalog/../escape"
+          },
+          {
+            "code": "source_changed",
+            "source_path": "/Users/example-user/.claude/plugins/installed_plugins.json"
+          }
+        ]
+      },
+      {
+        "context_id": "ctx_ef95dc0d9a6ed4c9ffc467e43b74ff394a0678b78d38c5871d06da9647fddc1b",
+        "agent": "codex",
+        "config_root": "/Users/example-user/.codex",
+        "plugin_root": "/Users/example-user/.codex/plugins",
+        "agent_version": "0.154.0",
+        "marketplace_status": "complete",
+        "installation_status": "partial",
+        "marketplaces": [
+          {
+            "marketplace_id": "market_07586c6439c744decf288e98cd7c118ba2f9cd8d0e136e8a42013c5d949c4a26",
+            "name": "codex-catalog",
+            "source": {
+              "kind": "git",
+              "native_kind": "git",
+              "location": "https://github.com/example-org/example-catalog",
+              "requested_ref": "release-v1",
+              "sparse_paths": [
+                ".agents/plugins",
+                "plugins/team-tools"
+              ]
+            },
+            "catalog_path": "/Users/example-user/.codex/.tmp/marketplaces/codex-catalog",
+            "revision": "0123456789abcdef0123456789abcdef01234567",
+            "registered": true,
+            "last_refreshed_at_ms": 1789590003000
+          },
+          {
+            "marketplace_id": "market_54d0f9ce084ca6236a672421a244580b9b12ba974142014c80c089072ed2c60f",
+            "name": "local-catalog",
+            "source": {
+              "kind": "local",
+              "native_kind": "local",
+              "location": "/Users/example-user/src/local-catalog"
+            },
+            "catalog_path": "/Users/example-user/src/local-catalog",
+            "registered": true
+          }
+        ],
+        "plugins": [
+          {
+            "instance_id": "inst_9970e5ef4499d1927c1ee320fa51a4d3e3c67182686c7eda9137ee60aa436988",
+            "native_id": "team-tools@codex-catalog",
+            "name": "team-tools",
+            "installation_kind": "marketplace",
+            "scope": "user",
+            "marketplace_id": "market_07586c6439c744decf288e98cd7c118ba2f9cd8d0e136e8a42013c5d949c4a26",
+            "manifest_name": "team-tools",
+            "install_path": "/Users/example-user/.codex/plugins/cache/codex-catalog/team-tools/1.4.1",
+            "manifest_path": "/Users/example-user/.codex/plugins/cache/codex-catalog/team-tools/1.4.1/plugin.json",
+            "source": {
+              "kind": "git",
+              "native_kind": "url",
+              "location": "https://github.com/example-org/team-tools",
+              "requested_ref": "main"
+            },
+            "manifest_format": "portable",
+            "manifest_version": "1.4.0",
+            "cache_version": "1.4.1",
+            "description": "Team review and deploy helpers",
+            "publisher": "Example Org",
+            "homepage": "https://example.com/team-tools",
+            "installed": true,
+            "files_present": true,
+            "configured_enabled": true,
+            "effective_enabled": true,
+            "enablement": [
+              {
+                "scope": "user",
+                "source_path": "/Users/example-user/.codex/config.toml",
+                "enabled": true
+              }
+            ],
+            "component_status": "partial",
+            "installation_evidence": "local_config",
+            "components": [
+              {
+                "component_id": "comp_70949243957e8f8a204dc38b574a9393764e7e69b5448c9f2c7dbe2e5bf1c488",
+                "kind": "skill",
+                "name": "review",
+                "relative_path": "skills/review",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.codex/plugins/cache/codex-catalog/team-tools/1.4.1/skills/review/SKILL.md",
+                "callable_names": [
+                  "review"
+                ],
+                "skill": {
+                  "skill_slug": "review",
+                  "skill_name": "review",
+                  "description": "review skill",
+                  "agent": "codex",
+                  "source": "codex_plugin",
+                  "scope": "global",
+                  "skill_dir_path": "/Users/example-user/.codex/plugins/cache/codex-catalog/team-tools/1.4.1/skills/review",
+                  "root_rel_path": "review",
+                  "skill_md_path": "/Users/example-user/.codex/plugins/cache/codex-catalog/team-tools/1.4.1/skills/review/SKILL.md",
+                  "skill_md_hash": "5514a5bb4d29626448fb182c740e29498f8d52e3f6d946d2b283ee7ebdd39743",
+                  "file_count": 1,
+                  "total_size_bytes": 512,
+                  "has_frontmatter": true
+                }
+              },
+              {
+                "component_id": "comp_f45f00902cc1fa3402a1540f2299998a840abc6d700e939ed3b95072fbab395e",
+                "kind": "mcp",
+                "name": "team-tools",
+                "relative_path": "mcp.json",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.codex/plugins/cache/codex-catalog/team-tools/1.4.1/mcp.json",
+                "callable_names": [],
+                "mcp_config": {
+                  "config_source": "codex_plugin",
+                  "config_path": "/Users/example-user/.codex/plugins/cache/codex-catalog/team-tools/1.4.1/mcp.json",
+                  "vendor": "OpenAI",
+                  "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7InRlYW0tdG9vbHMiOnsidXJsIjoiaHR0cHM6Ly9tY3AuZXhhbXBsZS5jb20vbWNwIn19fQ=="
+                }
+              },
+              {
+                "component_id": "comp_4985f7fae733d1c4a9839e674a300f6d7272a576be820aa25ef35b574c009689",
+                "kind": "hook",
+                "name": "hooks",
+                "relative_path": ".",
+                "status": "unsupported",
+                "declaration_pointer": "/extensions/com.openai/hooks",
+                "callable_names": []
+              }
+            ],
+            "errors": [
+              {
+                "code": "unsupported_schema",
+                "source_path": "/Users/example-user/.codex/plugins/cache/codex-catalog/team-tools/1.4.1/plugin.json",
+                "instance_id": "inst_9970e5ef4499d1927c1ee320fa51a4d3e3c67182686c7eda9137ee60aa436988",
+                "component_id": "comp_4985f7fae733d1c4a9839e674a300f6d7272a576be820aa25ef35b574c009689"
+              }
+            ]
+          },
+          {
+            "instance_id": "inst_8316e90aeae0bbf197953d76f53b0476ce5d512a4f345cfe70e26cfe831df80c",
+            "native_id": "account-bundle@workspace-shared-with-me",
+            "name": "account-bundle",
+            "installation_kind": "account",
+            "scope": "user",
+            "remote_plugin_id": "Plugin_example0123456789abcdef",
+            "install_path": "/Users/example-user/.codex/plugins/cache/workspace-shared-with-me/account-bundle/0.2.0",
+            "manifest_path": "/Users/example-user/.codex/plugins/cache/workspace-shared-with-me/account-bundle/0.2.0/.codex-plugin/plugin.json",
+            "source": {
+              "kind": "account",
+              "native_kind": "remote",
+              "location": "Plugin_example0123456789abcdef"
+            },
+            "manifest_format": "codex",
+            "manifest_version": "0.2.0",
+            "cache_version": "0.2.0",
+            "publisher": "Example Org",
+            "files_present": true,
+            "configured_enabled": false,
+            "enablement": [
+              {
+                "scope": "user",
+                "source_path": "/Users/example-user/.codex/config.toml",
+                "enabled": false
+              }
+            ],
+            "installation_evidence": "remote_marker",
+            "component_status": "complete",
+            "components": [
+              {
+                "component_id": "comp_9eb58a82951497d2d42e35792004efe3c179097a6d77b7b7a2e84c2828d1f1ad",
+                "kind": "skill",
+                "name": "inventory-ack",
+                "relative_path": "skills/inventory-ack",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.codex/plugins/cache/workspace-shared-with-me/account-bundle/0.2.0/skills/inventory-ack/SKILL.md",
+                "callable_names": [
+                  "inventory-ack"
+                ],
+                "skill": {
+                  "skill_slug": "inventory-ack",
+                  "skill_name": "inventory-ack",
+                  "description": "inventory-ack skill",
+                  "agent": "codex",
+                  "source": "codex_plugin",
+                  "scope": "global",
+                  "skill_dir_path": "/Users/example-user/.codex/plugins/cache/workspace-shared-with-me/account-bundle/0.2.0/skills/inventory-ack",
+                  "root_rel_path": "inventory-ack",
+                  "skill_md_path": "/Users/example-user/.codex/plugins/cache/workspace-shared-with-me/account-bundle/0.2.0/skills/inventory-ack/SKILL.md",
+                  "skill_md_hash": "769de693bd900b14001967b673ad7b8082d285b2a0824d072aeeb196b0a9dbd9",
+                  "file_count": 1,
+                  "total_size_bytes": 512,
+                  "has_frontmatter": true
+                }
+              }
+            ],
+            "errors": []
+          },
+          {
+            "instance_id": "inst_9e334a56bc55401b414b02d968bad21837049b40429a3409292ec96b16a36a22",
+            "native_id": "cursor-compat@local-catalog",
+            "name": "cursor-compat",
+            "installation_kind": "marketplace",
+            "scope": "user",
+            "marketplace_id": "market_54d0f9ce084ca6236a672421a244580b9b12ba974142014c80c089072ed2c60f",
+            "install_path": "/Users/example-user/.codex/plugins/cache/local-catalog/cursor-compat/local",
+            "manifest_path": "/Users/example-user/.codex/plugins/cache/local-catalog/cursor-compat/local/.cursor-plugin/plugin.json",
+            "source": {
+              "kind": "local",
+              "native_kind": "local",
+              "location": "/Users/example-user/src/local-catalog/plugins/cursor-compat"
+            },
+            "manifest_format": "cursor",
+            "cache_version": "local",
+            "installed": true,
+            "files_present": true,
+            "configured_enabled": true,
+            "effective_enabled": true,
+            "enablement": [
+              {
+                "scope": "user",
+                "source_path": "/Users/example-user/.codex/config.toml",
+                "enabled": true
+              }
+            ],
+            "installation_evidence": "local_config",
+            "component_status": "complete",
+            "components": [],
+            "errors": []
+          },
+          {
+            "instance_id": "inst_ce10bd9111db34fe4d4eca735ae47f718cceff9e32442969f4c7ad1579884b8a",
+            "native_id": "npm-tools@codex-catalog",
+            "name": "npm-tools",
+            "installation_kind": "marketplace",
+            "scope": "user",
+            "marketplace_id": "market_07586c6439c744decf288e98cd7c118ba2f9cd8d0e136e8a42013c5d949c4a26",
+            "source": {
+              "kind": "npm",
+              "native_kind": "npm",
+              "location": "https://registry.example.com",
+              "package_name": "@example-org/npm-tools",
+              "package_version": "latest"
+            },
+            "installed": false,
+            "files_present": false,
+            "configured_enabled": true,
+            "enablement": [
+              {
+                "scope": "user",
+                "source_path": "/Users/example-user/.codex/config.toml",
+                "enabled": true
+              }
+            ],
+            "component_status": "error",
+            "installation_evidence": "local_config",
+            "components": [],
+            "errors": [
+              {
+                "code": "read_failed",
+                "source_path": "/Users/example-user/.codex/plugins/cache/codex-catalog/npm-tools",
+                "instance_id": "inst_ce10bd9111db34fe4d4eca735ae47f718cceff9e32442969f4c7ad1579884b8a"
+              }
+            ]
+          }
+        ],
+        "errors": [
+          {
+            "code": "parse_failed",
+            "source_path": "/Users/example-user/.codex/.tmp/marketplaces/broken-catalog/.agents/plugins/marketplace.json"
+          },
+          {
+            "code": "limit_exceeded",
+            "source_path": "/Users/example-user/.codex/plugins/cache"
+          }
+        ]
+      },
+      {
+        "context_id": "ctx_a9bfedf6bbb0e229cf61dcc621e36f77356660674fa1752c89a1e4125cd873fe",
+        "agent": "claude-code",
+        "config_root": "/custom/claude-config",
+        "plugin_root": "/custom/claude-plugins",
+        "marketplace_status": "error",
+        "installation_status": "error",
+        "marketplaces": [],
+        "plugins": [],
+        "errors": [
+          {
+            "code": "root_unresolved",
+            "source_path": "/custom/claude-plugins"
+          }
+        ]
+      },
+      {
+        "context_id": "ctx_cb747a031a7c4a727453f1dcb8192330d71838eab76341121c20f5baee8d9235",
+        "agent": "codex",
+        "config_root": "/custom/codex-home",
+        "plugin_root": "/custom/codex-home/plugins",
+        "marketplace_status": "complete",
+        "installation_status": "complete",
+        "marketplaces": [],
+        "plugins": [],
+        "errors": []
+      }
+    ]
+  },
+  "agent_skills": [
+    {
+      "skill_slug": "pdf-tools",
+      "skill_name": "pdf-tools",
+      "description": "pdf-tools skill",
+      "agent": "claude-code",
+      "source": "claude_user",
+      "scope": "global",
+      "skill_dir_path": "/Users/example-user/.claude/skills/pdf-tools",
+      "root_rel_path": "pdf-tools",
+      "skill_md_path": "/Users/example-user/.claude/skills/pdf-tools/SKILL.md",
+      "skill_md_hash": "125c5ba501a38fb6c374685c136d3747cf27e084e6c4b683cc344394203e0efa",
+      "file_count": 1,
+      "total_size_bytes": 512,
+      "has_frontmatter": true,
+      "usage": {
+        "availability": "unavailable",
+        "observed_at_ms": 1789600000000
+      }
+    },
+    {
+      "skill_slug": "review",
+      "skill_name": "review",
+      "description": "review skill",
+      "agent": "claude-code",
+      "source": "claude_project",
+      "scope": "project",
+      "skill_dir_path": "/Users/example-user/src/example-repo/.claude/skills/review",
+      "root_rel_path": "review",
+      "skill_md_path": "/Users/example-user/src/example-repo/.claude/skills/review/SKILL.md",
+      "skill_md_hash": "e08c58f182d0d5bc70069619ce6e051e6280f36dc7c357b5207a53cbf361ad37",
+      "file_count": 1,
+      "total_size_bytes": 512,
+      "has_frontmatter": true,
+      "project_path": "/Users/example-user/src/example-repo",
+      "definition_kind": "skill",
+      "usage": {
+        "availability": "available",
+        "raw_key": "review",
+        "recorded_uses": 9007199254740991,
+        "last_recorded_use_at_ms": 9007199254740991,
+        "source_id": "usage_48d5dc7c5b25ec3eb224159273e368bb9f8ba28f2978cc40ebc9705c358a98df",
+        "observed_at_ms": 1789600000000
+      }
+    },
+    {
+      "skill_slug": "deploy",
+      "skill_name": "deploy",
+      "description": "Deploy the current branch",
+      "agent": "claude-code",
+      "source": "claude_user",
+      "scope": "global",
+      "definition_kind": "command",
+      "definition_path": "/Users/example-user/.claude/commands/deploy.md",
+      "definition_hash": "8e764ec57cb2669ee922141a3c30e9fb581b128d9cd0cf5b54ebb2cedfbe5de0",
+      "callable_names": [
+        "/deploy"
+      ],
+      "has_frontmatter": true,
+      "usage": {
+        "availability": "available",
+        "raw_key": "deploy",
+        "recorded_uses": 0,
+        "source_id": "usage_48d5dc7c5b25ec3eb224159273e368bb9f8ba28f2978cc40ebc9705c358a98df",
+        "observed_at_ms": 1789600000000
+      }
+    },
+    {
+      "skill_slug": "component",
+      "skill_name": "component",
+      "agent": "claude-code",
+      "source": "claude_project",
+      "scope": "project",
+      "project_path": "/Users/example-user/src/example-repo",
+      "definition_kind": "command",
+      "definition_path": "/Users/example-user/src/example-repo/.claude/commands/frontend/component.md",
+      "definition_hash": "9812d0ef1993f3d3b35af421ae4a03d5182fdf56652e1d6246fdb9b9d6007632",
+      "callable_names": [
+        "/frontend:component"
+      ],
+      "has_frontmatter": false,
+      "frontmatter_error": "missing_name",
+      "has_shell_injection": true,
+      "usage": {
+        "availability": "unavailable",
+        "observed_at_ms": 1789600000000
+      }
+    }
+  ],
+  "agent_skill_scan": {
+    "roots_scanned": [
+      "/Users/example-user/.claude/skills",
+      "/Users/example-user/.claude/commands",
+      "/Users/example-user/src/example-repo/.claude/skills",
+      "/Users/example-user/src/example-repo/.claude/commands"
+    ],
+    "projects_scanned": 1,
+    "lock_files_parsed": 0,
+    "skills_found": 4,
+    "commands_status": "complete",
+    "duration_ms": 1234
+  }
+}

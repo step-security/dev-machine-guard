@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/model"
@@ -80,5 +81,51 @@ func TestWriteTelemetryFile_NilRuleScanOmitted(t *testing.T) {
 	}
 	if _, present := raw["rule_scan"]; present {
 		t.Error("rule_scan should be omitted when nil")
+	}
+}
+
+func TestWriteTelemetryFileAgentPlugins(t *testing.T) {
+	raw, err := os.ReadFile("../model/testdata/agent_plugins_v1_golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload Payload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload.CustomerID, payload.DeviceID = "example-customer", "example-device"
+	payload.WSLGuest = &model.WSLGuest{HostDeviceID: "example-host", DistroID: "example-distro"}
+	payload.PayloadSchemaVersion = CurrentPayloadSchemaVersion
+	payload.NodeProjectsUnchanged = []model.UnchangedProjectRef{{Path: "/example", ScanOutputHash: "sha256:example", LastUploadedExecutionID: "previous"}}
+	file := filepath.Join(t.TempDir(), "payload.json")
+	if err := writeTelemetryFile(file, &payload); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Payload
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.AgentPluginScan, payload.AgentPluginScan) || !reflect.DeepEqual(got.AgentSkills, payload.AgentSkills) || !reflect.DeepEqual(got.AgentSkillScan, payload.AgentSkillScan) {
+		t.Fatal("telemetry output lost agent plugin or skill usage fields")
+	}
+	if !reflect.DeepEqual(got.WSLGuest, payload.WSLGuest) || !reflect.DeepEqual(got.NodeProjectsUnchanged, payload.NodeProjectsUnchanged) || got.PayloadSchemaVersion != CurrentPayloadSchemaVersion {
+		t.Fatal("agent plugins changed guest or package delta fields")
+	}
+	data, err = json.Marshal(&Payload{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var empty map[string]json.RawMessage
+	if err := json.Unmarshal(data, &empty); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"agent_plugin_scan", "agent_skill_usage_scan"} {
+		if _, exists := empty[key]; exists {
+			t.Errorf("unrun section %s was emitted", key)
+		}
 	}
 }

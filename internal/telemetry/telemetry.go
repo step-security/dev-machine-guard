@@ -112,6 +112,7 @@ type Payload struct {
 	YarnAudit               *model.YarnAudit                `json:"yarn_audit,omitempty"`
 	AgentSkills             []model.AgentSkill              `json:"agent_skills,omitempty"`
 	AgentSkillScan          *model.AgentSkillScanInfo       `json:"agent_skill_scan,omitempty"`
+	AgentPluginScan         *model.AgentPluginScan          `json:"agent_plugin_scan,omitempty"`
 	CredentialScan          *model.CredentialScanInfo       `json:"credential_scan,omitempty"`
 	// Nil means the phase did not run, and that is the only signal a reader has
 	// for it: a section carrying zero findings is the positive claim that this
@@ -141,6 +142,7 @@ type PerformanceMetrics struct {
 	PythonProjectsCount   int   `json:"python_projects_count"`
 	SystemPackagesCount   int   `json:"system_packages_count"`
 	AgentSkillsCount      int   `json:"agent_skills_count"`
+	AgentPluginsCount     int   `json:"agent_plugins_count"`
 }
 
 // Run executes enterprise telemetry: scan, build payload, upload to S3.
@@ -1015,29 +1017,28 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		systemPackageScans = []model.SystemPackageScanResult{}
 	}
 
-	// AI agent skills inventory — every installed SKILL.md (metadata +
-	// content hashes only, never file content). A dedicated phase between MCP
-	// and the config audits. Pure filesystem reads bounded by an internal 60s
-	// budget and per-root caps. The node/python project roots discovered above
-	// feed per-project discovery on top of the detector's own ~/.claude.json
-	// registry. A non-nil scan info always ships (the backend "scan ran"
-	// sentinel), even when zero skills are found.
-	var agentSkills []model.AgentSkill
-	var agentSkillScan *model.AgentSkillScanInfo
-	if featuregate.IsEnabled(featuregate.FeatureAgentSkillsScan) {
-		phaseCtx, phaseCancel = startPhase(ctx, tracker, "agent_skills_scan")
-		log.Progress("Collecting AI agent skills...")
-		// userExec (not exec): match every other user-facing detector so home
-		// resolves to the logged-in user, not the SYSTEM/root profile, under an
-		// unattended enterprise deploy. The wrapper currently passes all read ops
-		// straight through, so this is convention + future-proofing, not a live fix.
-		skillsDetector := detector.NewSkillsDetector(userExec).WithSkipper(tccSkipper)
-		agentSkills, agentSkillScan = skillsDetector.Detect(phaseCtx, collectProjectRoots(nodeProjects, pythonProjects), searchDirs)
-		log.Progress("  Found %d agent skills across %d roots", len(agentSkills), len(agentSkillScan.RootsScanned))
-		fmt.Fprintln(os.Stderr)
-		endPhase(phaseCtx, phaseCancel, tracker, log, "agent_skills_scan")
-		postPhase()
+	// Collect skill and command metadata, hashes and recorded usage without
+	// uploading definition contents. Scan info remains present for empty results.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "agent_skills_scan")
+	log.Progress("Collecting AI agent skills...")
+	skillsDetector := detector.NewSkillsDetector(userExec).WithSkipper(tccSkipper).WithAgentVersions(detector.AgentVersions(cliTools))
+	skillsResult := skillsDetector.DetectSkills(phaseCtx, collectProjectRoots(nodeProjects, pythonProjects), searchDirs)
+	agentSkills, agentSkillScan := skillsResult.Skills, skillsResult.Info
+	log.Progress("  Found %d agent skills across %d roots", len(agentSkills), len(agentSkillScan.RootsScanned))
+	fmt.Fprintln(os.Stderr)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "agent_skills_scan")
+	postPhase()
+
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "agent_plugins_scan")
+	log.Progress("Collecting AI agent plugins...")
+	if err := skillsDetector.DetectPlugins(phaseCtx, &skillsResult); err != nil {
+		log.Warn("agent plugin scan failed: %v", err)
 	}
+	mcpConfigs = skillsResult.ReconcilePluginMCP(mcpConfigs)
+	log.Progress("  Found %d agent plugins", skillsResult.Plugins.PluginCount())
+	fmt.Fprintln(os.Stderr)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "agent_plugins_scan")
+	postPhase()
 
 	// Credential-location inventory — where this machine's developer tools keep
 	// credentials, and how well guarded each location is. Exact paths only, never
@@ -1236,6 +1237,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		YarnAudit:               &yarnAudit,
 		AgentSkills:             agentSkills,
 		AgentSkillScan:          agentSkillScan,
+		AgentPluginScan:         skillsResult.Plugins,
 		CredentialScan:          credentialScan,
 		BrowserExtensionScan:    browserExtensionScan,
 
@@ -1258,6 +1260,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 			PythonProjectsCount:   len(pythonProjects),
 			SystemPackagesCount:   totalSystemPackagesCount(systemPackageScans),
 			AgentSkillsCount:      len(agentSkills),
+			AgentPluginsCount:     skillsResult.Plugins.PluginCount(),
 		},
 	}
 

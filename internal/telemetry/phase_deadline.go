@@ -25,14 +25,15 @@ import (
 // "Disabled" means no per-phase deadline; the parent scan deadline
 // (STEPSEC_MAX_SCAN_DURATION) and the whole-process watchdog still apply.
 var phaseBudgets = map[string]time.Duration{
-	"scheduler_info":    15 * time.Second,
-	"device_info":       30 * time.Second,
-	"ide_scan":          2 * time.Minute,
-	"extension_scan":    2 * time.Minute,
-	"ai_tools_scan":     5 * time.Minute,
-	"mcp_config_scan":   1 * time.Minute,
-	"agent_skills_scan": 2 * time.Minute, // detector self-caps at 60s; headroom for lock parsing
-	"credentials_scan":  1 * time.Minute, // fixed-path reads plus one bounded child process
+	"scheduler_info":     15 * time.Second,
+	"device_info":        30 * time.Second,
+	"ide_scan":           2 * time.Minute,
+	"extension_scan":     2 * time.Minute,
+	"ai_tools_scan":      5 * time.Minute,
+	"mcp_config_scan":    1 * time.Minute,
+	"agent_skills_scan":  2 * time.Minute, // detector self-caps at 60s; headroom for lock parsing
+	"agent_plugins_scan": 2 * time.Minute,
+	"credentials_scan":   1 * time.Minute, // fixed-path reads plus one bounded child process
 	// Detector self-caps at 60s; headroom for profiles whose preference files
 	// reach megabytes.
 	"browser_extensions_scan": 2 * time.Minute,

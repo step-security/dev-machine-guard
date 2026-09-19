@@ -135,6 +135,19 @@ A skill reached through several roots is one record: symlinks and, on Windows, t
 
 Per skill, the scan records identity and frontmatter (name, description, version, license, allowed tools), capability flags (load-time shell execution, hooks, plugin manifest, subagent context), a stat-only file census, the `SKILL.md` hash, and — when lock-managed — upstream provenance.
 
+## Agent Plugins, Commands and Recorded Skill Use
+
+Claude Code and Codex plugin inventory runs in its own `agent_plugins_scan` phase after `agent_skills_scan`, with no feature gate. Standalone commands and recorded usage remain in the skills phase. Both phases reuse project discovery and parsed definitions, with separate deadlines and progress. Plugin collection reads native registration/configuration, selected materialized payloads and manifests. Installed, files present, configured enabled and effective enabled are separate observations; an unavailable value remains unknown. An old cache directory alone is not an installation.
+
+- **Claude Code:** scoped version-2 installation records, registered and settings-declared catalogs, visible seed roots, manifest-bearing skill directories and synced payloads. Local directory catalogs use the original source. Skills, legacy commands, MCP servers, agents, hooks, LSP servers and declared apps retain their supplying plugin.
+- **Codex:** configured local/Git marketplaces, personal and discovered-project catalogs, selected versioned store payloads and recognized account markers. Portable manifests take precedence over compatible manifests. Portable skills and MCP roots are fixed; supported apps/hooks remain descriptive metadata. Account effective enablement remains unknown.
+- **Standalone Claude commands:** user and discovered-project `commands/**/*.md` files retain their own paths and raw-byte hashes, independently of ordinary `SKILL.md` definitions.
+- **Recorded skill use:** Claude's `skillUsage` keys, cumulative counts (including zero) and native millisecond timestamps. Selected snapshots are attached to uniquely matching standalone or plugin definitions, including shared skills exposed through Claude symlinks. Ambiguous and unavailable usage is not zero; aliases and installation scopes are not summed. Unmatched counters are not uploaded separately.
+
+The collector never executes plugins, hooks, scripts, agent CLIs or network requests. MCP content uses the existing field allowlist and redaction. Plugin metadata and definition hashes are reported; instruction bodies, commands, credentials and complete settings files are not uploaded. Plugin-owned and stale-cache MCP declarations are excluded from ordinary MCP results, while unrelated MCP configurations retain existing coverage.
+
+Reads are guarded and bounded: 5 MiB metadata, 1 MiB definitions, 1,024 plugin observations, 4,096 components, 2,000 new parsed definitions, 10,000 inspected native usage counters and an 8 MiB plugin envelope. Malformed, unreadable, unsupported or truncated scopes report incomplete coverage independently. Visible `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_PLUGIN_CACHE_DIR`, `CLAUDE_CODE_PLUGIN_SEED_DIR` and `CODEX_HOME` overrides are respected; overrides hidden from the scanning process cannot be discovered. Project presence does not prove session trust or activation. Native Windows project-plugin activation and account-synced delivery lifecycle remain outside the completed fixture validation.
+
 ## IDE Extensions & Plugins
 
 ### VS Code-Family Extensions

@@ -24,7 +24,6 @@ const (
 	FeatureBunConfigAudit  Feature = "bun-config-audit"
 	FeatureYarnConfigAudit Feature = "yarn-config-audit"
 	FeatureDevicePolicy    Feature = "device-policy"
-	FeatureAgentSkillsScan Feature = "agent-skills-scan"
 	FeatureWSLDetection    Feature = "wsl-detection"
 )
 
@@ -38,7 +37,6 @@ var enabled = map[Feature]bool{
 	FeatureBunConfigAudit:  true,
 	FeatureYarnConfigAudit: true,
 	FeatureDevicePolicy:    true,
-	FeatureAgentSkillsScan: true,
 	// Safe to ship ahead of the backend: a backend that does not yet consume
 	// device.wsl ignores the unknown field and still archives the full
 	// telemetry blob.

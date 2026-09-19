@@ -314,6 +314,16 @@ func TestDetect_HomeWalkUnionDedupesWithRegistry(t *testing.T) {
 	}
 	base := build(false) // claude.json only
 	both := build(true)  // claude.json + walk, same project
+	for _, records := range [][]model.AgentSkill{base, both} {
+		for i := range records {
+			if records[i].Usage != nil {
+				if records[i].Usage.ObservedAtMs <= 0 {
+					t.Fatal("usage observation time missing")
+				}
+				records[i].Usage.ObservedAtMs = 0 // Independent scans have different timestamps.
+			}
+		}
+	}
 	if !reflect.DeepEqual(base, both) {
 		t.Errorf("registry + walk union must equal registry-only for the same project\nbase=%+v\nboth=%+v", base, both)
 	}
