@@ -1,0 +1,59 @@
+name: Fuzz
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    name: Fuzz (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        package:
+          - ./internal/detector/rules
+          - ./internal/detector
+          - ./internal/detector/configaudit
+          - ./internal/state
+          - ./internal/detector/credentials
+    env:
+      CGO_ENABLED: '0'
+      FUZZ_TIME: ${{ github.event_name == 'pull_request' && '15s' || '2m' }}
+      FUZZ_WORKERS: '2'
+      FUZZ_TIMEOUT: '5m'
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+      - name: Run bounded fuzz campaigns
+        env:
+          FUZZ_PACKAGE: ${{ matrix.package }}
+        run: bash tests/test_fuzz_go.sh "$FUZZ_PACKAGE"
+      - name: Preserve logs and minimized failures
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fuzz-failures-${{ strategy.job-index }}
+          path: |
+            fuzz-logs/
+            internal/**/testdata/fuzz/**
+          retention-days: 14
+          if-no-files-found: ignore
