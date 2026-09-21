@@ -44,3 +44,6 @@ todo-remove/
 # config.json, agent.error.log, ai-agent-hook-errors.jsonl, hooks-state.json
 # and friends here. Never artifacts we want to track.
 **/.stepsecurity/
+
+# Local fuzz campaign logs (minimized testdata/fuzz regressions stay tracked).
+fuzz-logs/
