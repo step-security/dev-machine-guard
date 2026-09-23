@@ -67,6 +67,11 @@ func TestPythonDistDetector_ScanVenv_ScopedToSitePackages(t *testing.T) {
 	mustWriteMeta(t, mock, filepath.Join(venv, "bin", "stray-1.0.0.dist-info", "METADATA"),
 		"Name: stray\nVersion: 1.0.0\n\nbody")
 
+	matches, err := filepath.Glob(filepath.Join(venv, "lib", "python*", "site-packages"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.SetGlob(filepath.Join(venv, "lib", "python*", "site-packages"), matches)
 	pkgs := NewPythonDistDetector(mock).ScanVenv(venv)
 	if len(pkgs) != 1 || pkgs[0].Name != "requests" {
 		t.Fatalf("expected only requests from site-packages, got %+v", pkgs)

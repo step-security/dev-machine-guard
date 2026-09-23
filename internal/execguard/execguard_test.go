@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 const (
@@ -242,4 +243,15 @@ func TestSafeToExec_ReasonMatchesPlatform(t *testing.T) {
 			t.Errorf("SafeToExec = (%v, %q), want (true, \"\")", safe, reason)
 		}
 	})
+}
+
+func TestSafeToExecRefusesGuardedFallback(t *testing.T) {
+	skipper := tcc.New(t.TempDir())
+	if skipper == nil {
+		t.Skip("macOS protection only")
+	}
+	exec := tcc.GuardedFiles(executor.NewMock(), skipper, 1024)
+	if safe, reason := SafeToExec(context.Background(), exec, "/usr/local/bin/example"); safe || reason != "protected-directory scanning is disabled" {
+		t.Fatalf("guarded fallback = %v, %q", safe, reason)
+	}
 }

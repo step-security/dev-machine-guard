@@ -28,7 +28,7 @@ func (e *Engine) resolveAbsolute(ctx context.Context, st *scanState) {
 			}
 			paths, err := e.exec.Glob(filepath.FromSlash(cg.raw))
 			if err != nil {
-				continue
+				rstate.incomplete = true
 			}
 			for _, p := range paths {
 				if rstate.truncated {
@@ -158,6 +158,9 @@ func (e *Engine) walkOneRoot(ctx context.Context, st *scanState, root string, id
 	cleanRoot := filepath.Clean(root)
 	err := e.walkCandidates(ctx, root, idx, func(filePath string, d fs.DirEntry, err error) error {
 		if err != nil {
+			for _, state := range st.states {
+				state.incomplete = true
+			}
 			return nil
 		}
 		if idx.activeRules == 0 {
@@ -229,7 +232,7 @@ func (e *Engine) walkCandidates(ctx context.Context, root string, idx *relativeI
 	}
 	info, err := e.exec.Stat(root)
 	if err != nil {
-		return nil
+		return visit(root, nil, err)
 	}
 	var walk func(string, fs.DirEntry) error
 	walk = func(name string, entry fs.DirEntry) error {
@@ -243,7 +246,12 @@ func (e *Engine) walkCandidates(ctx context.Context, root string, idx *relativeI
 			return nil
 		}
 		// As with WalkDir, keep any entries returned before a read error.
-		entries, _ := e.exec.ReadDir(name)
+		entries, readErr := e.exec.ReadDir(name)
+		if readErr != nil {
+			if err := visit(name, entry, readErr); err != nil {
+				return err
+			}
+		}
 		for _, child := range entries {
 			if idx.activeRules == 0 {
 				return fs.SkipAll

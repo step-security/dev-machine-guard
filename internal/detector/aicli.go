@@ -317,6 +317,7 @@ func (d *AICLIDetector) WithLogger(log *progress.Logger) *AICLIDetector {
 // everything", the same contract every walking detector honors.
 func (d *AICLIDetector) WithSkipper(skipper *tcc.Skipper) *AICLIDetector {
 	d.skipper = skipper
+	d.exec = tcc.GuardedFiles(d.exec, skipper, maxLockfileSize, "pnpm", "Application Support/fnm")
 	return d
 }
 

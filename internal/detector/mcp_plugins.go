@@ -1,7 +1,7 @@
 package detector
 
 import (
-	"os"
+	"github.com/step-security/dev-machine-guard/internal/executor"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -34,9 +34,9 @@ const maxPluginRootLookup = 8
 // per catalog entry, none of which any agent loads (issue #201). So a
 // plugin-scoped config counts only when it is the package's own .mcp.json and
 // the package is installed.
-func classifyWalkedMCPConfig(path, root string) (sourceName, vendor string, keep bool) {
+func classifyWalkedMCPConfig(exec executor.Executor, path, root string) (sourceName, vendor string, keep bool) {
 	dir := filepath.Dir(path)
-	pluginRoot, manifest, isPlugin := pluginPackageRoot(dir, root)
+	pluginRoot, manifest, isPlugin := pluginPackageRoot(exec, dir, root)
 	if !isPlugin {
 		return "discovered_mcp", mcpVendorForPath(path), true
 	}
@@ -51,11 +51,11 @@ func classifyWalkedMCPConfig(path, root string) (sourceName, vendor string, keep
 
 // pluginPackageRoot walks up from dir looking for a plugin manifest, stopping at
 // the walk root.
-func pluginPackageRoot(dir, root string) (string, mcpPluginManifest, bool) {
+func pluginPackageRoot(exec executor.Executor, dir, root string) (string, mcpPluginManifest, bool) {
 	cleanRoot := filepath.Clean(root)
 	for i := 0; i < maxPluginRootLookup; i++ {
 		for _, m := range mcpPluginManifests {
-			if info, err := os.Stat(filepath.Join(dir, m.dir, "plugin.json")); err == nil && !info.IsDir() {
+			if info, err := exec.Stat(filepath.Join(dir, m.dir, "plugin.json")); err == nil && !info.IsDir() {
 				return dir, m, true
 			}
 		}

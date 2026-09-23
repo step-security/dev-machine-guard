@@ -9,6 +9,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 	"github.com/step-security/dev-machine-guard/internal/versionmeta"
 )
 
@@ -44,6 +45,12 @@ type FrameworkDetector struct {
 
 func NewFrameworkDetector(exec executor.Executor) *FrameworkDetector {
 	return &FrameworkDetector{exec: exec, log: progress.NewNoop()}
+}
+
+// WithSkipper protects static metadata and suppresses command fallbacks.
+func (d *FrameworkDetector) WithSkipper(s *tcc.Skipper) *FrameworkDetector {
+	d.exec = tcc.GuardedFiles(d.exec, s, maxLockfileSize)
+	return d
 }
 
 // WithLogger injects a logger (used to surface exec fallbacks when metadata

@@ -8,6 +8,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 type ideExtensionSpec struct {
@@ -163,4 +164,10 @@ func (d *ExtensionDetector) loadObsolete(extDir string) map[string]bool {
 		return nil
 	}
 	return obsoleteMap
+}
+
+// WithSkipper protects direct and redirected inventory reads.
+func (d *ExtensionDetector) WithSkipper(s *tcc.Skipper) *ExtensionDetector {
+	d.exec = tcc.GuardedFiles(d.exec, s, maxLockfileSize, "Application Support/JetBrains", "Application Support/Google/AndroidStudio*")
+	return d
 }

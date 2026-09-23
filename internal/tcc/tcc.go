@@ -69,6 +69,7 @@ func SkipNetworkVolumes(override *bool) bool {
 // Hits are tracked so callers can prove from logs which protected paths
 // were actually encountered during the walks.
 type Skipper struct {
+	home     string
 	paths    map[string]struct{}
 	prefixes []string
 	volumes  []string
@@ -83,6 +84,7 @@ type Skipper struct {
 // the agent runs without a console user.
 func New(home string) *Skipper {
 	return &Skipper{
+		home:     home,
 		paths:    buildProtectedPaths(home),
 		prefixes: protectedPrefixes(),
 	}
@@ -109,7 +111,7 @@ func build(home string, protected bool, mounts []string) *Skipper {
 	if !protected && len(mounts) == 0 {
 		return nil
 	}
-	s := &Skipper{volumes: mounts}
+	s := &Skipper{home: home, volumes: mounts}
 	if protected {
 		s.paths = buildProtectedPaths(home)
 		s.prefixes = protectedPrefixes()
@@ -171,19 +173,19 @@ func (s *Skipper) WithinProtected(path string) bool {
 	if s == nil {
 		return false
 	}
-	cleaned := filepath.Clean(path)
+	cleaned := canonicalProtectionPath(path)
 	for p := range s.paths {
 		// Home-anchored protected dirs match on equality or a "/" boundary only.
 		// hasPathPrefix (used for the prefixes below) also treats "." as a
 		// boundary, which is correct for Time Machine names but here would let
 		// ~/Documents swallow a sibling like ~/Documents.backup.
-		if hasDirPrefix(cleaned, p) {
+		if hasDirPrefix(cleaned, canonicalProtectionPath(p)) {
 			s.recordHit(p)
 			return true
 		}
 	}
 	for _, p := range s.prefixes {
-		if hasPathPrefix(cleaned, p) {
+		if hasPathPrefix(cleaned, canonicalProtectionPath(p)) {
 			s.recordHit(p)
 			return true
 		}
@@ -197,7 +199,7 @@ func (s *Skipper) WithinProtected(path string) bool {
 // this is a no-op loop on the default path.
 func (s *Skipper) withinNetworkVolume(cleaned string) bool {
 	for _, v := range s.volumes {
-		if hasDirPrefix(cleaned, v) {
+		if hasDirPrefix(canonicalProtectionPath(cleaned), canonicalProtectionPath(v)) {
 			s.recordHit(v)
 			return true
 		}

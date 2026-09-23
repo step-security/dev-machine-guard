@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/user"
 	"strings"
@@ -256,3 +257,9 @@ func (e *UserAwareExecutor) IsAppleCLTStub(ctx context.Context, binPath string) 
 func (e *UserAwareExecutor) DiskCapacityBytes(path string) uint64 {
 	return e.inner.DiskCapacityBytes(path)
 }
+
+func (e *UserAwareExecutor) WalkDir(root string, fn fs.WalkDirFunc) error {
+	return e.inner.WalkDir(root, fn)
+}
+
+func (e *UserAwareExecutor) Open(path string) (*os.File, error) { return e.inner.Open(path) }

@@ -35,6 +35,7 @@ func NewPythonProjectDetector(exec executor.Executor) *PythonProjectDetector {
 // directories. A nil skipper is a no-op. Returns the detector for chaining.
 func (d *PythonProjectDetector) WithSkipper(s *tcc.Skipper) *PythonProjectDetector {
 	d.skipper = s
+	d.exec = tcc.GuardedFiles(d.exec, s, maxLockfileSize, "Python")
 	return d
 }
 
@@ -246,7 +247,7 @@ var pythonPMFromMarker = map[string]string{
 // reorder via state before any pip list is run.
 func (d *PythonProjectDetector) discoverInDir(dir string) []venvCandidate {
 	var found []venvCandidate
-	_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+	_ = d.exec.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}

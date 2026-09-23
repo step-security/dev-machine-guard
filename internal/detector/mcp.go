@@ -64,6 +64,7 @@ func NewMCPDetector(exec executor.Executor) *MCPDetector {
 // for chaining.
 func (d *MCPDetector) WithSkipper(s *tcc.Skipper) *MCPDetector {
 	d.skipper = s
+	d.exec = tcc.GuardedFiles(d.exec, s, maxLockfileSize, "Application Support/Claude/claude_desktop_config.json", "Application Support/Code/User/mcp.json", "Application Support/Code - Insiders/User/mcp.json", "Application Support/Cursor/User/mcp.json", "Application Support/Windsurf/User/mcp.json", "Application Support/VSCodium/User/mcp.json")
 	return d
 }
 

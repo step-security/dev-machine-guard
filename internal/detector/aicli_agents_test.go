@@ -3051,3 +3051,8 @@ func TestAICLIAgents2_EmptyFixture(t *testing.T) {
 		})
 	}
 }
+
+// Keep the recording mock attached when production selects a guarded reader.
+func (r *recExec) GuardedFiles(_ []string, _ func(string) string, _ int64) executor.Executor {
+	return r
+}

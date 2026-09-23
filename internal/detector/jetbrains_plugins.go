@@ -223,7 +223,7 @@ func (d *ExtensionDetector) readPluginXMLFromJars(pluginDir string) []byte {
 			continue
 		}
 		jarPath := filepath.Join(libDir, entry.Name())
-		data := readFileFromZip(jarPath, "META-INF/plugin.xml")
+		data := d.readFileFromZip(jarPath, "META-INF/plugin.xml")
 		if data != nil {
 			return data
 		}
@@ -232,12 +232,20 @@ func (d *ExtensionDetector) readPluginXMLFromJars(pluginDir string) []byte {
 }
 
 // readFileFromZip extracts a single file from a zip/jar archive.
-func readFileFromZip(zipPath, targetFile string) []byte {
-	r, err := zip.OpenReader(zipPath)
+func (d *ExtensionDetector) readFileFromZip(zipPath, targetFile string) []byte {
+	file, err := d.exec.Open(zipPath)
 	if err != nil {
 		return nil
 	}
-	defer func() { _ = r.Close() }()
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil
+	}
+	r, err := zip.NewReader(file, info.Size())
+	if err != nil {
+		return nil
+	}
 
 	for _, f := range r.File {
 		if f.Name == targetFile {
@@ -246,7 +254,7 @@ func readFileFromZip(zipPath, targetFile string) []byte {
 				return nil
 			}
 			defer func() { _ = rc.Close() }()
-			data, err := io.ReadAll(rc)
+			data, err := io.ReadAll(io.LimitReader(rc, 1<<20))
 			if err != nil {
 				return nil
 			}

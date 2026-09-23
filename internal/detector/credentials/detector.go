@@ -376,7 +376,7 @@ func (d *Detector) buildFinding(ctx context.Context, scan *scanState, s source, 
 		finding.BroadReadAllowACEPresent = broadReadAllowACE(resolved)
 	}
 	finding.InGitRepo = scan.inGitRepo(resolved)
-	if finding.InGitRepo {
+	if finding.InGitRepo && !tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
 		finding.GitTracked = gitTracked(ctx, d.exec, resolved)
 	}
 	return finding

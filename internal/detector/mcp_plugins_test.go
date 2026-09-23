@@ -1,6 +1,7 @@
 package detector
 
 import (
+	"github.com/step-security/dev-machine-guard/internal/executor"
 	"path/filepath"
 	"testing"
 )
@@ -36,7 +37,7 @@ func TestDiscoverWalkedMCPConfigs_PluginPackages(t *testing.T) {
 	// Ordinary project config, no plugin manifest anywhere above it.
 	project := writeFile(t, root, "proj/.mcp.json")
 
-	d := &MCPDetector{}
+	d := NewMCPDetector(executor.NewReal())
 	got := gotSpecMap(d.discoverWalkedMCPConfigs([]string{root}, ""))
 
 	for _, p := range []string{catalogClaude, catalogCodex, vendored} {
@@ -66,7 +67,7 @@ func TestDiscoverWalkedMCPConfigs_CodexInstalledPlugin(t *testing.T) {
 	writeFile(t, root, ".codex/plugins/cache/openai-curated-remote/github/.codex-plugin/plugin.json")
 	installed := writeFile(t, root, ".codex/plugins/cache/openai-curated-remote/github/.mcp.json")
 
-	d := &MCPDetector{}
+	d := NewMCPDetector(executor.NewReal())
 	got := gotSpecMap(d.discoverWalkedMCPConfigs([]string{root}, ""))
 
 	s, ok := got[installed]
@@ -85,7 +86,7 @@ func TestPluginPackageRoot_NestedAndBounded(t *testing.T) {
 	writeFile(t, root, "pkg/.claude-plugin/plugin.json")
 	nested := writeFile(t, root, "pkg/config/deep/mcp.json")
 
-	pluginRoot, manifest, ok := pluginPackageRoot(filepath.Dir(nested), root)
+	pluginRoot, manifest, ok := pluginPackageRoot(executor.NewReal(), filepath.Dir(nested), root)
 	if !ok {
 		t.Fatal("expected to find package root")
 	}
@@ -96,7 +97,7 @@ func TestPluginPackageRoot_NestedAndBounded(t *testing.T) {
 		t.Errorf("manifest = %q, want claude_plugin", manifest.sourceName)
 	}
 
-	if _, _, ok := pluginPackageRoot(filepath.Join(root, "other"), root); ok {
+	if _, _, ok := pluginPackageRoot(executor.NewReal(), filepath.Join(root, "other"), root); ok {
 		t.Error("expected no package root outside a plugin package")
 	}
 }

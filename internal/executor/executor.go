@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/user"
@@ -20,7 +21,7 @@ import (
 // Executor defines the interface for all OS interactions.
 // Every detector depends on this interface, enabling full unit-test coverage via mocks.
 type Executor interface {
-	// GuardedFiles restricts ReadFile, ReadDir, Stat and EvalSymlinks to roots
+	// GuardedFiles restricts filesystem reads, existence checks and Glob to roots
 	// and guard. Other operations retain their original behavior.
 	GuardedFiles(roots []string, guard func(string) string, maxReadBytes int64) Executor
 	// Run executes a command and returns stdout, stderr, and exit code.
@@ -45,6 +46,8 @@ type Executor interface {
 	FileExists(path string) bool
 	// DirExists checks if a directory exists.
 	DirExists(path string) bool
+	// Open opens a file read-only. The caller must close it.
+	Open(path string) (*os.File, error)
 	// ReadFile reads a file's contents.
 	ReadFile(path string) ([]byte, error)
 	// ReadDir lists directory entries.
@@ -61,6 +64,8 @@ type Executor interface {
 	CurrentUser() (*user.User, error)
 	// HomeDir returns the home directory for a given username.
 	HomeDir(username string) (string, error)
+	// WalkDir walks without following directory entries that are symlinks.
+	WalkDir(root string, fn fs.WalkDirFunc) error
 	// Glob returns filenames matching a pattern.
 	Glob(pattern string) ([]string, error)
 	// EvalSymlinks resolves symbolic links in a path. Returns the resolved
@@ -105,6 +110,23 @@ type guardedFiles struct {
 	Executor
 	resolver     *safepath.Reader
 	maxReadBytes int64
+}
+
+func (g *guardedFiles) FileExists(path string) bool {
+	info, err := g.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func (g *guardedFiles) DirExists(path string) bool {
+	info, err := g.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+func (g *guardedFiles) Readlink(path string) (string, error) {
+	if _, err := g.resolver.Resolve(path); err != nil {
+		return "", err
+	}
+	return g.Executor.Readlink(path)
 }
 
 func (g *guardedFiles) EvalSymlinks(path string) (string, error) {
@@ -372,3 +394,11 @@ func HardenCommand(cmd *exec.Cmd) {
 	winproc.HideWindow(cmd)
 	setupKillgroupOnCancel(cmd)
 }
+
+func (r *Real) WalkDir(root string, fn fs.WalkDirFunc) error { return filepath.WalkDir(root, fn) }
+
+func (r *Real) Open(path string) (*os.File, error) {
+	// #nosec G304 -- OS boundary; protected scanners use guardedFiles.Open.
+	return os.Open(path)
+}
+func (g *guardedFiles) Open(path string) (*os.File, error) { return g.resolver.Open(path) }

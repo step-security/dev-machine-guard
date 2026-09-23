@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -503,4 +504,13 @@ func (e *mockDirEntry) Type() os.FileMode {
 }
 func (e *mockDirEntry) Info() (os.FileInfo, error) {
 	return &mockFileInfo{name: e.name, dir: e.dir}, nil
+}
+
+// WalkDir retains the real fixture walks used by detector tests.
+func (m *Mock) WalkDir(root string, fn fs.WalkDirFunc) error { return filepath.WalkDir(root, fn) }
+
+// Open supports real ZIP fixtures; mocked metadata uses ReadFile.
+func (m *Mock) Open(path string) (*os.File, error) {
+	// #nosec G304 -- Only used for test-owned archive fixtures.
+	return os.Open(path)
 }

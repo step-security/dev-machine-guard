@@ -37,13 +37,6 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	// Resolve search directories
 	searchDirs := resolveSearchDirs(exec, cfg.SearchDirs)
 	log.Debug("search directories resolved: %v", searchDirs)
-	for _, d := range searchDirs {
-		if info, err := os.Stat(d); err != nil {
-			log.Warn("search directory %q is not accessible: %v — it will be skipped", d, err)
-		} else if !info.IsDir() {
-			log.Warn("search directory %q is not a directory — it will be skipped", d)
-		}
-	}
 
 	// Build the TCC skipper so directory walks avoid macOS-protected dirs
 	// (Documents, Downloads, ~/Library/Mail, ...) and don't trigger system
@@ -51,6 +44,15 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	// network volumes are walked (the default); every Skipper method is
 	// nil-safe so downstream callers don't branch.
 	tccSkipper := tcc.ForRun(executor.ResolveHome(exec), cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes)
+	rootReader := tcc.GuardedFiles(exec, tccSkipper, 64<<20)
+	for _, d := range searchDirs {
+		if info, err := rootReader.Stat(d); err != nil {
+			log.Warn("search directory %q is not accessible: %v, it will be skipped", d, err)
+		} else if !info.IsDir() {
+			log.Warn("search directory %q is not a directory, it will be skipped", d)
+		}
+	}
+
 	if cands := tccSkipper.Candidates(); len(cands) > 0 {
 		log.Warn("macOS TCC: skipping %d protected dirs (Documents, Downloads, ~/Library/Mail, ...) to avoid permission prompts. Pass --include-tcc-protected to scan them.", len(cands))
 		log.Debug("tcc skip list: %v", cands)
@@ -78,7 +80,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	// Detect IDE installations
 	log.StepStart("Detecting IDE installations")
 	start = time.Now()
-	ideDetector := detector.NewIDEDetector(exec)
+	ideDetector := detector.NewIDEDetector(exec).WithSkipper(tccSkipper)
 	ides := ideDetector.Detect(ctx)
 	log.StepDone(time.Since(start))
 
@@ -87,9 +89,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	start = time.Now()
 	cliDetector := detector.NewAICLIDetector(exec).WithLogger(log).WithSkipper(tccSkipper)
 	cliTools := cliDetector.Detect(ctx)
-	agentDetector := detector.NewAgentDetector(exec).WithLogger(log)
+	agentDetector := detector.NewAgentDetector(exec).WithSkipper(tccSkipper).WithLogger(log)
 	agents := agentDetector.Detect(ctx, searchDirs)
-	fwDetector := detector.NewFrameworkDetector(exec).WithLogger(log)
+	fwDetector := detector.NewFrameworkDetector(exec).WithLogger(log).WithSkipper(tccSkipper)
 	frameworks := fwDetector.Detect(ctx)
 	aiTools := mergeAITools(cliTools, agents, frameworks)
 	log.StepDone(time.Since(start))
@@ -104,11 +106,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	// Collect IDE extensions
 	log.StepStart("Collecting IDE extensions")
 	start = time.Now()
-	extDetector := detector.NewExtensionDetector(exec)
+	extDetector := detector.NewExtensionDetector(exec).WithSkipper(tccSkipper)
 	extensions := extDetector.Detect(ctx, searchDirs, ides)
 
 	// Collect JetBrains plugins
-	jbDetector := detector.NewJetBrainsPluginDetector(exec)
+	jbDetector := detector.NewJetBrainsPluginDetector(exec).WithSkipper(tccSkipper)
 	jbPlugins := jbDetector.Detect(ctx, ides)
 	extensions = append(extensions, jbPlugins...)
 
@@ -138,14 +140,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	if npmEnabled {
 		log.StepStart("Detecting package managers")
 		start = time.Now()
-		npmDetector := detector.NewNodePMDetector(exec).WithLogger(log)
+		npmDetector := detector.NewNodePMDetector(exec).WithSkipper(tccSkipper).WithLogger(log)
 		pkgManagers = npmDetector.DetectManagers(ctx)
 		log.StepDone(time.Since(start))
 
 		log.StepStart("Scanning Node.js projects")
 		start = time.Now()
 		projectDetector := detector.NewNodeProjectDetector(exec).WithSkipper(tccSkipper)
-		if !config.UseLegacyNodeScan {
+		if !config.UseLegacyNodeScan || tcc.ProtectedReadsDisabled(exec, tccSkipper) {
 			projectDetector = projectDetector.WithDiskScan(
 				detector.NewNodeDistDetector(exec).WithSkipper(tccSkipper).WithLogger(log))
 		}
@@ -230,13 +232,13 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	if pythonEnabled {
 		log.StepStart("Detecting Python package managers")
 		start = time.Now()
-		pyDetector := detector.NewPythonPMDetector(exec).WithLogger(log)
+		pyDetector := detector.NewPythonPMDetector(exec).WithSkipper(tccSkipper).WithLogger(log)
 		pythonPkgManagers = pyDetector.DetectManagers(ctx)
 		log.StepDone(time.Since(start))
 
 		log.StepStart("Listing Python packages")
 		start = time.Now()
-		if config.UseLegacyPythonScan {
+		if config.UseLegacyPythonScan && !tcc.ProtectedReadsDisabled(exec, tccSkipper) {
 			pythonPackages = pyDetector.ListPackages(ctx)
 		} else {
 			pythonPackages = detector.NewPythonDistDetector(exec).WithSkipper(tccSkipper).WithLogger(log).ScanGlobalPackages()
@@ -246,7 +248,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		log.StepStart("Scanning Python projects")
 		start = time.Now()
 		pyProjectDetector := detector.NewPythonProjectDetector(exec).WithSkipper(tccSkipper).WithLogger(log)
-		if !config.UseLegacyPythonScan {
+		if !config.UseLegacyPythonScan || tcc.ProtectedReadsDisabled(exec, tccSkipper) {
 			pyProjectDetector = pyProjectDetector.WithDiskScan(
 				detector.NewPythonDistDetector(exec).WithSkipper(tccSkipper).WithLogger(log))
 		}
@@ -315,7 +317,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	if featuregate.IsEnabled(featuregate.FeaturePipConfigAudit) {
 		log.StepStart("Auditing pip configuration")
 		start = time.Now()
-		pipAudit = configaudit.NewPipConfigDetector(exec).Detect(ctx, loggedInUser)
+		pipAudit = configaudit.NewPipConfigDetector(exec).WithSkipper(tccSkipper).Detect(ctx, loggedInUser)
 		log.StepDone(time.Since(start))
 	}
 

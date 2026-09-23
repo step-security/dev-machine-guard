@@ -17,6 +17,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/tcc"
+	"github.com/step-security/dev-machine-guard/internal/versionmeta"
 )
 
 // maxNPMRCFiles caps the number of .npmrc files we report. Even on big
@@ -82,6 +83,13 @@ func NewNPMRCDetector(exec executor.Executor) *NPMRCDetector {
 // directories. A nil skipper is a no-op. Returns the detector for chaining.
 func (d *NPMRCDetector) WithSkipper(s *tcc.Skipper) *NPMRCDetector {
 	d.skipper = s
+	d.exec = tcc.GuardedFiles(d.exec, s, maxConfigFileSize)
+	if tcc.ProtectedReadsDisabled(d.exec, s) {
+		d.ownerLookup = guardedOwner(d.exec)
+		d.inGitRepo = guardedInGitRepo(d.exec)
+		// Git loads user-controlled config and includes in its own process.
+		d.gitTracked = nil
+	}
 	return d
 }
 
@@ -170,7 +178,7 @@ func (d *NPMRCDetector) findProjectNPMRCs(dir string) []string {
 		return nil
 	}
 	var results []string
-	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+	_ = d.exec.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -228,7 +236,7 @@ func (d *NPMRCDetector) collectFile(ctx context.Context, path, scope string) mod
 	}
 
 	// Lstat first so a symlink doesn't get followed silently.
-	linfo, err := os.Lstat(path)
+	linfo, err := auditLstat(d.exec, d.skipper, path)
 	if err != nil {
 		// Distinguish "not found" from "not readable" so the user can act.
 		if os.IsNotExist(err) {
@@ -241,14 +249,14 @@ func (d *NPMRCDetector) collectFile(ctx context.Context, path, scope string) mod
 	}
 	f.Exists = true
 
-	if linfo.Mode()&os.ModeSymlink != 0 {
-		if target, err := os.Readlink(path); err == nil {
+	if linfo.Mode()&os.ModeSymlink != 0 || tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
+		if target, err := d.exec.Readlink(path); err == nil {
 			f.SymlinkTo = target
 		}
 	}
 
 	// Stat (follows symlinks) for size/mtime/mode.
-	info, err := os.Stat(path)
+	info, err := auditStat(d.exec, d.skipper, path)
 	if err != nil {
 		f.Readable = false
 		f.ParseError = "stat: " + err.Error()
@@ -275,7 +283,7 @@ func (d *NPMRCDetector) collectFile(ctx context.Context, path, scope string) mod
 	// #nosec G304 -- path comes from the detector's own candidate
 	// enumeration of well-known npmrc locations (built-in/global/user/
 	// project); not from external input.
-	data, err := os.ReadFile(path)
+	data, err := auditReadFile(d.exec, d.skipper, path)
 	if err != nil {
 		f.Readable = false
 		f.ParseError = "read: " + err.Error()
@@ -301,6 +309,9 @@ func (d *NPMRCDetector) collectFile(ctx context.Context, path, scope string) mod
 // captureEffective runs `npm config ls -l --json` and `npm config ls -l` for
 // source attribution. Returns nil when npm is unavailable.
 func (d *NPMRCDetector) captureEffective(ctx context.Context) *model.NPMRCEffective {
+	if tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
+		return &model.NPMRCEffective{Error: protectedCommandReason}
+	}
 	if _, err := d.exec.LookPath("npm"); err != nil {
 		return nil
 	}
@@ -371,6 +382,14 @@ func parseSourceAttribution(text string) map[string]string {
 
 // npmVersion returns the npm CLI's version string, "unknown" on failure.
 func (d *NPMRCDetector) npmVersion(ctx context.Context) string {
+	if tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
+		if path, err := d.exec.LookPath("npm"); err == nil {
+			if v := versionmeta.FromBinary(ctx, d.exec, path); v != "" {
+				return v
+			}
+		}
+		return "unknown"
+	}
 	stdout, _, exit, _ := d.exec.RunWithTimeout(ctx, 5*time.Second, "npm", "--version")
 	if exit != 0 {
 		return "unknown"
@@ -386,6 +405,9 @@ func (d *NPMRCDetector) npmVersion(ctx context.Context) string {
 // empty if the call failed or the value is "undefined" (npm's literal output
 // for an unset key).
 func (d *NPMRCDetector) npmConfigGet(ctx context.Context, key string) string {
+	if tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
+		return ""
+	}
 	stdout, _, exit, _ := d.exec.RunWithTimeout(ctx, 5*time.Second, "npm", "config", "get", key)
 	if exit != 0 {
 		return ""

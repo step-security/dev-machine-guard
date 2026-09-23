@@ -16,6 +16,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/tcc"
+	"github.com/step-security/dev-machine-guard/internal/versionmeta"
 )
 
 // pnpmEnvVars: pnpm-specific names plus the npm_config_* lowercase variants
@@ -63,6 +64,13 @@ func NewPnpmDetector(exec executor.Executor) *PnpmDetector {
 // directories. nil is a no-op. Returns the detector for chaining.
 func (d *PnpmDetector) WithSkipper(s *tcc.Skipper) *PnpmDetector {
 	d.skipper = s
+	d.exec = tcc.GuardedFiles(d.exec, s, maxConfigFileSize)
+	if tcc.ProtectedReadsDisabled(d.exec, s) {
+		d.ownerLookup = guardedOwner(d.exec)
+		d.inGitRepo = guardedInGitRepo(d.exec)
+		// Git loads user-controlled config and includes in its own process.
+		d.gitTracked = nil
+	}
 	return d
 }
 
@@ -131,7 +139,7 @@ func (d *PnpmDetector) findProjectNPMRCs(dir string) []string {
 		return nil
 	}
 	var results []string
-	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+	_ = d.exec.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -161,7 +169,7 @@ func (d *PnpmDetector) findProjectNPMRCs(dir string) []string {
 func (d *PnpmDetector) collectFile(ctx context.Context, path, scope string) model.NPMRCFile {
 	f := model.NPMRCFile{Path: path, Scope: scope}
 
-	linfo, err := os.Lstat(path)
+	linfo, err := auditLstat(d.exec, d.skipper, path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			f.Exists = false
@@ -173,13 +181,13 @@ func (d *PnpmDetector) collectFile(ctx context.Context, path, scope string) mode
 	}
 	f.Exists = true
 
-	if linfo.Mode()&os.ModeSymlink != 0 {
-		if target, err := os.Readlink(path); err == nil {
+	if linfo.Mode()&os.ModeSymlink != 0 || tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
+		if target, err := d.exec.Readlink(path); err == nil {
 			f.SymlinkTo = target
 		}
 	}
 
-	info, err := os.Stat(path)
+	info, err := auditStat(d.exec, d.skipper, path)
 	if err != nil {
 		f.Readable = false
 		f.ParseError = "stat: " + err.Error()
@@ -205,7 +213,7 @@ func (d *PnpmDetector) collectFile(ctx context.Context, path, scope string) mode
 
 	// #nosec G304 -- path comes from the detector's own candidate enumeration
 	// of well-known npmrc locations; not external input.
-	data, err := os.ReadFile(path)
+	data, err := auditReadFile(d.exec, d.skipper, path)
 	if err != nil {
 		f.Readable = false
 		f.ParseError = "read: " + err.Error()
@@ -229,6 +237,9 @@ func (d *PnpmDetector) collectFile(ctx context.Context, path, scope string) mode
 // captureEffective runs `pnpm config list --json`. SourceByKey stays empty —
 // pnpm doesn't emit per-key source attribution like `npm config ls -l` does.
 func (d *PnpmDetector) captureEffective(ctx context.Context) *model.PnpmEffective {
+	if tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
+		return &model.PnpmEffective{Error: protectedCommandReason}
+	}
 	eff := &model.PnpmEffective{
 		SourceByKey: map[string]string{},
 		Config:      map[string]any{},
@@ -249,6 +260,14 @@ func (d *PnpmDetector) captureEffective(ctx context.Context) *model.PnpmEffectiv
 
 // pnpmVersion returns the pnpm CLI's version string, "unknown" on failure.
 func (d *PnpmDetector) pnpmVersion(ctx context.Context) string {
+	if tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
+		if path, err := d.exec.LookPath("pnpm"); err == nil {
+			if v := versionmeta.FromBinary(ctx, d.exec, path); v != "" {
+				return v
+			}
+		}
+		return "unknown"
+	}
 	stdout, _, exit, _ := d.exec.RunWithTimeout(ctx, 5*time.Second, "pnpm", "--version")
 	if exit != 0 {
 		return "unknown"
@@ -263,6 +282,9 @@ func (d *PnpmDetector) pnpmVersion(ctx context.Context) string {
 // pnpmConfigGet runs `pnpm config get <key>` and returns the trimmed value,
 // or empty if the call failed or the value is pnpm's literal "undefined".
 func (d *PnpmDetector) pnpmConfigGet(ctx context.Context, key string) string {
+	if tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
+		return ""
+	}
 	stdout, _, exit, _ := d.exec.RunWithTimeout(ctx, 5*time.Second, "pnpm", "config", "get", key)
 	if exit != 0 {
 		return ""

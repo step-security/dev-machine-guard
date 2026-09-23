@@ -11,6 +11,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 	"github.com/step-security/dev-machine-guard/internal/versionmeta"
 )
 
@@ -62,6 +63,8 @@ func (d *PythonPMDetector) DetectManagers(ctx context.Context) []model.PkgManage
 		// layouts carry the version in the install path.
 		if v := versionmeta.FromBinary(ctx, d.exec, path); v != "" {
 			version = v
+		} else if tcc.HasGuard(d.exec) {
+			// Preserve detection with an unknown version when executing could load protected config.
 		} else if safe, reason := execguard.SafeToExec(ctx, d.exec, path); !safe {
 			d.log.Warn("skipping %s version probe: %s", path, reason)
 		} else {
@@ -143,4 +146,9 @@ func parsePythonVersion(name, stdout string) string {
 		return match
 	}
 	return strings.TrimSpace(line)
+}
+
+func (d *PythonPMDetector) WithSkipper(s *tcc.Skipper) *PythonPMDetector {
+	d.exec = tcc.GuardedFiles(d.exec, s, maxLockfileSize, "Python")
+	return d
 }

@@ -134,7 +134,7 @@ func (d *MCPDetector) discoverWalkedMCPConfigs(searchDirs []string, homeDir stri
 		if root == "" || filesVisited > maxMCPWalkFiles {
 			continue
 		}
-		_ = filepath.WalkDir(root, func(path string, ent fs.DirEntry, err error) error {
+		_ = d.exec.WalkDir(root, func(path string, ent fs.DirEntry, err error) error {
 			if err != nil {
 				// Unreadable dir: skip its subtree, continue elsewhere.
 				if ent != nil && ent.IsDir() {
@@ -164,7 +164,7 @@ func (d *MCPDetector) discoverWalkedMCPConfigs(searchDirs []string, homeDir stri
 				c := filepath.Clean(path)
 				if !seen[c] {
 					seen[c] = true
-					if source, vendor, keep := classifyWalkedMCPConfig(c, root); keep {
+					if source, vendor, keep := classifyWalkedMCPConfig(d.exec, c, root); keep {
 						specs = append(specs, mcpConfigSpec{
 							SourceName: source,
 							ConfigPath: c,

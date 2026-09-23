@@ -109,6 +109,7 @@ func (s *NodeScanner) binaryAvailable(ctx context.Context, name string) error {
 // macOS-protected directories. A nil skipper is a no-op.
 func (s *NodeScanner) WithSkipper(skipper *tcc.Skipper) *NodeScanner {
 	s.skipper = skipper
+	s.exec = tcc.GuardedFiles(s.exec, skipper, maxLockfileSize, "pnpm", "Application Support/fnm")
 	return s
 }
 
@@ -435,7 +436,7 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string, kno
 	var projects []projectEntry
 	for _, dir := range searchDirs {
 		s.log.Progress("  Searching in: %s", dir)
-		_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		_ = s.exec.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
 			if err != nil {
 				return nil
 			}
@@ -767,7 +768,11 @@ func (s *NodeScanner) scanProject(ctx context.Context, projectDir, pm string) (m
 // (the backend reads Packages directly), and PMVersion is omitted — resolving
 // it would mean running the binary we are deliberately not invoking.
 func (s *NodeScanner) scanProjectFromDisk(projectDir, pm string) (model.NodeScanResult, bool) {
-	pkgs := s.dist.ScanProject(projectDir, pm)
+	dist := *s.dist
+	pkgs := dist.ScanProject(projectDir, pm)
+	if dist.readFailed {
+		return model.NodeScanResult{ProjectPath: projectDir, PackageManager: pm, WorkingDirectory: projectDir, ExitCode: 1, Error: "package metadata could not be read completely"}, true
+	}
 	return model.NodeScanResult{
 		ProjectPath:      projectDir,
 		PackageManager:   pm,
@@ -784,7 +789,11 @@ func (s *NodeScanner) scanProjectFromDisk(projectDir, pm string) (model.NodeScan
 // separate so a package installed under two prefixes lists both; the delta
 // layer reconciles them back to one record per PM (globalRecordsFromNode).
 func (s *NodeScanner) scanGlobalPackagesFromDisk() []model.NodeScanResult {
+	before := tcc.Refusals(s.exec)
 	roots := NodeGlobalRoots(s.exec)
+	if tcc.Refusals(s.exec) != before {
+		return []model.NodeScanResult{{PackageManager: "npm", ExitCode: 1, Error: "global package roots include protected paths"}, {PackageManager: "pnpm", ExitCode: 1, Error: "global package roots include protected paths"}, {PackageManager: "yarn", ExitCode: 1, Error: "global package roots include protected paths"}, {PackageManager: "bun", ExitCode: 1, Error: "global package roots include protected paths"}}
+	}
 	if len(roots) == 0 {
 		s.log.Debug("node global disk scan: no global node_modules roots found")
 		return nil
@@ -793,11 +802,15 @@ func (s *NodeScanner) scanGlobalPackagesFromDisk() []model.NodeScanResult {
 	for _, r := range roots {
 		s.emitProgress("global: " + r.pm)
 		pkgs := s.dist.ScanGlobalModules(r.dir)
-		if len(pkgs) == 0 {
+		if len(pkgs) == 0 && !s.dist.readFailed {
 			// pnpm symlinks its global node_modules into a content-addressed
 			// store the walk can't traverse. The install dir holds the
 			// lockfile with the resolved graph — parse that instead.
 			pkgs = s.dist.ScanProject(filepath.Dir(r.dir), r.pm)
+		}
+		if s.dist.readFailed {
+			results = append(results, model.NodeScanResult{ProjectPath: r.dir, PackageManager: r.pm, WorkingDirectory: r.dir, ExitCode: 1, Error: "package metadata could not be read completely"})
+			continue
 		}
 		// A root that has gone empty is still reported. Dropping it would
 		// leave the PM out of the delta records entirely once its last root

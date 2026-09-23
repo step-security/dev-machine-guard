@@ -2,6 +2,7 @@ package rules
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -63,15 +64,17 @@ func NewEngine(exec executor.Executor, skipper *tcc.Skipper, caps Caps, log *pro
 	if log == nil {
 		log = progress.NewNoop()
 	}
+	exec = tcc.GuardedFiles(exec, skipper, caps.MaxFileSize)
 	return &Engine{exec: exec, skipper: skipper, caps: caps, log: log}
 }
 
 // ruleState accumulates one rule's matches during a scan.
 type ruleState struct {
-	rule      *Rule
-	matches   []model.RuleFileMatch
-	seen      map[string]bool // dedupe candidate paths per rule
-	truncated bool            // hit MaxMatchesPerRule
+	rule       *Rule
+	matches    []model.RuleFileMatch
+	seen       map[string]bool // dedupe candidate paths per rule
+	incomplete bool
+	truncated  bool // hit MaxMatchesPerRule
 }
 
 // scanState is the mutable bookkeeping shared across the absolute-resolution
@@ -116,7 +119,10 @@ func (e *Engine) Scan(ctx context.Context, rs RuleSet, searchDirs []string) mode
 	res := model.RuleScan{ScanComplete: !st.globalStop}
 	matchedRules, matchedFiles, incompleteRules := 0, 0, 0
 	for _, rstate := range st.states {
-		complete := res.ScanComplete && !rstate.truncated
+		complete := !st.globalStop && !rstate.truncated && !rstate.incomplete
+		if rstate.incomplete {
+			res.ScanComplete = false
+		}
 		if !complete {
 			incompleteRules++
 		}
@@ -166,7 +172,13 @@ func (e *Engine) evaluate(st *scanState, rstate *ruleState, path, matchedGlob st
 	st.filesScanned++
 
 	info, err := st.cache.stat(e.exec, path)
-	if err != nil || info.IsDir() {
+	if err != nil {
+		if !os.IsNotExist(err) {
+			rstate.incomplete = true
+		}
+		return false
+	}
+	if info.IsDir() {
 		return false
 	}
 
@@ -190,6 +202,7 @@ func (e *Engine) evaluate(st *scanState, rstate *ruleState, path, matchedGlob st
 
 	data, hash, ok := st.cache.read(e.exec, path)
 	if !ok {
+		rstate.incomplete = true
 		// Unreadable: still report existence + metadata, no content-derived fields.
 		rstate.matches = append(rstate.matches, fm)
 		return false

@@ -19,6 +19,8 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
+	"howett.net/plist"
 )
 
 // FromBinary returns the version of the tool installed at binaryPath, derived
@@ -180,11 +182,24 @@ func versionFromAppBundle(ctx context.Context, exec executor.Executor, resolved 
 	if idx < 0 {
 		return ""
 	}
-	plist := resolved[:idx+4] + "/Contents/Info.plist"
-	if !exec.FileExists(plist) {
+	plistPath := resolved[:idx+4] + "/Contents/Info.plist"
+	if tcc.HasGuard(exec) {
+		data, err := exec.ReadFile(plistPath)
+		var info struct {
+			Version string `plist:"CFBundleShortVersionString"`
+		}
+		if err != nil {
+			return ""
+		}
+		if _, err := plist.Unmarshal(data, &info); err != nil || !IsVersionLike(info.Version) {
+			return ""
+		}
+		return info.Version
+	}
+	if !exec.FileExists(plistPath) {
 		return ""
 	}
-	stdout, _, _, err := exec.RunWithTimeout(ctx, 10*time.Second, "/usr/libexec/PlistBuddy", "-c", "Print :CFBundleShortVersionString", plist)
+	stdout, _, _, err := exec.RunWithTimeout(ctx, 10*time.Second, "/usr/libexec/PlistBuddy", "-c", "Print :CFBundleShortVersionString", plistPath)
 	if err != nil {
 		return ""
 	}

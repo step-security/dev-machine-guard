@@ -20,6 +20,10 @@ func statOwner(path string) ownerInfo {
 	if err != nil {
 		return ownerInfo{}
 	}
+	return ownerFromInfo(info)
+}
+
+func ownerFromInfo(info os.FileInfo) ownerInfo {
 	st, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		return ownerInfo{}

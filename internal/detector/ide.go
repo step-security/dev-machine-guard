@@ -10,6 +10,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/execguard"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 	"github.com/step-security/dev-machine-guard/internal/versionmeta"
 	"howett.net/plist"
 )
@@ -677,6 +678,19 @@ func readEclipseProductVersion(exec executor.Executor, filePath string) string {
 
 // readPlistVersion reads CFBundleShortVersionString from an Info.plist (macOS).
 func readPlistVersion(ctx context.Context, exec executor.Executor, plistPath string) string {
+	if tcc.HasGuard(exec) {
+		data, err := exec.ReadFile(plistPath)
+		if err != nil {
+			return "unknown"
+		}
+		var info struct {
+			Version string `plist:"CFBundleShortVersionString"`
+		}
+		if _, err := plist.Unmarshal(data, &info); err == nil && info.Version != "" {
+			return info.Version
+		}
+		return "unknown"
+	}
 	if !exec.FileExists(plistPath) {
 		return "unknown"
 	}
@@ -874,4 +888,9 @@ func resolveInstallDirFromBinary(binPath string) string {
 
 	// Simple /bin/ layout: /usr/share/code/bin/code -> /usr/share/code
 	return parent
+}
+
+func (d *IDEDetector) WithSkipper(s *tcc.Skipper) *IDEDetector {
+	d.exec = tcc.GuardedFiles(d.exec, s, maxLockfileSize)
+	return d
 }

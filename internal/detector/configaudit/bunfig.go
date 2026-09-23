@@ -71,6 +71,13 @@ func (d *BunDetector) WithLogger(log *progress.Logger) *BunDetector {
 // WithSkipper attaches a TCC skipper so discovery skips macOS-protected dirs.
 func (d *BunDetector) WithSkipper(s *tcc.Skipper) *BunDetector {
 	d.skipper = s
+	d.exec = tcc.GuardedFiles(d.exec, s, maxConfigFileSize)
+	if tcc.ProtectedReadsDisabled(d.exec, s) {
+		d.ownerLookup = guardedOwner(d.exec)
+		d.inGitRepo = guardedInGitRepo(d.exec)
+		// Git loads user-controlled config and includes in its own process.
+		d.gitTracked = nil
+	}
 	return d
 }
 
@@ -144,7 +151,7 @@ func (d *BunDetector) Detect(ctx context.Context, searchDirs []string, loggedInU
 // searchDirs walk). The .npmrc walk overlaps with the npm + pnpm audits; if
 // scan time becomes a concern, share results across detectors.
 func (d *BunDetector) discoverAuthSideChannel(ctx context.Context, searchDirs []string, loggedInUser *user.User) []model.NPMRCFile {
-	side := NewNPMRCDetector(d.exec)
+	side := NewNPMRCDetector(d.exec).WithSkipper(d.skipper)
 	side.skipper = d.skipper
 	side.ownerLookup = d.ownerLookup
 	side.gitTracked = d.gitTracked
@@ -167,7 +174,7 @@ func (d *BunDetector) findProjectBunfigs(dir string) []string {
 		return nil
 	}
 	var results []string
-	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+	_ = d.exec.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -197,7 +204,7 @@ func (d *BunDetector) findProjectBunfigs(dir string) []string {
 func (d *BunDetector) collectFile(ctx context.Context, path, scope string) model.BunConfigFile {
 	f := model.BunConfigFile{Path: path, Scope: scope}
 
-	linfo, err := os.Lstat(path)
+	linfo, err := auditLstat(d.exec, d.skipper, path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			f.Exists = false
@@ -209,13 +216,13 @@ func (d *BunDetector) collectFile(ctx context.Context, path, scope string) model
 	}
 	f.Exists = true
 
-	if linfo.Mode()&os.ModeSymlink != 0 {
-		if target, err := os.Readlink(path); err == nil {
+	if linfo.Mode()&os.ModeSymlink != 0 || tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
+		if target, err := d.exec.Readlink(path); err == nil {
 			f.SymlinkTo = target
 		}
 	}
 
-	info, err := os.Stat(path)
+	info, err := auditStat(d.exec, d.skipper, path)
 	if err != nil {
 		f.Readable = false
 		f.ParseError = "stat: " + err.Error()
@@ -241,7 +248,7 @@ func (d *BunDetector) collectFile(ctx context.Context, path, scope string) model
 
 	// #nosec G304 -- path comes from the detector's own candidate enumeration
 	// (user-scope well-known locations + project walk).
-	data, err := os.ReadFile(path)
+	data, err := auditReadFile(d.exec, d.skipper, path)
 	if err != nil {
 		f.Readable = false
 		f.ParseError = "read: " + err.Error()
@@ -284,6 +291,9 @@ func (d *BunDetector) bunVersion(ctx context.Context) string {
 			return "unknown"
 		}
 		target = path
+	}
+	if tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
+		return "unknown"
 	}
 	d.log.Progress("exec fallback: running %s --version (no metadata version source)", target)
 	stdout, _, exit, _ := d.exec.RunWithTimeout(ctx, 5*time.Second, target, "--version")

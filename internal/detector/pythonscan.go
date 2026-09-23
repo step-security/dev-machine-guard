@@ -100,7 +100,11 @@ func (s *PythonScanner) ScanGlobalPackages(ctx context.Context) []model.PythonSc
 // so the existing backend decoder needs no change. Returns nil when no global
 // site-packages roots exist on the host.
 func (s *PythonScanner) ScanGlobalPackagesFromDisk(skipper *tcc.Skipper) []model.PythonScanResult {
-	roots := GlobalPythonRoots(s.exec, s.log)
+	guarded := tcc.GuardedFiles(s.exec, skipper, maxMetadataFileSize, "Python")
+	roots := GlobalPythonRoots(guarded, s.log)
+	if tcc.Refusals(guarded) > 0 {
+		return []model.PythonScanResult{{PackageManager: "pip", ExitCode: 1, Error: "global package roots include protected paths"}}
+	}
 	if len(roots) == 0 {
 		s.log.Debug("python global disk scan: no site-packages roots found")
 		return nil

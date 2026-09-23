@@ -17,6 +17,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 // devNullPaths are values of $PIP_CONFIG_FILE that disable all config-file
@@ -87,7 +88,8 @@ var pipConfigDebugFileRE = regexp.MustCompile(`^\s+(.+),\s+exists:\s+(True|False
 
 // PipConfigDetector performs the read-only pip config audit.
 type PipConfigDetector struct {
-	exec executor.Executor
+	skipper *tcc.Skipper
+	exec    executor.Executor
 
 	// Hooks for tests; default to platform-specific impls. Owner lookup
 	// uses syscall.Stat_t on Unix and is a no-op on Windows.
@@ -174,6 +176,9 @@ func (d *PipConfigDetector) detectPip(ctx context.Context) (string, []string, st
 			// Skip Apple's /usr/bin/ shims on Macs without Command Line Tools;
 			// invoking --version against them pops a GUI install prompt.
 			continue
+		}
+		if tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
+			return path, cand.args, cand.display, "unknown", true
 		}
 		args := append([]string(nil), cand.args...)
 		args = append(args, "--version")
@@ -465,7 +470,7 @@ func (d *PipConfigDetector) discoverFiles(ctx context.Context, pipAvailable bool
 	// Preferred: `pip config debug`. Falls back to manual path enumeration
 	// when pip isn't installed or the output is unparseable.
 	usedPipDebug := false
-	if pipAvailable {
+	if pipAvailable && !tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
 		if discovered, ok := d.discoverViaPipDebug(ctx); ok {
 			usedPipDebug = true
 			for _, e := range discovered {
@@ -574,7 +579,7 @@ func pipConfigFilename(goos string) string {
 // --- per-file metadata ------------------------------------------------------
 
 func (d *PipConfigDetector) populateFileMetadata(ctx context.Context, f *model.PipConfigFile) {
-	info, err := os.Lstat(f.Path)
+	info, err := auditLstat(d.exec, d.skipper, f.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			f.Exists = false
@@ -590,7 +595,7 @@ func (d *PipConfigDetector) populateFileMetadata(ctx context.Context, f *model.P
 	// the symlink itself exists; a broken symlink target shouldn't crash
 	// the audit).
 	if info.Mode()&os.ModeSymlink != 0 {
-		stat, statErr := os.Stat(f.Path)
+		stat, statErr := auditStat(d.exec, d.skipper, f.Path)
 		if statErr != nil {
 			f.Readable = false
 			f.ParseError = "stat (followed symlink): " + statErr.Error()
@@ -615,7 +620,7 @@ func (d *PipConfigDetector) populateFileMetadata(ctx context.Context, f *model.P
 		}
 	}
 
-	data, err := os.ReadFile(f.Path)
+	data, err := auditReadFile(d.exec, d.skipper, f.Path)
 	if err != nil {
 		f.Readable = false
 		f.ParseError = "read: " + err.Error()
@@ -647,6 +652,9 @@ func (d *PipConfigDetector) populateFileMetadata(ctx context.Context, f *model.P
 var pipConfigListPrefix = regexp.MustCompile(`^([A-Za-z0-9_\-]+)\.([A-Za-z0-9_\-]+)='`)
 
 func (d *PipConfigDetector) captureEffective(ctx context.Context) (*model.PipEffective, error) {
+	if tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
+		return nil, errors.New(protectedCommandReason)
+	}
 	stdout, exit, ok := d.runPip(ctx, 10*time.Second, "config", "list", "-v")
 	if !ok || exit != 0 {
 		return nil, fmt.Errorf("pip config list -v exited %d", exit)
@@ -747,7 +755,7 @@ func (d *PipConfigDetector) probeNetrc(loggedInUser *user.User) *model.PipNetrcS
 		path = filepath.Join(homeDir, "_netrc")
 	}
 	out := &model.PipNetrcStatus{Path: path}
-	info, err := os.Stat(path)
+	info, err := auditStat(d.exec, d.skipper, path)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			out.Exists = true // probe error; surface that we tried
@@ -769,3 +777,15 @@ var _ = func() fs.WalkDirFunc { return nil }
 // formatModeOctal is unused today (mode is rendered via fmt.Sprintf in
 // populateFileMetadata) but kept for tests; suppress unused warning.
 var _ = strconv.FormatUint
+
+func (d *PipConfigDetector) WithSkipper(s *tcc.Skipper) *PipConfigDetector {
+	d.skipper = s
+	d.exec = tcc.GuardedFiles(d.exec, s, maxConfigFileSize, "Application Support/pip/pip.conf")
+	if tcc.ProtectedReadsDisabled(d.exec, s) {
+		d.ownerLookup = guardedOwner(d.exec)
+		d.inGitRepo = guardedInGitRepo(d.exec)
+		// Git loads user-controlled config and includes in its own process.
+		d.gitTracked = nil
+	}
+	return d
+}

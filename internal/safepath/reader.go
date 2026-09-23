@@ -69,6 +69,13 @@ func (r *Reader) resolveChain(path string) (string, os.FileInfo, error) {
 		}
 
 		prefix := volume + string(filepath.Separator)
+		if len(comps) == 0 {
+			if !r.contains(prefix, false) {
+				return "", nil, refuse(ReasonOutsideRoots)
+			}
+			info, err := os.Lstat(prefix)
+			return prefix, info, err
+		}
 		redirected := false
 		var leaf os.FileInfo
 		for i, comp := range comps {
@@ -207,4 +214,22 @@ func splitPendingPath(path string) (volume string, comps []string) {
 		comps = append(comps, c)
 	}
 	return volume, comps
+}
+
+// Open returns a verified regular file for seekable readers such as archive/zip.
+// The caller owns the handle and must bound any content it reads from it.
+func (r *Reader) Open(path string) (*os.File, error) {
+	resolved, err := r.Resolve(path)
+	if err != nil {
+		return nil, err
+	}
+	f, info, err := openVerified(resolved, false, false)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, refuse(ReasonDenied)
+	}
+	return f, nil
 }

@@ -620,7 +620,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// Detect IDEs
 	phaseCtx, phaseCancel = startPhase(ctx, tracker, "ide_scan")
 	log.Progress("Detecting IDE and AI desktop app installations...")
-	ideDetector := detector.NewIDEDetector(exec)
+	ideDetector := detector.NewIDEDetector(exec).WithSkipper(tccSkipper)
 	ides := ideDetector.Detect(phaseCtx)
 	for _, ide := range ides {
 		log.Progress("  Found: %s (%s) v%s at %s", ideDisplayName(ide.IDEType), ide.Vendor, ide.Version, ide.InstallPath)
@@ -635,11 +635,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// Collect extensions
 	phaseCtx, phaseCancel = startPhase(ctx, tracker, "extension_scan")
 	log.Progress("Scanning extensions...")
-	extDetector := detector.NewExtensionDetector(exec)
+	extDetector := detector.NewExtensionDetector(exec).WithSkipper(tccSkipper)
 	extensions := extDetector.Detect(phaseCtx, searchDirs, ides)
 
 	// Collect JetBrains plugins
-	jbDetector := detector.NewJetBrainsPluginDetector(exec)
+	jbDetector := detector.NewJetBrainsPluginDetector(exec).WithSkipper(tccSkipper)
 	jbPlugins := jbDetector.Detect(phaseCtx, ides)
 	extensions = append(extensions, jbPlugins...)
 
@@ -671,7 +671,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	fmt.Fprintln(os.Stderr)
 
 	log.Progress("Detecting general-purpose AI agents...")
-	agents := detector.NewAgentDetector(userExec).WithLogger(log).Detect(phaseCtx, searchDirs)
+	agents := detector.NewAgentDetector(userExec).WithSkipper(tccSkipper).WithLogger(log).Detect(phaseCtx, searchDirs)
 	for _, a := range agents {
 		log.Progress("  Found: %s (%s) at %s", a.Name, a.Vendor, a.InstallPath)
 	}
@@ -681,7 +681,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	fmt.Fprintln(os.Stderr)
 
 	log.Progress("Detecting AI frameworks and runtimes...")
-	frameworks := detector.NewFrameworkDetector(userExec).WithLogger(log).Detect(phaseCtx)
+	frameworks := detector.NewFrameworkDetector(userExec).WithLogger(log).WithSkipper(tccSkipper).Detect(phaseCtx)
 	for _, f := range frameworks {
 		running := "false"
 		if f.IsRunning != nil && *f.IsRunning {
@@ -815,7 +815,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	if pythonEnabled {
 		phaseCtx, phaseCancel = startPhase(ctx, tracker, "python_scan")
 		log.Progress("Detecting Python package managers...")
-		pyDetector := detector.NewPythonPMDetector(userExec).WithLogger(log)
+		pyDetector := detector.NewPythonPMDetector(userExec).WithSkipper(tccSkipper).WithLogger(log)
 		pythonPkgManagers = pyDetector.DetectManagers(phaseCtx)
 		for _, pm := range pythonPkgManagers {
 			log.Progress("  Found: %s v%s at %s", pm.Name, pm.Version, pm.Path)
@@ -830,7 +830,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		// "scanning uv") into the phase tracker so heartbeats surface where
 		// inside the python phase a slow pip3 list is stuck.
 		pyScanner.ProgressHook = func(detail string) { tracker.UpdateDetail(detail) }
-		if config.UseLegacyPythonScan {
+		if config.UseLegacyPythonScan && !tcc.ProtectedReadsDisabled(exec, tccSkipper) {
 			pythonGlobalPkgs = pyScanner.ScanGlobalPackages(phaseCtx)
 		} else {
 			pythonGlobalPkgs = pyScanner.ScanGlobalPackagesFromDisk(tccSkipper)
@@ -839,7 +839,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 		log.Progress("Searching for Python projects...")
 		pyProjectDetector := detector.NewPythonProjectDetector(exec).WithSkipper(tccSkipper).WithLogger(log)
-		if !config.UseLegacyPythonScan {
+		if !config.UseLegacyPythonScan || tcc.ProtectedReadsDisabled(exec, tccSkipper) {
 			pyProjectDetector = pyProjectDetector.WithDiskScan(
 				detector.NewPythonDistDetector(exec).WithSkipper(tccSkipper).WithLogger(log))
 		}
@@ -941,7 +941,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		log.Progress("Node.js package scanning is ENABLED")
 
 		log.Progress("Detecting Node.js package managers...")
-		npmDetector := detector.NewNodePMDetector(userExec).WithLogger(log)
+		npmDetector := detector.NewNodePMDetector(userExec).WithSkipper(tccSkipper).WithLogger(log)
 		pkgManagers = npmDetector.DetectManagers(phaseCtx)
 		for _, pm := range pkgManagers {
 			log.Progress("  Found: %s v%s at %s", pm.Name, pm.Version, pm.Path)
@@ -960,7 +960,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 		log.Progress("Scanning globally installed packages...")
 		nodeScanner := detector.NewNodeScanner(exec, log, loggedInUsername).WithSkipper(tccSkipper)
-		if !config.UseLegacyNodeScan {
+		if !config.UseLegacyNodeScan || tcc.ProtectedReadsDisabled(exec, tccSkipper) {
 			nodeScanner = nodeScanner.WithDiskScan(
 				detector.NewNodeDistDetector(exec).WithSkipper(tccSkipper).WithLogger(log))
 		}
@@ -1091,7 +1091,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	fmt.Fprintln(os.Stderr)
 
 	log.Progress("Auditing pip configuration...")
-	pipAudit := configaudit.NewPipConfigDetector(userExec).Detect(ctx, npmrcLoggedIn)
+	pipAudit := configaudit.NewPipConfigDetector(userExec).WithSkipper(tccSkipper).Detect(ctx, npmrcLoggedIn)
 	log.Progress("  pip available: %v, files discovered: %d, findings: %d", pipAudit.Available, len(pipAudit.Files), len(pipAudit.Findings))
 	fmt.Fprintln(os.Stderr)
 

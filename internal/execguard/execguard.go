@@ -24,6 +24,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 const probeTimeout = 5 * time.Second
@@ -50,6 +51,10 @@ const probeTimeout = 5 * time.Second
 // On Linux it answers whether the binary is an Electron app's GUI entry point,
 // purely from stats.
 func SafeToExec(ctx context.Context, exec executor.Executor, binaryPath string) (bool, string) {
+	// Child processes can load configs beyond the guarded reader.
+	if tcc.HasGuard(exec) {
+		return false, "protected-directory scanning is disabled"
+	}
 	if binaryPath == "" {
 		return true, ""
 	}

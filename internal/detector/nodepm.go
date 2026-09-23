@@ -9,6 +9,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 	"github.com/step-security/dev-machine-guard/internal/versionmeta"
 )
 
@@ -60,7 +61,7 @@ func (d *NodePMDetector) DetectManagers(ctx context.Context) []model.PkgManager 
 			// the version without launching anything.
 			version = versionmeta.FromBinary(ctx, d.exec, path)
 		}
-		if path != "" && version == "" {
+		if path != "" && version == "" && !tcc.HasGuard(d.exec) {
 			if safe, reason := execguard.SafeToExec(ctx, d.exec, path); !safe {
 				d.log.Warn("skipping %s version probe: %s", path, reason)
 			} else {
@@ -106,4 +107,9 @@ func (d *NodePMDetector) DetectManagers(ctx context.Context) []model.PkgManager 
 	}
 
 	return results
+}
+
+func (d *NodePMDetector) WithSkipper(s *tcc.Skipper) *NodePMDetector {
+	d.exec = tcc.GuardedFiles(d.exec, s, maxLockfileSize, "pnpm", "Application Support/fnm")
+	return d
 }

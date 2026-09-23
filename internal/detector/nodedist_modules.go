@@ -33,12 +33,20 @@ func (d *NodeDistDetector) walkNodeModules(projectDir string) []model.NodePackag
 // symlink farm is read via the real .pnpm store dirs, not by chasing links out
 // of the tree.
 func (d *NodeDistDetector) scanModulesTree(root string, isDirect func(name, path string) bool) []model.NodePackage {
-	if !d.exec.DirExists(root) {
+	info, err := d.exec.Stat(root)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			d.readFailed = true
+		}
+		return nil
+	}
+	if !info.IsDir() {
 		return nil
 	}
 	var pkgs []model.NodePackage
-	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+	_ = d.exec.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
+			d.readFailed = true
 			return nil
 		}
 		if entry.IsDir() {
@@ -75,6 +83,7 @@ func (d *NodeDistDetector) scanModulesTree(root string, isDirect func(name, path
 // the user installed with `-g`); anything below a further node_modules is a
 // transitive dependency of one of those.
 func (d *NodeDistDetector) ScanGlobalModules(nmRoot string) []model.NodePackage {
+	d.readFailed = false
 	clean := filepath.Clean(nmRoot)
 	return d.scanModulesTree(clean, func(_, path string) bool {
 		rel := strings.TrimPrefix(filepath.ToSlash(path), filepath.ToSlash(clean))

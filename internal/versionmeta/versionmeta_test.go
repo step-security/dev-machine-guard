@@ -2,9 +2,13 @@ package versionmeta
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
+	"howett.net/plist"
 )
 
 func TestFromBinary_NPMPackageManifest(t *testing.T) {
@@ -241,5 +245,32 @@ func TestNodeModulesPackageRoot(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("NodeModulesPackageRoot(%q) = %q, want %q", tt.path, got, tt.want)
 		}
+	}
+}
+
+func TestGuardedAppBundleVersion(t *testing.T) {
+	home := t.TempDir()
+	skipper := tcc.New(home)
+	if skipper == nil {
+		t.Skip("macOS protection only")
+	}
+	app := filepath.Join(home, "Example.app", "Contents")
+	if err := os.MkdirAll(app, 0700); err != nil {
+		t.Fatal(err)
+	}
+	data, err := plist.Marshal(map[string]string{"CFBundleShortVersionString": "1.2.3"}, plist.BinaryFormat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app, "Info.plist"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	exec := tcc.GuardedFiles(executor.NewReal(), skipper, 1<<20)
+	if got := versionFromAppBundle(context.Background(), exec, filepath.Join(app, "MacOS", "example")); got != "1.2.3" {
+		t.Fatalf("ordinary version = %q", got)
+	}
+	protected := filepath.Join(home, "Library", "Containers", "Example.app", "Contents", "MacOS", "example")
+	if got := versionFromAppBundle(context.Background(), exec, protected); got != "" {
+		t.Fatalf("protected version = %q", got)
 	}
 }
