@@ -7,14 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
-## [Unreleased]
-
-### Fixed
-
-- **The upload-URL request is retried.** It was a single attempt, so one dropped connection or TLS handshake timeout behind a flaky proxy discarded a finished scan, even though the S3 PUT after it already retried. It now makes up to three attempts with the same backoff, retrying transport errors, 5xx and unreadable bodies; a 4xx still fails at once.
-- **Upload failures carry a cause code.** Upload-URL and S3 PUT errors in run-status now include a stable code — `[net_dns]`, `[net_proxy]`, `[net_connect]`, `[net_timeout]`, `[net_tls]`, `[net_cert]`, `[net_conn_dropped]`, `[http_4xx]`, `[http_5xx]`, `[http_other]`, `[bad_response]` or `[net_other]` — the same set the loader scripts report, so failures group by cause instead of by raw Go error text.
-
-## [1.17.0] - 2026-09-21
+## [1.17.0] - 2026-09-24
 
 ### Added
 
@@ -33,13 +26,15 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
 ### Changed
 
-- **The scan-state delta upload protocol is now on by default.** `use_legacy_package_scan` defaults to `false`, so a run uploads full npm and Python package bodies only for projects whose inventory hash changed, ships refs for the unchanged and removed ones, and re-asserts the whole picture on a full sync — weekly, or after an agent-version change. Requires a backend that understands `payload_schema_version` 1. Measured on Ubuntu 24.04 at 2000 npm plus 600 Python packages: the npm and Python inventory drops out of a settled payload entirely, taking the whole payload down 27.5% (22.7% gzipped). Scan time is unchanged — the scan still walks everything, so the saving is upload bytes, not runtime, and `system_package_scans` caps it. Set `use_legacy_package_scan=true` in config.json to hold a fleet on full-snapshot uploads; `STEPSEC_DISABLE_SCAN_STATE=1` forces legacy for one run.
+- **The scan-state delta upload protocol ships behind tenant authorization.** A run uploads full npm and Python package bodies only for projects whose inventory hash changed, ships refs for the unchanged and removed ones, and re-asserts the whole picture on a full sync — weekly, or after an agent-version change. It stays off unless the run-config check-in returns `package_scan.delta_enabled`; missing, null and false all select legacy full-snapshot reporting, so a backend that does not understand `payload_schema_version` 1 never receives a delta payload. There is no local switch — the `use_legacy_package_scan` config flag and the scan-state environment overrides are gone. Measured on Ubuntu 24.04 at 2000 npm plus 600 Python packages: the npm and Python inventory drops out of a settled payload entirely, taking the whole payload down 27.5% (22.7% gzipped). Scan time is unchanged — the scan still walks everything, so the saving is upload bytes, not runtime, and `system_package_scans` caps it.
 - **Managed user files are written through one hardened resolver.** The npm lane's `os.Root` handling is now `internal/secureuserfile`, shared by every lane: operations are pinned beneath the resolved user's home, symlink chains are resolved and re-checked after open, ownership and mode (0600/0700, mapped ACL rights on Windows) are verified on the handle rather than by path, and a write that cannot be verified is rolled back from a bounded backup. npm's behavior is unchanged.
 - **The malicious-file walk pre-filters by glob filename.** Relative globs are indexed by their fixed final path component, so a file whose name has no candidate is skipped before any relative path is computed or any regex runs. A glob with a wildcard in its final segment disables the index and keeps the original matcher loop, leaving matcher order and `matched_glob` selection unchanged. On a 200k-file Ubuntu corpus the walk went from 33.98s to 0.21s with byte-for-byte identical output.
 - Reduce malicious-file scan CPU and allocations by checking mandatory conditions before optional evidence and constructing paths only for directories and candidate files. Retain filename indexes with wildcard rules, prune disjoint literal prefixes, reuse bounded file reads and metadata, and retire truncated rules. Detection coverage, rule ordering, and reported evidence are preserved.
 
 ### Fixed
 
+- **The upload-URL request is retried.** It was a single attempt, so one dropped connection or TLS handshake timeout behind a flaky proxy discarded a finished scan, even though the S3 PUT after it already retried. It now makes up to three attempts with the same backoff, retrying transport errors, 5xx and unreadable bodies; a 4xx still fails at once.
+- **Upload failures carry a cause code.** Upload-URL and S3 PUT errors in run-status now include a stable code — `[net_dns]`, `[net_proxy]`, `[net_connect]`, `[net_timeout]`, `[net_tls]`, `[net_cert]`, `[net_conn_dropped]`, `[http_4xx]`, `[http_5xx]`, `[http_other]`, `[bad_response]` or `[net_other]` — the same set the loader scripts report, so failures group by cause instead of by raw Go error text.
 - Skip protected browser profile reads on macOS 27 when protected-directory scanning is disabled, while preserving browser extension inventory on macOS 26.
 - Suppress Windows scheduler-registration probe console flashes during heartbeat, telemetry initialization, and scheduler diagnostics; bound each probe to three seconds.
 - **Plugin-catalog templates are no longer counted as MCP servers.** The MCP walk matches on basename anywhere under `$HOME`, and an agent plugin marketplace is a clone of a catalog repo where every entry ships a template `.mcp.json` — on one machine that turned 7 real configs into 53, and in enterprise mode 36 of them carried an `mcpServers` block, so the backend recorded stripe, slack, gmail and notion as servers on a device that had installed none of them. A hit inside a plugin package (marked by a `.claude-plugin`/`.codex-plugin` manifest) is now classified rather than guessed at: the package's own `.mcp.json` is kept when the package is installed, while catalog entries and MCP-shaped files vendored elsewhere in a payload are dropped. Configs outside a plugin package are untouched. Fixes #201.
