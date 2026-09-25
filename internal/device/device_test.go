@@ -240,3 +240,38 @@ func TestGather_Windows(t *testing.T) {
 		t.Errorf("user_identity: expected testuser, got %s", dev.UserIdentity)
 	}
 }
+
+func TestGetHostname(t *testing.T) {
+	tests := []struct {
+		name      string
+		goos      string
+		hostName  *string // nil = scutil reports "not set"
+		localName *string
+		want      string
+	}{
+		{"darwin prefers explicit HostName", "darwin", ptr("build-box"), ptr("dev-mac"), "build-box"},
+		{"darwin falls back to LocalHostName", "darwin", nil, ptr("dev-mac"), "dev-mac"},
+		{"darwin falls back to kernel hostname", "darwin", nil, nil, "ip-10-0-1-5.ec2.internal"},
+		{"darwin ignores blank scutil output", "darwin", ptr("  \n"), ptr("dev-mac"), "dev-mac"},
+		{"linux uses kernel hostname", "linux", ptr("build-box"), ptr("dev-mac"), "ip-10-0-1-5.ec2.internal"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := executor.NewMock()
+			mock.SetGOOS(tc.goos)
+			mock.SetHostname("ip-10-0-1-5.ec2.internal")
+			for key, val := range map[string]*string{"HostName": tc.hostName, "LocalHostName": tc.localName} {
+				if val == nil {
+					mock.SetCommand("", key+": not set\n", 1, "scutil", "--get", key)
+				} else {
+					mock.SetCommand(*val+"\n", "", 0, "scutil", "--get", key)
+				}
+			}
+			if got := getHostname(context.Background(), mock, tc.goos); got != tc.want {
+				t.Errorf("getHostname() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func ptr(s string) *string { return &s }
