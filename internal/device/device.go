@@ -3,16 +3,18 @@ package device
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"howett.net/plist"
 )
 
 // Gather collects device information (hostname, serial, OS version, user identity).
 func Gather(ctx context.Context, exec executor.Executor) model.Device {
-	hostname, _ := exec.Hostname()
-	userIdentity := getDeveloperIdentity(exec)
 	platform := exec.GOOS()
+	hostname := getHostname(ctx, exec, platform)
+	userIdentity := getDeveloperIdentity(exec)
 
 	var serial, osVersion string
 	switch platform {
@@ -52,6 +54,52 @@ func SerialNumber(ctx context.Context, exec executor.Executor) string {
 	default: // linux and other unix
 		return getSerialNumberLinux(ctx, exec)
 	}
+}
+
+// darwinSCPrefsPath is where SystemConfiguration stores the names scutil
+// reports. Reading it skips a subprocess; its layout is not a documented
+// contract, so scutil remains the fallback.
+const darwinSCPrefsPath = "/Library/Preferences/SystemConfiguration/preferences.plist"
+
+type darwinSCPrefs struct {
+	System struct {
+		System struct {
+			HostName string `plist:"HostName"`
+		} `plist:"System"`
+		Network struct {
+			HostNames struct {
+				LocalHostName string `plist:"LocalHostName"`
+			} `plist:"HostNames"`
+		} `plist:"Network"`
+	} `plist:"System"`
+}
+
+// getHostname prefers the macOS configured names over os.Hostname: with no
+// HostName set, macOS rewrites kern.hostname from DHCP or reverse DNS on every
+// network change, so a VPN can turn "dev-mac" into "ip-10-0-1-5.ec2.internal".
+func getHostname(ctx context.Context, exec executor.Executor, platform string) string {
+	if platform == model.PlatformDarwin {
+		if data, err := exec.ReadFile(darwinSCPrefsPath); err == nil {
+			var prefs darwinSCPrefs
+			if _, err := plist.Unmarshal(data, &prefs); err == nil {
+				for _, name := range []string{prefs.System.System.HostName, prefs.System.Network.HostNames.LocalHostName} {
+					if name = strings.TrimSpace(name); name != "" {
+						return name
+					}
+				}
+			}
+		}
+		for _, key := range []string{"HostName", "LocalHostName"} {
+			stdout, _, exitCode, err := exec.RunWithTimeout(ctx, 10*time.Second, "scutil", "--get", key)
+			if err == nil && exitCode == 0 {
+				if name := strings.TrimSpace(stdout); name != "" {
+					return name
+				}
+			}
+		}
+	}
+	hostname, _ := exec.Hostname()
+	return hostname
 }
 
 // getSerialNumberWindows and getOSVersionWindows are implemented in
