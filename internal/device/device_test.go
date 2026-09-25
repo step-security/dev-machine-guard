@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"howett.net/plist"
 )
 
 func TestGather_BasicFields(t *testing.T) {
@@ -268,6 +269,46 @@ func TestGetHostname(t *testing.T) {
 				}
 			}
 			if got := getHostname(context.Background(), mock, tc.goos); got != tc.want {
+				t.Errorf("getHostname() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGetHostname_SCPrefsPlist(t *testing.T) {
+	prefs := func(hostName, localName string, format int) []byte {
+		t.Helper()
+		v := map[string]any{"System": map[string]any{
+			"System":  map[string]any{"HostName": hostName, "ComputerName": "Dev's Mac"},
+			"Network": map[string]any{"HostNames": map[string]any{"LocalHostName": localName}},
+		}}
+		data, err := plist.Marshal(v, format)
+		if err != nil {
+			t.Fatalf("marshal plist: %v", err)
+		}
+		return data
+	}
+	tests := []struct {
+		name string
+		file []byte // nil = file absent
+		want string
+	}{
+		{"xml HostName wins", prefs("build-box", "dev-mac", plist.XMLFormat), "build-box"},
+		{"binary LocalHostName when HostName unset", prefs("", "dev-mac", plist.BinaryFormat), "dev-mac"},
+		{"no names in plist falls back to scutil", prefs("", "", plist.XMLFormat), "scutil-name"},
+		{"garbage plist falls back to scutil", []byte("not a plist"), "scutil-name"},
+		{"missing plist falls back to scutil", nil, "scutil-name"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := executor.NewMock()
+			mock.SetHostname("ip-10-0-1-5.ec2.internal")
+			if tc.file != nil {
+				mock.SetFile(darwinSCPrefsPath, tc.file)
+			}
+			mock.SetCommand("", "HostName: not set\n", 1, "scutil", "--get", "HostName")
+			mock.SetCommand("scutil-name\n", "", 0, "scutil", "--get", "LocalHostName")
+			if got := getHostname(context.Background(), mock, "darwin"); got != tc.want {
 				t.Errorf("getHostname() = %q, want %q", got, tc.want)
 			}
 		})
