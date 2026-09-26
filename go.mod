@@ -12,6 +12,7 @@ require (
 	github.com/tidwall/gjson v1.18.0
 	github.com/tidwall/pretty v1.2.1
 	github.com/tidwall/sjson v1.2.5
+	golang.org/x/mod v0.39.0
 	gopkg.in/yaml.v3 v3.0.1
 	howett.net/plist v1.0.1
 )

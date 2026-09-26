@@ -259,6 +259,27 @@ Discovered by scanning the **search directories** for virtual environments (`pyv
 
 The set of global install roots scanned is logged once per scan at info level (full paths at debug), so field logs show exactly where the agent looked.
 
+## Go Modules
+
+Enterprise telemetry reports Go module evidence for the logged-in developer as two sections, `go_inventory` and `go_config_audit`. Everything is read statically: **no `go` command, shell, or network call is ever run**, and a root or service account is never scanned in the developer's place.
+
+| Evidence | Source |
+|----------|--------|
+| Project declarations | `go.mod` files found under the search directories: module path, `go`/`toolchain`, requirements (direct and `// indirect`), replacements, exclusions, `tool` directives. Declarations, not the selected build list. |
+| Alternate manifest | An absolute `-modfile` from `GOFLAGS`, read alongside the default `go.mod`. |
+| Workspaces | `go.work` members and replacements; a member links to a project only when its `go.mod` was discovered inside the search directories. |
+| Vendored modules | `vendor/modules.txt`, counted only when a package directory exists on disk. |
+| Module cache | `GOMODCACHE` (default `~/go/pkg/mod`): extracted `module@version` directories and `cache/download` archives, never unpacked. |
+| Installed tools | Executables directly in `GOBIN` (default `~/go/bin`), from their embedded Go build info. Build settings are never read. |
+| Recorded checksums | `go.sum`, `go.work.sum`, the alternate `.sum`, cache `.ziphash`, and binary build info, attached only to modules already found above and marked `not_verified`. |
+| Go configuration | The user `go/env` file, the verified process environment, and `GOROOT/go.env`: an allowlist of module-security settings (`GOPROXY`, `GOSUMDB`, `GOPRIVATE`, `GONOPROXY`, `GONOSUMDB`, `GOINSECURE`, `GOVCS`, `GOAUTH`, `GOFLAGS`, paths), with findings `go-001`…`go-006`. |
+
+**Scope.** Only the developer's home and the configured search directories are read. `node_modules`, `.git`, `.hg`, `.svn`, `vendor` next to a manifest, and the module cache are not walked as projects, and directory symlinks are not followed. TCC-protected directories stay excluded even when `include_tcc_protected` is set; the one exception is the exact macOS default `~/Library/Application Support/go/env` file. The process environment counts only when the agent runs as the developer.
+
+**Bounded.** Reads, directory listings, walk depth, record count and output size are capped. Any cap, refusal, or failure makes the affected source and section `partial` with a reason code, never silently incomplete.
+
+**Privacy: URL credentials, query strings, and fragments are removed from proxy and checksum-database URLs on the device, `GOAUTH` arguments and non-module `GOFLAGS` are dropped, and non-allowlisted environment values, `.netrc` content, and build settings are never collected.**
+
 ## System Package Scanning (Linux)
 
 System package scanning is **automatic on Linux** — no opt-in flag required. Multiple package managers can coexist.

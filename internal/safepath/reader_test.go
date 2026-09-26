@@ -86,3 +86,48 @@ func TestReaderDotDotAfterSymlinkPreservesTarget(t *testing.T) {
 		}
 	}
 }
+
+func TestReaderReadDirLimit(t *testing.T) {
+	base := tempHome(t)
+	root, outside := filepath.Join(base, "root"), filepath.Join(base, "outside")
+	for _, name := range []string{"c", "a", "b"} {
+		writeFile(t, filepath.Join(root, name), name)
+	}
+	writeFile(t, filepath.Join(outside, "x"), "x")
+	if err := os.Mkdir(filepath.Join(root, "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := NewReader([]string{root}, nil)
+	tests := []struct {
+		max      int
+		want     int
+		wantMore bool
+	}{{0, 0, true}, {2, 2, true}, {4, 4, false}, {10, 4, false}}
+	for _, tc := range tests {
+		entries, more, err := r.ReadDirLimit(root, tc.max)
+		if err != nil || len(entries) != tc.want || more != tc.wantMore {
+			t.Errorf("max %d: got %d entries, more=%v, err=%v; want %d, more=%v", tc.max, len(entries), more, err, tc.want, tc.wantMore)
+		}
+	}
+	if entries, _, _ := r.ReadDirLimit(root, 10); len(entries) == 4 && entries[0].Name() != "a" {
+		t.Errorf("entries not sorted: first = %q", entries[0].Name())
+	}
+	if entries, more, err := r.ReadDirLimit(filepath.Join(root, "empty"), 5); err != nil || len(entries) != 0 || more {
+		t.Errorf("empty dir = %d, %v, %v; want none", len(entries), more, err)
+	}
+	if _, _, err := r.ReadDirLimit(root, -1); err == nil {
+		t.Error("negative max must be refused, not read everything")
+	}
+	if _, _, err := r.ReadDirLimit(outside, 5); ReasonOf(err) != ReasonOutsideRoots {
+		t.Errorf("outside root: %v; want outside-roots refusal", err)
+	}
+	guarded := NewReader([]string{root}, func(p string) string {
+		if p == root {
+			return "guarded"
+		}
+		return ""
+	})
+	if _, _, err := guarded.ReadDirLimit(root, 5); ReasonOf(err) != "guarded" {
+		t.Errorf("guard refusal: %v; want guard reason", err)
+	}
+}
