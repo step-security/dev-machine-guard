@@ -153,6 +153,33 @@ else
     fail "browser_extension_scan is either absent or carries its coverage list"
 fi
 
+# Plugin scopes carry explicit coverage; usage stays on skill definitions.
+if echo "$JSON_OUTPUT" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+assert 'agent_skill_usage_scan' not in d
+for key, rows in [('agent_plugins', 'contexts')]:
+    s = d.get(key)
+    if s is None:
+        continue
+    assert s['schema_version'] == 1
+    assert isinstance(s[rows], list)
+    for row in s[rows]:
+        assert isinstance(row['errors'], list)
+        if rows == 'contexts':
+            assert row['marketplace_status'] and row['installation_status']
+            assert isinstance(row['marketplaces'], list) and isinstance(row['plugins'], list)
+            for market in row['marketplaces']:
+                assert isinstance(market.get('auto_update_preferences', []), list)
+            for plugin in row['plugins']:
+                assert plugin['component_status']
+                assert isinstance(plugin['components'], list) and isinstance(plugin['enablement'], list)
+" 2>/dev/null; then
+    pass "agent plugins section has explicit coverage and arrays"
+else
+    fail "agent plugins section has explicit coverage and arrays"
+fi
+
 # device object fields
 for key in hostname os_version serial_number platform user_identity; do
     if echo "$JSON_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); assert '$key' in d['device']" 2>/dev/null; then
@@ -167,7 +194,7 @@ SUMMARY_CHECK=$(echo "$JSON_OUTPUT" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 s = d['summary']
-counts = ['ai_agents_and_tools_count', 'ide_installations_count', 'ide_extensions_count', 'mcp_configs_count', 'node_projects_count']
+counts = ['ai_agents_and_tools_count', 'ide_installations_count', 'ide_extensions_count', 'mcp_configs_count', 'node_projects_count', 'agent_plugins_count']
 for c in counts:
     assert c in s, f'missing {c}'
     assert isinstance(s[c], int), f'{c} is not int'
@@ -355,17 +382,23 @@ section "Configure command"
 # configure should be a recognized command (not "Unknown option")
 assert_contains "--help mentions configure" "$HELP_OUTPUT" "configure"
 
-# configure with empty stdin should not crash (sends EOF immediately)
-CONFIGURE_RC=0
-echo "" | "$BINARY" configure >/dev/null 2>&1 || CONFIGURE_RC=$?
-assert_eq "configure exits 0 with empty input" "0" "$CONFIGURE_RC"
-
-# Config file should be created
-CONFIG_PATH="$HOME/.stepsecurity/config.json"
-if [ -f "$CONFIG_PATH" ]; then
-    pass "configure creates config file"
+# Keep the configure smoke test away from the user's real configuration.
+if python3 - "$BINARY" <<'PYCONFIG'
+import os, pathlib, subprocess, sys, tempfile
+with tempfile.TemporaryDirectory(prefix='dmg-smoke-config-') as directory:
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.startswith(('STEPSECURITY_', 'DMG_'))}
+    environment.update(HOME=directory, USERPROFILE=directory)
+    result = subprocess.run([sys.argv[1], 'configure'], input='\n', text=True,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            env=environment)
+    assert result.returncode == 0, result.returncode
+    assert (pathlib.Path(directory) / '.stepsecurity' / 'config.json').is_file()
+PYCONFIG
+then
+    pass "configure exits 0 and creates its config file in an isolated home"
 else
-    fail "configure creates config file"
+    fail "configure exits 0 and creates its config file in an isolated home"
 fi
 
 #==============================================================================

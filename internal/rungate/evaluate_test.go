@@ -2,6 +2,7 @@ package rungate
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -249,5 +250,45 @@ func TestEvaluateIgnoresStaleCacheFields(t *testing.T) {
 				t.Fatalf("stale fields broke the reader: %+v ok=%v", st, ok)
 			}
 		})
+	}
+}
+
+func TestEvaluatePackageDelta(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		for _, enabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("force=%v/enabled=%v", force, enabled), func(t *testing.T) {
+				t.Setenv("STEPSEC_ENABLE_SCAN_STATE", "1")
+				t.Setenv("STEPSEC_DISABLE_SCAN_STATE", "1")
+				withTempState(t)
+				seedDeviceID(t)
+				gateServer(t, 0, fmt.Sprintf(`{"scan_directive":{"mode":"full"},"package_scan":{"delta_enabled":%v}}`, enabled))
+				if got := evaluate(t, force); got.DeltaScanEnabled != enabled {
+					t.Fatalf("result=%+v", got)
+				}
+			})
+		}
+	}
+}
+
+func TestEvaluatePackageDeltaDoesNotRememberOptIn(t *testing.T) {
+	withTempState(t)
+	seedDeviceID(t)
+	var body atomic.Value
+	body.Store(`{"package_scan":{"delta_enabled":true}}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body.Load().(string))) }))
+	defer srv.Close()
+	previous := config.APIEndpoint
+	config.APIEndpoint = srv.URL
+	t.Cleanup(func() { config.APIEndpoint = previous })
+	key, customer := config.APIKey, config.CustomerID
+	config.APIKey = "test"
+	config.CustomerID = "acme"
+	t.Cleanup(func() { config.APIKey = key; config.CustomerID = customer })
+	if !evaluate(t, true).DeltaScanEnabled {
+		t.Fatal("expected initial opt-in")
+	}
+	body.Store(`{}`)
+	if evaluate(t, true).DeltaScanEnabled {
+		t.Fatal("missing setting reused previous opt-in")
 	}
 }

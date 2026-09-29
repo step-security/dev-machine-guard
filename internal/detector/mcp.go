@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/pelletier/go-toml/v2"
 	"github.com/tailscale/hujson"
 
 	"github.com/step-security/dev-machine-guard/internal/aiagents/redact"
@@ -90,13 +91,22 @@ func (d *MCPDetector) DetectEnterprise(_ context.Context, searchDirs []string) [
 	var results []model.MCPConfigEnterprise
 
 	for _, loc := range d.allConfigLocations(homeDir, searchDirs) {
-		content, err := d.exec.ReadFile(loc.ConfigPath)
+		reader := d.exec
+		if loc.SourceName == "codex" {
+			reader = reader.GuardedFiles([]string{filepath.Dir(loc.ConfigPath)}, func(path string) string {
+				if d.skipper.WithinProtected(path) {
+					return "tcc_protected"
+				}
+				return ""
+			}, maxJSONConfigBytes)
+		}
+		content, err := reader.ReadFile(loc.ConfigPath)
 		if err != nil || len(content) == 0 {
 			continue
 		}
 
-		// Filter JSON configs to extract only MCP-relevant fields.
-		// If filtering fails (non-JSON, parse error, etc.), omit content
+		// Extract only MCP-relevant fields from supported formats.
+		// If filtering fails, omit content
 		// to avoid leaking secrets like env vars and auth headers.
 		var contentBase64 string
 		if filtered, ok := d.filterMCPContent(loc.SourceName, loc.ConfigPath, content); ok {
@@ -114,9 +124,7 @@ func (d *MCPDetector) DetectEnterprise(_ context.Context, searchDirs []string) [
 	return results
 }
 
-// discoverProjectMCPConfigs finds project-level .mcp.json files in the roots
-// from Claude Code's project registry (~/.claude.json). Project-root discovery
-// is shared with the skills detector via discoverClaudeProjects.
+// discoverProjectMCPConfigs finds .mcp.json files in Claude Code's recorded projects.
 func (d *MCPDetector) discoverProjectMCPConfigs() []mcpConfigSpec {
 	var specs []mcpConfigSpec
 	seen := make(map[string]bool)
@@ -144,6 +152,11 @@ func (d *MCPDetector) discoverProjectMCPConfigs() []mcpConfigSpec {
 
 // resolveConfigPath returns the appropriate config path for the current platform.
 func (d *MCPDetector) resolveConfigPath(spec mcpConfigSpec, homeDir string) string {
+	if spec.SourceName == "codex" {
+		if root := d.exec.Getenv("CODEX_HOME"); filepath.IsAbs(root) {
+			return filepath.Join(root, "config.toml")
+		}
+	}
 	if d.exec.GOOS() == model.PlatformWindows && spec.WinConfigPath != "" {
 		return resolveEnvPath(d.exec, spec.WinConfigPath)
 	}
@@ -157,6 +170,24 @@ func (d *MCPDetector) resolveConfigPath(spec mcpConfigSpec, homeDir string) stri
 // Returns the filtered content and true on success, or nil and false if
 // filtering failed (to avoid leaking secrets from raw fallback).
 func (d *MCPDetector) filterMCPContent(sourceName, configPath string, content []byte) ([]byte, bool) {
+	if sourceName == "codex" && strings.HasSuffix(configPath, ".toml") {
+		var config struct {
+			Servers map[string]map[string]any `toml:"mcp_servers"`
+		}
+		if toml.Unmarshal(content, &config) != nil || config.Servers == nil {
+			return nil, false
+		}
+		raw, err := json.Marshal(config.Servers)
+		if err != nil {
+			return nil, false
+		}
+		filtered := filterServerFields(raw)
+		if filtered == nil {
+			return nil, false
+		}
+		out, err := toml.Marshal(map[string]any{"mcp_servers": filtered})
+		return out, err == nil
+	}
 	if !strings.HasSuffix(configPath, ".json") && !strings.HasSuffix(configPath, ".jsonc") {
 		return nil, false // Non-JSON formats cannot be safely filtered
 	}

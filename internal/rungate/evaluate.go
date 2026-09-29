@@ -32,6 +32,8 @@ type Result struct {
 	// answered with an explicit false. Nothing is remembered between runs, so
 	// every other path (no answer, failure, older backend) scans as before.
 	CredentialScanningDisabled bool
+	// DeltaScanEnabled requires an explicit opt-in from this check-in.
+	DeltaScanEnabled bool
 }
 
 // Evaluate runs the whole gate ahead of telemetry.Run: explicit escapes,
@@ -45,7 +47,7 @@ type Result struct {
 //
 // The force and kill-switch escapes decide cadence only. The check-in still
 // happens because it also carries the tenant's credential-scanning setting,
-// which a forced run must honour; nothing else from that answer is applied.
+// and package-upload protocol, which a forced run must honour.
 //
 // guestDeviceID, when non-empty, is the identity of an agent running inside a
 // WSL distribution, derived by the host that triggered it. It must be used in
@@ -60,7 +62,7 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 	}
 
 	// Local escapes decide cadence on their own, but the check-in below still
-	// runs: it is the only source of the tenant's credential-scanning setting.
+	// runs: it supplies the tenant scanner and package-upload settings.
 	escape := in.ForceScan || in.KillSwitch
 	if in.ForceScan {
 		log.Progress("Run gate: bypassed (--force-scan)")
@@ -92,7 +94,7 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 	}
 
 	log.Progress("Run gate: checking scan cadence with the dashboard...")
-	directive, wslDirective, credentialScanning, err := Checkin(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, deviceID, st.LastFullRunAt)
+	directive, wslDirective, credentialScanning, deltaEnabled, err := Checkin(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, deviceID, st.LastFullRunAt)
 	// Only an explicit false in this invocation's answer turns credential
 	// scanning off. A failed or silent check-in scans.
 	credentialDisabled := err == nil && credentialScanning != nil && !*credentialScanning
@@ -101,7 +103,7 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 		// directive, no persistence, and no WSL scanning. Without a directive
 		// we never scan inside a distro.
 		return Result{Skip: false, Reason: Decide(in).Reason, WSL: wslWithOverride(WSLDirective{}),
-			CredentialScanningDisabled: credentialDisabled}
+			CredentialScanningDisabled: credentialDisabled, DeltaScanEnabled: err == nil && deltaEnabled}
 	}
 	if err != nil {
 		log.Progress("Run gate: dashboard check-in failed, using cached cadence: %v", err)
@@ -129,7 +131,7 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 
 	dec := Decide(in)
 	res := Result{Skip: dec.Skip, Reason: dec.Reason, WSL: wslWithOverride(wslDirective),
-		CredentialScanningDisabled: credentialDisabled}
+		CredentialScanningDisabled: credentialDisabled, DeltaScanEnabled: err == nil && deltaEnabled}
 	if dec.Skip {
 		// Online skip: best-effort heartbeat so the console shows the agent
 		// checked in and was told not to scan (a gated skip otherwise leaves no

@@ -21,7 +21,7 @@ func TestCheckinParsesDirectiveAndSendsParams(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d, wsl, cred, err := Checkin(context.Background(), srv.URL, "tenant-key", "acme corp", "SER 123", 1753150000)
+	d, wsl, cred, _, err := Checkin(context.Background(), srv.URL, "tenant-key", "acme corp", "SER 123", 1753150000)
 	if err != nil {
 		t.Fatalf("Checkin: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestCheckinParsesWSLDirective(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d, wsl, _, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0)
+	d, wsl, _, _, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0)
 	if err != nil {
 		t.Fatalf("Checkin: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestCheckinWSLDirectiveDisabledIsHonoured(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, wsl, _, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0)
+	_, wsl, _, _, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0)
 	if err != nil {
 		t.Fatalf("Checkin: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestCheckinOmitsZeroLastRunAt(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, _, _, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0); err != nil {
+	if _, _, _, _, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0); err != nil {
 		t.Fatalf("Checkin: %v", err)
 	}
 	if strings.Contains(gotQuery, "last_run_at") {
@@ -127,7 +127,7 @@ func TestCheckinErrorPaths(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := httptest.NewServer(tt.handler)
 			defer srv.Close()
-			_, _, cred, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0)
+			_, _, cred, _, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0)
 			if err == nil {
 				t.Fatal("Checkin must error so the gate fails open")
 			}
@@ -159,7 +159,7 @@ func TestCheckinWithoutDirectiveIsNotAnError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(tt.body)) }))
 			defer srv.Close()
-			d, _, cred, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0)
+			d, _, cred, _, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0)
 			if err != nil {
 				t.Fatalf("Checkin: %v", err)
 			}
@@ -198,7 +198,7 @@ func TestCheckinCredentialScanning(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(tt.body)) }))
 			defer srv.Close()
-			d, _, cred, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0)
+			d, _, cred, _, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0)
 			if err != nil {
 				t.Fatalf("Checkin: %v", err)
 			}
@@ -232,7 +232,7 @@ func TestCheckinRespectsContextDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, _, _, err := Checkin(ctx, srv.URL, "k", "acme", "SER1", 0)
+	_, _, _, _, err := Checkin(ctx, srv.URL, "k", "acme", "SER1", 0)
 	if err == nil {
 		t.Fatal("Checkin must error on deadline")
 	}
@@ -252,7 +252,7 @@ func TestCheckinValidatesInputs(t *testing.T) {
 		{name: "no device", endpoint: "http://x", key: "k", customerID: "c", deviceID: ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, _, _, err := Checkin(context.Background(), tt.endpoint, tt.key, tt.customerID, tt.deviceID, 0); err == nil {
+			if _, _, _, _, err := Checkin(context.Background(), tt.endpoint, tt.key, tt.customerID, tt.deviceID, 0); err == nil {
 				t.Fatal("want validation error")
 			}
 		})
@@ -272,7 +272,7 @@ func TestCheckinWSLNeedsDirective(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) }))
 			defer srv.Close()
-			d, wsl, cred, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0)
+			d, wsl, cred, _, err := Checkin(context.Background(), srv.URL, "k", "acme", "SER1", 0)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -281,6 +281,29 @@ func TestCheckinWSLNeedsDirective(t *testing.T) {
 			}
 			if cred == nil || *cred {
 				t.Errorf("cred = %v, want false", deref(cred))
+			}
+		})
+	}
+}
+
+func TestCheckinPackageDelta(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want bool
+	}{
+		{`{}`, false}, {`{"package_scan":null}`, false}, {`{"package_scan":{}}`, false},
+		{`{"package_scan":{"delta_enabled":false}}`, false},
+		{`{"package_scan":{"delta_enabled":true}}`, true},
+		{`{"package_scan":{"delta_enabled":"true"}}`, false},
+		{`{"package_scan":{"delta_enabled":null}}`, false},
+		{`{"package_scan":{"delta_enabled":true},"scanners":false,"scan_directive":false}`, true},
+	} {
+		t.Run(tc.body, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(tc.body)) }))
+			defer srv.Close()
+			_, _, _, got, err := Checkin(context.Background(), srv.URL, "k", "acme", "dev", 0)
+			if err != nil || got != tc.want {
+				t.Fatalf("enabled=%v err=%v", got, err)
 			}
 		})
 	}

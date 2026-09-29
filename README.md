@@ -58,7 +58,7 @@ The steps below install the binary directly and are intended for **community use
 
 ### Install from release (community)
 
-Download the latest binary for your platform from [GitHub Releases](https://github.com/step-security/dev-machine-guard/releases). Release asset filenames embed the version (for example, `stepsecurity-dev-machine-guard-1.16.0-darwin`), so the snippets below resolve the latest tag first rather than hardcoding a version.
+Download the latest binary for your platform from [GitHub Releases](https://github.com/step-security/dev-machine-guard/releases). Release asset filenames embed the version (for example, `stepsecurity-dev-machine-guard-1.17.0-darwin`), so the snippets below resolve the latest tag first rather than hardcoding a version.
 
 **macOS** (universal binary — Apple Silicon and Intel)
 
@@ -287,6 +287,7 @@ See [SCAN_COVERAGE.md](SCAN_COVERAGE.md) for the full catalog of supported detec
 | AI Agents            | Claude Cowork, OpenClaw, ClawdBot, GPT-Engineer                                          |
 | AI Frameworks        | Ollama, LM Studio, LocalAI, Text Generation WebUI                                        |
 | MCP Server Configs   | Claude Desktop, Claude Code, Cursor, Windsurf, Antigravity, Zed, Open Interpreter, Codex, OpenCode |
+| Agent Plugins & Skills | Claude Code and Codex plugin installations, declared components, standalone Claude commands, and recorded skill-use counters |
 | IDE Extensions       | VS Code, Cursor, Windsurf, Antigravity, JetBrains, Eclipse, Xcode, Android Studio        |
 | Browser Extensions   | Google Chrome, Microsoft Edge, Mozilla Firefox                                           |
 | Node.js Packages     | npm, yarn, pnpm, bun (opt-in)                                                            |

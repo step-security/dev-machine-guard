@@ -1,12 +1,99 @@
 package output
 
 import (
+	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
+
+func TestPluginOutputStatesAndEscaping(t *testing.T) {
+	disabled := false
+	zero := int64(0)
+	result := &model.ScanResult{
+		AgentPlugins: &model.AgentPlugins{Contexts: []model.AgentPluginContext{{
+			Agent: model.AgentClaudeCode, MarketplaceStatus: "complete", InstallationStatus: "partial",
+			Plugins: []model.PluginObservation{{Name: "<script>example</script>", ConfiguredEnabled: &disabled, ComponentStatus: "partial", Components: []model.PluginComponent{{Kind: "mcp", Name: "declared-server", Status: "complete"}}}},
+		}}},
+		AgentSkills: []model.AgentSkill{{SkillName: "example:check", Usage: &model.SkillUsage{Availability: "available", RecordedUses: &zero}}},
+	}
+	var pretty bytes.Buffer
+	if err := Pretty(&pretty, result, "never"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"configured enabled: no; effective enabled: unknown", "declared components: 1; coverage: partial", "example:check: 0 recorded uses"} {
+		if !strings.Contains(pretty.String(), want) {
+			t.Errorf("pretty missing %q", want)
+		}
+	}
+	output := filepath.Join(t.TempDir(), "report.html")
+	if err := HTML(output, result); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(data)
+	for _, want := range []string{"&lt;script&gt;example&lt;/script&gt;", "no / unknown", "Coverage: partial", "example:check</td><td>0"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("HTML missing %q", want)
+		}
+	}
+	if strings.Contains(html, "<script>example</script>") {
+		t.Fatal("unescaped plugin name")
+	}
+}
+
+func TestPluginOnlyCommunityComponents(t *testing.T) {
+	result := &model.ScanResult{
+		AgentSkillScan: &model.AgentSkillScanInfo{},
+		AgentPlugins: &model.AgentPlugins{Contexts: []model.AgentPluginContext{{
+			Agent: model.AgentClaudeCode,
+			Plugins: []model.PluginObservation{{Name: "test-plugin", Components: []model.PluginComponent{
+				{Kind: model.PluginComponentSkill, Name: "test-skill", Skill: &model.AgentSkill{SkillName: "test-skill", Agent: model.AgentClaudeCode}},
+				{Kind: model.PluginComponentMCP, Name: "test-mcp", MCPConfig: &model.MCPConfigEnterprise{ConfigSource: "test-mcp", Vendor: "test-vendor"}},
+			}}},
+		}}},
+	}
+	var out bytes.Buffer
+	if err := Pretty(&out, result, "never"); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, bounds := range [][2]string{{"MCP SERVERS", "AGENT SKILLS"}, {"AGENT SKILLS", "IDE EXTENSIONS"}} {
+		start := strings.Index(text, bounds[0])
+		end := strings.Index(text, bounds[1])
+		if start < 0 || end <= start {
+			t.Fatalf("missing section %v", bounds)
+		}
+		if strings.Contains(text[start:end], "None detected") {
+			t.Errorf("pretty %s reports None detected for a present nested component", bounds[0])
+		}
+	}
+	file := filepath.Join(t.TempDir(), "report.html")
+	if err := HTML(file, result); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text = string(data)
+	for _, bounds := range [][2]string{{"<h2>MCP Servers", "<h2>Agent Skills"}, {"<h2>Agent Skills", "<h2>Agent Plugins"}} {
+		start := strings.Index(text, bounds[0])
+		end := strings.Index(text, bounds[1])
+		if start < 0 || end <= start {
+			t.Fatalf("missing section %v", bounds)
+		}
+		if strings.Contains(text[start:end], "None detected") {
+			t.Errorf("HTML %s reports None detected for a present nested component", bounds[0])
+		}
+	}
+}
 
 func TestHTML_GeneratesFile(t *testing.T) {
 	tmpFile := os.TempDir() + "/test-dmg-report.html"

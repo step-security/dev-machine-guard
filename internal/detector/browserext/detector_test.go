@@ -496,7 +496,7 @@ func TestDetect_GuardExemptsTheBrowsersOwnDirectories(t *testing.T) {
 	securePrefs(t, root, "Default",
 		`"`+idA+`": {"location": 1, "active_permissions": {}, "manifest": {"name": "Example", "version": "1.0"}}`)
 
-	d := newDetector(model.PlatformDarwin).WithSkipper(tcc.New(home))
+	d := newDetector(model.PlatformDarwin).WithOSVersion("26.5.1").WithSkipper(tcc.New(home))
 	info := d.Detect(context.Background(), testUser(home))
 	if info == nil {
 		t.Fatal("Detect returned the did-not-run sentinel")

@@ -492,3 +492,29 @@ func TestCommitAfterUpload_UnchangedGlobalKeepsProvenance(t *testing.T) {
 		t.Errorf("global LastVerifiedAt must still advance, got %v", e.LastVerifiedAt)
 	}
 }
+
+func TestInvalidate(t *testing.T) {
+	if err := Invalidate(""); err != nil {
+		t.Fatal(err)
+	}
+	path := tempStatePath(t)
+	if err := Invalidate(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := New("test").Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := Invalidate(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("state remains: %v", err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "keep"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Invalidate(dir); err == nil {
+		t.Fatal("invalidation failures must not be ignored")
+	}
+}

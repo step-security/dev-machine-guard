@@ -160,11 +160,15 @@ func (d *MCPDetector) discoverWalkedMCPConfigs(searchDirs []string, homeDir stri
 			if filesVisited > maxMCPWalkFiles {
 				return fs.SkipAll
 			}
-			if mcpConfigBasenames[ent.Name()] {
+			codexConfig := ent.Name() == "config.toml" && filepath.Base(filepath.Dir(path)) == ".codex"
+			if mcpConfigBasenames[ent.Name()] || codexConfig {
 				c := filepath.Clean(path)
 				if !seen[c] {
 					seen[c] = true
 					if source, vendor, keep := classifyWalkedMCPConfig(c, root); keep {
+						if codexConfig && source == "discovered_mcp" {
+							source, vendor = "codex", "OpenAI"
+						}
 						specs = append(specs, mcpConfigSpec{
 							SourceName: source,
 							ConfigPath: c,

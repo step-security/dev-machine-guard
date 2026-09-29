@@ -49,6 +49,9 @@ type ScanResult struct {
 	// skipped scan from erasing a device's extensions.
 	BrowserExtensionScan *BrowserExtensionScanInfo `json:"browser_extension_scan,omitempty"`
 
+	// Nil plugin coverage means unreported, not an empty inventory.
+	AgentPlugins *AgentPlugins `json:"agent_plugins,omitempty"`
+
 	Summary Summary `json:"summary"`
 }
 
@@ -206,6 +209,7 @@ type Summary struct {
 	SnapPackagesCount     int `json:"snap_packages_count"`
 	FlatpakPackagesCount  int `json:"flatpak_packages_count"`
 	AgentSkillsCount      int `json:"agent_skills_count"`
+	AgentPluginsCount     int `json:"agent_plugins_count"`
 }
 
 // UnchangedProjectRef tells the backend a project is unchanged since the
@@ -770,6 +774,7 @@ type FileAttrs struct {
 // listed in SymlinkSources). Never carries file content — identity, provenance,
 // hashes, and census counts only.
 type AgentSkill struct {
+	Usage *SkillUsage `json:"usage,omitempty"`
 	// Identity
 	SkillSlug    string   `json:"skill_slug"`              // directory basename
 	SkillName    string   `json:"skill_name"`              // frontmatter name, else slug
@@ -808,6 +813,15 @@ type AgentSkill struct {
 
 	// Content identity
 	SkillMDHash string `json:"skill_md_hash,omitempty"` // hex(sha256(SKILL.md)) — identity/drift key
+
+	// Empty DefinitionKind denotes SKILL.md. Commands use DefinitionPath and
+	// DefinitionHash; their SKILL.md fields and directory census remain empty.
+	DefinitionKind string `json:"definition_kind,omitempty"` // "" | AgentDefinitionSkill | AgentDefinitionCommand
+	DefinitionPath string `json:"definition_path,omitempty"`
+	DefinitionHash string `json:"definition_hash,omitempty"` // hex(sha256(raw definition bytes))
+	// How the agent invokes this definition. A command takes its name from its
+	// path under commands/, not from frontmatter.
+	CallableNames []string `json:"callable_names,omitempty"`
 
 	// File census (all stat-derived — no file bytes read)
 	FileCount         int   `json:"file_count,omitempty"`
@@ -848,5 +862,8 @@ type AgentSkillScanInfo struct {
 	Errors          []string `json:"errors,omitempty"`            // bounded: ≤50 entries, each ≤256 chars
 	WalkDirsVisited int      `json:"walk_dirs_visited,omitempty"` // home-walk ReadDir count
 	WalkRootsFound  int      `json:"walk_roots_found,omitempty"`  // project-root candidates the home walk emitted (pre-union)
-	DurationMs      int64    `json:"duration_ms"`
+	// CommandsStatus covers standalone command roots. Empty means unreported;
+	// only complete coverage permits removal of unseen commands.
+	CommandsStatus string `json:"commands_status,omitempty"`
+	DurationMs     int64  `json:"duration_ms"`
 }

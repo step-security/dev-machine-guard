@@ -112,6 +112,7 @@ type Payload struct {
 	YarnAudit               *model.YarnAudit                `json:"yarn_audit,omitempty"`
 	AgentSkills             []model.AgentSkill              `json:"agent_skills,omitempty"`
 	AgentSkillScan          *model.AgentSkillScanInfo       `json:"agent_skill_scan,omitempty"`
+	AgentPlugins            *model.AgentPlugins             `json:"agent_plugins,omitempty"`
 	CredentialScan          *model.CredentialScanInfo       `json:"credential_scan,omitempty"`
 	// Nil means the phase did not run, and that is the only signal a reader has
 	// for it: a section carrying zero findings is the positive claim that this
@@ -141,6 +142,7 @@ type PerformanceMetrics struct {
 	PythonProjectsCount   int   `json:"python_projects_count"`
 	SystemPackagesCount   int   `json:"system_packages_count"`
 	AgentSkillsCount      int   `json:"agent_skills_count"`
+	AgentPluginsCount     int   `json:"agent_plugins_count"`
 }
 
 // Run executes enterprise telemetry: scan, build payload, upload to S3.
@@ -502,24 +504,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		endPhase(wslCtx, wslCancel, tracker, log, "wsl_scan")
 	}
 
-	// Per-device scan state for the delta-upload protocol. Enabled by default
-	// (config.UseLegacyPackageScan defaults false). Resolution, in order:
-	//   - STEPSEC_DISABLE_SCAN_STATE=1         (env kill switch, always wins)
-	//   - STEPSEC_ENABLE_SCAN_STATE=1          (env test opt-in)
-	//   - config.UseLegacyPackageScan          (persistent, set in config.json)
-	//   - paths.Home() unresolvable            (no place to write the file)
-	// A disabled gate leaves scanState nil and the run behaves as pre-1.13.
+	// Delta requires this run's backend opt-in; there are no local overrides.
 	var scanState *state.State
 	var scanStatePath string
 	var scanStateFullSync bool
-	scanStateDisabled := config.UseLegacyPackageScan
-	if os.Getenv("STEPSEC_ENABLE_SCAN_STATE") == "1" {
-		scanStateDisabled = false
-	}
-	if os.Getenv("STEPSEC_DISABLE_SCAN_STATE") == "1" {
-		scanStateDisabled = true
-	}
-	if !scanStateDisabled {
+	if cfg.DeltaScanEnabled {
 		scanStatePath = paths.ScanStateFile()
 		if scanStatePath != "" {
 			loaded, loadErr := state.Load(scanStatePath, buildinfo.Version)
@@ -531,8 +520,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 			log.Debug("scan-state: loaded from %s (npm=%d python=%d full_sync=%v)",
 				scanStatePath, len(scanState.NPMProjects), len(scanState.PythonProjects), scanStateFullSync)
 		}
-	} else if config.UseLegacyPackageScan {
-		log.Debug("scan-state: disabled by config.use_legacy_package_scan; falling back to full-snapshot uploads")
+	} else {
+		log.Debug("scan-state: using legacy full-snapshot uploads")
 	}
 
 	// Report "started" now that we have a device_id. Fire-and-forget.
@@ -1015,29 +1004,28 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		systemPackageScans = []model.SystemPackageScanResult{}
 	}
 
-	// AI agent skills inventory — every installed SKILL.md (metadata +
-	// content hashes only, never file content). A dedicated phase between MCP
-	// and the config audits. Pure filesystem reads bounded by an internal 60s
-	// budget and per-root caps. The node/python project roots discovered above
-	// feed per-project discovery on top of the detector's own ~/.claude.json
-	// registry. A non-nil scan info always ships (the backend "scan ran"
-	// sentinel), even when zero skills are found.
-	var agentSkills []model.AgentSkill
-	var agentSkillScan *model.AgentSkillScanInfo
-	if featuregate.IsEnabled(featuregate.FeatureAgentSkillsScan) {
-		phaseCtx, phaseCancel = startPhase(ctx, tracker, "agent_skills_scan")
-		log.Progress("Collecting AI agent skills...")
-		// userExec (not exec): match every other user-facing detector so home
-		// resolves to the logged-in user, not the SYSTEM/root profile, under an
-		// unattended enterprise deploy. The wrapper currently passes all read ops
-		// straight through, so this is convention + future-proofing, not a live fix.
-		skillsDetector := detector.NewSkillsDetector(userExec).WithSkipper(tccSkipper)
-		agentSkills, agentSkillScan = skillsDetector.Detect(phaseCtx, collectProjectRoots(nodeProjects, pythonProjects), searchDirs)
-		log.Progress("  Found %d agent skills across %d roots", len(agentSkills), len(agentSkillScan.RootsScanned))
-		fmt.Fprintln(os.Stderr)
-		endPhase(phaseCtx, phaseCancel, tracker, log, "agent_skills_scan")
-		postPhase()
+	// Collect skill and command metadata, hashes and recorded usage without
+	// uploading definition contents. Scan info remains present for empty results.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "agent_skills_scan")
+	log.Progress("Collecting AI agent skills...")
+	skillsDetector := detector.NewSkillsDetector(userExec).WithSkipper(tccSkipper).WithAgentVersions(detector.AgentVersions(cliTools))
+	skillsResult := skillsDetector.DetectSkills(phaseCtx, collectProjectRoots(nodeProjects, pythonProjects), searchDirs)
+	agentSkills, agentSkillScan := skillsResult.Skills, skillsResult.Info
+	log.Progress("  Found %d agent skills across %d roots", len(agentSkills), len(agentSkillScan.RootsScanned))
+	fmt.Fprintln(os.Stderr)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "agent_skills_scan")
+	postPhase()
+
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "agent_plugins_scan")
+	log.Progress("Collecting agent plugins...")
+	if err := skillsDetector.DetectPlugins(phaseCtx, &skillsResult); err != nil {
+		log.Warn("agent plugins scan failed: %v", err)
 	}
+	mcpConfigs = skillsResult.ReconcilePluginMCP(mcpConfigs)
+	log.Progress("  Found %d agent plugins", skillsResult.Plugins.PluginCount())
+	fmt.Fprintln(os.Stderr)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "agent_plugins_scan")
+	postPhase()
 
 	// Credential-location inventory — where this machine's developer tools keep
 	// credentials, and how well guarded each location is. Exact paths only, never
@@ -1068,7 +1056,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	phaseCtx, phaseCancel = startPhase(ctx, tracker, "browser_extensions_scan")
 	log.Progress("Inventorying browser extensions...")
 	browserTarget, _ := exec.LoggedInUser()
-	browserExtensionScan := browserext.New(userExec).WithSkipper(tccSkipper).Detect(phaseCtx, browserTarget)
+	browserExtensionScan := browserext.New(userExec).WithOSVersion(dev.OSVersion).WithSkipper(tccSkipper).Detect(phaseCtx, browserTarget)
 	if browserExtensionScan == nil {
 		log.Progress("  Skipped: no interactive user to describe")
 	} else {
@@ -1236,6 +1224,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		YarnAudit:               &yarnAudit,
 		AgentSkills:             agentSkills,
 		AgentSkillScan:          agentSkillScan,
+		AgentPlugins:            skillsResult.Plugins,
 		CredentialScan:          credentialScan,
 		BrowserExtensionScan:    browserExtensionScan,
 
@@ -1258,7 +1247,18 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 			PythonProjectsCount:   len(pythonProjects),
 			SystemPackagesCount:   totalSystemPackagesCount(systemPackageScans),
 			AgentSkillsCount:      len(agentSkills),
+			AgentPluginsCount:     skillsResult.Plugins.PluginCount(),
 		},
+	}
+
+	// A legacy upload may replace the backend inventory that old delta refs
+	// point at. Invalidate that baseline BEFORE uploading, including failed or
+	// ambiguous uploads; the next delta run must establish a fresh baseline.
+	// If invalidation fails, do not upload a snapshot that could leave stale refs.
+	if snap == nil {
+		if err := state.Invalidate(paths.ScanStateFile()); err != nil {
+			return fmt.Errorf("invalidating delta state before legacy upload: %w", err)
+		}
 	}
 
 	// Dev-only offline harness: dump the assembled Payload to a local
@@ -1301,18 +1301,24 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// itself cannot wedge the agent indefinitely.
 	phaseCtx, phaseCancel = startPhase(runCtx, tracker, "telemetry_upload")
 	log.Progress("Requesting upload URL from backend...")
-	if err := uploadToS3(phaseCtx, log, payload, executionID, tracker, capture); err != nil {
+	ingest, uploadErr := uploadToS3(phaseCtx, log, payload, executionID, tracker, capture)
+	if uploadErr != nil {
 		endPhase(phaseCtx, phaseCancel, tracker, log, "telemetry_upload")
 		// Force-attach a final tail capturing the upload-failure output before
 		// returning. The deferred failure report carries no status_info (and so
 		// can't ship a tail itself); this progress upsert lands the tail on the
 		// row, which the subsequent "failed" transition preserves.
 		postPhaseFinal()
-		return fmt.Errorf("uploading telemetry: %w", err)
+		return fmt.Errorf("uploading telemetry: %w", uploadErr)
 	}
 	endPhase(phaseCtx, phaseCancel, tracker, log, "telemetry_upload")
 
-	if snap != nil {
+	if snap != nil && ingest == ingestRejected {
+		// Leaving scan-state uncommitted keeps our predecessor identity aligned
+		// with what the backend actually holds, so the next run re-sends the same
+		// refs rather than claiming an upload the backend discarded.
+		log.Warn("scan-state: backend rejected the payload — not advancing scan state")
+	} else if snap != nil {
 		if err := commitDeltaSnapshot(scanState, snap, scanStatePath, executionID, buildinfo.Version); err != nil {
 			log.Warn("scan-state: save failed (%v) — next run will full-sync", err)
 		} else {
@@ -1421,7 +1427,112 @@ func collectProjectRoots(nodeProjects []model.NodeScanResult, pythonProjects []m
 	return out
 }
 
-func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, executionID string, tracker *PhaseTracker, capture *LogCapture) error {
+// ingestStatus is what the backend's process-uploaded response claims about the
+// payload we just handed it. The endpoint only enqueues, so "queued" proves
+// nothing about persistence and must stay indistinguishable from no answer at
+// all — a backend that never adopts the richer values keeps today's behaviour.
+type ingestStatus int
+
+const (
+	// ingestUnknown = queued, absent, or unparseable. The payload may or may not
+	// have been persisted.
+	ingestUnknown ingestStatus = iota
+	// ingestProcessed = the backend persisted the payload.
+	ingestProcessed
+	// ingestRejected = the backend will not persist the payload, so the snapshot
+	// it describes was never stored.
+	ingestRejected
+)
+
+// maxNotifyResponseBytes caps the notify body we read. It is a status envelope,
+// not data.
+const maxNotifyResponseBytes = 4 << 10
+
+func parseIngestStatus(body []byte) ingestStatus {
+	var resp struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return ingestUnknown
+	}
+	switch resp.Status {
+	case "processed", "ingested":
+		return ingestProcessed
+	case "failed", "rejected":
+		return ingestRejected
+	default:
+		return ingestUnknown
+	}
+}
+
+type uploadURLResponse struct {
+	UploadURL string `json:"upload_url"`
+	S3Key     string `json:"s3_key"`
+}
+
+// uploadURLAttempts bounds retries of the upload-URL request. The endpoint
+// only presigns a key, so repeating it is safe; without a retry one dropped
+// connection discards the whole scan.
+const uploadURLAttempts = 3
+
+// requestUploadURL asks the backend for a presigned S3 URL, retrying transport
+// errors, 5xx and unreadable bodies. A 4xx is terminal.
+func requestUploadURL(ctx context.Context, log *progress.Logger, client *http.Client, endpoint string, reqBody []byte) (uploadURLResponse, error) {
+	var lastErr error
+	attempt := 1
+	for ; attempt <= uploadURLAttempts; attempt++ {
+		urlResp, retryable, err := requestUploadURLOnce(ctx, log, client, endpoint, reqBody)
+		if err == nil {
+			return urlResp, nil
+		}
+		lastErr = err
+		if !retryable || attempt == uploadURLAttempts {
+			break
+		}
+		backoff := time.Duration(attempt) * s3UploadBackoffUnit
+		log.Warn("upload URL attempt %d/%d failed (%v); retrying in %s...", attempt, uploadURLAttempts, err, backoff)
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return uploadURLResponse{}, ctx.Err()
+		}
+	}
+	return uploadURLResponse{}, fmt.Errorf("%w (attempt %d/%d)", lastErr, attempt, uploadURLAttempts)
+}
+
+func requestUploadURLOnce(ctx context.Context, log *progress.Logger, client *http.Client, endpoint string, reqBody []byte) (uploadURLResponse, bool, error) {
+	var urlResp uploadURLResponse
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(reqBody))
+	if err != nil {
+		return urlResp, false, fmt.Errorf("creating upload URL request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+config.APIKey)
+	req.Header.Set("X-Agent-Version", buildinfo.Version)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return urlResp, ctx.Err() == nil, fmt.Errorf("requesting upload URL [%s]: %w", requestErrorCode(req, err), err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 400 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxNotifyResponseBytes))
+		return urlResp, resp.StatusCode >= 500, fmt.Errorf("requesting upload URL [%s]: HTTP %d", httpStatusCode(resp.StatusCode), resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&urlResp); err != nil {
+		return urlResp, true, fmt.Errorf("decoding upload URL response [%s]: %w", codeBadResponse, err)
+	}
+
+	log.Debug("upload URL response: status=%d s3_key=%q url_len=%d", resp.StatusCode, urlResp.S3Key, len(urlResp.UploadURL))
+
+	if urlResp.UploadURL == "" {
+		return urlResp, false, fmt.Errorf("empty upload URL in response [%s]", codeBadResponse)
+	}
+	return urlResp, true, nil
+}
+
+func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, executionID string, tracker *PhaseTracker, capture *LogCapture) (ingestStatus, error) {
 	// updateDetail forwards sub-progress to the heartbeat goroutine via the
 	// tracker. Tolerates nil so the function stays callable from tests that
 	// don't supply a tracker.
@@ -1434,7 +1545,7 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, exe
 	updateDetail("compressing payload")
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshaling payload: %w", err)
+		return ingestUnknown, fmt.Errorf("marshaling payload: %w", err)
 	}
 
 	// Gzip-compress the payload before upload. The backend signals support by
@@ -1442,7 +1553,7 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, exe
 	// to the S3 key, which tells GetTelemetryFromS3 to decompress on read.
 	compressedPayload, err := gzipBytes(payloadJSON)
 	if err != nil {
-		return fmt.Errorf("compressing payload: %w", err)
+		return ingestUnknown, fmt.Errorf("compressing payload: %w", err)
 	}
 	updateDetail("requesting upload URL")
 
@@ -1455,33 +1566,10 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, exe
 	uploadURLEndpoint := fmt.Sprintf("%s/v1/%s/developer-mdm-agent/telemetry/upload-url",
 		config.APIEndpoint, config.CustomerID)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURLEndpoint, bytes.NewReader(reqBody))
-	if err != nil {
-		return fmt.Errorf("creating upload URL request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+config.APIKey)
-	req.Header.Set("X-Agent-Version", buildinfo.Version)
-
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	urlResp, err := requestUploadURL(ctx, log, client, uploadURLEndpoint, reqBody)
 	if err != nil {
-		return fmt.Errorf("requesting upload URL: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	var urlResp struct {
-		UploadURL string `json:"upload_url"`
-		S3Key     string `json:"s3_key"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&urlResp); err != nil {
-		return fmt.Errorf("decoding upload URL response: %w", err)
-	}
-
-	log.Debug("upload URL response: status=%d s3_key=%q url_len=%d", resp.StatusCode, urlResp.S3Key, len(urlResp.UploadURL))
-
-	if urlResp.UploadURL == "" {
-		return fmt.Errorf("empty upload URL in response")
+		return ingestUnknown, err
 	}
 
 	// Upload payload to S3 with retry. Content-Type stays application/json to
@@ -1523,7 +1611,7 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, exe
 		uploadStart := time.Now()
 		putReq, reqErr := http.NewRequestWithContext(ctx, http.MethodPut, urlResp.UploadURL, bytes.NewReader(compressedPayload))
 		if reqErr != nil {
-			return fmt.Errorf("creating S3 PUT request: %w", reqErr)
+			return ingestUnknown, fmt.Errorf("creating S3 PUT request: %w", reqErr)
 		}
 		putReq.Header.Set("Content-Type", "application/json")
 
@@ -1531,7 +1619,7 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, exe
 		elapsed := time.Since(uploadStart)
 		if putErr != nil {
 			log.Debug("s3 PUT attempt %d/%d: error=%v elapsed=%s", attempt, maxRetries, putErr, elapsed)
-			lastFailure = fmt.Sprintf("S3 PUT error: %v", putErr)
+			lastFailure = fmt.Sprintf("S3 PUT error [%s]: %v", requestErrorCode(putReq, putErr), putErr)
 		} else {
 			log.Debug("s3 PUT attempt %d/%d: status=%d elapsed=%s payload_bytes=%d", attempt, maxRetries, putResp.StatusCode, elapsed, len(payloadJSON))
 		}
@@ -1580,7 +1668,7 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, exe
 		} else if putResp != nil {
 			_, _ = io.Copy(io.Discard, putResp.Body)
 			_ = putResp.Body.Close()
-			lastFailure = fmt.Sprintf("S3 PUT returned status %d", putResp.StatusCode)
+			lastFailure = fmt.Sprintf("S3 PUT returned status %d [%s]", putResp.StatusCode, httpStatusCode(putResp.StatusCode))
 		}
 
 		if attempt == maxRetries {
@@ -1592,12 +1680,12 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, exe
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
-			return ctx.Err()
+			return ingestUnknown, ctx.Err()
 		}
 	}
 
 	if !uploaded {
-		return fmt.Errorf("telemetry upload failed after %d attempts: %s (payload: %d bytes) — the network may be intercepting outbound traffic to S3 (TLS-inspecting proxy, DLP appliance, or outbound firewall)",
+		return ingestUnknown, fmt.Errorf("telemetry upload failed after %d attempts: %s (payload: %d bytes) — the network may be intercepting outbound traffic to S3 (TLS-inspecting proxy, DLP appliance, or outbound firewall)",
 			maxRetries, lastFailure, len(compressedPayload))
 	}
 
@@ -1615,7 +1703,7 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, exe
 
 	notifyReq, err := http.NewRequestWithContext(ctx, http.MethodPost, notifyEndpoint, bytes.NewReader(notifyBody))
 	if err != nil {
-		return fmt.Errorf("creating notify request: %w", err)
+		return ingestUnknown, fmt.Errorf("creating notify request: %w", err)
 	}
 	notifyReq.Header.Set("Content-Type", "application/json")
 	notifyReq.Header.Set("Authorization", "Bearer "+config.APIKey)
@@ -1623,18 +1711,19 @@ func uploadToS3(ctx context.Context, log *progress.Logger, payload *Payload, exe
 
 	notifyResp, err := client.Do(notifyReq)
 	if err != nil {
-		return fmt.Errorf("notifying backend: %w", err)
+		return ingestUnknown, fmt.Errorf("notifying backend: %w", err)
 	}
 	defer func() { _ = notifyResp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, notifyResp.Body)
-	log.Debug("notify backend: status=%d s3_key=%q", notifyResp.StatusCode, urlResp.S3Key)
+	notifyBodyBytes, _ := io.ReadAll(io.LimitReader(notifyResp.Body, maxNotifyResponseBytes))
+	log.Debug("notify backend: status=%d s3_key=%q body=%q", notifyResp.StatusCode, urlResp.S3Key, notifyBodyBytes)
 
 	if notifyResp.StatusCode != http.StatusOK && notifyResp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("backend notification failed with status %d", notifyResp.StatusCode)
+		return ingestUnknown, fmt.Errorf("backend notification failed with status %d", notifyResp.StatusCode)
 	}
+	status := parseIngestStatus(notifyBodyBytes)
 	log.Progress("Backend processing initiated (HTTP %d)", notifyResp.StatusCode)
 
-	return nil
+	return status, nil
 }
 
 // uploadCheckResult is the four-valued answer the agent gets back when it

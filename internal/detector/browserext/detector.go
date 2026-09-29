@@ -7,6 +7,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -21,8 +22,9 @@ import (
 // reads the browsers' own state files and nothing else: no browser is launched,
 // no store is asked what it published, and no extension's code is opened.
 type Detector struct {
-	exec    executor.Executor
-	skipper *tcc.Skipper
+	exec      executor.Executor
+	skipper   *tcc.Skipper
+	osVersion string
 
 	// serviceSession reports whether this process runs with no interactive user
 	// behind it. A function field because the answer comes from the process rather
@@ -38,6 +40,12 @@ func New(exec executor.Executor) *Detector {
 // WithSkipper attaches the consent guard. A nil skipper is a no-op.
 func (d *Detector) WithSkipper(s *tcc.Skipper) *Detector {
 	d.skipper = s
+	return d
+}
+
+// WithOSVersion uses the OS version already gathered for this run.
+func (d *Detector) WithOSVersion(version string) *Detector {
+	d.osVersion = version
 	return d
 }
 
@@ -152,21 +160,28 @@ func isServiceIdentity(platform string, u *user.User) bool {
 // consentGuard is what the resolver asks before it touches a path, answering in this
 // phase's own reason code so a refusal reads like every other one.
 //
-// The macOS skipper declines ~/Library wholesale, which is right for a walk and wrong
-// for this detector: the browsers keep their data directories under it. Their own
-// directories are exempt, along with the directories above them a descent passes
-// through, matched against the cleaned path so
-// "Library/Application Support/Google/Chrome/../Mail" cannot ride the exemption. What
-// stays protected is the one path class this detector does not fix itself: a profile
-// directory named by a browser's own config file, which is a string an attacker can
-// write.
+// Known browser roots keep their historical exemption before macOS 27.
+// On macOS 27 and unknown versions, the ordinary protected-path policy applies.
+// Configured profile paths outside those roots remain guarded on every version.
 func (d *Detector) consentGuard(platform, home string) safepath.Guard {
 	if d.skipper == nil {
 		return nil
 	}
 	var exempt []string
-	for _, spec := range catalog {
-		exempt = append(exempt, spec.roots(platform, home)...)
+	parts := strings.Split(d.osVersion, ".")
+	validVersion := len(parts) <= 3
+	for _, part := range parts {
+		if _, err := strconv.ParseUint(part, 10, 32); err != nil {
+			validVersion = false
+			break
+		}
+	}
+	major, _ := strconv.ParseUint(parts[0], 10, 32)
+	// macOS 27 protects these browser roots. Unknown versions fail closed.
+	if platform != model.PlatformDarwin || (validVersion && major > 0 && major < 27) {
+		for _, spec := range catalog {
+			exempt = append(exempt, spec.roots(platform, home)...)
+		}
 	}
 	return func(path string) string {
 		cleaned := filepath.Clean(path)

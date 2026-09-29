@@ -86,3 +86,31 @@ func TestPayload_DeltaShapeShipsRefSlices(t *testing.T) {
 		t.Errorf("removed ref round-trip lost: %+v", out.NodeProjectsRemoved)
 	}
 }
+
+// The notify endpoint only enqueues, so its "queued" answer must stay
+// indistinguishable from no answer at all: a backend that never adopts the
+// richer values keeps committing scan state exactly as before.
+func TestParseIngestStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want ingestStatus
+	}{
+		{"queued is not proof of persistence", `{"status":"queued","message":"queued and will be processed shortly"}`, ingestUnknown},
+		{"processed confirms persistence", `{"status":"processed"}`, ingestProcessed},
+		{"ingested confirms persistence", `{"status":"ingested"}`, ingestProcessed},
+		{"failed withholds the commit", `{"status":"failed"}`, ingestRejected},
+		{"rejected withholds the commit", `{"status":"rejected"}`, ingestRejected},
+		{"absent field", `{"message":"ok"}`, ingestUnknown},
+		{"unrecognised value", `{"status":"partially-done"}`, ingestUnknown},
+		{"empty body", ``, ingestUnknown},
+		{"not json", `<html>502</html>`, ingestUnknown},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := parseIngestStatus([]byte(tc.body)); got != tc.want {
+				t.Errorf("parseIngestStatus(%q) = %v, want %v", tc.body, got, tc.want)
+			}
+		})
+	}
+}

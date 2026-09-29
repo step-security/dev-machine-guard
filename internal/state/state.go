@@ -469,3 +469,15 @@ func (s *State) globalMap(ecosystem string) map[string]GlobalEntry {
 	}
 	panic("state: unknown ecosystem " + ecosystem)
 }
+
+// Invalidate discards a delta baseline before a legacy upload can replace it.
+// Missing state is already invalid; the next delta run will start with a full sync.
+func Invalidate(path string) error {
+	if path == "" {
+		return nil
+	}
+	if err := os.Remove(filepath.Clean(path)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}

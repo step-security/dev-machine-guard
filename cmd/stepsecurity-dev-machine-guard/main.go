@@ -704,6 +704,7 @@ func gateSkipsRun(exec executor.Executor, log *progress.Logger, cfg *cli.Config)
 	res := rungate.Evaluate(context.Background(), exec, log, cfg.ForceScan,
 		wslguest.DeviceID(cfg.WSLHostSerial, cfg.WSLDistroID))
 	cfg.CredentialScanningDisabled = res.CredentialScanningDisabled
+	cfg.DeltaScanEnabled = res.DeltaScanEnabled
 	if !res.Skip {
 		log.Progress("Run gate: proceeding with this run (%s)", res.Reason)
 		// Carry the decision into telemetry.Run so it echoes a line inside the
