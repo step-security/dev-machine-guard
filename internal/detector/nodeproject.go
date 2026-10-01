@@ -32,6 +32,7 @@ func NewNodeProjectDetector(exec executor.Executor) *NodeProjectDetector {
 // directories. A nil skipper is a no-op. Returns the detector for chaining.
 func (d *NodeProjectDetector) WithSkipper(s *tcc.Skipper) *NodeProjectDetector {
 	d.skipper = s
+	d.exec = tcc.GuardedFiles(d.exec, s, maxLockfileSize, "pnpm", "Application Support/fnm")
 	return d
 }
 
@@ -64,7 +65,7 @@ func (d *NodeProjectDetector) ListProjects(searchDirs []string) []model.ProjectI
 
 func (d *NodeProjectDetector) listInDir(dir string) []model.ProjectInfo {
 	var projects []model.ProjectInfo
-	_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+	_ = d.exec.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}

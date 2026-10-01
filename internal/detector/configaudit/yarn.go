@@ -77,6 +77,11 @@ func (d *YarnDetector) WithLogger(log *progress.Logger) *YarnDetector {
 // WithSkipper attaches a TCC skipper so discovery skips macOS-protected dirs.
 func (d *YarnDetector) WithSkipper(s *tcc.Skipper) *YarnDetector {
 	d.skipper = s
+	d.exec = tcc.GuardedFiles(d.exec, s, maxConfigFileSize)
+	if tcc.ProtectedReadsDisabled(d.exec, s) {
+		d.ownerLookup = guardedOwner(d.exec)
+		d.inGitRepo = guardedInGitRepo(d.exec)
+	}
 	return d
 }
 
@@ -145,7 +150,7 @@ func (d *YarnDetector) Detect(ctx context.Context, searchDirs []string, loggedIn
 // for auth. builtin/global belong to npm proper and are dropped. See the
 // bun-side note about overlapping work — same caveat applies.
 func (d *YarnDetector) discoverAuthSideChannel(ctx context.Context, searchDirs []string, loggedInUser *user.User) []model.NPMRCFile {
-	side := NewNPMRCDetector(d.exec)
+	side := NewNPMRCDetector(d.exec).WithSkipper(d.skipper)
 	side.skipper = d.skipper
 	side.ownerLookup = d.ownerLookup
 	side.gitTracked = d.gitTracked
@@ -168,7 +173,7 @@ func (d *YarnDetector) findProjectYarnConfigs(dir string) []string {
 		return nil
 	}
 	var results []string
-	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+	_ = d.exec.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -198,7 +203,7 @@ func (d *YarnDetector) findProjectYarnConfigs(dir string) []string {
 func (d *YarnDetector) collectFile(ctx context.Context, path, scope, flavor string) model.YarnConfigFile {
 	f := model.YarnConfigFile{Path: path, Scope: scope, Flavor: flavor}
 
-	linfo, err := os.Lstat(path)
+	linfo, err := auditLstat(d.exec, d.skipper, path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			f.Exists = false
@@ -210,13 +215,13 @@ func (d *YarnDetector) collectFile(ctx context.Context, path, scope, flavor stri
 	}
 	f.Exists = true
 
-	if linfo.Mode()&os.ModeSymlink != 0 {
-		if target, err := os.Readlink(path); err == nil {
+	if linfo.Mode()&os.ModeSymlink != 0 || tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
+		if target, err := d.exec.Readlink(path); err == nil {
 			f.SymlinkTo = target
 		}
 	}
 
-	info, err := os.Stat(path)
+	info, err := auditStat(d.exec, d.skipper, path)
 	if err != nil {
 		f.Readable = false
 		f.ParseError = "stat: " + err.Error()
@@ -241,7 +246,7 @@ func (d *YarnDetector) collectFile(ctx context.Context, path, scope, flavor stri
 	}
 
 	// #nosec G304 -- path comes from the detector's own candidate enumeration.
-	data, err := os.ReadFile(path)
+	data, err := auditReadFile(d.exec, d.skipper, path)
 	if err != nil {
 		f.Readable = false
 		f.ParseError = "read: " + err.Error()

@@ -98,8 +98,8 @@ func pmBinaryCandidateDirs(exec executor.Executor) []string {
 // binary, not strict semver ordering).
 func nvmNodeBinDirs(exec executor.Executor, home string) []string {
 	pattern := filepath.Join(home, ".nvm", "versions", "node", "*", "bin")
-	matches, err := exec.Glob(pattern)
-	if err != nil || len(matches) == 0 {
+	matches, _ := exec.Glob(pattern)
+	if len(matches) == 0 {
 		return nil
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(matches)))

@@ -5,6 +5,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 // nodeGlobalRoot is a global node_modules directory paired with the package
@@ -25,14 +26,28 @@ type nodeGlobalRoot struct {
 // global-roots scan. Where a manager (nvm/fnm/volta) keeps per-version trees,
 // every installed version's global dir is included.
 func NodeGlobalRoots(exec executor.Executor) []nodeGlobalRoot {
+	roots, _ := nodeGlobalRoots(exec)
+	return roots
+}
+
+func nodeGlobalRoots(exec executor.Executor) ([]nodeGlobalRoot, map[string]bool) {
 	var roots []nodeGlobalRoot
+	refused := make(map[string]bool)
 	// The candidate lists overlap: npm_config_prefix=/usr/local resolves to the
 	// same directory as the built-in /usr/local entry, and PREFIX can repeat
 	// either. Callers emit one scan result per root, so a duplicate would scan
 	// and upload the same directory twice.
 	seen := make(map[string]struct{})
 	add := func(pm, dir string) {
-		if dir == "" || !exec.DirExists(dir) {
+		if dir == "" {
+			return
+		}
+		before := tcc.Refusals(exec)
+		exists := exec.DirExists(dir)
+		if tcc.Refusals(exec) != before {
+			refused[pm] = true
+		}
+		if !exists {
 			return
 		}
 		dir = filepath.Clean(dir)
@@ -44,10 +59,13 @@ func NodeGlobalRoots(exec executor.Executor) []nodeGlobalRoot {
 		roots = append(roots, nodeGlobalRoot{pm: pm, dir: dir})
 	}
 	addGlob := func(pm, pattern string) {
-		if matches, err := exec.Glob(pattern); err == nil {
-			for _, m := range matches {
-				add(pm, m)
-			}
+		before := tcc.Refusals(exec)
+		matches, _ := exec.Glob(pattern)
+		if tcc.Refusals(exec) != before {
+			refused[pm] = true
+		}
+		for _, m := range matches {
+			add(pm, m)
 		}
 	}
 	home := nodeHomeDir(exec)
@@ -105,7 +123,7 @@ func NodeGlobalRoots(exec executor.Executor) []nodeGlobalRoot {
 		}
 	}
 
-	return roots
+	return roots, refused
 }
 
 // pnpmGlobalHomes returns candidate pnpm home directories (PNPM_HOME plus the

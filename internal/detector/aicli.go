@@ -341,6 +341,7 @@ func (d *AICLIDetector) WithLogger(log *progress.Logger) *AICLIDetector {
 // everything", the same contract every walking detector honors.
 func (d *AICLIDetector) WithSkipper(skipper *tcc.Skipper) *AICLIDetector {
 	d.skipper = skipper
+	d.exec = tcc.GuardedFiles(d.exec, skipper, maxLockfileSize, "pnpm", "Application Support/fnm")
 	return d
 }
 
@@ -900,12 +901,9 @@ func aiCLIBinaryCandidateDirs(exec executor.Executor, homeDir string) []string {
 }
 
 // globDirs expands one glob pattern, newest-looking first (descending lexical,
-// the rule nvmNodeBinDirs already uses) and empty on any error.
+// the rule nvmNodeBinDirs already uses). Keep readable matches on partial errors.
 func globDirs(exec executor.Executor, pattern string) []string {
-	matches, err := exec.Glob(pattern)
-	if err != nil || len(matches) == 0 {
-		return nil
-	}
+	matches, _ := exec.Glob(pattern)
 	sort.Sort(sort.Reverse(sort.StringSlice(matches)))
 	return matches
 }

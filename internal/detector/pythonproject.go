@@ -19,9 +19,10 @@ const maxPythonProjects = 1000
 
 // PythonProjectDetector scans for Python projects with virtual environments.
 type PythonProjectDetector struct {
-	exec    executor.Executor
-	log     *progress.Logger
-	skipper *tcc.Skipper
+	exec       executor.Executor
+	log        *progress.Logger
+	skipper    *tcc.Skipper
+	unobserved []string
 	// dist, when non-nil, makes per-venv package listing read install
 	// metadata from disk instead of running `pip list`.
 	dist *PythonDistDetector
@@ -35,6 +36,7 @@ func NewPythonProjectDetector(exec executor.Executor) *PythonProjectDetector {
 // directories. A nil skipper is a no-op. Returns the detector for chaining.
 func (d *PythonProjectDetector) WithSkipper(s *tcc.Skipper) *PythonProjectDetector {
 	d.skipper = s
+	d.exec = tcc.GuardedFiles(d.exec, s, maxLockfileSize, "Python")
 	return d
 }
 
@@ -87,6 +89,7 @@ type venvCandidate struct {
 // so callers can distinguish "missing from disk" from "dropped by the cap"
 // when comparing against prior state.
 func (d *PythonProjectDetector) ListProjects(searchDirs []string, knownLastVerified map[string]time.Time) (projects []model.ProjectInfo, discovered []string) {
+	d.unobserved = nil
 	var candidates []venvCandidate
 	for _, dir := range searchDirs {
 		d.log.Progress("  Searching in: %s", dir)
@@ -100,6 +103,7 @@ func (d *PythonProjectDetector) ListProjects(searchDirs []string, knownLastVerif
 		discovered = append(discovered, c.path)
 	}
 
+	discovered = retainUnobservedProjects(discovered, knownLastVerified, d.unobserved)
 	candidates = orderVenvs(candidates, knownLastVerified)
 
 	if len(candidates) > maxPythonProjects {
@@ -246,14 +250,18 @@ var pythonPMFromMarker = map[string]string{
 // reorder via state before any pip list is run.
 func (d *PythonProjectDetector) discoverInDir(dir string) []venvCandidate {
 	var found []venvCandidate
-	_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+	_ = d.exec.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
+			if !os.IsNotExist(err) {
+				d.unobserved = append(d.unobserved, path)
+			}
 			return nil
 		}
 		if !entry.IsDir() {
 			return nil
 		}
 		if d.skipper.ShouldSkip(path, dir) {
+			d.unobserved = append(d.unobserved, path)
 			return filepath.SkipDir
 		}
 		name := entry.Name()
@@ -263,7 +271,11 @@ func (d *PythonProjectDetector) discoverInDir(dir string) []venvCandidate {
 			return filepath.SkipDir
 		}
 
+		before := tcc.Refusals(d.exec)
 		pipPath, isVenv := d.isVenvDir(path)
+		if tcc.Refusals(d.exec) != before {
+			d.unobserved = append(d.unobserved, path)
+		}
 		if !isVenv {
 			return nil
 		}

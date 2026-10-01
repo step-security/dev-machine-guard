@@ -63,6 +63,11 @@ func NewPnpmDetector(exec executor.Executor) *PnpmDetector {
 // directories. nil is a no-op. Returns the detector for chaining.
 func (d *PnpmDetector) WithSkipper(s *tcc.Skipper) *PnpmDetector {
 	d.skipper = s
+	d.exec = tcc.GuardedFiles(d.exec, s, maxConfigFileSize)
+	if tcc.ProtectedReadsDisabled(d.exec, s) {
+		d.ownerLookup = guardedOwner(d.exec)
+		d.inGitRepo = guardedInGitRepo(d.exec)
+	}
 	return d
 }
 
@@ -131,7 +136,7 @@ func (d *PnpmDetector) findProjectNPMRCs(dir string) []string {
 		return nil
 	}
 	var results []string
-	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+	_ = d.exec.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -161,7 +166,7 @@ func (d *PnpmDetector) findProjectNPMRCs(dir string) []string {
 func (d *PnpmDetector) collectFile(ctx context.Context, path, scope string) model.NPMRCFile {
 	f := model.NPMRCFile{Path: path, Scope: scope}
 
-	linfo, err := os.Lstat(path)
+	linfo, err := auditLstat(d.exec, d.skipper, path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			f.Exists = false
@@ -173,13 +178,13 @@ func (d *PnpmDetector) collectFile(ctx context.Context, path, scope string) mode
 	}
 	f.Exists = true
 
-	if linfo.Mode()&os.ModeSymlink != 0 {
-		if target, err := os.Readlink(path); err == nil {
+	if linfo.Mode()&os.ModeSymlink != 0 || tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
+		if target, err := d.exec.Readlink(path); err == nil {
 			f.SymlinkTo = target
 		}
 	}
 
-	info, err := os.Stat(path)
+	info, err := auditStat(d.exec, d.skipper, path)
 	if err != nil {
 		f.Readable = false
 		f.ParseError = "stat: " + err.Error()
@@ -205,7 +210,7 @@ func (d *PnpmDetector) collectFile(ctx context.Context, path, scope string) mode
 
 	// #nosec G304 -- path comes from the detector's own candidate enumeration
 	// of well-known npmrc locations; not external input.
-	data, err := os.ReadFile(path)
+	data, err := auditReadFile(d.exec, d.skipper, path)
 	if err != nil {
 		f.Readable = false
 		f.ParseError = "read: " + err.Error()

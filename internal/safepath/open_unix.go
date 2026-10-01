@@ -25,7 +25,7 @@ import (
 // unresolvable path while one that tolerates none sees the symlink it refuses.
 func openVerified(resolved string, wantDir, noFollow bool) (*os.File, os.FileInfo, error) {
 	_, comps := split(resolved)
-	if len(comps) == 0 {
+	if len(comps) == 0 && !wantDir {
 		return nil, nil, refuse(ReasonUnresolved)
 	}
 
@@ -42,6 +42,18 @@ func openVerified(resolved string, wantDir, noFollow bool) (*os.File, os.FileInf
 			_ = unix.Close(dirfd)
 		}
 	}()
+
+	if len(comps) == 0 {
+		// #nosec G115 -- Openat returned a valid non-negative descriptor.
+		f := os.NewFile(uintptr(dirfd), resolved)
+		dirfd = -1
+		info, err := f.Stat()
+		if err != nil {
+			_ = f.Close()
+			return nil, nil, refuse(ReasonDenied)
+		}
+		return f, info, nil
+	}
 
 	for _, comp := range comps[:len(comps)-1] {
 		next, oerr := unix.Openat(dirfd, comp, dirFlags, 0)

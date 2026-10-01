@@ -375,6 +375,8 @@ type BrewScanResult struct {
 
 // PythonScanResult holds raw Python scan output for enterprise telemetry.
 type PythonScanResult struct {
+	// Partial marks limited disk collection without changing the wire result.
+	Partial         bool   `json:"-"`
 	PackageManager  string `json:"package_manager"`
 	PMVersion       string `json:"package_manager_version"`
 	BinaryPath      string `json:"binary_path"` // Resolved path to the package manager binary

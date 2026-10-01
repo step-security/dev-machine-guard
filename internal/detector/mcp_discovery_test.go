@@ -1,6 +1,7 @@
 package detector
 
 import (
+	"github.com/step-security/dev-machine-guard/internal/executor"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -40,7 +41,7 @@ func TestDiscoverWalkedMCPConfigs(t *testing.T) {
 	writeFile(t, root, "proj/dist/mcp.json")             // excluded dir
 	writeFile(t, root, "proj/readme.txt")                // not a config
 
-	d := &MCPDetector{} // no skipper
+	d := NewMCPDetector(executor.NewReal()) // no skipper
 	got := gotPathSet(d.discoverWalkedMCPConfigs([]string{root}, ""))
 
 	if !got[want1] {
@@ -120,7 +121,7 @@ func TestDiscoverWalkedMCPConfigs_Codex(t *testing.T) {
 	want := writeFile(t, root, "widgets/.codex/config.toml")
 	writeFile(t, root, "widgets/config.toml")
 	writeFile(t, root, "widgets/node_modules/tool/.codex/config.toml")
-	d := &MCPDetector{}
+	d := NewMCPDetector(executor.NewReal())
 	specs := d.discoverWalkedMCPConfigs([]string{root}, "")
 	if len(specs) != 1 || specs[0].ConfigPath != want || specs[0].SourceName != "codex" || specs[0].Vendor != "OpenAI" {
 		t.Fatalf("configs = %+v", specs)
@@ -134,7 +135,7 @@ func TestDiscoverWalkedMCPConfigs_OpenCode(t *testing.T) {
 	writeFile(t, root, "proj-c/node_modules/pkg/opencode.json") // excluded dir
 	writeFile(t, root, "proj-d/opencode.json.bak")              // not a config
 
-	d := &MCPDetector{} // no skipper
+	d := NewMCPDetector(executor.NewReal()) // no skipper
 	specs := d.discoverWalkedMCPConfigs([]string{root}, "")
 	got := gotPathSet(specs)
 
@@ -168,7 +169,7 @@ func TestDiscoverWalkedMCPConfigs_TCCSkip(t *testing.T) {
 	protected := writeFile(t, home, "Library/Application Support/App/mcp.json")
 	allowed := writeFile(t, home, "proj/.mcp.json")
 
-	d := &MCPDetector{skipper: tcc.New(home)}
+	d := NewMCPDetector(executor.NewReal()).WithSkipper(tcc.New(home))
 	got := gotPathSet(d.discoverWalkedMCPConfigs([]string{home}, ""))
 
 	if got[protected] {

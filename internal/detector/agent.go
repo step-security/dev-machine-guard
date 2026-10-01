@@ -12,6 +12,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 	"github.com/step-security/dev-machine-guard/internal/versionmeta"
 )
 
@@ -212,4 +213,10 @@ func isCoworkVersion(version string) bool {
 		return true
 	}
 	return major == 0 && minor >= 7
+}
+
+// WithSkipper protects direct and redirected inventory reads.
+func (d *AgentDetector) WithSkipper(s *tcc.Skipper) *AgentDetector {
+	d.exec = tcc.GuardedFiles(d.exec, s, maxLockfileSize)
+	return d
 }

@@ -26,7 +26,7 @@ import (
 // follows nothing has already refused a reparse point it saw during resolution,
 // and this reports the ones that appear after it.
 func openVerified(resolved string, wantDir, noFollow bool) (*os.File, os.FileInfo, error) {
-	if _, comps := split(resolved); len(comps) == 0 {
+	if _, comps := split(resolved); len(comps) == 0 && !wantDir {
 		return nil, nil, refuse(ReasonUnresolved)
 	}
 

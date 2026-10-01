@@ -181,6 +181,8 @@ func globalRecordsFromPython(results []model.PythonScanResult) []state.GlobalRec
 			continue
 		}
 		hash, _ := state.CanonicalHashJSON(decodeBase64OrRaw(r.RawStdoutBase64))
+		// Cache the body actually uploaded, including readable partial results.
+		// Global collection runs every scan, so recovery will produce a new hash.
 		out = append(out, state.GlobalRecord{PM: r.PackageManager, Hash: hash, ExitCode: r.ExitCode})
 	}
 	return out
@@ -334,6 +336,13 @@ func removedRefsFor(s *state.State, ecosystem string, discovered []string) []mod
 // reported (drops them from pending_ack and from the main maps), and
 // atomically saves the file.
 func commitDeltaSnapshot(s *state.State, snap *deltaSnapshot, path, executionID, agentVersion string) error {
+	// Failed Node globals can still upload readable roots or an unknown source.
+	// The previous manager-wide ref no longer certifies those source executions.
+	for _, r := range snap.npmGlobalRecords {
+		if r.ExitCode != 0 {
+			delete(s.NPMGlobal, r.PM)
+		}
+	}
 	now := time.Now()
 	s.CommitAfterUpload(now, executionID, agentVersion,
 		snap.npmRecords, snap.pyRecords,

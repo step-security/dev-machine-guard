@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [Unreleased]
+
+### Fixed
+
+- Guard targeted scanner reads and symlink targets before accessing excluded protected directories.
+- Preserve readable inventory and prior project references when protected locations cannot be scanned.
+
 ## [1.17.0] - 2026-09-24
 
 ### Added

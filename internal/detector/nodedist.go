@@ -22,12 +22,13 @@
 // Security context: all reads go through the Executor (so the user-aware
 // executor and test mocks both apply) and are size-bounded via maxLockfileSize
 // before the bytes are pulled into memory. The node_modules walk uses
-// filepath.WalkDir directly (matching nodeproject.go) and never follows
+// the executor's guarded WalkDir and never follows
 // directory symlinks, so a symlinked dependency can't redirect the walk out of
 // the project tree.
 package detector
 
 import (
+	"os"
 	"path/filepath"
 	"sort"
 
@@ -49,6 +50,7 @@ type NodeDistDetector struct {
 	log         *progress.Logger
 	skipper     *tcc.Skipper
 	maxFileSize int64
+	readFailed  bool
 }
 
 func NewNodeDistDetector(exec executor.Executor) *NodeDistDetector {
@@ -60,6 +62,7 @@ func NewNodeDistDetector(exec executor.Executor) *NodeDistDetector {
 // for chaining.
 func (d *NodeDistDetector) WithSkipper(s *tcc.Skipper) *NodeDistDetector {
 	d.skipper = s
+	d.exec = tcc.GuardedFiles(d.exec, s, maxLockfileSize, "pnpm", "Application Support/fnm")
 	return d
 }
 
@@ -80,6 +83,7 @@ func (d *NodeDistDetector) WithLogger(log *progress.Logger) *NodeDistDetector {
 // node_modules. The result is de-duplicated by (name, version) and sorted by
 // name then version for stable output.
 func (d *NodeDistDetector) ScanProject(projectDir, pm string) []model.NodePackage {
+	d.readFailed = false
 	var pkgs []model.NodePackage
 
 	switch pm {
@@ -139,6 +143,9 @@ func (d *NodeDistDetector) readBounded(path string) (data []byte, ok bool) {
 	}
 	b, err := d.exec.ReadFile(path)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			d.readFailed = true
+		}
 		return nil, false
 	}
 	if d.maxFileSize > 0 && int64(len(b)) > d.maxFileSize {

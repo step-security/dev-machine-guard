@@ -8,6 +8,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 // jetbrainsProductInfo holds the fields we read from product-info.json.
@@ -247,4 +248,10 @@ func (d *JetBrainsPluginDetector) parsePluginVersion(libDir, pluginDirName strin
 	}
 
 	return "unknown"
+}
+
+// WithSkipper protects direct and redirected inventory reads.
+func (d *JetBrainsPluginDetector) WithSkipper(s *tcc.Skipper) *JetBrainsPluginDetector {
+	d.exec = tcc.GuardedFiles(d.exec, s, maxLockfileSize, "Application Support/JetBrains", "Application Support/Google/AndroidStudio*")
+	return d
 }

@@ -38,6 +38,7 @@ const maxMetadataFileSize = 32 << 20 // 32 MiB
 // PythonDistDetector discovers installed Python packages from install
 // metadata on disk, with no package-manager subprocess.
 type PythonDistDetector struct {
+	readFailed  bool
 	exec        executor.Executor
 	log         *progress.Logger
 	skipper     *tcc.Skipper
@@ -52,6 +53,7 @@ func NewPythonDistDetector(exec executor.Executor) *PythonDistDetector {
 // directories. A nil skipper is a no-op. Returns the detector for chaining.
 func (d *PythonDistDetector) WithSkipper(s *tcc.Skipper) *PythonDistDetector {
 	d.skipper = s
+	d.exec = tcc.GuardedFiles(d.exec, s, maxMetadataFileSize, "Python")
 	return d
 }
 
@@ -69,7 +71,12 @@ func (d *PythonDistDetector) WithLogger(log *progress.Logger) *PythonDistDetecto
 // lib/python*/site-packages or Lib/site-packages). Replaces the per-venv
 // `pip list` call.
 func (d *PythonDistDetector) ScanVenv(venvPath string) []model.PackageDetail {
-	return d.ScanRoots(venvSitePackages(venvPath))
+	before := tcc.Refusals(d.exec)
+	roots := venvSitePackages(d.exec, venvPath)
+	if tcc.Refusals(d.exec) != before {
+		return nil
+	}
+	return d.ScanRoots(roots)
 }
 
 // venvSitePackages returns the site-packages directories inside a venv —
@@ -77,15 +84,14 @@ func (d *PythonDistDetector) ScanVenv(venvPath string) []model.PackageDetail {
 // only these avoids walking bin/include/share, which never hold install
 // metadata. Falls back to the venv root if no site-packages dir is found, so
 // a non-standard layout is still scanned.
-func venvSitePackages(venvPath string) []string {
+func venvSitePackages(exec executor.Executor, venvPath string) []string {
 	var roots []string
 	for _, pattern := range []string{
 		filepath.Join(venvPath, "lib", "python*", "site-packages"),
 		filepath.Join(venvPath, "Lib", "site-packages"),
 	} {
-		if matches, err := filepath.Glob(pattern); err == nil {
-			roots = append(roots, matches...)
-		}
+		matches, _ := exec.Glob(pattern)
+		roots = append(roots, matches...)
 	}
 	if len(roots) == 0 {
 		return []string{venvPath}
@@ -101,6 +107,15 @@ func venvSitePackages(venvPath string) []string {
 // A successful empty walk returns a non-nil slice. A walk failure returns nil
 // so delta cannot replace previously uploaded inventory with a partial result.
 func (d *PythonDistDetector) ScanRoots(roots []string) []model.PackageDetail {
+	pkgs := d.scanRoots(roots)
+	if d.readFailed {
+		return nil
+	}
+	return pkgs
+}
+
+func (d *PythonDistDetector) scanRoots(roots []string) []model.PackageDetail {
+	d.readFailed = false
 	if len(roots) == 0 {
 		return nil
 	}
@@ -109,7 +124,7 @@ func (d *PythonDistDetector) ScanRoots(roots []string) []model.PackageDetail {
 	walkFailed := false
 
 	for _, root := range roots {
-		_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		_ = d.exec.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 			if err != nil {
 				walkFailed = true
 				return nil
@@ -124,8 +139,12 @@ func (d *PythonDistDetector) ScanRoots(roots []string) []model.PackageDetail {
 				return nil
 			}
 
-			name, version, ok := d.parseMetadataFile(path, entry.Name())
-			if !ok {
+			name, version, readErr := d.parseMetadataFile(path, entry.Name())
+			if readErr != nil {
+				walkFailed = true
+				return nil
+			}
+			if name == "" || version == "" {
 				return nil
 			}
 			key := strings.ToLower(name) + "\x00" + version
@@ -138,9 +157,7 @@ func (d *PythonDistDetector) ScanRoots(roots []string) []model.PackageDetail {
 		})
 	}
 
-	if walkFailed {
-		return nil
-	}
+	d.readFailed = walkFailed
 	sort.Slice(pkgs, func(i, j int) bool {
 		if pkgs[i].Name == pkgs[j].Name {
 			return pkgs[i].Version < pkgs[j].Version
@@ -153,7 +170,11 @@ func (d *PythonDistDetector) ScanRoots(roots []string) []model.PackageDetail {
 // ScanGlobalPackages walks the host's global / user site-packages roots and
 // returns the installed packages, replacing the `pip3 list` global scan.
 func (d *PythonDistDetector) ScanGlobalPackages() []model.PythonPackage {
-	details := d.ScanRoots(GlobalPythonRoots(d.exec, d.log))
+	roots := GlobalPythonRoots(d.exec, d.log)
+	details := d.scanRoots(roots)
+	if details == nil {
+		return nil
+	}
 	out := make([]model.PythonPackage, len(details))
 	for i, p := range details {
 		out[i] = model.PythonPackage(p)
@@ -163,30 +184,30 @@ func (d *PythonDistDetector) ScanGlobalPackages() []model.PythonPackage {
 
 // parseMetadataFile returns the package name and version if path is a
 // recognised metadata file (*.dist-info/METADATA or *.egg-info/PKG-INFO).
-func (d *PythonDistDetector) parseMetadataFile(path, base string) (name, version string, ok bool) {
+func (d *PythonDistDetector) parseMetadataFile(path, base string) (name, version string, err error) {
 	switch base {
 	case "METADATA":
 		if !isDistInfoMetadata(path) {
-			return "", "", false
+			return "", "", nil
 		}
 	case "PKG-INFO":
 		if !isEggInfoPKGInfo(path) {
-			return "", "", false
+			return "", "", nil
 		}
 	default:
-		return "", "", false
+		return "", "", nil
 	}
 
 	data, err := d.readBounded(path)
 	if err != nil {
-		return "", "", false
+		return "", "", err
 	}
 	name, version = parseRFC822NameVersion(data)
 	if name == "" || version == "" {
 		d.log.Debug("python dist scan: %s missing Name/Version header — skipping", path)
-		return "", "", false
+		return "", "", nil
 	}
-	return name, version, true
+	return name, version, nil
 }
 
 // readBounded reads path through the executor and rejects files over the size
@@ -286,9 +307,8 @@ func PythonGlobalRoots(exec executor.Executor) []string {
 	var candidates []string
 	add := func(paths ...string) { candidates = append(candidates, paths...) }
 	addGlob := func(pattern string) {
-		if matches, err := filepath.Glob(pattern); err == nil {
-			add(matches...)
-		}
+		matches, _ := exec.Glob(pattern)
+		add(matches...)
 	}
 
 	// Anchor per-user paths on the console (GUI) user, not the process user:
@@ -331,16 +351,12 @@ func PythonGlobalRoots(exec executor.Executor) []string {
 			continue
 		}
 		seen[c] = struct{}{}
-		if exec.FileExists(c) || isDir(c) {
+		if exec.DirExists(c) {
 			roots = append(roots, c)
 		}
 	}
 	return roots
 }
 
-// isDir reports whether path is an existing directory. exec.FileExists rejects
-// directories, so global roots (which are dirs) are confirmed here.
-func isDir(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
-}
+// Incomplete reports refused discovery or unreadable package metadata.
+func (d *PythonDistDetector) Incomplete() bool { return d.readFailed || tcc.Refusals(d.exec) > 0 }

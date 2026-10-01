@@ -100,6 +100,7 @@ func (d *SkillsDetector) WithAgentVersions(v map[string]string) *SkillsDetector 
 // the --include-tcc-protected opt-in. Returns the detector for chaining.
 func (d *SkillsDetector) WithSkipper(s *tcc.Skipper) *SkillsDetector {
 	d.skipper = s
+	d.exec = tcc.GuardedFiles(d.exec, s, maxLockfileSize)
 	return d
 }
 

@@ -82,6 +82,11 @@ func NewNPMRCDetector(exec executor.Executor) *NPMRCDetector {
 // directories. A nil skipper is a no-op. Returns the detector for chaining.
 func (d *NPMRCDetector) WithSkipper(s *tcc.Skipper) *NPMRCDetector {
 	d.skipper = s
+	d.exec = tcc.GuardedFiles(d.exec, s, maxConfigFileSize)
+	if tcc.ProtectedReadsDisabled(d.exec, s) {
+		d.ownerLookup = guardedOwner(d.exec)
+		d.inGitRepo = guardedInGitRepo(d.exec)
+	}
 	return d
 }
 
@@ -170,7 +175,7 @@ func (d *NPMRCDetector) findProjectNPMRCs(dir string) []string {
 		return nil
 	}
 	var results []string
-	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+	_ = d.exec.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -228,7 +233,7 @@ func (d *NPMRCDetector) collectFile(ctx context.Context, path, scope string) mod
 	}
 
 	// Lstat first so a symlink doesn't get followed silently.
-	linfo, err := os.Lstat(path)
+	linfo, err := auditLstat(d.exec, d.skipper, path)
 	if err != nil {
 		// Distinguish "not found" from "not readable" so the user can act.
 		if os.IsNotExist(err) {
@@ -241,14 +246,14 @@ func (d *NPMRCDetector) collectFile(ctx context.Context, path, scope string) mod
 	}
 	f.Exists = true
 
-	if linfo.Mode()&os.ModeSymlink != 0 {
-		if target, err := os.Readlink(path); err == nil {
+	if linfo.Mode()&os.ModeSymlink != 0 || tcc.ProtectedReadsDisabled(d.exec, d.skipper) {
+		if target, err := d.exec.Readlink(path); err == nil {
 			f.SymlinkTo = target
 		}
 	}
 
 	// Stat (follows symlinks) for size/mtime/mode.
-	info, err := os.Stat(path)
+	info, err := auditStat(d.exec, d.skipper, path)
 	if err != nil {
 		f.Readable = false
 		f.ParseError = "stat: " + err.Error()
@@ -275,7 +280,7 @@ func (d *NPMRCDetector) collectFile(ctx context.Context, path, scope string) mod
 	// #nosec G304 -- path comes from the detector's own candidate
 	// enumeration of well-known npmrc locations (built-in/global/user/
 	// project); not from external input.
-	data, err := os.ReadFile(path)
+	data, err := auditReadFile(d.exec, d.skipper, path)
 	if err != nil {
 		f.Readable = false
 		f.ParseError = "read: " + err.Error()

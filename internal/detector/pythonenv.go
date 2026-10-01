@@ -100,9 +100,8 @@ func DiscoverPythonInstallRoots(exec executor.Executor, log *progress.Logger) []
 func expandGlobs(exec executor.Executor, patterns []string) []string {
 	var out []string
 	for _, pat := range patterns {
-		if m, err := exec.Glob(pat); err == nil {
-			out = append(out, m...)
-		}
+		m, _ := exec.Glob(pat)
+		out = append(out, m...)
 	}
 	return out
 }

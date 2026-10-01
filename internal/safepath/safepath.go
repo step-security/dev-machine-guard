@@ -172,7 +172,8 @@ func (r *Resolver) containmentRoots() []string {
 func (r *Resolver) Contains(path string) bool {
 	cleaned := filepath.Clean(path)
 	for _, root := range r.containmentRoots() {
-		if pathEqual(cleaned, root) {
+		if pathEqual(cleaned, root) || (strings.HasSuffix(root, string(filepath.Separator)) &&
+			len(cleaned) > len(root) && pathEqual(cleaned[:len(root)], root)) {
 			return true
 		}
 		if len(cleaned) > len(root) && cleaned[len(root)] == filepath.Separator &&

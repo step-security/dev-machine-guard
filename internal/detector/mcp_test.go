@@ -233,7 +233,7 @@ func TestFilterMCPContent_StripsSecrets(t *testing.T) {
 }
 
 func TestExtractMCPServers_ClaudeCodeProjectScoped(t *testing.T) {
-	det := &MCPDetector{}
+	det := NewMCPDetector(executor.NewReal())
 
 	// Claude Code ~/.claude.json with project-scoped mcpServers
 	content := []byte(`{
@@ -306,7 +306,7 @@ func TestExtractMCPServers_ClaudeCodeProjectScoped(t *testing.T) {
 }
 
 func TestExtractMCPServers_VSCodeFormat(t *testing.T) {
-	det := &MCPDetector{}
+	det := NewMCPDetector(executor.NewReal())
 
 	content := []byte(`{
 		"servers": {
@@ -532,7 +532,7 @@ func TestMCPDetector_OpenCode_GoldenPayload(t *testing.T) {
 // and oauth all carry live credentials and are outside the allowlist, so none
 // of them — nor their values — reach the wire.
 func TestFilterMCPContent_OpenCode_DropsSecretBearingFields(t *testing.T) {
-	det := &MCPDetector{}
+	det := NewMCPDetector(executor.NewReal())
 
 	input := []byte(`{
 	  "mcp": {
@@ -627,7 +627,7 @@ func TestFilterMCPContent_OpenCode_JSONC(t *testing.T) {
 		{"project-level, discovered source", "/Users/testuser/proj/opencode.jsonc", both},
 	}
 
-	det := &MCPDetector{}
+	det := NewMCPDetector(executor.NewReal())
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// A project-level config arrives labelled discovered_mcp, so the
@@ -664,7 +664,7 @@ func TestFilterMCPContent_OpenCode_FailsClosed(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			det := &MCPDetector{}
+			det := NewMCPDetector(executor.NewReal())
 			filtered, ok := det.filterMCPContent("opencode", openCodeGlobalDir+"opencode.json", []byte(tc.content))
 			if ok {
 				t.Errorf("expected filtering to fail, got ok with %q", filtered)
@@ -702,7 +702,7 @@ func TestFilterMCPContent_ScalarMCPKeyDoesNotEvictSiblings(t *testing.T) {
 
 	for _, mcpValue := range []string{`true`, `"enabled"`, `["a"]`, `42`} {
 		t.Run("keeps siblings when mcp is "+mcpValue, func(t *testing.T) {
-			det := &MCPDetector{}
+			det := NewMCPDetector(executor.NewReal())
 			content := fmt.Sprintf(siblings, mcpValue)
 			filtered, ok := det.filterMCPContent("discovered_mcp", "/Users/testuser/proj/.mcp.json", []byte(content))
 			if !ok {
@@ -717,7 +717,7 @@ func TestFilterMCPContent_ScalarMCPKeyDoesNotEvictSiblings(t *testing.T) {
 		})
 
 		t.Run("fails closed when only mcp is "+mcpValue, func(t *testing.T) {
-			det := &MCPDetector{}
+			det := NewMCPDetector(executor.NewReal())
 			content := fmt.Sprintf(`{"mcp":%s}`, mcpValue)
 			filtered, ok := det.filterMCPContent("opencode", openCodeGlobalDir+"opencode.json", []byte(content))
 			if ok || filtered != nil {
@@ -739,7 +739,7 @@ func TestFilterMCPContent_ScalarMCPKeyDoesNotEvictSiblings(t *testing.T) {
 		// documented convention into the opposite behaviour.
 		const wantNull = `{"mcp":{},"mcpServers":{"fs":{"args":["-y","s"],"command":"npx"}}}`
 
-		det := &MCPDetector{}
+		det := NewMCPDetector(executor.NewReal())
 		filtered, ok := det.filterMCPContent("discovered_mcp", "/Users/testuser/proj/.mcp.json", fmt.Appendf(nil, siblings, `null`))
 		if !ok {
 			t.Fatalf("expected content, got ok=false")
@@ -758,7 +758,7 @@ func TestFilterMCPContent_ScalarMCPKeyDoesNotEvictSiblings(t *testing.T) {
 
 	// Control: a well-formed mcp map is still emitted, so the guard rejects only
 	// what it cannot filter.
-	det := &MCPDetector{}
+	det := NewMCPDetector(executor.NewReal())
 	filtered, ok := det.filterMCPContent("opencode", openCodeGlobalDir+"opencode.json", []byte(openCodeGoldenConfig))
 	if !ok || string(filtered) != openCodeGoldenEmitted {
 		t.Errorf("valid mcp map regressed: ok=%v %s", ok, filtered)
@@ -853,7 +853,7 @@ func TestFilterMCPContent_NonOpenCodeUnchanged(t *testing.T) {
 		},
 	}
 
-	det := &MCPDetector{}
+	det := NewMCPDetector(executor.NewReal())
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			filtered, ok := det.filterMCPContent(tc.source, tc.path, []byte(tc.content))
@@ -874,7 +874,7 @@ func TestFilterMCPContent_NonOpenCodeUnchanged(t *testing.T) {
 // args. Those values must still be redacted before upload, not passed through
 // verbatim just because the field name isn't "env" or "headers".
 func TestFilterServerFields_RedactsSecretsInKeptFields(t *testing.T) {
-	det := &MCPDetector{}
+	det := NewMCPDetector(executor.NewReal())
 	content := `{"mcpServers":{"pipeboard":{
 		"url":"https://meta-ads.mcp.pipeboard.co/?token=abcdEFGH12345678opaqueTokenValue",
 		"command":"npx",
