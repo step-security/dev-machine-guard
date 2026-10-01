@@ -867,3 +867,320 @@ type AgentSkillScanInfo struct {
 	CommandsStatus string `json:"commands_status,omitempty"`
 	DurationMs     int64  `json:"duration_ms"`
 }
+
+// GoInventorySchemaVersion versions the go_inventory and go_config_audit
+// sections independently of the outer payload_schema_version.
+const GoInventorySchemaVersion = 1
+
+// Go inventory source kinds.
+const (
+	GoSourceProjectSearchRoot = "project_search_root"
+	GoSourceProjectManifest   = "project_manifest"
+	GoSourceAlternateManifest = "alternate_manifest"
+	GoSourceWorkspace         = "workspace"
+	GoSourceVendorRoot        = "vendor_root"
+	GoSourceCacheRoot         = "cache_root"
+	GoSourceBinRoot           = "bin_root"
+	GoSourceBinary            = "binary"
+	GoSourceChecksumFile      = "checksum_file"
+)
+
+// Go section and source statuses. A section is complete or partial; a source
+// may also be skipped (never read).
+const (
+	GoStatusComplete = "complete"
+	GoStatusPartial  = "partial"
+	GoStatusSkipped  = "skipped"
+)
+
+// Go source presence. Only a permitted, successful lookup may report absent;
+// a refusal or failure is unknown.
+const (
+	GoPresencePresent = "present"
+	GoPresenceAbsent  = "absent"
+	GoPresenceUnknown = "unknown"
+)
+
+// Go cache artifact kinds and statuses.
+const (
+	GoArtifactExtractedSource = "extracted_source"
+	GoArtifactArchivePresent  = "archive_present"
+
+	GoArtifactPresent    = "present"
+	GoArtifactPartial    = "partial" // in-progress extraction, missing completion marker or capped check
+	GoArtifactUnreadable = "unreadable"
+)
+
+// Go replacement kinds and version statuses.
+const (
+	GoReplaceModule = "module"
+	GoReplaceLocal  = "local"
+
+	GoVersionKnown   = "known"
+	GoVersionUnknown = "unknown" // missing or (devel); the version is omitted, never invented
+)
+
+// Go recorded-checksum vocabulary. Checksums are recorded metadata, never
+// verified by DMG.
+const (
+	GoChecksumRecorded      = "recorded"
+	GoChecksumAbsent        = "absent"
+	GoChecksumPartial       = "partial"
+	GoChecksumUnreadable    = "unreadable"
+	GoChecksumInvalid       = "invalid"
+	GoChecksumUnsupported   = "unsupported"
+	GoChecksumSkipped       = "skipped"
+	GoChecksumNotApplicable = "not_applicable"
+
+	GoChecksumKindModuleContent = "module_content"
+	GoChecksumKindGoMod         = "go_mod"
+
+	GoChecksumSourceProjectGoSum       = "project_go_sum" // go.sum or an alternate modfile's .sum
+	GoChecksumSourceWorkspaceGoWorkSum = "workspace_go_work_sum"
+	GoChecksumSourceCacheZiphash       = "cache_ziphash"
+	GoChecksumSourceBinaryBuildInfo    = "binary_buildinfo"
+
+	GoChecksumNotVerified = "not_verified"
+)
+
+// Go config-audit file scopes and statuses.
+const (
+	GoConfigScopeUser      = "user"      // the user go/env file
+	GoConfigScopeToolchain = "toolchain" // GOROOT/go.env
+	GoConfigScopeProcess   = "process"   // DMG's own verified process environment
+
+	GoConfigPresent          = "present"
+	GoConfigAbsent           = "absent"
+	GoConfigDisabled         = "disabled" // GOENV=off
+	GoConfigSkippedProtected = "skipped_protected"
+	GoConfigUnreadable       = "unreadable"
+	GoConfigInvalid          = "invalid"
+	GoConfigUnsupported      = "unsupported"
+)
+
+// Go reason codes, shared by both sections.
+const (
+	GoReasonUserUnresolved              = "user_unresolved"
+	GoReasonSkippedProtected            = "skipped_protected"
+	GoReasonOutsideApprovedRoots        = "outside_approved_roots"
+	GoReasonPathUnresolved              = "path_unresolved"
+	GoReasonPermissionDenied            = "permission_denied"
+	GoReasonSizeLimit                   = "size_limit"
+	GoReasonEntryLimit                  = "entry_limit"
+	GoReasonDepthLimit                  = "depth_limit"
+	GoReasonRecordLimit                 = "record_limit"
+	GoReasonOutputSizeLimit             = "output_size_limit"
+	GoReasonDeadlineExceeded            = "deadline_exceeded"
+	GoReasonParseError                  = "parse_error"
+	GoReasonUnsupportedEntry            = "unsupported_entry"
+	GoReasonRootRedirectUnknown         = "root_redirect_unknown"
+	GoReasonVendorMismatch              = "vendor_mismatch"
+	GoReasonMemberNotDiscovered         = "member_not_discovered"
+	GoReasonBuildInfoUnusable           = "build_info_unusable"
+	GoReasonChangedDuringScan           = "changed_during_scan"
+	GoReasonExtractionIncomplete        = "extraction_incomplete" // .partial present or completion metadata missing
+	GoReasonAlternateManifestUnresolved = "alternate_manifest_unresolved"
+	GoReasonProcessContextUnverified    = "process_context_unverified"
+	GoReasonCarriageReturn              = "carriage_return"
+	GoReasonDuplicateKey                = "duplicate_key"
+	GoReasonMalformedChecksumLine       = "malformed_checksum_line"
+	GoReasonUnsupportedChecksumScheme   = "unsupported_checksum_scheme"
+	GoReasonChecksumLineTooLong         = "checksum_line_too_long"
+	GoReasonChecksumLineLimit           = "checksum_line_limit"
+	GoReasonUnsupportedModfileName      = "unsupported_modfile_name"
+)
+
+// GoInventory is the enterprise go_inventory section: a full bounded snapshot
+// of statically read Go evidence. Nil means the phase did not run.
+type GoInventory struct {
+	SchemaVersion   int                `json:"schema_version"`
+	Status          string             `json:"status"`  // GoStatusComplete | GoStatusPartial
+	Reasons         []string           `json:"reasons"` // global reasons plus those of every incomplete source
+	Sources         []GoSource         `json:"sources"`
+	Projects        []GoProject        `json:"projects"`
+	Workspaces      []GoWorkspace      `json:"workspaces"`
+	VendoredModules []GoVendoredModule `json:"vendored_modules"`
+	CachedModules   []GoCachedModule   `json:"cached_modules"`
+	InstalledTools  []GoInstalledTool  `json:"installed_tools"`
+}
+
+// GoSource is one thing the collector looked at. Its ID hashes the developer
+// identity, kind and absolute logical path, so it survives content edits.
+type GoSource struct {
+	SourceID string   `json:"source_id"`
+	Kind     string   `json:"kind"` // GoSource*
+	Path     string   `json:"path"` // absolute logical path
+	Status   string   `json:"status"`
+	Presence string   `json:"presence"`
+	Reasons  []string `json:"reasons"`
+	// ParentSourceID names the discovery source that owns this one.
+	ParentSourceID string `json:"parent_source_id,omitempty"`
+	// DiscoveredSources lists every child found, including unreadable ones.
+	DiscoveredSources []string `json:"discovered_sources"`
+}
+
+// GoChecksumEvidence is optional recorded-checksum metadata for the exact
+// module path and version of the record that embeds it.
+type GoChecksumEvidence struct {
+	ChecksumStatus    string               `json:"checksum_status,omitempty"` // GoChecksum* status
+	RecordedChecksums []GoRecordedChecksum `json:"recorded_checksums,omitempty"`
+}
+
+// GoRecordedChecksum is one recorded h1 value and the file or binary that held it.
+type GoRecordedChecksum struct {
+	Kind         string `json:"kind"`   // GoChecksumKind*
+	Value        string `json:"value"`  // canonical h1:
+	Source       string `json:"source"` // GoChecksumSource*
+	SourceID     string `json:"source_id"`
+	SourcePath   string `json:"source_path"`
+	Verification string `json:"verification"` // always GoChecksumNotVerified
+}
+
+// GoProject is one parsed go.mod (default or alternate manifest). Requirements
+// are declarations, not the selected build list.
+type GoProject struct {
+	SourceID       string            `json:"source_id"`
+	Path           string            `json:"path"` // module directory
+	ManifestPath   string            `json:"manifest_path"`
+	ModulePath     string            `json:"module_path,omitempty"`
+	GoVersion      string            `json:"go_version,omitempty"`
+	Toolchain      string            `json:"toolchain,omitempty"`
+	Requirements   []GoRequirement   `json:"requirements"`
+	Replacements   []GoReplacement   `json:"replacements"`
+	Exclusions     []GoModuleVersion `json:"exclusions"`
+	Tools          []string          `json:"tools"`           // tool directive package paths
+	WorkspacePaths []string          `json:"workspace_paths"` // go.work files that name this module
+}
+
+type GoRequirement struct {
+	ModulePath       string `json:"module_path"`
+	RequestedVersion string `json:"requested_version"` // a minimum, not the selected version
+	Indirect         bool   `json:"indirect"`
+	GoChecksumEvidence
+}
+
+// GoReplacement keeps the logical module and its provider apart; a local
+// path is never a module identity.
+type GoReplacement struct {
+	FromPath     string `json:"from_path"`
+	FromVersion  string `json:"from_version,omitempty"`
+	Kind         string `json:"kind"` // GoReplaceModule | GoReplaceLocal
+	ToModulePath string `json:"to_module_path,omitempty"`
+	ToVersion    string `json:"to_version,omitempty"`
+	ToLocalPath  string `json:"to_local_path,omitempty"` // as declared
+	GoChecksumEvidence
+}
+
+type GoModuleVersion struct {
+	ModulePath string `json:"module_path"`
+	Version    string `json:"version"`
+}
+
+// GoWorkspace is one parsed go.work. Path is the go.work file.
+type GoWorkspace struct {
+	SourceID     string              `json:"source_id"`
+	Path         string              `json:"path"`
+	GoVersion    string              `json:"go_version,omitempty"`
+	Toolchain    string              `json:"toolchain,omitempty"`
+	Members      []GoWorkspaceMember `json:"members"`
+	Replacements []GoReplacement     `json:"replacements"`
+}
+
+type GoWorkspaceMember struct {
+	DeclaredPath    string `json:"declared_path"`
+	ResolvedPath    string `json:"resolved_path,omitempty"`
+	ProjectSourceID string `json:"project_source_id,omitempty"`
+	Reason          string `json:"reason,omitempty"` // why ProjectSourceID is missing
+}
+
+// GoVendoredModule is a vendor/modules.txt module with at least one package
+// directory corroborated on disk.
+type GoVendoredModule struct {
+	SourceID        string         `json:"source_id"` // the vendor_root source
+	ModulePath      string         `json:"module_path"`
+	ObservedVersion string         `json:"observed_version,omitempty"`
+	Replacement     *GoReplacement `json:"replacement,omitempty"`
+	VendorRoot      string         `json:"vendor_root"`
+	PackagePaths    []string       `json:"package_paths"`
+	GoChecksumEvidence
+}
+
+// GoCachedModule is one module version in a module cache root, merging its
+// extracted source and archive evidence.
+type GoCachedModule struct {
+	SourceID        string            `json:"source_id"` // the cache_root source
+	ModulePath      string            `json:"module_path"`
+	ObservedVersion string            `json:"observed_version"`
+	Root            string            `json:"root"`
+	Artifacts       []GoCacheArtifact `json:"artifacts"`
+	GoChecksumEvidence
+}
+
+type GoCacheArtifact struct {
+	Kind   string `json:"kind"` // GoArtifactExtractedSource | GoArtifactArchivePresent
+	Path   string `json:"path"`
+	Status string `json:"status"` // GoArtifactPresent | GoArtifactPartial | GoArtifactUnreadable
+}
+
+// GoInstalledTool is a Go binary in the resolved install bin directory, from
+// its embedded BuildInfo. Checksum fields describe the main module.
+type GoInstalledTool struct {
+	SourceID        string               `json:"source_id"` // the binary source
+	BinaryPath      string               `json:"binary_path"`
+	MainPackagePath string               `json:"main_package_path"`
+	MainModulePath  string               `json:"main_module_path,omitempty"`
+	ObservedVersion string               `json:"observed_version,omitempty"`
+	VersionStatus   string               `json:"version_status"`
+	Replacement     *GoReplacement       `json:"replacement,omitempty"`
+	Dependencies    []GoBinaryDependency `json:"dependencies"`
+	GoChecksumEvidence
+}
+
+// GoBinaryDependency inherits its binary's source ID.
+type GoBinaryDependency struct {
+	ModulePath      string         `json:"module_path"`
+	ObservedVersion string         `json:"observed_version,omitempty"`
+	VersionStatus   string         `json:"version_status"`
+	Replacement     *GoReplacement `json:"replacement,omitempty"`
+	GoChecksumEvidence
+}
+
+// GoConfigAudit is the enterprise go_config_audit section: observed Go
+// settings per source, sanitized on the device, with no effective verdict.
+type GoConfigAudit struct {
+	SchemaVersion int               `json:"schema_version"`
+	Status        string            `json:"status"`
+	Reasons       []string          `json:"reasons"`
+	Files         []GoConfigFile    `json:"files"`
+	Findings      []GoConfigFinding `json:"findings"`
+}
+
+// GoConfigFile is one configuration source. The process scope has no path.
+type GoConfigFile struct {
+	SourceID    string            `json:"source_id"`
+	Scope       string            `json:"scope"` // GoConfigScope*
+	DefaultPath string            `json:"default_path,omitempty"`
+	Path        string            `json:"path,omitempty"`
+	Status      string            `json:"status"` // GoConfig* status
+	Reasons     []string          `json:"reasons"`
+	Settings    []GoConfigSetting `json:"settings"`
+}
+
+// GoConfigSetting is an allowlisted key with a sanitized display value.
+// Redacted marks that credentials, query values or arguments were removed.
+type GoConfigSetting struct {
+	Key      string `json:"key"`
+	Display  string `json:"display"`
+	Redacted bool   `json:"redacted,omitempty"`
+	SourceID string `json:"source_id"`
+}
+
+// GoConfigFinding is a stable-coded observation tied to the source where the
+// value was seen. Detail never contains a value.
+type GoConfigFinding struct {
+	Code     string `json:"code"`     // go-001 …
+	Severity string `json:"severity"` // CRITICAL | HIGH | MEDIUM | LOW | INFO
+	SourceID string `json:"source_id"`
+	Key      string `json:"key"`
+	Detail   string `json:"detail"`
+}

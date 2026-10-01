@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -124,6 +125,37 @@ func TestWriteTelemetryFileAgentPlugins(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, key := range []string{"agent_plugins", "agent_skill_usage_scan"} {
+		if _, exists := empty[key]; exists {
+			t.Errorf("unrun section %s was emitted", key)
+		}
+	}
+}
+
+// TestPayloadGoSections: the Go golden decodes strictly into Payload, and a
+// payload whose Go phase never ran carries neither key.
+func TestPayloadGoSections(t *testing.T) {
+	raw, err := os.ReadFile("../model/testdata/go_inventory_v1_golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload Payload
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&payload); err != nil {
+		t.Fatalf("Go golden does not fit Payload: %v", err)
+	}
+	if payload.GoInventory == nil || payload.GoConfigAudit == nil {
+		t.Fatal("Go sections not decoded into Payload")
+	}
+	data, err := json.Marshal(&Payload{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var empty map[string]json.RawMessage
+	if err := json.Unmarshal(data, &empty); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"go_inventory", "go_config_audit"} {
 		if _, exists := empty[key]; exists {
 			t.Errorf("unrun section %s was emitted", key)
 		}

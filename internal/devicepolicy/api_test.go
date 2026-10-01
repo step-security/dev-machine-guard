@@ -250,6 +250,58 @@ func TestFetchNon200IsError(t *testing.T) {
 	}
 }
 
+func TestFetchIDESettingsValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		extra   string
+		wantErr bool
+	}{
+		{"allowlist only", "", false},
+		{"gallery", `,"extensions.gallery.serviceUrl":"https://marketplace.example.com/api"`, false},
+		{"gallery with query", `,"extensions.gallery.serviceUrl":"HTTPS://marketplace.example.com:8443/api?channel=stable"`, false},
+		{"gallery minimum port", `,"extensions.gallery.serviceUrl":"https://marketplace.example.com:1/api"`, false},
+		{"gallery maximum port", `,"extensions.gallery.serviceUrl":"https://marketplace.example.com:65535/api"`, false},
+		{"gallery zero port", `,"extensions.gallery.serviceUrl":"https://marketplace.example.com:0/api"`, true},
+		{"gallery out of range port", `,"extensions.gallery.serviceUrl":"https://marketplace.example.com:65536/api"`, true},
+		{"gallery large port", `,"extensions.gallery.serviceUrl":"https://marketplace.example.com:99999/api"`, true},
+		{"gallery overflowing port", `,"extensions.gallery.serviceUrl":"https://marketplace.example.com:999999999999999999999/api"`, true},
+		{"unknown setting", `,"editor.fontSize":14`, true},
+		{"unknown setting with gallery", `,"extensions.gallery.serviceUrl":"https://marketplace.example.com/api","editor.fontSize":14`, true},
+		{"gallery null", `,"extensions.gallery.serviceUrl":null`, true},
+		{"gallery object", `,"extensions.gallery.serviceUrl":{}`, true},
+		{"gallery empty", `,"extensions.gallery.serviceUrl":""`, true},
+		{"gallery relative", `,"extensions.gallery.serviceUrl":"/api"`, true},
+		{"gallery http", `,"extensions.gallery.serviceUrl":"http://marketplace.example.com/api"`, true},
+		{"gallery missing host", `,"extensions.gallery.serviceUrl":"https:///api"`, true},
+		{"gallery missing hostname", `,"extensions.gallery.serviceUrl":"https://:443/api"`, true},
+		{"gallery userinfo", `,"extensions.gallery.serviceUrl":"https://user:private-value@example.com/api"`, true},
+		{"gallery fragment", `,"extensions.gallery.serviceUrl":"https://marketplace.example.com/api#section"`, true},
+		{"gallery empty fragment", `,"extensions.gallery.serviceUrl":"https://marketplace.example.com/api#"`, true},
+		{"gallery whitespace", `,"extensions.gallery.serviceUrl":" https://marketplace.example.com/api"`, true},
+		{"gallery control", `,"extensions.gallery.serviceUrl":"https://marketplace.example.com/\u007f"`, true},
+		{"gallery too long", `,"extensions.gallery.serviceUrl":"https://marketplace.example.com/` + strings.Repeat("a", 2048) + `"`, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, enforcement := range []string{"dmg", "mdm"} {
+				body := `{"policy":{"category":"ide_extension","enforcement":"` + enforcement +
+					`","policy":{"extensions.allowed":{"*":false,"example.extension":"stable"}` + tc.extra + `},"hash":"sha256:test"}}`
+				_, f := newFetchServer(t, http.StatusOK, body)
+				ep, err := f.Fetch(context.Background(), "cust", "dev-1", CategoryIDEExtension, TargetVSCode)
+				if (err != nil) != tc.wantErr {
+					t.Fatalf("%s Fetch error = %v, want error %v", enforcement, err, tc.wantErr)
+				}
+				if tc.wantErr && ep.present() {
+					t.Fatal("invalid settings returned an actionable policy")
+				}
+				if err != nil && strings.Contains(err.Error(), "private-value") {
+					t.Fatal("error includes the gallery value")
+				}
+			}
+		})
+	}
+}
+
 func TestFetchEmptyIDsAreErrors(t *testing.T) {
 	_, f := newFetchServer(t, 200, `{"policy":{"clear":true,"generated_at":"x"}}`)
 	if _, err := f.Fetch(context.Background(), "", "dev-1", CategoryIDEExtension, TargetVSCode); err == nil {

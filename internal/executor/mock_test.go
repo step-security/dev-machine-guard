@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -73,5 +74,34 @@ func TestMockIrregularDirEntry(t *testing.T) {
 	}
 	if s := MockSymlinkDirEntry("s"); s.Type()&os.ModeIrregular != 0 {
 		t.Errorf("symlink entry must not be irregular: %v", s.Type())
+	}
+}
+
+func TestReadDirLimit(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"b", "a", "c"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := NewMock()
+	m.SetDirEntries(dir, []os.DirEntry{MockDirEntry("a", false), MockDirEntry("b", false), MockDirEntry("c", false)})
+	for name, e := range map[string]Executor{"real": NewReal(), "mock": m} {
+		for _, tc := range []struct {
+			max      int
+			want     int
+			wantMore bool
+		}{{0, 0, true}, {2, 2, true}, {3, 3, false}, {9, 3, false}} {
+			entries, more, err := e.ReadDirLimit(dir, tc.max)
+			if err != nil || len(entries) != tc.want || more != tc.wantMore {
+				t.Errorf("%s max %d = %d, %v, %v; want %d, %v", name, tc.max, len(entries), more, err, tc.want, tc.wantMore)
+			}
+		}
+		if _, _, err := e.ReadDirLimit(dir, -1); err == nil {
+			t.Errorf("%s: negative limit must fail", name)
+		}
+	}
+	if entries, _, _ := NewReal().ReadDirLimit(dir, 9); len(entries) != 3 || entries[0].Name() != "a" {
+		t.Errorf("real entries not sorted: %v", entries)
 	}
 }
