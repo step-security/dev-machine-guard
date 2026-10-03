@@ -97,3 +97,8 @@ clean:
 
 smoke: build
 	bash tests/test_smoke_go.sh
+
+# Run bounded active fuzzing; ordinary make test only replays fuzz seeds.
+.PHONY: fuzz
+fuzz:
+	bash tests/test_fuzz_go.sh

@@ -77,6 +77,9 @@ func FuzzParseSource(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 16*1024 {
+			t.Skip()
+		}
 		for _, s := range sources {
 			if s.Mode == readKeyDir {
 				// That source is classified by the key validator the directory

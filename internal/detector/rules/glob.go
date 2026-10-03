@@ -4,6 +4,7 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // compiledGlob is a validated, ready-to-match file glob.
@@ -84,7 +85,8 @@ func isDriveLetter(c byte) bool {
 // All other characters are matched literally.
 func globToRegex(glob string) (*regexp.Regexp, error) {
 	var b strings.Builder
-	b.WriteString("^")
+	// Unix filenames may contain newlines; ** must include those characters.
+	b.WriteString("(?s)^")
 	for i := 0; i < len(glob); {
 		c := glob[i]
 		switch c {
@@ -105,8 +107,9 @@ func globToRegex(glob string) (*regexp.Regexp, error) {
 			b.WriteString("[^/]")
 			i++
 		default:
-			b.WriteString(regexp.QuoteMeta(string(c)))
-			i++
+			_, size := utf8.DecodeRuneInString(glob[i:])
+			b.WriteString(regexp.QuoteMeta(glob[i : i+size]))
+			i += size
 		}
 	}
 	b.WriteString("$")

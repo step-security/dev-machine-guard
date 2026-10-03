@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -412,4 +413,17 @@ func TestDefaultCapsValues(t *testing.T) {
 		t.Error("PerRunBudget must be positive")
 	}
 	_ = time.Second
+}
+
+func TestScanGlobAcrossNewlineDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not permit newlines in filenames")
+	}
+	root := t.TempDir()
+	writeFile(t, root, "project\nname/package.json", `{"scripts":{"test":"fixture"}}`)
+	rs := prep(t, RuleSet{Rules: []Rule{{ID: "newline", FileGlobs: []string{"**/package.json"}}}})
+	scan := newTestEngine(t, DefaultCaps()).Scan(context.Background(), rs, []string{root})
+	if !scan.ScanComplete || len(scan.Results) != 1 || len(scan.Results[0].Files) != 1 {
+		t.Fatalf("newline directory was skipped: %+v", scan)
+	}
 }
