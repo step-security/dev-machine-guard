@@ -1,20 +1,14 @@
-// Package state owns the server-driven hook enable/disable cache.
+// Package state owns the server-driven hook enable/disable pull path.
 //
 // Flow:
 //
-//	scheduled tick / install  ──▶  Reconciler.Reconcile
-//	                                   │
-//	                                   ├─ Fetcher.Fetch  (GET /developer-mdm-agent/features)
-//	                                   ├─ cache.Write    (~/.stepsecurity/hooks-state.json)
-//	                                   └─ InstallFn / UninstallFn  (idempotent)
+//	scheduled tick  ──▶  Reconciler.Reconcile
+//	                        │
+//	                        ├─ Fetcher.Fetch  (GET /developer-mdm-agent/features)
+//	                        └─ InstallFn / UninstallFn  (idempotent)
 //
-//	_hook hot path  ──▶  cache.Read  ──▶  short-circuit to allow if disabled
-//
-// The cache file is the single source of truth for the hot path. Both
-// the polling reconciler (this package) and any future WebSocket
-// transport are expected to converge on the same file, so the hot path
-// never has to know which transport is active.
-//
-// Defaults: cache missing or unparseable ⇒ Default() (enabled). Hot path
-// is fail-open by contract; a corrupt cache must not break the agent.
+// The presence of the managed hook entry in the agent's settings file
+// (~/.claude/settings.json, ~/.codex/config.toml) is the single source
+// of truth. The hot path runs iff the entry is present; there is no
+// separate on-disk enable flag for it to consult.
 package state
