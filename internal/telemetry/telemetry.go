@@ -119,8 +119,10 @@ type Payload struct {
 	// machine's browsers hold no extensions.
 	BrowserExtensionScan *model.BrowserExtensionScanInfo `json:"browser_extension_scan,omitempty"`
 	// Full bounded snapshots on every run, independent of the npm/Python deltas.
-	GoInventory   *model.GoInventory   `json:"go_inventory,omitempty"`
-	GoConfigAudit *model.GoConfigAudit `json:"go_config_audit,omitempty"`
+	GoInventory      *model.GoInventory      `json:"go_inventory,omitempty"`
+	GoConfigAudit    *model.GoConfigAudit    `json:"go_config_audit,omitempty"`
+	CargoInventory   *model.CargoInventory   `json:"cargo_inventory,omitempty"`
+	CargoConfigAudit *model.CargoConfigAudit `json:"cargo_config_audit,omitempty"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -1083,6 +1085,17 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	endPhase(phaseCtx, phaseCancel, tracker, log, "go_scan")
 	postPhase()
 
+	// Rust packages and Cargo configuration, read statically the same way: no
+	// cargo, rustc or git command, shell or network, and the raw executor.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "cargo_scan")
+	log.Progress("Collecting Rust packages and Cargo configuration...")
+	cargoInventory, cargoConfigAudit := detector.NewCargoScanner(exec, log).Scan(phaseCtx, browserTarget, searchDirs, cfg.IncludeNetworkVolumes)
+	log.Progress("  Rust: %d projects, %d packages (inventory %s, config %s)",
+		len(cargoInventory.Projects), len(cargoInventory.Packages), cargoInventory.Status, cargoConfigAudit.Status)
+	fmt.Fprintln(os.Stderr)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "cargo_scan")
+	postPhase()
+
 	// npm + pip configuration audits — surface-only inventory of every
 	// .npmrc and pip.conf on the host, plus the merged effective views
 	// each tool would resolve. We use the user-aware executor so npm and
@@ -1245,6 +1258,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		BrowserExtensionScan:    browserExtensionScan,
 		GoInventory:             goInventory,
 		GoConfigAudit:           goConfigAudit,
+		CargoInventory:          cargoInventory,
+		CargoConfigAudit:        cargoConfigAudit,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,

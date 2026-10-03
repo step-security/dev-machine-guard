@@ -449,3 +449,30 @@ func TestGoWithinRoots(t *testing.T) {
 		})
 	}
 }
+
+func TestGoEnvProxyFallback(t *testing.T) {
+	for _, tc := range []struct {
+		proxy string
+		want  bool
+	}{
+		{"proxy.golang.org,direct", false},
+		{"https://proxy.golang.org,direct", false},
+		{"direct,https://private.example,https://proxy.golang.org", false},
+		{"https://private.example,direct", true},
+		{"https://private.example|proxy.golang.org", true},
+		{"https://private.example,off,https://proxy.golang.org", false},
+	} {
+		t.Run(tc.proxy, func(t *testing.T) {
+			clearGoEnvVars(t)
+			home := goTestHome(t)
+			path := filepath.Join(home, "go.env")
+			mustWriteGoFile(t, path, "GOPROXY="+tc.proxy+"\n")
+			t.Setenv("GOENV", path)
+			audit, _ := NewGoEnvDetector(executor.NewReal()).Detect(context.Background(), GoEnvScope{Username: "dev", Home: home, Roots: []string{home}, ProcessVerified: true})
+			got := slices.ContainsFunc(audit.Findings, func(f model.GoConfigFinding) bool { return f.Code == "go-003" })
+			if got != tc.want {
+				t.Errorf("GOPROXY=%q: go-003=%v, want %v", tc.proxy, got, tc.want)
+			}
+		})
+	}
+}

@@ -750,7 +750,9 @@ func goProxyFallsBackPublic(raw string) bool {
 		switch public := goIsPublicProxy(e); {
 		case e == "off":
 			return false
-		case e == "direct" || public:
+		case e == "direct":
+			return private
+		case public:
 			if private {
 				return true
 			}
@@ -762,6 +764,10 @@ func goProxyFallsBackPublic(raw string) bool {
 }
 
 func goIsPublicProxy(entry string) bool {
+	// Go accepts host names without a URL scheme as HTTPS proxies.
+	if strings.ContainsAny(entry, ".:/") && !strings.Contains(entry, ":/") && !filepath.IsAbs(entry) && !strings.HasPrefix(entry, "/") {
+		entry = "https://" + entry
+	}
 	u, err := url.Parse(entry)
 	return err == nil && goPublicProxyHosts[strings.ToLower(u.Hostname())]
 }

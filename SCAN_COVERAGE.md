@@ -280,6 +280,30 @@ Enterprise telemetry reports Go module evidence for the logged-in developer as t
 
 **Privacy: URL credentials, query strings, and fragments are removed from proxy and checksum-database URLs on the device, `GOAUTH` arguments and non-module `GOFLAGS` are dropped, and non-allowlisted environment values, `.netrc` content, and build settings are never collected.**
 
+## Rust Packages
+
+Enterprise telemetry reports Rust package evidence managed by Cargo for the logged-in developer as two sections, `cargo_inventory` and `cargo_config_audit`. Everything is read statically: **no `cargo`, `rustc` or `git` command, shell, or network call is ever run**, and a root or service account is never scanned in the developer's place. Each evidence kind is reported separately; none of them means a package was compiled or executed.
+
+| Evidence | Source |
+|----------|--------|
+| Declared requirements | `Cargo.toml` files found under the search directories: normal, dev, build and target-specific dependencies with aliases, requirement text, features, optional and explicit `default-features`, and registry, Git or path selectors. Workspace inheritance is applied; unused `workspace.dependencies` entries are not reported. |
+| Workspaces | `[workspace]` members (literal paths and single-level globs), `exclude`, in-root path dependencies and explicit `package.workspace`. Membership that cannot be established is reported as `workspace_unresolved`. |
+| Locked packages | `Cargo.lock` formats 3 and 4, once per workspace root, including a custom `resolver.lockfile-path`. Other formats are `unsupported_format`. Unused patches are not reported. |
+| Cached packages | Every `registry/cache/<id>/*.crate` and `registry/src/<id>/<name>-<version>/` in the default `~/.cargo` and an effective `CARGO_HOME`, merged into one record per registry ID, name and version. Archives are never unpacked; only their `Cargo.toml` member is read when no extracted copy establishes the identity. |
+| Git checkouts | Package manifests in `git/checkouts/<repo>/<rev>/`, with the full commit from the checkout's `.git/HEAD` when recorded. |
+| Vendored packages | Packages in directories holding `.cargo-checksum.json`, found by the walk or configured as `source.<name>.directory`, and `.crate` archives in a configured `local-registry`. |
+| Installed tools | `.crates.toml` receipts (enriched by `.crates2.json`) in each Cargo home, `install.root` and `CARGO_INSTALL_ROOT`, with each recorded bin checked by presence alone. |
+| Recorded checksums | Lockfile and `.cargo-checksum.json` package SHA-256 values, marked `not_verified`. |
+| Cargo configuration | `.cargo/config` and `.cargo/config.toml` of each project and its ancestors inside the search directories, the Cargo home config, included files, and the verified process environment: an allowlist of registry, source-replacement, network, install-root and lockfile-path settings, per invocation context, with findings `cargo-001`…`cargo-004`. Credentials files are checked for presence only. |
+
+**Scope.** The home and configured search directories are walked; `.git`, `.hg`, `.svn`, `node_modules`, `target`, `.rustup` and Cargo's own `registry` and `git` directories are not walked as projects, and directory symlinks are not followed. Paths a manifest or config names exactly (workspace members, path dependencies, includes, lockfile paths, Cargo homes, install roots, configured source directories) are read as targeted files, one level deep for source directories. `.cargo` configs above the search directories are not probed, and a workspace root above them is not found. TCC-protected directories and skipped network volumes stay excluded even when `include_tcc_protected` is set. The process environment counts only when the agent runs as the developer.
+
+**Origins.** Registry cache directory names are opaque, so cached packages carry `cache_unknown` origin scoped to their Cargo home and cache ID. Git checkouts carry `git_unknown`, vendored and local-registry packages `vendor_unknown`, and a lockfile entry without a source that matches no single known manifest `local_unknown`, scoped to its lockfile.
+
+**Bounded.** Reads, directory listings, walk depth, archive headers and decompressed bytes, config includes, record count and output size are capped. Any cap, refusal, or failure makes the affected source and section `partial` with a reason code, never silently incomplete.
+
+**Privacy: URL credentials, query strings, and fragments are removed on the device, registry tokens are reported only as configured, custom credential providers are shown as `custom` with their arguments dropped, and non-allowlisted settings, credentials-file contents, and binary contents are never collected.**
+
 ## System Package Scanning (Linux)
 
 System package scanning is **automatic on Linux** — no opt-in flag required. Multiple package managers can coexist.

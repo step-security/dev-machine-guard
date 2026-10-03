@@ -755,6 +755,9 @@ func (g *goScan) readVendor(dir, parentID string, owner *model.GoProject, sums [
 // returns a reader rooted at its physical path, so a redirected root can
 // neither leave scope nor be swapped afterwards.
 func (g *goScan) goRootFS(src *model.GoSource, limit int64) (executor.Executor, string, bool) {
+	if g.snap.RedirectUnknown {
+		goDegrade(src, model.GoStatusPartial, model.GoReasonRootRedirectUnknown)
+	}
 	if reason := g.guard(src.Path); reason != "" {
 		src.Presence = model.GoPresenceUnknown
 		goDegrade(src, model.GoStatusSkipped, reason)
@@ -768,9 +771,6 @@ func (g *goScan) goRootFS(src *model.GoSource, limit int64) (executor.Executor, 
 		src.Presence = model.GoPresenceUnknown
 		goDegrade(src, goRefusalStatus(err), configaudit.GoReadReason(err))
 		return nil, "", false
-	}
-	if g.snap.RedirectUnknown {
-		goDegrade(src, model.GoStatusPartial, model.GoReasonRootRedirectUnknown)
 	}
 	return g.exec.GuardedFiles([]string{phys}, g.guard, limit), phys, true
 }

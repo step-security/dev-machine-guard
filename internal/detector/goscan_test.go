@@ -1295,3 +1295,25 @@ func TestGoScanner_PathCase(t *testing.T) {
 		}
 	})
 }
+
+func TestGoScanner_UnknownRedirectAbsentRoots(t *testing.T) {
+	home := goTestHome(t)
+	t.Setenv("GOENV", "relative.env")
+	inv, audit := goTestScanner(t, &user.User{Uid: "1000"}).Scan(context.Background(), goTestTarget(home), nil, nil)
+	if audit.Status != model.GoStatusPartial || inv.Status != model.GoStatusPartial || !slices.Contains(inv.Reasons, model.GoReasonRootRedirectUnknown) {
+		t.Errorf("audit=%s, inventory=%s %v, want partial root_redirect_unknown", audit.Status, inv.Status, inv.Reasons)
+	}
+	roots := 0
+	for _, s := range inv.Sources {
+		if s.Kind != model.GoSourceBinRoot && s.Kind != model.GoSourceCacheRoot {
+			continue
+		}
+		roots++
+		if s.Presence != model.GoPresenceAbsent || s.Status != model.GoStatusPartial || !slices.Contains(s.Reasons, model.GoReasonRootRedirectUnknown) {
+			t.Errorf("fallback %s = %s %s %v, want absent, partial, root_redirect_unknown", s.Kind, s.Presence, s.Status, s.Reasons)
+		}
+	}
+	if roots != 2 {
+		t.Errorf("roots=%d, want 2", roots)
+	}
+}
