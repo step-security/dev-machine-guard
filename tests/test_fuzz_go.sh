@@ -22,7 +22,8 @@ for package in "$@"; do
         echo "No fuzz targets found in $package" >&2
         exit 1
     fi
-    package_label=${package//\//_}
+    package_label=${package#./}
+    package_label=${package_label//\//_}
     while IFS= read -r target; do
         echo "Fuzzing $package / $target for $FUZZ_TIME ($FUZZ_WORKERS workers)"
         if ! go test "$package" -run '^$' -fuzz "^${target}$" \
