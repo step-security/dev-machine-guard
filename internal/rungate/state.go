@@ -1,8 +1,10 @@
 package rungate
 
 import (
+	"strings"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/heartbeat"
 	"github.com/step-security/dev-machine-guard/internal/paths"
 )
@@ -47,6 +49,10 @@ func StampLastFullRun(now time.Time) error {
 // a stale cache can only delay a scan by one interval, not suppress it.
 func recordCheckin(deviceID string, d Directive, fetchedAt time.Time) error {
 	return heartbeat.UpdateRunGate(statePath(), func(rg *heartbeat.RunGate) {
+		if rg.DeviceID != "" && rg.DeviceID != deviceID {
+			rg.LastFullRunAt = 0
+		}
+		rg.ConfiguredDeviceID = strings.TrimSpace(config.DeviceID)
 		rg.DeviceID = deviceID
 		rg.GatingEnabled = d.GatingEnabled
 		rg.EffectiveIntervalMinutes = d.EffectiveIntervalMinutes

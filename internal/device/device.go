@@ -4,9 +4,19 @@ import (
 	"context"
 	"strings"
 
+	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
+
+// ID returns the configured device identity, falling back to the machine
+// serial. Keep SerialNumber separate so telemetry retains the hardware identity.
+func ID(dev model.Device) string {
+	if id := strings.TrimSpace(config.DeviceID); id != "" {
+		return id
+	}
+	return dev.SerialNumber
+}
 
 // Gather collects device information (hostname, serial, OS version, user identity).
 func Gather(ctx context.Context, exec executor.Executor) model.Device {
@@ -37,8 +47,7 @@ func Gather(ctx context.Context, exec executor.Executor) model.Device {
 	}
 }
 
-// SerialNumber resolves just the hardware serial (the device_id used by every
-// backend API), skipping the rest of Gather. The run gate calls this before
+// SerialNumber resolves just the hardware serial, skipping the rest of Gather. The run gate calls this before
 // the device_info phase — and before any network beacon — so it must stay
 // self-contained and tolerate every failure by returning "unknown" (the same
 // contract as the per-OS getters). Callers cache the result on disk; only a

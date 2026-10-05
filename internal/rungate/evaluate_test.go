@@ -292,3 +292,48 @@ func TestEvaluatePackageDeltaDoesNotRememberOptIn(t *testing.T) {
 		t.Fatal("missing setting reused previous opt-in")
 	}
 }
+
+func TestEvaluateConfiguredDeviceIDChanges(t *testing.T) {
+	withTempState(t)
+	old := config.DeviceID
+	t.Cleanup(func() { config.DeviceID = old })
+	config.DeviceID = ""
+	gateServer(t, 0, "")
+	var wantID string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("device_id"); got != wantID {
+			t.Errorf("check-in device_id = %q, want %q", got, wantID)
+		}
+		if got := r.URL.Query().Get("last_run_at"); got != "" {
+			t.Errorf("new identity reused previous cadence: last_run_at=%s", got)
+		}
+		_, _ = w.Write([]byte("{" + fullDirective + "}"))
+	}))
+	t.Cleanup(srv.Close)
+	config.APIEndpoint = srv.URL
+	seedDeviceID(t)
+	if err := StampLastFullRun(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetFile("/sys/class/dmi/id/product_serial", []byte("HARDWARE-ID"))
+	for _, tc := range []struct{ configured, guest, want string }{
+		{"custom-1", "", "custom-1"},
+		{"custom-2", "", "custom-2"},
+		{"", "", "HARDWARE-ID"},
+		{"host-custom", "guest-id", "guest-id"},
+	} {
+		config.DeviceID, wantID = tc.configured, tc.want
+		if got := Evaluate(context.Background(), mock, progress.NewNoop(), false, tc.guest); got.Skip {
+			t.Fatalf("new identity skipped: %+v", got)
+		}
+		st, ok := readState()
+		if !ok || st.DeviceID != wantID || st.LastFullRunAt != 0 {
+			t.Fatalf("state = %+v, want fresh cadence for %s", st, wantID)
+		}
+		if err := StampLastFullRun(time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

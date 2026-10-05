@@ -755,8 +755,9 @@ func runHookStateReconcile(exec executor.Executor, log *progress.Logger) {
 	defer cancel()
 
 	dev := device.Gather(ctx, exec)
-	if dev.SerialNumber == "" || dev.SerialNumber == "unknown" {
-		log.Warn("hook-state reconcile: device serial unresolved; skipping")
+	deviceID := device.ID(dev)
+	if deviceID == "" || deviceID == "unknown" {
+		log.Warn("hook-state reconcile: device identity unresolved; skipping")
 		return
 	}
 
@@ -764,7 +765,7 @@ func runHookStateReconcile(exec executor.Executor, log *progress.Logger) {
 		Exec:        exec,
 		Fetcher:     fetcher,
 		CustomerID:  cfg.CustomerID,
-		DeviceID:    dev.SerialNumber,
+		DeviceID:    deviceID,
 		Stdout:      os.Stdout,
 		Stderr:      os.Stderr,
 		InstallFn:   aiagentscli.RunInstall,
@@ -832,8 +833,9 @@ func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
 	defer cancel()
 
 	dev := device.Gather(ctx, exec)
-	if dev.SerialNumber == "" || dev.SerialNumber == "unknown" {
-		log.Warn("ide-extension enforce: device serial unresolved; skipping")
+	deviceID := device.ID(dev)
+	if deviceID == "" || deviceID == "unknown" {
+		log.Warn("ide-extension enforce: device identity unresolved; skipping")
 		return
 	}
 
@@ -842,7 +844,7 @@ func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
 		Reporter:   reporter,
 		Writer:     writer,
 		CustomerID: cfg.CustomerID,
-		DeviceID:   dev.SerialNumber,
+		DeviceID:   deviceID,
 		Platform:   dev.Platform,
 		// Probe defaults to devicepolicy.ProbeManagedPolicy (per-OS) when nil.
 		Logf:  func(format string, args ...any) { log.Debug(format, args...) },
@@ -875,11 +877,12 @@ func runPackageConfigEnforce(exec executor.Executor, log *progress.Logger) {
 	ctx, cancel := context.WithTimeout(context.Background(), devicePolicyEnforceTimeout)
 	dev := device.Gather(ctx, exec)
 	cancel()
-	if dev.SerialNumber == "" || dev.SerialNumber == "unknown" {
-		log.Warn("package-config enforce: device serial unresolved; skipping")
+	deviceID := device.ID(dev)
+	if deviceID == "" || deviceID == "unknown" {
+		log.Warn("package-config enforce: device identity unresolved; skipping")
 		return
 	}
-	runPackageConfigLanes(exec, log, fetcher, reporter, cfg.CustomerID, dev.SerialNumber, dev.Platform)
+	runPackageConfigLanes(exec, log, fetcher, reporter, cfg.CustomerID, deviceID, dev.Platform)
 }
 
 func runPackageConfigLanes(exec executor.Executor, log *progress.Logger, fetcher devicepolicy.Fetcher, reporter devicepolicy.Reporter, customerID, serial, platform string) {

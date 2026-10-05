@@ -10,6 +10,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/heartbeat"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
@@ -68,14 +69,22 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 		log.Progress("Run gate: bypassed (--force-scan)")
 	}
 
-	// Device id: the guest identity when we were given one, else cached from a
-	// prior run, else a bounded local probe. Without a real id the backend
+	// Device id: the guest identity, then the configured ID, then the cached
+	// machine ID or a bounded local probe. Without a real id the backend
 	// can't be asked anything meaningful — fail open rather than gate on a
 	// bogus one.
 	st, stOK := readState()
+	// Overrides added, changed, or removed must not reuse another identity's cadence.
+	configuredID := strings.TrimSpace(config.DeviceID)
+	if st.ConfiguredDeviceID != configuredID {
+		st = heartbeat.RunGate{}
+		stOK = false
+	}
 	deviceID := strings.TrimSpace(guestDeviceID)
 	if deviceID != "" {
 		log.Debug("run-gate: gating as WSL guest %s", deviceID)
+	} else if configuredID != "" {
+		deviceID = configuredID
 	} else {
 		deviceID = st.DeviceID
 		if deviceID == "" || deviceID == "unknown" {
@@ -91,6 +100,11 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 			reason = Decide(in).Reason
 		}
 		return Result{Skip: false, Reason: reason, WSL: wslWithOverride(WSLDirective{})}
+	}
+
+	if st.DeviceID != deviceID {
+		st = heartbeat.RunGate{}
+		stOK = false
 	}
 
 	log.Progress("Run gate: checking scan cadence with the dashboard...")

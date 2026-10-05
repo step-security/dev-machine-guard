@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 )
 
@@ -238,5 +239,28 @@ func TestGather_Windows(t *testing.T) {
 	}
 	if dev.UserIdentity != "testuser" {
 		t.Errorf("user_identity: expected testuser, got %s", dev.UserIdentity)
+	}
+}
+
+func TestID(t *testing.T) {
+	old := config.DeviceID
+	t.Cleanup(func() { config.DeviceID = old })
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+	mock.SetCommand(`"IOPlatformSerialNumber" = "SERIAL123"`, "", 0, "ioreg", "-l")
+	for _, tc := range []struct{ override, want string }{
+		{"custom-123", "custom-123"},
+		{" custom-123 ", "custom-123"},
+		{"", "SERIAL123"},
+		{" \t ", "SERIAL123"},
+	} {
+		config.DeviceID = tc.override
+		dev := Gather(context.Background(), mock)
+		if got := ID(dev); got != tc.want {
+			t.Errorf("ID with %q = %q, want %q", tc.override, got, tc.want)
+		}
+		if dev.SerialNumber != "SERIAL123" {
+			t.Fatalf("hardware serial overwritten: %q", dev.SerialNumber)
+		}
 	}
 }

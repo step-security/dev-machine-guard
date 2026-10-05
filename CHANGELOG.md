@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [1.18.0] - 2026-10-05
+
+### Added
+
+- Optional `device_id` in config.json for a stable custom device identity across telemetry, run cadence, hooks, and managed policies. The hardware serial remains separate, and changing identity resets cached cadence and incremental inventory. WSL guests continue deriving separate IDs from the host and distro.
+
 ## [1.17.0] - 2026-09-24
 
 ### Added
