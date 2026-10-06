@@ -37,8 +37,9 @@ func statePath() string {
 // StampLastFullRun records a completed full run (called from telemetry.Run
 // right after the upload succeeds). Best-effort by contract: on failure the
 // next gated invocation simply runs again.
-func StampLastFullRun(now time.Time) error {
+func StampLastFullRun(deviceID string, now time.Time) error {
 	return heartbeat.UpdateRunGate(statePath(), func(rg *heartbeat.RunGate) {
+		bindIdentity(rg, deviceID)
 		rg.LastFullRunAt = now.Unix()
 	})
 }
@@ -49,14 +50,25 @@ func StampLastFullRun(now time.Time) error {
 // a stale cache can only delay a scan by one interval, not suppress it.
 func recordCheckin(deviceID string, d Directive, fetchedAt time.Time) error {
 	return heartbeat.UpdateRunGate(statePath(), func(rg *heartbeat.RunGate) {
-		if rg.DeviceID != "" && rg.DeviceID != deviceID {
-			rg.LastFullRunAt = 0
-		}
-		rg.ConfiguredDeviceID = strings.TrimSpace(config.DeviceID)
-		rg.DeviceID = deviceID
+		bindIdentity(rg, deviceID)
 		rg.GatingEnabled = d.GatingEnabled
 		rg.EffectiveIntervalMinutes = d.EffectiveIntervalMinutes
 		rg.DirectiveFetchedAt = fetchedAt.Unix()
+	})
+}
+
+// bindIdentity discards cadence from another identity before any check-in or
+// completion stamp, including forced runs and failed check-ins.
+func bindIdentity(rg *heartbeat.RunGate, deviceID string) {
+	configuredID := strings.TrimSpace(config.DeviceID)
+	if rg.DeviceID != deviceID || rg.ConfiguredDeviceID != configuredID {
+		*rg = heartbeat.RunGate{DeviceID: deviceID, ConfiguredDeviceID: configuredID}
+	}
+}
+
+func persistIdentity(deviceID string) error {
+	return heartbeat.UpdateRunGate(statePath(), func(rg *heartbeat.RunGate) {
+		bindIdentity(rg, deviceID)
 	})
 }
 

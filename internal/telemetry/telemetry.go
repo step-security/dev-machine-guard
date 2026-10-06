@@ -475,7 +475,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	deviceID = device.ID(dev)
 	wslGuest := wslGuestFromConfig(cfg)
 	if wslGuest != nil {
-		deviceID = wslguest.DeviceID(wslGuest.HostDeviceID, wslGuest.DistroID)
+		deviceID = device.IDForGuest(dev, wslGuest.HostDeviceID, wslGuest.DistroID)
 	}
 	// Single source of truth for "is this a real developer or a daemon
 	// context?" — same predicate the payload uses below, so the warning,
@@ -1306,7 +1306,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		}
 		// Same rationale for the run-gate stamp: the dev harness should show
 		// the same second-invocation gating behavior as a real upload.
-		if err := rungate.StampLastFullRun(time.Now()); err != nil {
+		if err := rungate.StampLastFullRun(deviceID, time.Now()); err != nil {
 			log.Debug("run-gate: could not stamp last full run: %v", err)
 		}
 		return nil
@@ -1350,7 +1350,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 	// Record the completed full run for the run gate. Best-effort by
 	// contract: a missing stamp only means the next gated invocation runs.
-	if err := rungate.StampLastFullRun(time.Now()); err != nil {
+	if err := rungate.StampLastFullRun(deviceID, time.Now()); err != nil {
 		log.Debug("run-gate: could not stamp last full run: %v", err)
 	}
 

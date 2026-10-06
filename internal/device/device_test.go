@@ -7,6 +7,8 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/wslguest"
 )
 
 func TestGather_BasicFields(t *testing.T) {
@@ -262,5 +264,24 @@ func TestID(t *testing.T) {
 		if dev.SerialNumber != "SERIAL123" {
 			t.Fatalf("hardware serial overwritten: %q", dev.SerialNumber)
 		}
+	}
+}
+
+func TestIDForGuestPrecedence(t *testing.T) {
+	old := config.DeviceID
+	t.Cleanup(func() { config.DeviceID = old })
+	for _, tc := range []struct{ name, override, host, distro, want string }{
+		{"guest with inherited override", "host-custom", "host-custom", "distro-1", wslguest.DeviceID("host-custom", "distro-1")},
+		{"guest without override", "", "host-serial", "distro-1", wslguest.DeviceID("host-serial", "distro-1")},
+		{"partial guest", "host-custom", "host-custom", "", "host-custom"},
+		{"custom host", "host-custom", "", "", "host-custom"},
+		{"hardware host", "", "", "", "SER123"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config.DeviceID = tc.override
+			if got := IDForGuest(model.Device{SerialNumber: "SER123"}, tc.host, tc.distro); got != tc.want {
+				t.Fatalf("IDForGuest = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

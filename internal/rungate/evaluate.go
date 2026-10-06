@@ -74,6 +74,7 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 	// can't be asked anything meaningful — fail open rather than gate on a
 	// bogus one.
 	st, stOK := readState()
+	previousID, previousConfiguredID := st.DeviceID, st.ConfiguredDeviceID
 	// Overrides added, changed, or removed must not reuse another identity's cadence.
 	configuredID := strings.TrimSpace(config.DeviceID)
 	if st.ConfiguredDeviceID != configuredID {
@@ -107,6 +108,13 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 		stOK = false
 	}
 
+	// Persist the reset before any network result or force/kill-switch exit.
+	if previousID != deviceID || previousConfiguredID != configuredID {
+		if err := persistIdentity(deviceID); err != nil {
+			log.Debug("run-gate: could not persist device identity: %v", err)
+		}
+	}
+
 	log.Progress("Run gate: checking scan cadence with the dashboard...")
 	directive, wslDirective, credentialScanning, deltaEnabled, err := Checkin(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, deviceID, st.LastFullRunAt)
 	// Only an explicit false in this invocation's answer turns credential
@@ -114,7 +122,7 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 	credentialDisabled := err == nil && credentialScanning != nil && !*credentialScanning
 	if escape {
 		// Bypassing the cadence gate applies nothing else from the answer: no
-		// directive, no persistence, and no WSL scanning. Without a directive
+		// directive persistence and no WSL scanning. Without a directive
 		// we never scan inside a distro.
 		return Result{Skip: false, Reason: Decide(in).Reason, WSL: wslWithOverride(WSLDirective{}),
 			CredentialScanningDisabled: credentialDisabled, DeltaScanEnabled: err == nil && deltaEnabled}

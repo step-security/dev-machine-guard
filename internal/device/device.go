@@ -7,6 +7,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/wslguest"
 )
 
 // ID returns the configured device identity, falling back to the machine
@@ -16,6 +17,15 @@ func ID(dev model.Device) string {
 		return id
 	}
 	return dev.SerialNumber
+}
+
+// IDForGuest gives the host/distro identity precedence over an inherited host
+// config. Partial guest metadata falls back to the ordinary device identity.
+func IDForGuest(dev model.Device, hostDeviceID, distroID string) string {
+	if id := wslguest.DeviceID(hostDeviceID, distroID); id != "" {
+		return id
+	}
+	return ID(dev)
 }
 
 // Gather collects device information (hostname, serial, OS version, user identity).
