@@ -5,7 +5,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/wslguest"
 )
 
 func TestGather_BasicFields(t *testing.T) {
@@ -238,5 +241,47 @@ func TestGather_Windows(t *testing.T) {
 	}
 	if dev.UserIdentity != "testuser" {
 		t.Errorf("user_identity: expected testuser, got %s", dev.UserIdentity)
+	}
+}
+
+func TestID(t *testing.T) {
+	old := config.DeviceID
+	t.Cleanup(func() { config.DeviceID = old })
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+	mock.SetCommand(`"IOPlatformSerialNumber" = "SERIAL123"`, "", 0, "ioreg", "-l")
+	for _, tc := range []struct{ override, want string }{
+		{"custom-123", "custom-123"},
+		{" custom-123 ", "custom-123"},
+		{"", "SERIAL123"},
+		{" \t ", "SERIAL123"},
+	} {
+		config.DeviceID = tc.override
+		dev := Gather(context.Background(), mock)
+		if got := ID(dev); got != tc.want {
+			t.Errorf("ID with %q = %q, want %q", tc.override, got, tc.want)
+		}
+		if dev.SerialNumber != "SERIAL123" {
+			t.Fatalf("hardware serial overwritten: %q", dev.SerialNumber)
+		}
+	}
+}
+
+func TestIDForGuestPrecedence(t *testing.T) {
+	old := config.DeviceID
+	t.Cleanup(func() { config.DeviceID = old })
+	for _, tc := range []struct{ name, override, host, distro, want string }{
+		{"guest with inherited override", "host-custom", "host-custom", "distro-1", wslguest.DeviceID("host-custom", "distro-1")},
+		{"guest without override", "", "host-serial", "distro-1", wslguest.DeviceID("host-serial", "distro-1")},
+		{"partial guest", "host-custom", "host-custom", "", "host-custom"},
+		{"custom host", "host-custom", "", "", "host-custom"},
+		{"hardware host", "", "", "", "SER123"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config.DeviceID = tc.override
+			if got := IDForGuest(model.Device{SerialNumber: "SER123"}, tc.host, tc.distro); got != tc.want {
+				t.Fatalf("IDForGuest = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

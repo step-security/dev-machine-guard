@@ -7,9 +7,8 @@
 //     invocations have a 15s total budget; identity must not be the
 //     thing that exhausts it.
 //
-//  2. Pass `"unknown"` through verbatim. device.Gather already returns
-//     that sentinel for failed probes; we do NOT rewrite it to "" — the
-//     backend distinguishes "not collected" from "actively unknown".
+//  2. Use the configured device ID when present, otherwise pass the
+//     machine serial (including the "unknown" sentinel) through verbatim.
 //
 //  3. Single Gather call per Resolve — no probing twice for the two
 //     fields we need.
@@ -41,11 +40,11 @@ type Info struct {
 	UserIdentity string
 }
 
-// Resolve returns identity information for the current host.
+// Resolve returns identity information for the current host, using the configured
+// device ID when present.
 //
-// On probe timeout or any executor error, fields fall back to the
-// `"unknown"` sentinel that device.Gather emits internally — this
-// function does not synthesize "" or any other replacement.
+// On probe timeout or any executor error, gathered fields fall back to the
+// "unknown" sentinel. A configured device ID still takes precedence.
 func Resolve(ctx context.Context, exec executor.Executor, customerID string) Info {
 	probeCtx, cancel := context.WithTimeout(ctx, ProbeTimeout)
 	defer cancel()
@@ -53,7 +52,7 @@ func Resolve(ctx context.Context, exec executor.Executor, customerID string) Inf
 	d := device.Gather(probeCtx, exec)
 	return Info{
 		CustomerID:   customerID,
-		DeviceID:     d.SerialNumber,
+		DeviceID:     device.ID(d),
 		UserIdentity: d.UserIdentity,
 	}
 }

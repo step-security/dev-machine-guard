@@ -64,6 +64,7 @@ type Record struct {
 // future-schema file only costs one serial probe and one fail-open run, never
 // a wrong skip. Fields mirror the wire directive; see internal/rungate.
 type RunGate struct {
+	ConfiguredDeviceID       string `json:"configured_device_id,omitempty"`
 	DeviceID                 string `json:"device_id,omitempty"`
 	LastFullRunAt            int64  `json:"last_full_run_at,omitempty"` // unix sec; stamped on upload success
 	GatingEnabled            bool   `json:"gating_enabled,omitempty"`

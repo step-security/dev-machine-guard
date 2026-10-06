@@ -472,14 +472,19 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	if featuregate.IsEnabled(featuregate.FeatureWSLDetection) {
 		dev.WSL = device.GatherWSL(phaseCtx, exec)
 	}
-	deviceID = dev.SerialNumber
+	deviceID = device.ID(dev)
+	wslGuest := wslGuestFromConfig(cfg)
+	if wslGuest != nil {
+		deviceID = device.IDForGuest(dev, wslGuest.HostDeviceID, wslGuest.DistroID)
+	}
 	// Single source of truth for "is this a real developer or a daemon
 	// context?" — same predicate the payload uses below, so the warning,
 	// the Developer: line, and the telemetry field always agree.
 	noUserLoggedIn := dev.UserIdentity == "" ||
 		dev.UserIdentity == "unknown" ||
 		(dev.UserIdentity == "root" && exec.IsRoot())
-	log.Progress("Device ID (Serial): %s", dev.SerialNumber)
+	log.Progress("Device ID: %s", deviceID)
+	log.Progress("Serial Number: %s", dev.SerialNumber)
 	log.Progress("OS Version: %s", dev.OSVersion)
 	if noUserLoggedIn {
 		log.Progress("Developer: (no user logged in)")
@@ -487,8 +492,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		log.Progress("Developer: %s", dev.UserIdentity)
 	}
 	log.Debug("device gathered: hostname=%q platform=%q serial=%q user_identity=%q no_user=%v", dev.Hostname, dev.Platform, dev.SerialNumber, dev.UserIdentity, noUserLoggedIn)
-	if dev.SerialNumber == "" {
-		log.Warn("device serial number could not be determined — telemetry will upload with empty device_id")
+	if deviceID == "" {
+		log.Warn("device identity could not be determined — telemetry will upload with empty device_id")
 	}
 	if noUserLoggedIn {
 		log.Warn("no real developer identity (UserIdentity=%q, root=%v) — telemetry will be marked no_user_logged_in", dev.UserIdentity, exec.IsRoot())
@@ -518,7 +523,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 			if loadErr != nil {
 				log.Debug("scan-state: load fallback (%v) — treating as empty", loadErr)
 			}
-			scanState = loaded
+			scanState = loaded.ForDevice(deviceID, buildinfo.Version)
 			scanStateFullSync = scanState.IsFullSyncDue(time.Now(), buildinfo.Version, state.DefaultFullSyncHorizon)
 			log.Debug("scan-state: loaded from %s (npm=%d python=%d full_sync=%v)",
 				scanStatePath, len(scanState.NPMProjects), len(scanState.PythonProjects), scanStateFullSync)
@@ -1182,7 +1187,6 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// Its own identity is unusable: the hostname is the Windows host's, and a
 	// minimal or WSL1 distro has no machine-id, so dev.SerialNumber reads
 	// "unknown" and every such distro would collide on one record.
-	wslGuest := wslGuestFromConfig(cfg)
 	deviceIdentity := dev.SerialNumber
 	if wslGuest != nil {
 		deviceIdentity = wslguest.DeviceID(wslGuest.HostDeviceID, wslGuest.DistroID)
@@ -1194,7 +1198,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	payload := &Payload{
 		PayloadSchemaVersion: schemaVersion,
 		CustomerID:           config.CustomerID,
-		DeviceID:             deviceIdentity,
+		DeviceID:             deviceID,
 		SerialNumber:         deviceIdentity,
 		UserIdentity:         dev.UserIdentity,
 		Hostname:             dev.Hostname,
@@ -1302,7 +1306,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		}
 		// Same rationale for the run-gate stamp: the dev harness should show
 		// the same second-invocation gating behavior as a real upload.
-		if err := rungate.StampLastFullRun(time.Now()); err != nil {
+		if err := rungate.StampLastFullRun(deviceID, time.Now()); err != nil {
 			log.Debug("run-gate: could not stamp last full run: %v", err)
 		}
 		return nil
@@ -1346,7 +1350,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 	// Record the completed full run for the run gate. Best-effort by
 	// contract: a missing stamp only means the next gated invocation runs.
-	if err := rungate.StampLastFullRun(time.Now()); err != nil {
+	if err := rungate.StampLastFullRun(deviceID, time.Now()); err != nil {
 		log.Debug("run-gate: could not stamp last full run: %v", err)
 	}
 

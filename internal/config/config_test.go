@@ -240,3 +240,31 @@ func TestConfigFileIgnoresRetiredPackageScanFlag(t *testing.T) {
 		}
 	}
 }
+
+func TestDeviceIDConfig(t *testing.T) {
+	withHome(t)
+	old := DeviceID
+	t.Cleanup(func() { DeviceID = old })
+	for _, tc := range []struct{ name, value, want string }{
+		{"custom", " custom-device-123 ", "custom-device-123"},
+		{"empty", "", ""},
+		{"blank", " \t ", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			DeviceID = ""
+			if err := save(&ConfigFile{DeviceID: tc.value}); err != nil {
+				t.Fatal(err)
+			}
+			Load()
+			if DeviceID != tc.want {
+				t.Fatalf("DeviceID = %q, want %q", DeviceID, tc.want)
+			}
+			if err := PersistMaxExecutionDuration("2h"); err != nil {
+				t.Fatal(err)
+			}
+			if got := loadExisting().DeviceID; got != tc.value {
+				t.Fatalf("config rewrite lost device ID: %q", got)
+			}
+		})
+	}
+}
