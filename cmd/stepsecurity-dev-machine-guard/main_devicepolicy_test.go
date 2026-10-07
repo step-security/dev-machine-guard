@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -195,5 +196,78 @@ func TestPackageConfigLanes_UseSeparateTimeoutContexts(t *testing.T) {
 	}
 	if _, ok := goCtx.Deadline(); !ok {
 		t.Error("Go context has no deadline")
+	}
+}
+
+type failingTargetExecutor struct {
+	*executor.Mock
+	user *user.User
+	err  error
+}
+
+func (e failingTargetExecutor) LoggedInUser() (*user.User, error) { return e.user, e.err }
+
+func captureDevicePolicyStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	done := make(chan string)
+	go func() {
+		b, _ := io.ReadAll(r)
+		done <- string(b)
+	}()
+	fn()
+	_ = w.Close()
+	os.Stderr = orig
+	out := <-done
+	_ = r.Close()
+	return out
+}
+
+func TestResolveDevicePolicyTargetLogsOnlyUnexpectedFailures(t *testing.T) {
+	current, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Synthetic token-shaped path segment: the setup error quotes the home path,
+	// and agent.error.log must never carry it unredacted.
+	secret := "ghp_" + strings.Repeat("Z", 24)
+	missingHome := *current
+	missingHome.HomeDir = filepath.Join(t.TempDir(), secret)
+	tests := []struct {
+		name     string
+		user     *user.User
+		err      error
+		wantWarn bool
+	}{
+		{"no active user stays quiet", nil, errors.New("no console session"), false},
+		{"unusable home warns redacted", &missingHome, nil, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := executor.NewMock()
+			mock.SetGOOS(model.PlatformWindows)
+			exec := failingTargetExecutor{Mock: mock, user: tc.user, err: tc.err}
+			var ok bool
+			out := captureDevicePolicyStderr(t, func() {
+				_, _, ok = resolveDevicePolicyTarget(exec, progress.NewLogger(progress.LevelInfo))
+			})
+			if ok {
+				t.Fatal("resolveDevicePolicyTarget succeeded, want failure")
+			}
+			if got := strings.Contains(out, "device-policy enforce: target setup failed"); got != tc.wantWarn {
+				t.Fatalf("warned = %v, want %v; output %q", got, tc.wantWarn, out)
+			}
+			if !tc.wantWarn && out != "" {
+				t.Fatalf("output = %q, want none at info level", out)
+			}
+			if strings.Contains(out, secret) {
+				t.Fatalf("output leaked synthetic secret: %q", out)
+			}
+		})
 	}
 }

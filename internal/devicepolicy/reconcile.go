@@ -675,11 +675,14 @@ func (r *Reconciler) dropClearedState(cat, tgt string, hadPrev bool) error {
 // anything else — so a value-equality gate is both unnecessary and unsafe here:
 // lost or corrupt state, a drifted block, or an empty marker shell would
 // otherwise strand a token-bearing block on disk forever after unassignment.
-// Clear is called unconditionally (a no-op when there is no block) and the state
-// record is dropped UNCONDITIONALLY afterward — a store read that failed or lied
-// (no record found) must not leave an orphan behind; Drop is idempotent.
+// Missing or corrupt state still clears the block and then drops the record
+// (Drop is idempotent). Only an unreadable Windows state store, such as a failed
+// legacy permission repair, refuses before touching the block.
 func (r *Reconciler) handleClearByMarker(cat, tgt string) error {
-	prev, hadPrev := r.readState(cat)
+	prev, hadPrev, err := readAppliedStateChecked(cat, r.stateTarget())
+	if err != nil {
+		return fmt.Errorf("devicepolicy: clear: read state: %w", err)
+	}
 	if r.PrepareClear != nil {
 		if err := r.PrepareClear(prev, hadPrev); err != nil {
 			return fmt.Errorf("devicepolicy: prepare clear %s: %w", r.Writer.Location(), err)

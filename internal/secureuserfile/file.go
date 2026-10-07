@@ -286,7 +286,7 @@ func (h *Home) EnsureParent(relativePath string) error {
 		if !created && h.goos == model.PlatformWindows && i == len(components)-1 {
 			secure, err := h.metadata.secure(handle, h, mode)
 			if err == nil && !secure {
-				err = h.applyMetadata(h, handle, mode, true)
+				err = repairSecureMetadata(h, handle, mode, true)
 				if err == nil {
 					secure, err = h.metadata.secure(handle, h, mode)
 					if err == nil && !secure {
@@ -639,6 +639,29 @@ func (f *File) MetadataSecure(want os.FileMode) (bool, error) {
 	return f.home.metadata.secure(file, f.home, want)
 }
 
+// RepairMetadata restores the platform permission boundary on an existing leaf
+// already owned by the target user, changing permissions only: bytes and owner
+// are untouched, and an absent or already-secure leaf is left as is.
+func (f *File) RepairMetadata(want os.FileMode) error {
+	file, err := f.openMetadata()
+	if err != nil || file == nil {
+		return err
+	}
+	defer file.Close()
+	secure, err := f.home.metadata.secure(file, f.home, want)
+	if err != nil || secure {
+		return err
+	}
+	if err := repairSecureMetadata(f.home, file, want, false); err != nil {
+		return err
+	}
+	secure, err = f.home.metadata.secure(file, f.home, want)
+	if err == nil && !secure {
+		err = fmt.Errorf("secure user file: repaired metadata remains insecure: %w", ErrTargetUnusable)
+	}
+	return err
+}
+
 func (f *File) openMetadata() (*os.File, error) {
 	rt, err := f.resolveLeaf()
 	if err != nil {
@@ -849,12 +872,12 @@ func (f *File) OpenLock() (*os.File, error) {
 		}
 		return nil, cause
 	}
-	if !created {
-		if err := f.home.VerifyOwner(file, rt.base); err != nil {
-			return fail(err)
-		}
+	if created {
+		err = f.applyMetadata(file, FileMode, false)
+	} else if err = f.home.VerifyOwner(file, rt.base); err == nil {
+		err = repairSecureMetadata(f.home, file, FileMode, false)
 	}
-	if err := f.applyMetadata(file, FileMode, false); err != nil {
+	if err != nil {
 		return fail(err)
 	}
 	if err := f.home.VerifyOwner(file, rt.base); err != nil {

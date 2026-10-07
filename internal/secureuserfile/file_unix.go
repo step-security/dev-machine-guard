@@ -38,6 +38,12 @@ func applySecureMetadata(h *Home, f *os.File, mode os.FileMode, _ bool) error {
 	return nil
 }
 
+// repairSecureMetadata is applySecureMetadata on POSIX: fchown to the already
+// verified owner is a no-op, so no extra privilege is requested.
+func repairSecureMetadata(h *Home, f *os.File, mode os.FileMode, directory bool) error {
+	return applySecureMetadata(h, f, mode, directory)
+}
+
 func checkSecurePlatformOwner(_ *Home, _ *os.File) error { return nil }
 
 func newOwnerReader() ownerReader { return unixOwnerReader{} }

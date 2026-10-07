@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -33,6 +34,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/rungate"
 	"github.com/step-security/dev-machine-guard/internal/scan"
 	"github.com/step-security/dev-machine-guard/internal/schtasks"
+	"github.com/step-security/dev-machine-guard/internal/secureuserfile"
 	"github.com/step-security/dev-machine-guard/internal/systemd"
 	"github.com/step-security/dev-machine-guard/internal/tcc"
 	"github.com/step-security/dev-machine-guard/internal/telemetry"
@@ -783,9 +785,13 @@ func runHookStateReconcile(exec executor.Executor, log *progress.Logger) {
 const devicePolicyEnforceTimeout = 30 * time.Second
 
 func resolveDevicePolicyTarget(exec executor.Executor, log *progress.Logger) (executor.Executor, func(), bool) {
-	targetExec, restore, err := devicepolicy.ConfigureCacheTarget(exec)
-	if err != nil {
+	targetExec, restore, err := devicepolicy.ConfigureCacheTarget(exec, log.Warn)
+	if errors.Is(err, secureuserfile.ErrNoTargetUser) {
 		log.Debug("device-policy enforce: no active target user; preserving user-scoped state")
+		return nil, func() {}, false
+	}
+	if err != nil {
+		log.Warn("device-policy enforce: target setup failed: %s", redact.String(err.Error()))
 		return nil, func() {}, false
 	}
 	return targetExec, restore, true
