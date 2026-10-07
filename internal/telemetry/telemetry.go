@@ -119,10 +119,12 @@ type Payload struct {
 	// machine's browsers hold no extensions.
 	BrowserExtensionScan *model.BrowserExtensionScanInfo `json:"browser_extension_scan,omitempty"`
 	// Full bounded snapshots on every run, independent of the npm/Python deltas.
-	GoInventory      *model.GoInventory      `json:"go_inventory,omitempty"`
-	GoConfigAudit    *model.GoConfigAudit    `json:"go_config_audit,omitempty"`
-	CargoInventory   *model.CargoInventory   `json:"cargo_inventory,omitempty"`
-	CargoConfigAudit *model.CargoConfigAudit `json:"cargo_config_audit,omitempty"`
+	GoInventory         *model.GoInventory         `json:"go_inventory,omitempty"`
+	GoConfigAudit       *model.GoConfigAudit       `json:"go_config_audit,omitempty"`
+	CargoInventory      *model.CargoInventory      `json:"cargo_inventory,omitempty"`
+	CargoConfigAudit    *model.CargoConfigAudit    `json:"cargo_config_audit,omitempty"`
+	ComposerInventory   *model.ComposerInventory   `json:"composer_inventory,omitempty"`
+	ComposerConfigAudit *model.ComposerConfigAudit `json:"composer_config_audit,omitempty"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -1096,6 +1098,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	endPhase(phaseCtx, phaseCancel, tracker, log, "cargo_scan")
 	postPhase()
 
+	// Composer metadata uses the raw executor and the same developer as Go/Cargo.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "composer_scan")
+	log.Progress("Collecting PHP packages and Composer configuration...")
+	composerInventory, composerConfigAudit := detector.NewComposerScanner(exec, log).Scan(phaseCtx, browserTarget, searchDirs, cfg.IncludeNetworkVolumes)
+	log.Progress("  PHP: %d projects, %d package facts (inventory %s, config %s)", len(composerInventory.Projects), len(composerInventory.Packages), composerInventory.Status, composerConfigAudit.Status)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "composer_scan")
+	postPhase()
+
 	// npm + pip configuration audits — surface-only inventory of every
 	// .npmrc and pip.conf on the host, plus the merged effective views
 	// each tool would resolve. We use the user-aware executor so npm and
@@ -1260,6 +1270,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		GoConfigAudit:           goConfigAudit,
 		CargoInventory:          cargoInventory,
 		CargoConfigAudit:        cargoConfigAudit,
+		ComposerInventory:       composerInventory,
+		ComposerConfigAudit:     composerConfigAudit,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,

@@ -265,3 +265,6 @@ func (e *UserAwareExecutor) IsAppleCLTStub(ctx context.Context, binPath string) 
 func (e *UserAwareExecutor) DiskCapacityBytes(path string) uint64 {
 	return e.inner.DiskCapacityBytes(path)
 }
+
+// HasEnvPrefix observes only this process; it never sources the user's shell.
+func (e *UserAwareExecutor) HasEnvPrefix(prefix string) bool { return e.inner.HasEnvPrefix(prefix) }

@@ -518,3 +518,14 @@ func (e *mockDirEntry) Type() os.FileMode {
 func (e *mockDirEntry) Info() (os.FileInfo, error) {
 	return &mockFileInfo{name: e.name, dir: e.dir}, nil
 }
+
+func (m *Mock) HasEnvPrefix(prefix string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for key := range m.env {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}

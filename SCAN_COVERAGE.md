@@ -305,6 +305,24 @@ Enterprise telemetry reports Rust package evidence managed by Cargo for the logg
 
 **Privacy: URL credentials, query strings, and fragments are removed on the device, registry tokens are reported only as configured, custom credential providers are shown as `custom` with their arguments dropped, and non-allowlisted settings, credentials-file contents, and binary contents are never collected.**
 
+## PHP Packages
+
+Enterprise telemetry emits `composer_inventory` and `composer_config_audit` for the resolved developer. Collection is static: PHP, Composer, plugins, scripts and generated PHP metadata are never executed or parsed.
+
+| Evidence | Source and meaning |
+|---|---|
+| Declared requirements | Root `composer.json` require/require-dev maps, preserving literal constraints. Platform requirements and dependency manifests inside vendor trees are excluded. |
+| Locked packages | `composer.lock` packages/packages-dev snapshots, including transitive packages. A lock does not prove installation. |
+| Installed packages | Composer 1 array or Composer 2 object `composer/installed.json` receipts. Package-directory presence is a separate guarded check; metapackages need no directory. |
+| Global packages | Default and safely resolved custom Composer homes, using their own manifests and receipts. |
+| Configuration | Selected global config, project manifests and verified process overrides, with allowlisted TLS, plugin, path, repository and policy settings. Auth files are checked for presence only. |
+
+**Discovery.** Uses the existing selected search roots, including hidden projects, with protected-path and network-volume guards. Observed vendor/cache paths and known build/VCS directories are pruned. Absolute verified alternate manifests and custom vendor paths receive targeted reads. Orphan receipts have unknown project scope. Directory symlinks are not walked; referenced package paths are resolved through the guard.
+
+**Meaning.** Declared constraints, locked versions and installed versions remain independent when they disagree. Receipt presence does not verify package contents. A valid `dist.shasum` is recorded SHA-1 evidence, marked `not_verified`. Source and dist URLs are observed origins, never inferred registry identity. Missing package directories do not erase receipts.
+
+**Limits and privacy.** Each JSON input is capped at 2 MiB; discovery at 100,000 entries per root and depth 128; inventory at 50,000 records; audit at 256 KiB; combined sections at 16 MiB. Failures and limits carry partial coverage. URL credentials, queries and fragments are removed before telemetry. Auth objects become presence flags; arbitrary config, headers, scripts and auth-file contents are not collected. Standalone caches, PHARs, copied PHP without supported receipts, historical shell overrides and `installed.php`-only metadata are outside v1 coverage. Native VM and live API acceptance is tracked separately from local parser tests.
+
 ## System Package Scanning (Linux)
 
 System package scanning is **automatic on Linux** — no opt-in flag required. Multiple package managers can coexist.

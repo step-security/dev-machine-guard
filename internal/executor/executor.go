@@ -62,6 +62,8 @@ type Executor interface {
 	Hostname() (string, error)
 	// Getenv reads an environment variable.
 	Getenv(key string) string
+	// HasEnvPrefix checks process environment names without exposing their values.
+	HasEnvPrefix(prefix string) bool
 	// IsRoot returns true if the process is running as root.
 	IsRoot() bool
 	// CurrentUser returns the current OS user.
@@ -405,4 +407,14 @@ func (r *Real) IsAppleCLTStub(_ context.Context, binPath string) bool {
 func HardenCommand(cmd *exec.Cmd) {
 	winproc.HideWindow(cmd)
 	setupKillgroupOnCancel(cmd)
+}
+
+func (r *Real) HasEnvPrefix(prefix string) bool {
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
 }
