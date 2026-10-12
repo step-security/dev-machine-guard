@@ -2,8 +2,8 @@
 // loader script: it asks the backend's latest-binary endpoint for the release
 // the tenant should run, verifies the checksum's Ed25519 SSHSIG natively,
 // downloads the asset, verifies its sha256, and swaps its own executable in
-// place (see swapBinary — one atomic rename on Unix, rename-aside on
-// Windows, whose loader also owns the GUI launcher next to the agent). The
+// place (one atomic rename on Unix; a recoverable two-file transaction on
+// Windows, protected by a stable bootstrap and the installation lock). The
 // running process keeps executing the old image; the NEW binary takes effect
 // on the next scheduled fire (deliberate: no re-exec edge cases).
 //
@@ -11,8 +11,8 @@
 // writes `auto_update: true` into config.json when it registers the scheduler
 // to launch the binary directly. Version-pinned installs and manual runs
 // never set it, so they can never drift off their pin. Best-effort by
-// contract: every failure logs and returns; a scan is never blocked by an
-// update problem. Kill switch: STEPSEC_DISABLE_SELF_UPDATE=1.
+// contract: download or verification failures leave the current pair intact.
+// An unrecoverable Windows transaction stops subsequent launches until repaired. Kill switch: STEPSEC_DISABLE_SELF_UPDATE=1.
 package selfupdate
 
 import (
@@ -27,7 +27,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +39,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/updateinstall"
 )
 
 // EnvDisable is the per-device kill switch, mirroring the other STEPSEC_
@@ -45,6 +48,8 @@ const EnvDisable = "STEPSEC_DISABLE_SELF_UPDATE"
 
 const (
 	metaTimeout     = 30 * time.Second
+	updateTimeout   = 2 * time.Minute
+	maxBinaryBytes  = 128 << 20
 	downloadTimeout = 5 * time.Minute
 	maxMetaBytes    = 64 << 10
 	binaryName      = "stepsecurity-dev-machine-guard"
@@ -68,7 +73,7 @@ const (
 	// later release than the Unix one, Windows needs its own (higher) floor —
 	// otherwise a Windows box could be updated down onto a release whose
 	// binary has no Windows self-update code.
-	minSelfUpdateVersion = "1.17.0"
+	minSelfUpdateVersion = "1.18.0"
 )
 
 // releaseBaseURL / executablePath / allowedReleaseKeyB64 are vars so tests
@@ -142,16 +147,27 @@ func Run(ctx context.Context, exec executor.Executor, log *progress.Logger) bool
 		exe = resolved
 	}
 
-	// Windows also keeps the launcher current: the scheduled task's action
-	// invokes it, not the agent, so leaving it on the old release would run a
-	// mixed-version pair indefinitely.
+	// The kernel releases this lock even on forced termination. It protects
+	// recovery, downloads and replacement, independently of the later scan lock.
+	lk, err := updateinstall.Acquire(filepath.Dir(exe))
+	if err != nil {
+		log.Debug("self-update: installation busy or not writable: %v", err)
+		return false
+	}
+	defer lk.Release()
+	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
+	defer cancel()
 	onWindows := runtime.GOOS == model.PlatformWindows
-	launcher := ""
+	launcher := launcherPath(exe)
 	if onWindows {
-		launcher = launcherPath(exe)
-		// Clear the images previous updates renamed aside before adding
-		// another one.
-		sweepLeftovers(exe, launcher)
+		if fi, err := os.Lstat(filepath.Join(filepath.Dir(exe), updateinstall.Bootstrap)); err != nil || !fi.Mode().IsRegular() {
+			log.Warn("self-update: recovery bootstrap missing; redeploy the installation script")
+			return false
+		}
+		if err := updateinstall.Recover(filepath.Dir(exe)); err != nil {
+			log.Warn("self-update: recovery failed: %v", err)
+			return false
+		}
 	}
 
 	meta, err := fetchLatestBinary(ctx)
@@ -166,8 +182,8 @@ func Run(ctx context.Context, exec executor.Executor, log *progress.Logger) bool
 		return false
 	}
 
-	// The launcher is installed FIRST so the agent — the one artifact that
-	// can retry on the next tick — is the last thing swapped.
+	// Both Windows targets are staged before either is replaced. The stable
+	// bootstrap restores the previous pair if the transaction is interrupted.
 	var targets []target
 	if onWindows {
 		targets = append(targets, target{
@@ -189,25 +205,58 @@ func Run(ctx context.Context, exec executor.Executor, log *progress.Logger) bool
 		}
 	}
 
-	installed := false
-	for _, t := range targets {
+	// Stage and verify every changed artifact before mutating either live path.
+	staged := make([]string, len(targets))
+	defer func() {
+		for _, p := range staged {
+			if p != "" {
+				_ = os.Remove(p)
+			}
+		}
+	}()
+	changed := false
+	for i, t := range targets {
 		current, err := fileSHA256(t.path)
-		// A target that isn't there yet is installed, not an error: it is how
-		// a half-finished earlier update recovers.
 		if err != nil && !os.IsNotExist(err) {
-			log.Warn("self-update: cannot hash current %s: %v", t.label, err)
+			log.Warn("self-update: cannot hash %s: %v", t.label, err)
 			return false
 		}
 		if err == nil && current == t.checksum {
-			log.Debug("self-update: %s is current (v%s)", t.label, meta.Version)
 			continue
 		}
-		if !install(ctx, log, t, meta.Version) {
+		staged[i], err = stageDownload(ctx, t, meta.Version)
+		if err != nil {
+			log.Warn("self-update: %s staging failed: %v", t.label, err)
 			return false
 		}
-		installed = true
+		changed = true
 	}
-	if !installed {
+	if !changed {
+		return false
+	}
+	if onWindows {
+		// A transaction replaces the pair, including an unchanged member. Copy it
+		// to staging so recovery always describes one complete release pair.
+		for i, t := range targets {
+			if staged[i] == "" {
+				var err error
+				staged[i], err = stageCopy(t.path, t.checksum)
+				if err != nil {
+					log.Warn("self-update: staging current %s: %v", t.label, err)
+					return false
+				}
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			log.Warn("self-update: staging timed out: %v", err)
+			return false
+		}
+		if err := updateinstall.ReplacePair(filepath.Dir(exe), staged[0], staged[1]); err != nil {
+			log.Warn("self-update: pair install failed: %v", err)
+			return false
+		}
+	} else if err := swapBinary(staged[0], exe); err != nil {
+		log.Warn("self-update: install failed: %v", err)
 		return false
 	}
 
@@ -241,34 +290,58 @@ func verifyChecksumSignature(checksum, signed string) error {
 	return verifySSHSig(armored, []byte(checksum), allowedReleaseKeyB64, signatureNamespace)
 }
 
-// install downloads one target, verifies its sha256 against the (already
-// signature-verified) expected checksum, and swaps it into place. Returns
-// false on any failure, having left the on-disk artifact untouched.
-func install(ctx context.Context, log *progress.Logger, t target, version string) bool {
-	log.Progress("Self-update: v%s available (installed %s does not match it), downloading...", version, t.label)
+// stageDownload never changes the installed image.
+func stageDownload(ctx context.Context, t target, version string) (string, error) {
 	tmp, err := downloadAsset(ctx, version, t.asset(version), t.path)
 	if err != nil {
-		log.Warn("self-update: %s download failed: %v", t.label, err)
-		return false
+		return "", err
 	}
-	defer os.Remove(tmp) // no-op after a successful swap
+	if err = verifyStaged(tmp, t.checksum); err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	return tmp, nil
+}
 
-	got, err := fileSHA256(tmp)
-	if err != nil || got != t.checksum {
-		log.Warn("self-update: downloaded %s checksum mismatch (got %.12s, want %.12s) — discarding", t.label, got, t.checksum)
-		return false
+func verifyStaged(path, want string) error {
+	got, err := fileSHA256(path)
+	if err != nil {
+		return err
 	}
-	// #nosec G302 -- this IS an agent executable being installed; it must
-	// carry the same 0755 the loaders have always set on the binary.
-	if err := os.Chmod(tmp, 0o755); err != nil {
-		log.Warn("self-update: %s chmod failed: %v", t.label, err)
-		return false
+	if got != want {
+		return fmt.Errorf("download checksum mismatch")
 	}
-	if err := swapBinary(tmp, t.path); err != nil {
-		log.Warn("self-update: %s install failed: %v", t.label, err)
-		return false
+	// #nosec G302 -- this is a verified executable being staged for installation.
+	return os.Chmod(path, 0o755)
+}
+
+func stageCopy(src, want string) (string, error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return "", err
 	}
-	return true
+	defer in.Close()
+	out, err := os.CreateTemp(filepath.Dir(src), ".update-stage-*")
+	if err != nil {
+		return "", err
+	}
+	path := out.Name()
+	_, err = io.Copy(out, in)
+	if err == nil {
+		err = out.Sync()
+	}
+	closeErr := out.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = verifyStaged(path, want)
+	}
+	if err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	return path, nil
 }
 
 func fetchLatestBinary(ctx context.Context) (*latestBinaryResponse, error) {
@@ -310,13 +383,19 @@ func fetchLatestBinary(ctx context.Context) (*latestBinaryResponse, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("latest-binary returned HTTP %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxMetaBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxMetaBytes+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(body) > maxMetaBytes {
+		return nil, fmt.Errorf("latest-binary response too large")
 	}
 	var meta latestBinaryResponse
 	if err := json.Unmarshal(body, &meta); err != nil {
 		return nil, fmt.Errorf("parse latest-binary response: %w", err)
+	}
+	if _, ok := parseReleaseVersion(meta.Version); !ok {
+		return nil, fmt.Errorf("invalid stable release version")
 	}
 	if meta.Version == "" || meta.Checksum == "" || meta.SignedChecksum == "" {
 		return nil, fmt.Errorf("latest-binary response missing version/checksum/signed_checksum")
@@ -358,7 +437,10 @@ func downloadAsset(ctx context.Context, version, asset, dst string) (string, err
 	if err != nil {
 		return "", err
 	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	if n, err := io.Copy(f, io.LimitReader(resp.Body, maxBinaryBytes+1)); err != nil || n > maxBinaryBytes {
+		if err == nil {
+			err = fmt.Errorf("release asset exceeds size limit")
+		}
 		_ = f.Close()
 		_ = os.Remove(f.Name())
 		return "", err
@@ -379,28 +461,33 @@ func downloadAsset(ctx context.Context, version, asset, dst string) (string, err
 	return f.Name(), nil
 }
 
-// versionBelow reports whether semver a is strictly lower than b. Plain
-// numeric field-by-field compare; missing fields count as 0, non-numeric
-// suffixes are ignored ("1.17.0-rc1" compares as 1.17.0). Unparseable
-// versions compare as 0.0.0 — i.e. below the floor, which fails safe (the
-// update is refused, the current binary keeps running and polling).
-func versionBelow(a, b string) bool {
-	parse := func(s string) [3]int {
-		var out [3]int
-		s = strings.TrimPrefix(strings.TrimSpace(s), "v")
-		for i, part := range strings.SplitN(s, ".", 3) {
-			n := 0
-			for _, r := range part {
-				if r < '0' || r > '9' {
-					break
-				}
-				n = n*10 + int(r-'0')
-			}
-			out[i] = n
-		}
-		return out
+var releaseVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+
+func parseReleaseVersion(s string) ([3]uint64, bool) {
+	var out [3]uint64
+	if !releaseVersionPattern.MatchString(s) {
+		return out, false
 	}
-	va, vb := parse(a), parse(b)
+	for i, p := range strings.Split(s, ".") {
+		n, err := strconv.ParseUint(p, 10, 32)
+		if err != nil {
+			return out, false
+		}
+		out[i] = n
+	}
+	return out, true
+}
+
+// Invalid and prerelease candidates fail closed rather than bypass the floor.
+func versionBelow(a, b string) bool {
+	va, ok := parseReleaseVersion(a)
+	if !ok {
+		return true
+	}
+	vb, ok := parseReleaseVersion(b)
+	if !ok {
+		return true
+	}
 	for i := 0; i < 3; i++ {
 		if va[i] != vb[i] {
 			return va[i] < vb[i]

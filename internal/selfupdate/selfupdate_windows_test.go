@@ -100,69 +100,21 @@ func TestRun_InstallsMissingLauncher(t *testing.T) {
 	}
 }
 
-// Windows cannot overwrite or unlink a mapped executable image, so the swap
-// renames the live image aside and drops the new one into its path. The
-// leftover is what a later run sweeps.
-func TestSwapBinary_RenamesTargetAsideAndSweeps(t *testing.T) {
-	dir := t.TempDir()
-	dst := dir + `\agent.exe`
-	src := dir + `\agent.exe.new`
-	if err := os.WriteFile(dst, []byte("old"), 0o755); err != nil {
+// A bad second download must not install a new launcher with an old agent.
+func TestRun_StagesPairBeforeReplacement(t *testing.T) {
+	st := stageAll(t, validMeta(), "corrupt-agent")
+	if err := os.WriteFile(st.launcher, []byte("old-launcher"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(src, []byte("new"), 0o755); err != nil {
-		t.Fatal(err)
+	if Run(context.Background(), executor.NewMock(), progress.NewLogger(progress.LevelInfo)) {
+		t.Fatal("installed a corrupt pair")
 	}
-
-	if err := swapBinary(src, dst); err != nil {
-		t.Fatalf("swapBinary: %v", err)
+	got, _ := os.ReadFile(st.launcher)
+	if string(got) != "old-launcher" {
+		t.Fatalf("launcher changed before agent validation: %q", got)
 	}
-	if got, _ := os.ReadFile(dst); string(got) != "new" {
-		t.Errorf("dst = %q, want the new content", got)
-	}
-	if got, err := os.ReadFile(dst + oldSuffix); err != nil || string(got) != "old" {
-		t.Errorf("aside copy = %q err=%v, want the previous image preserved", got, err)
-	}
-
-	sweepLeftovers(dst)
-	if _, err := os.Stat(dst + oldSuffix); !os.IsNotExist(err) {
-		t.Errorf("sweepLeftovers left %s behind (err=%v)", dst+oldSuffix, err)
-	}
-}
-
-// A missing target is installed rather than treated as an error: the swap is
-// also the path a half-finished earlier update recovers through.
-func TestSwapBinary_InstallsWhenTargetAbsent(t *testing.T) {
-	dir := t.TempDir()
-	dst := dir + `\agent.exe`
-	src := dir + `\agent.exe.new`
-	if err := os.WriteFile(src, []byte("new"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := swapBinary(src, dst); err != nil {
-		t.Fatalf("swapBinary: %v", err)
-	}
-	if got, _ := os.ReadFile(dst); string(got) != "new" {
-		t.Errorf("dst = %q, want the new content", got)
-	}
-}
-
-// An update sweeps the previous update's renamed-aside images before adding
-// another one, so the install dir never accumulates them.
-func TestRun_SweepsPriorLeftovers(t *testing.T) {
-	st := stageAll(t, validMeta(), fixturePayload)
-	stale := st.exe + oldSuffix
-	if err := os.WriteFile(stale, []byte("two-releases-ago\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	if !Run(context.Background(), executor.NewMock(), progress.NewLogger(progress.LevelInfo)) {
-		t.Fatal("Run() = false, want an installed update")
-	}
-	// The sweep cleared the old leftover; this run's own swap then created a
-	// fresh one holding the image that was live a moment ago.
-	if got, err := os.ReadFile(stale); err != nil || string(got) != "old-binary-content\n" {
-		t.Errorf("aside copy = %q err=%v, want this run's replaced image", got, err)
+	got, _ = os.ReadFile(st.exe)
+	if string(got) != "old-binary-content\n" {
+		t.Fatalf("agent changed: %q", got)
 	}
 }

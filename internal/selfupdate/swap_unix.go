@@ -10,6 +10,3 @@ import "os"
 func swapBinary(src, dst string) error {
 	return os.Rename(src, dst)
 }
-
-// sweepLeftovers is a no-op: the atomic rename above leaves nothing behind.
-func sweepLeftovers(_ ...string) {}

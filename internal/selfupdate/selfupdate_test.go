@@ -57,6 +57,9 @@ func stageAll(t *testing.T, metaJSON, assetBody string) *stage {
 	st := &stage{exe: exe, downloads: &atomic.Int32{}, launcherDownloads: &atomic.Int32{}}
 	if runtime.GOOS == "windows" {
 		st.launcher = launcherPath(exe)
+		if err := os.WriteFile(filepath.Join(dir, "stepsecurity-dev-machine-guard-bootstrap.exe"), []byte("bootstrap"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(st.launcher, []byte(fixturePayload), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -151,7 +154,7 @@ func TestRun_InstallsVerifiedUpdate(t *testing.T) {
 		t.Errorf("binary content = %q err=%v, want the downloaded payload", got, err)
 	}
 	fi, _ := os.Stat(exe)
-	if fi.Mode()&0o111 == 0 {
+	if runtime.GOOS != "windows" && fi.Mode()&0o111 == 0 {
 		t.Error("installed binary is not executable")
 	}
 	if downloads.Load() != 1 {
@@ -285,10 +288,14 @@ func TestVersionBelow(t *testing.T) {
 		{"2.0.0", "1.17.0", false},
 		{"1.9.9", "1.17.0", true},
 		{"v1.16.0", "1.17.0", true},
-		{"1.17.0-rc1", "1.17.0", false},
-		{"1.17", "1.17.0", false},
+		{"1.17.0-rc1", "1.17.0", true},
+		{"1.17", "1.17.0", true},
 		{"garbage", "1.17.0", true}, // unparseable = 0.0.0 = refuse (fail safe)
 		{"", "1.17.0", true},
+		{"1.17.0", minSelfUpdateVersion, true},
+		{"1.18.0", minSelfUpdateVersion, false},
+		{"9999999999999999999999999.0.0", minSelfUpdateVersion, true},
+		{"1.18.0/../../bad", minSelfUpdateVersion, true},
 	}
 	for _, tc := range cases {
 		if got := versionBelow(tc.a, tc.b); got != tc.want {

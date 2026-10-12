@@ -11,6 +11,8 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
 ### Added
 
+- Windows self-update stages and verifies both executables before replacement, serializes installer and updater writes, and uses a stable bootstrap with a rollback journal to recover interrupted updates. Automatic updates require a self-update-capable release (1.18.0 or later).
+
 - GitHub Copilot plugin inventory for the CLI, standalone app and VS Code. Collects recorded installations and live directory-marketplace selections, supplied skills, custom agents, command/rule/hook/LSP declarations, and sanitized plugin/user/project MCP definitions. Collection is file-only; uncertain formats report incomplete coverage. Runtime activation is not inferred. No Copilot usage or credential collection is added.
 
 ## [1.17.0] - 2026-09-24
