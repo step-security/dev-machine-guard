@@ -5,11 +5,11 @@
 //
 //   - ~/.codex/hooks.json   — hook definitions (JSON)
 //   - ~/.codex/config.toml  — global config; install also sets
-//     `[features].codex_hooks = true` here so Codex actually invokes
+//     `[features].hooks = true` here so Codex actually invokes
 //     hooks at runtime
 //
 // Uninstall removes DMG-owned hook entries from hooks.json but does
-// NOT revert the codex_hooks feature flag — the user may have wired
+// NOT revert the hooks feature flag — the user may have wired
 // up other tools' hooks that depend on it.
 //
 // Restore + Status are intentionally absent (see adapter.Adapter for
@@ -91,7 +91,7 @@ func (a *Adapter) Detect(ctx context.Context, exec executor.Executor) (adapter.D
 }
 
 // Install adds DMG-owned hooks to hooks.json and ensures the
-// `[features].codex_hooks=true` flag in config.toml.
+// `[features].hooks=true` flag in config.toml.
 //
 // Multi-file safety: every output buffer (hooks.json + config.toml)
 // is loaded, validated, and encoded BEFORE the first write happens —
@@ -150,13 +150,13 @@ func (a *Adapter) Install(ctx context.Context) (adapter.InstallResult, error) {
 			}
 			res.CreatedDirs = appendUnique(res.CreatedDirs, cfgWR.CreatedDirs...)
 		}
-		res.Notes = append(res.Notes, "enabled [features].codex_hooks=true in "+a.configPath)
+		res.Notes = append(res.Notes, "enabled [features].hooks=true in "+a.configPath)
 	}
 	return res, nil
 }
 
 // Uninstall removes DMG-owned hook entries from hooks.json. The
-// `[features].codex_hooks` flag in config.toml is intentionally NOT
+// `[features].hooks` flag in config.toml is intentionally NOT
 // reverted — the user may have other tools' hooks that depend on it
 // being enabled.
 //

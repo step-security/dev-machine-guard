@@ -8,22 +8,26 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-// EnsureCodexHooksFlag returns the input bytes with `[features].codex_hooks
+// EnsureCodexHooksFlag returns the input bytes with `[features].hooks
 // = true` ensured. All bytes outside the touched line/section are
 // preserved exactly. The boolean is true when the input changed.
 //
 // Behavior:
-//   - If `codex_hooks = true` already exists under [features], no change.
-//   - If `codex_hooks = false` exists under [features], only the value
+//   - If `hooks = true` already exists under [features], no change.
+//   - If `hooks = false` exists under [features], only the value
 //     token is rewritten to `true`.
-//   - If [features] exists without the key, `codex_hooks = true` is
+//   - If [features] exists without the key, `hooks = true` is
 //     inserted on its own line immediately after the table header.
 //   - If [features] does not exist, a new `[features]` table is appended
-//     at the end of the file with `codex_hooks = true`.
+//     at the end of the file with `hooks = true`.
+//
+// A pre-existing deprecated `codex_hooks` line is left untouched; the
+// user can clean it up. Codex CLI accepts both keys today but warns on
+// the old one — see https://developers.openai.com/codex/config-basic#feature-flags.
 //
 // Multi-line strings (`"""..."""`, `”'...”'`) and comments are masked
 // before pattern matching so that user content cannot trick the
-// scanner into treating the literal text `[features]` or `codex_hooks =
+// scanner into treating the literal text `[features]` or `hooks =
 // true` inside a string as a real table header or key.
 //
 // The patched output is validated by go-toml/v2 before return; if the
@@ -47,7 +51,7 @@ func EnsureCodexHooksFlag(data []byte) ([]byte, bool, error) {
 		if len(data) > 0 {
 			b.WriteByte('\n')
 		}
-		b.WriteString("[features]\ncodex_hooks = true\n")
+		b.WriteString("[features]\nhooks = true\n")
 		out, changed = b.Bytes(), true
 	} else if loc := codexHooksLineRE.FindSubmatchIndex(masked[start:end]); loc != nil {
 		valStart := start + loc[4]
@@ -61,10 +65,10 @@ func EnsureCodexHooksFlag(data []byte) ([]byte, bool, error) {
 		b.Write(data[valEnd:])
 		out, changed = b.Bytes(), true
 	} else {
-		// Insert codex_hooks = true immediately after the [features] header line.
+		// Insert hooks = true immediately after the [features] header line.
 		var b bytes.Buffer
 		b.Write(data[:headerEnd])
-		b.WriteString("codex_hooks = true\n")
+		b.WriteString("hooks = true\n")
 		b.Write(data[headerEnd:])
 		out, changed = b.Bytes(), true
 	}
@@ -79,7 +83,7 @@ func EnsureCodexHooksFlag(data []byte) ([]byte, bool, error) {
 }
 
 // CodexHooksEnabled reports whether the bytes contain
-// `[features].codex_hooks = true`. Multi-line strings and comments are
+// `[features].hooks = true`. Multi-line strings and comments are
 // masked so a literal containing the same text in a docstring is not
 // misread as the real flag.
 func CodexHooksEnabled(data []byte) bool {
@@ -98,7 +102,7 @@ func CodexHooksEnabled(data []byte) bool {
 var (
 	featuresHeaderRE = regexp.MustCompile(`(?m)^[ \t]*\[[ \t]*features[ \t]*\][ \t]*(#.*)?$`)
 	anyHeaderRE      = regexp.MustCompile(`(?m)^[ \t]*\[\[?[^\]\n]+\]\]?[ \t]*(#.*)?$`)
-	codexHooksLineRE = regexp.MustCompile(`(?m)^([ \t]*codex_hooks[ \t]*=[ \t]*)(true|false)([ \t]*(?:#.*)?)$`)
+	codexHooksLineRE = regexp.MustCompile(`(?m)^([ \t]*hooks[ \t]*=[ \t]*)(true|false)([ \t]*(?:#.*)?)$`)
 )
 
 // findFeaturesSection scans masked TOML bytes and returns:
