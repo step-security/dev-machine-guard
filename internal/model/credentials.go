@@ -24,6 +24,7 @@ const (
 	CredentialCategoryPackageReg     = "package_registry"
 	CredentialCategoryContainers     = "containers"
 	CredentialCategoryInfrastructure = "infrastructure"
+	CredentialCategoryAPIClients     = "api_clients"
 )
 
 // Protection states, worst-case per source. Two values and no third: every

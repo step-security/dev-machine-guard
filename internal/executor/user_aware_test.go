@@ -266,3 +266,36 @@ func TestUserAwareExecutor_LookPathHasDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestUserAwareExecutor_CopilotRootsUseScannedUser(t *testing.T) {
+	service := NewMock()
+	service.SetGOOS("linux")
+	keys := []string{"COPILOT_HOME", "COPILOT_CACHE_HOME", "XDG_CACHE_HOME", "LOCALAPPDATA", "VSCODE_AGENT_PLUGINS", "VSCODE_PORTABLE"}
+	for _, key := range keys {
+		service.SetEnv(key, "/daemon/"+key)
+	}
+	calls := 0
+	inner := &userContextExecutor{Executor: service, runAsUser: func(_ context.Context, user, command string) (string, error) {
+		calls++
+		if user != "alice" {
+			t.Fatalf("wrong user: %s", user)
+		}
+		var entries []string
+		for _, key := range keys {
+			if !strings.Contains(command, key) {
+				t.Fatalf("missing selected key: %s", key)
+			}
+			entries = append(entries, key+"=/home/alice/"+key)
+		}
+		return strings.Join(entries, "\x00") + "\x00", nil
+	}}
+	scanned := NewUserAwareExecutor(inner, "alice")
+	for _, key := range keys {
+		if got := scanned.Getenv(key); got != "/home/alice/"+key {
+			t.Fatalf("%s used daemon environment: %s", key, got)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("environment probed %d times", calls)
+	}
+}

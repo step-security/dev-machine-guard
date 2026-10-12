@@ -24,7 +24,7 @@ import "github.com/step-security/dev-machine-guard/internal/model"
 // scan so a reader can tell a list narrower than it expects from a source that ran
 // and found nothing. A string because a revision is an identifier: nothing
 // compares two arithmetically, and a suffix would change the type on both sides.
-const catalogVersion = "1"
+const catalogVersion = "2"
 
 // Per-read byte caps. A credential file is small; anything larger is either not
 // what we think it is or is hostile, and either way there is no reason to pull
@@ -43,6 +43,8 @@ const (
 	// Larger because a kubeconfig legitimately accumulates one cluster entry
 	// per environment, each with an embedded CA certificate.
 	capKubeconfig = 4 << 20 // 4 MiB
+	// Application databases include request bodies and retained revisions.
+	capInsomnia = 8 << 20 // 8 MiB
 )
 
 // Result-shape caps. Hitting either sets both `truncated` and
@@ -74,6 +76,7 @@ const (
 	sourceKubeconfig           = "kubeconfig"
 	sourceTerraformCredentials = "terraform_credentials" //#nosec G101 -- the wire identifier for a source, naming a kind of file rather than holding anything read out of one.
 	sourceVaultToken           = "vault_token"
+	sourceInsomnia             = "insomnia"
 )
 
 // readMode is the only filesystem operation a source performs. Declared per
@@ -172,7 +175,54 @@ type source struct {
 var (
 	unixOnly    = []string{model.PlatformDarwin, model.PlatformLinux}
 	windowsOnly = []string{model.PlatformWindows}
+	darwinOnly  = []string{model.PlatformDarwin}
+	linuxOnly   = []string{model.PlatformLinux}
 )
+
+// insomniaFiles are the API client's databases that can hold credential
+// material. The names are fixed by the application, so each is an exact path
+// and the directory is never listed; the databases beside them hold cookies,
+// responses and settings.
+var insomniaFiles = []string{
+	"insomnia.Request.db",
+	"insomnia.RequestGroup.db",
+	"insomnia.Environment.db",
+	"insomnia.OAuth2Token.db",
+	"insomnia.WebSocketRequest.db",
+	"insomnia.SocketIORequest.db",
+	"insomnia.McpRequest.db",
+	"insomnia.GrpcRequest.db",
+	"insomnia.ClientCertificate.db",
+	"insomnia.RequestVersion.db",
+	"insomnia.GitCredentials.db",
+	"insomnia.GitRepository.db",
+	"insomnia.CloudCredential.db",
+	"insomnia.UserSession.db",
+}
+
+// insomniaLocations spells the data directory per platform for every database
+// file; ten files under three roots is too many literals to read for a typo.
+func insomniaLocations() []location {
+	out := make([]location, 0, 3*len(insomniaFiles))
+	for _, f := range insomniaFiles {
+		out = append(out,
+			location{Root: rootHome, Rel: "Library/Application Support/Insomnia/" + f, Platforms: darwinOnly},
+			location{Root: rootAppData, Rel: "Insomnia/" + f, Platforms: windowsOnly},
+			location{Root: rootXDGConfig, Rel: "Insomnia/" + f, Platforms: linuxOnly},
+		)
+	}
+	return out
+}
+
+// insomniaOverrides relocates every database file under the one directory the
+// application reads from its environment.
+func insomniaOverrides() []envOverride {
+	out := make([]envOverride, 0, len(insomniaFiles))
+	for _, f := range insomniaFiles {
+		out = append(out, envOverride{Var: "INSOMNIA_DATA_PATH", Kind: overrideDir, Rel: f})
+	}
+	return out
+}
 
 // sources is the catalog.
 var sources = []source{
@@ -330,6 +380,18 @@ var sources = []source{
 		MaxBytes:  capToken,
 		Match:     matchFirst,
 		Locations: []location{{Root: rootHome, Rel: ".vault-token"}},
+	},
+	{
+		// One finding per database file that exists: each has its own mode and
+		// git status, and each keeps superseded and deleted records until the
+		// application compacts it.
+		ID:        sourceInsomnia,
+		Category:  model.CredentialCategoryAPIClients,
+		Mode:      readFile,
+		MaxBytes:  capInsomnia,
+		Match:     matchAll,
+		Overrides: insomniaOverrides(),
+		Locations: insomniaLocations(),
 	},
 }
 

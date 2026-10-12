@@ -1,0 +1,1086 @@
+{
+  "go_inventory": {
+    "schema_version": 1,
+    "status": "partial",
+    "reasons": [
+      "build_info_unusable",
+      "checksum_line_limit",
+      "malformed_checksum_line",
+      "outside_approved_roots",
+      "parse_error",
+      "permission_denied",
+      "size_limit",
+      "skipped_protected",
+      "unsupported_checksum_scheme",
+      "unsupported_entry"
+    ],
+    "sources": [
+      {
+        "source_id": "b542200cc6b5431ae1b50f4b867fbc106851204dff4cb041e93b9281b99c6224",
+        "kind": "project_search_root",
+        "path": "/Users/dev",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "50928599210093bf42e888595bb38469a6ea0f2394407f32c9c58630a650fdf7",
+          "5726aa2d0dfcbdd8f7097de0c86de9e460d1a7e5d3256a0eb305ea16c94c3555",
+          "788d99fdb3f6fc7959c80294a4afcde198c43d697b5c795f8051853671cb7e66",
+          "971b75cd965e4475cf149ad8c0d6826b9171a529c4aa90531d00cc87fe964c4f",
+          "b86a690117eb87a76734055bf24802794cc77e94cc19e4ce209b731235808682",
+          "cc9e24d75f7e1ef0ca96a82cb4a0b58d5592bafb7f76a9e765a726d62a4bf2ef",
+          "e79e52c750585cda76aa615a74609be2c2c37e2d606a88c343064029d5bfe76d",
+          "f7bc7ed65bc3f5d36d498daa1abd42583b0c182d77727f17faded862185c90aa"
+        ]
+      },
+      {
+        "source_id": "5726aa2d0dfcbdd8f7097de0c86de9e460d1a7e5d3256a0eb305ea16c94c3555",
+        "kind": "project_manifest",
+        "path": "/Users/dev/.projects/w/go.mod",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "b542200cc6b5431ae1b50f4b867fbc106851204dff4cb041e93b9281b99c6224",
+        "discovered_sources": [
+          "352a9dba6432dfa592857be45bf2b851651f5b0dcb6767bc570798c221413bd5"
+        ]
+      },
+      {
+        "source_id": "352a9dba6432dfa592857be45bf2b851651f5b0dcb6767bc570798c221413bd5",
+        "kind": "checksum_file",
+        "path": "/Users/dev/.projects/w/go.sum",
+        "status": "complete",
+        "presence": "absent",
+        "reasons": [],
+        "parent_source_id": "5726aa2d0dfcbdd8f7097de0c86de9e460d1a7e5d3256a0eb305ea16c94c3555",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "8ea97bb1a66be91de8b9013eedd3e300e47f98c74feec63dd75a43e56f799615",
+        "kind": "project_search_root",
+        "path": "/Users/dev/Documents",
+        "status": "skipped",
+        "presence": "unknown",
+        "reasons": [
+          "skipped_protected"
+        ],
+        "discovered_sources": []
+      },
+      {
+        "source_id": "4904a0112cadb181e0101e5cded4e5e3b30f187ce093a0726da418884717db3e",
+        "kind": "alternate_manifest",
+        "path": "/Users/dev/code/app/ci.mod",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "b86a690117eb87a76734055bf24802794cc77e94cc19e4ce209b731235808682",
+        "discovered_sources": [
+          "6a554978edf943ec1034a83d67edfff2a200e75563bc2c348b4b84a6199430d2"
+        ]
+      },
+      {
+        "source_id": "6a554978edf943ec1034a83d67edfff2a200e75563bc2c348b4b84a6199430d2",
+        "kind": "checksum_file",
+        "path": "/Users/dev/code/app/ci.sum",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "malformed_checksum_line"
+        ],
+        "parent_source_id": "4904a0112cadb181e0101e5cded4e5e3b30f187ce093a0726da418884717db3e",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "b86a690117eb87a76734055bf24802794cc77e94cc19e4ce209b731235808682",
+        "kind": "project_manifest",
+        "path": "/Users/dev/code/app/go.mod",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "b542200cc6b5431ae1b50f4b867fbc106851204dff4cb041e93b9281b99c6224",
+        "discovered_sources": [
+          "4904a0112cadb181e0101e5cded4e5e3b30f187ce093a0726da418884717db3e",
+          "6cbbc875f8394616466cd546c6190d50ba40283453e654cb8f202aea93c21694",
+          "788c370f331687df00dddc6a507489c1b5575dedc4f62cdc595c3f6161359197"
+        ]
+      },
+      {
+        "source_id": "6cbbc875f8394616466cd546c6190d50ba40283453e654cb8f202aea93c21694",
+        "kind": "checksum_file",
+        "path": "/Users/dev/code/app/go.sum",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "b86a690117eb87a76734055bf24802794cc77e94cc19e4ce209b731235808682",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "788c370f331687df00dddc6a507489c1b5575dedc4f62cdc595c3f6161359197",
+        "kind": "vendor_root",
+        "path": "/Users/dev/code/app/vendor",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [
+          "vendor_mismatch"
+        ],
+        "parent_source_id": "b86a690117eb87a76734055bf24802794cc77e94cc19e4ce209b731235808682",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "50928599210093bf42e888595bb38469a6ea0f2394407f32c9c58630a650fdf7",
+        "kind": "project_manifest",
+        "path": "/Users/dev/code/broken/go.mod",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "parse_error"
+        ],
+        "parent_source_id": "b542200cc6b5431ae1b50f4b867fbc106851204dff4cb041e93b9281b99c6224",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "f7bc7ed65bc3f5d36d498daa1abd42583b0c182d77727f17faded862185c90aa",
+        "kind": "workspace",
+        "path": "/Users/dev/code/go.work",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "b542200cc6b5431ae1b50f4b867fbc106851204dff4cb041e93b9281b99c6224",
+        "discovered_sources": [
+          "4c280b3b829be81a23767f0e2d86776ac527f729e7381be87b86fa92b0713aa1"
+        ]
+      },
+      {
+        "source_id": "4c280b3b829be81a23767f0e2d86776ac527f729e7381be87b86fa92b0713aa1",
+        "kind": "checksum_file",
+        "path": "/Users/dev/code/go.work.sum",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "f7bc7ed65bc3f5d36d498daa1abd42583b0c182d77727f17faded862185c90aa",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "cc9e24d75f7e1ef0ca96a82cb4a0b58d5592bafb7f76a9e765a726d62a4bf2ef",
+        "kind": "project_manifest",
+        "path": "/Users/dev/code/legacy/go.mod",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "b542200cc6b5431ae1b50f4b867fbc106851204dff4cb041e93b9281b99c6224",
+        "discovered_sources": [
+          "1012d594d260e35f7acab73703eb439b3b4121ec894aa2766cfad67e9eb26e19"
+        ]
+      },
+      {
+        "source_id": "1012d594d260e35f7acab73703eb439b3b4121ec894aa2766cfad67e9eb26e19",
+        "kind": "checksum_file",
+        "path": "/Users/dev/code/legacy/go.sum",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "unsupported_checksum_scheme"
+        ],
+        "parent_source_id": "cc9e24d75f7e1ef0ca96a82cb4a0b58d5592bafb7f76a9e765a726d62a4bf2ef",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "971b75cd965e4475cf149ad8c0d6826b9171a529c4aa90531d00cc87fe964c4f",
+        "kind": "project_manifest",
+        "path": "/Users/dev/code/linked/go.mod",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "b542200cc6b5431ae1b50f4b867fbc106851204dff4cb041e93b9281b99c6224",
+        "discovered_sources": [
+          "18fd0ded44a2563a135d3791d91facf33e4b8d0bf0288dd3f71dbba806e49582"
+        ]
+      },
+      {
+        "source_id": "18fd0ded44a2563a135d3791d91facf33e4b8d0bf0288dd3f71dbba806e49582",
+        "kind": "checksum_file",
+        "path": "/Users/dev/code/linked/go.sum",
+        "status": "skipped",
+        "presence": "unknown",
+        "reasons": [
+          "outside_approved_roots"
+        ],
+        "parent_source_id": "971b75cd965e4475cf149ad8c0d6826b9171a529c4aa90531d00cc87fe964c4f",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "788d99fdb3f6fc7959c80294a4afcde198c43d697b5c795f8051853671cb7e66",
+        "kind": "project_manifest",
+        "path": "/Users/dev/code/svc/go.mod",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "b542200cc6b5431ae1b50f4b867fbc106851204dff4cb041e93b9281b99c6224",
+        "discovered_sources": [
+          "1b28655e8c276aeef3bbbcfa77edaca845198a81a798f6f8d95d5e6e63bde960"
+        ]
+      },
+      {
+        "source_id": "1b28655e8c276aeef3bbbcfa77edaca845198a81a798f6f8d95d5e6e63bde960",
+        "kind": "checksum_file",
+        "path": "/Users/dev/code/svc/go.sum",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "checksum_line_limit"
+        ],
+        "parent_source_id": "788d99fdb3f6fc7959c80294a4afcde198c43d697b5c795f8051853671cb7e66",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "e79e52c750585cda76aa615a74609be2c2c37e2d606a88c343064029d5bfe76d",
+        "kind": "project_manifest",
+        "path": "/Users/dev/code/tools/go.mod",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "b542200cc6b5431ae1b50f4b867fbc106851204dff4cb041e93b9281b99c6224",
+        "discovered_sources": [
+          "0d44e1777650b87357089e2249aeb53f697554e986fdaeb33c41c062ea1a2af6"
+        ]
+      },
+      {
+        "source_id": "0d44e1777650b87357089e2249aeb53f697554e986fdaeb33c41c062ea1a2af6",
+        "kind": "checksum_file",
+        "path": "/Users/dev/code/tools/go.sum",
+        "status": "partial",
+        "presence": "unknown",
+        "reasons": [
+          "permission_denied"
+        ],
+        "parent_source_id": "e79e52c750585cda76aa615a74609be2c2c37e2d606a88c343064029d5bfe76d",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "a18be9ed6b98d247009f70edf214ce9704f128542e9d5595143d5e300959f363",
+        "kind": "bin_root",
+        "path": "/Users/dev/go/bin",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "0eb80a4760179f7c9a4fef9c734a1630648a30508059c785b8b018b453f1df0c",
+          "1d5877cf828393f2f76d130bd63bae5f61e88de290392d4056b2164d88fb1043",
+          "42f0a9dce486f0befffc4ded3c4a8cbb9654eb82239f35cf13e7f16d5b441061",
+          "bb16fb4767c9ecff98d88c4d31e0100ab601d1c5494b68991f038f335c415bc3",
+          "c2c30e0c0c73dec803b03bc06d653bbd8eaf4ca51ac00a5e463c916662f91e42",
+          "dbca80ef799ce8b128ca0471be9cd88babbc7fa20e6e4f9ed463f732a480c94a"
+        ]
+      },
+      {
+        "source_id": "bb16fb4767c9ecff98d88c4d31e0100ab601d1c5494b68991f038f335c415bc3",
+        "kind": "binary",
+        "path": "/Users/dev/go/bin/broken",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "build_info_unusable"
+        ],
+        "parent_source_id": "a18be9ed6b98d247009f70edf214ce9704f128542e9d5595143d5e300959f363",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "dbca80ef799ce8b128ca0471be9cd88babbc7fa20e6e4f9ed463f732a480c94a",
+        "kind": "binary",
+        "path": "/Users/dev/go/bin/escape",
+        "status": "skipped",
+        "presence": "unknown",
+        "reasons": [
+          "outside_approved_roots"
+        ],
+        "parent_source_id": "a18be9ed6b98d247009f70edf214ce9704f128542e9d5595143d5e300959f363",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "c2c30e0c0c73dec803b03bc06d653bbd8eaf4ca51ac00a5e463c916662f91e42",
+        "kind": "binary",
+        "path": "/Users/dev/go/bin/goimports",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "a18be9ed6b98d247009f70edf214ce9704f128542e9d5595143d5e300959f363",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "0eb80a4760179f7c9a4fef9c734a1630648a30508059c785b8b018b453f1df0c",
+        "kind": "binary",
+        "path": "/Users/dev/go/bin/huge",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "size_limit"
+        ],
+        "parent_source_id": "a18be9ed6b98d247009f70edf214ce9704f128542e9d5595143d5e300959f363",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "42f0a9dce486f0befffc4ded3c4a8cbb9654eb82239f35cf13e7f16d5b441061",
+        "kind": "binary",
+        "path": "/Users/dev/go/bin/notes.sh",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "a18be9ed6b98d247009f70edf214ce9704f128542e9d5595143d5e300959f363",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "1d5877cf828393f2f76d130bd63bae5f61e88de290392d4056b2164d88fb1043",
+        "kind": "binary",
+        "path": "/Users/dev/go/bin/stringer",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "a18be9ed6b98d247009f70edf214ce9704f128542e9d5595143d5e300959f363",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "5d612a96d0bbd07ef85d3f605609a8eec828c3298792f9adc471961218502bc5",
+        "kind": "cache_root",
+        "path": "/Users/dev/go/pkg/mod",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "size_limit",
+          "unsupported_entry"
+        ],
+        "discovered_sources": [
+          "47f63c6a82d60b321f9ad97cd8ebc2bc46dfdf6c20a58d6b38731e69e188b3ca",
+          "e29d9be240ecd9ea33f99362bd4fd829065fced1bc3be2b1326591f260c01ab7"
+        ]
+      },
+      {
+        "source_id": "47f63c6a82d60b321f9ad97cd8ebc2bc46dfdf6c20a58d6b38731e69e188b3ca",
+        "kind": "checksum_file",
+        "path": "/Users/dev/go/pkg/mod/cache/download/github.com/!burnt!sushi/toml/@v/v1.3.2.ziphash",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "5d612a96d0bbd07ef85d3f605609a8eec828c3298792f9adc471961218502bc5",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "e29d9be240ecd9ea33f99362bd4fd829065fced1bc3be2b1326591f260c01ab7",
+        "kind": "checksum_file",
+        "path": "/Users/dev/go/pkg/mod/cache/download/golang.org/x/net/@v/v0.30.0.ziphash",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "malformed_checksum_line"
+        ],
+        "parent_source_id": "5d612a96d0bbd07ef85d3f605609a8eec828c3298792f9adc471961218502bc5",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "c84814410e2eacd730613278a88c275974b105145022be10e9bb24062eaf67c5",
+        "kind": "project_search_root",
+        "path": "/opt/src",
+        "status": "complete",
+        "presence": "absent",
+        "reasons": [],
+        "discovered_sources": []
+      }
+    ],
+    "projects": [
+      {
+        "source_id": "5726aa2d0dfcbdd8f7097de0c86de9e460d1a7e5d3256a0eb305ea16c94c3555",
+        "path": "/Users/dev/.projects/w",
+        "manifest_path": "/Users/dev/.projects/w/go.mod",
+        "module_path": "example.com/w",
+        "go_version": "1.24",
+        "requirements": [
+          {
+            "module_path": "example.com/c",
+            "requested_version": "v1.0.0",
+            "indirect": false,
+            "checksum_status": "absent"
+          }
+        ],
+        "replacements": [],
+        "exclusions": [],
+        "tools": [],
+        "workspace_paths": []
+      },
+      {
+        "source_id": "4904a0112cadb181e0101e5cded4e5e3b30f187ce093a0726da418884717db3e",
+        "path": "/Users/dev/code/app",
+        "manifest_path": "/Users/dev/code/app/ci.mod",
+        "module_path": "example.com/app",
+        "go_version": "1.24",
+        "requirements": [
+          {
+            "module_path": "github.com/BurntSushi/toml",
+            "requested_version": "v1.4.0",
+            "indirect": false,
+            "checksum_status": "partial",
+            "recorded_checksums": [
+              {
+                "kind": "module_content",
+                "value": "h1:Xr1Fc5Z906Zsb9kOQejybJur1qlTrIwTCApHc5NrgcA=",
+                "source": "project_go_sum",
+                "source_id": "6a554978edf943ec1034a83d67edfff2a200e75563bc2c348b4b84a6199430d2",
+                "source_path": "/Users/dev/code/app/ci.sum",
+                "verification": "not_verified"
+              }
+            ]
+          },
+          {
+            "module_path": "example.com/mod/v2",
+            "requested_version": "v2.1.0",
+            "indirect": false,
+            "checksum_status": "invalid"
+          }
+        ],
+        "replacements": [],
+        "exclusions": [],
+        "tools": [],
+        "workspace_paths": []
+      },
+      {
+        "source_id": "b86a690117eb87a76734055bf24802794cc77e94cc19e4ce209b731235808682",
+        "path": "/Users/dev/code/app",
+        "manifest_path": "/Users/dev/code/app/go.mod",
+        "module_path": "example.com/app",
+        "go_version": "1.24",
+        "toolchain": "go1.24.2",
+        "requirements": [
+          {
+            "module_path": "github.com/BurntSushi/toml",
+            "requested_version": "v1.3.2",
+            "indirect": false,
+            "checksum_status": "recorded",
+            "recorded_checksums": [
+              {
+                "kind": "module_content",
+                "value": "h1:3H2CPQjIs6cS0vdRPFNpBjVy4ck+j7p8jFxDP4ZbgUk=",
+                "source": "project_go_sum",
+                "source_id": "6cbbc875f8394616466cd546c6190d50ba40283453e654cb8f202aea93c21694",
+                "source_path": "/Users/dev/code/app/go.sum",
+                "verification": "not_verified"
+              },
+              {
+                "kind": "module_content",
+                "value": "h1:hG01/Wfc0bsGzLYlFkMgBtmBJNV28xV9oc98K7j/nm8=",
+                "source": "workspace_go_work_sum",
+                "source_id": "4c280b3b829be81a23767f0e2d86776ac527f729e7381be87b86fa92b0713aa1",
+                "source_path": "/Users/dev/code/go.work.sum",
+                "verification": "not_verified"
+              },
+              {
+                "kind": "go_mod",
+                "value": "h1:ab/sBPVxSeJeGsPpbUeUCAKz1250W1CzZqFX9KRUJoU=",
+                "source": "project_go_sum",
+                "source_id": "6cbbc875f8394616466cd546c6190d50ba40283453e654cb8f202aea93c21694",
+                "source_path": "/Users/dev/code/app/go.sum",
+                "verification": "not_verified"
+              }
+            ]
+          },
+          {
+            "module_path": "golang.org/x/text",
+            "requested_version": "v0.14.0",
+            "indirect": true,
+            "checksum_status": "recorded",
+            "recorded_checksums": [
+              {
+                "kind": "go_mod",
+                "value": "h1:YT7+XHul5whG6mdHMv87I3NXhZfM9W6r0oUxZjptFyc=",
+                "source": "project_go_sum",
+                "source_id": "6cbbc875f8394616466cd546c6190d50ba40283453e654cb8f202aea93c21694",
+                "source_path": "/Users/dev/code/app/go.sum",
+                "verification": "not_verified"
+              }
+            ]
+          },
+          {
+            "module_path": "example.com/Mod/v2",
+            "requested_version": "v2.1.0",
+            "indirect": false,
+            "checksum_status": "absent"
+          },
+          {
+            "module_path": "example.com/old",
+            "requested_version": "v0.9.0",
+            "indirect": false,
+            "checksum_status": "absent"
+          }
+        ],
+        "replacements": [
+          {
+            "from_path": "example.com/old",
+            "kind": "module",
+            "to_module_path": "example.com/new",
+            "to_version": "v1.0.0",
+            "checksum_status": "recorded",
+            "recorded_checksums": [
+              {
+                "kind": "module_content",
+                "value": "h1:EVB6Di9eadXfpApiob17buV+a82FxnybhDGzb/8hxDc=",
+                "source": "project_go_sum",
+                "source_id": "6cbbc875f8394616466cd546c6190d50ba40283453e654cb8f202aea93c21694",
+                "source_path": "/Users/dev/code/app/go.sum",
+                "verification": "not_verified"
+              }
+            ]
+          },
+          {
+            "from_path": "example.com/local",
+            "kind": "local",
+            "to_local_path": "../local",
+            "checksum_status": "not_applicable"
+          }
+        ],
+        "exclusions": [
+          {
+            "module_path": "golang.org/x/text",
+            "version": "v0.13.0"
+          }
+        ],
+        "tools": [
+          "golang.org/x/tools/cmd/stringer"
+        ],
+        "workspace_paths": [
+          "/Users/dev/code/go.work"
+        ]
+      },
+      {
+        "source_id": "cc9e24d75f7e1ef0ca96a82cb4a0b58d5592bafb7f76a9e765a726d62a4bf2ef",
+        "path": "/Users/dev/code/legacy",
+        "manifest_path": "/Users/dev/code/legacy/go.mod",
+        "module_path": "example.com/legacy",
+        "go_version": "1.16",
+        "requirements": [
+          {
+            "module_path": "example.com/a",
+            "requested_version": "v1.0.0",
+            "indirect": false,
+            "checksum_status": "unsupported"
+          }
+        ],
+        "replacements": [],
+        "exclusions": [],
+        "tools": [],
+        "workspace_paths": []
+      },
+      {
+        "source_id": "971b75cd965e4475cf149ad8c0d6826b9171a529c4aa90531d00cc87fe964c4f",
+        "path": "/Users/dev/code/linked",
+        "manifest_path": "/Users/dev/code/linked/go.mod",
+        "module_path": "example.com/linked",
+        "go_version": "1.24",
+        "requirements": [
+          {
+            "module_path": "example.com/b",
+            "requested_version": "v1.0.0",
+            "indirect": false,
+            "checksum_status": "skipped"
+          }
+        ],
+        "replacements": [],
+        "exclusions": [],
+        "tools": [],
+        "workspace_paths": []
+      },
+      {
+        "source_id": "788d99fdb3f6fc7959c80294a4afcde198c43d697b5c795f8051853671cb7e66",
+        "path": "/Users/dev/code/svc",
+        "manifest_path": "/Users/dev/code/svc/go.mod",
+        "module_path": "example.com/svc",
+        "go_version": "1.24",
+        "requirements": [
+          {
+            "module_path": "github.com/BurntSushi/toml",
+            "requested_version": "v1.4.0",
+            "indirect": false,
+            "checksum_status": "partial",
+            "recorded_checksums": [
+              {
+                "kind": "module_content",
+                "value": "h1:D+bkZhr8cgibKLV0O4XrZLVFTj5oLc6wKb6ZC2B9Dkc=",
+                "source": "project_go_sum",
+                "source_id": "1b28655e8c276aeef3bbbcfa77edaca845198a81a798f6f8d95d5e6e63bde960",
+                "source_path": "/Users/dev/code/svc/go.sum",
+                "verification": "not_verified"
+              }
+            ]
+          },
+          {
+            "module_path": "example.com/mod/v2",
+            "requested_version": "v2.1.0",
+            "indirect": false,
+            "checksum_status": "partial"
+          },
+          {
+            "module_path": "example.com/r",
+            "requested_version": "v1.0.0",
+            "indirect": false,
+            "checksum_status": "partial"
+          }
+        ],
+        "replacements": [],
+        "exclusions": [],
+        "tools": [],
+        "workspace_paths": [
+          "/Users/dev/code/go.work"
+        ]
+      },
+      {
+        "source_id": "e79e52c750585cda76aa615a74609be2c2c37e2d606a88c343064029d5bfe76d",
+        "path": "/Users/dev/code/tools",
+        "manifest_path": "/Users/dev/code/tools/go.mod",
+        "module_path": "example.com/tools",
+        "go_version": "1.24",
+        "requirements": [
+          {
+            "module_path": "github.com/BurntSushi/toml",
+            "requested_version": "v1.3.2",
+            "indirect": false,
+            "checksum_status": "unreadable"
+          }
+        ],
+        "replacements": [],
+        "exclusions": [],
+        "tools": [],
+        "workspace_paths": []
+      }
+    ],
+    "workspaces": [
+      {
+        "source_id": "f7bc7ed65bc3f5d36d498daa1abd42583b0c182d77727f17faded862185c90aa",
+        "path": "/Users/dev/code/go.work",
+        "go_version": "1.24",
+        "toolchain": "go1.24.2",
+        "members": [
+          {
+            "declared_path": "../../other/x",
+            "resolved_path": "/Users/other/x",
+            "reason": "outside_approved_roots"
+          },
+          {
+            "declared_path": "./app",
+            "resolved_path": "/Users/dev/code/app",
+            "project_source_id": "b86a690117eb87a76734055bf24802794cc77e94cc19e4ce209b731235808682"
+          },
+          {
+            "declared_path": "./gone",
+            "resolved_path": "/Users/dev/code/gone",
+            "reason": "member_not_discovered"
+          },
+          {
+            "declared_path": "./svc",
+            "resolved_path": "/Users/dev/code/svc",
+            "project_source_id": "788d99fdb3f6fc7959c80294a4afcde198c43d697b5c795f8051853671cb7e66"
+          }
+        ],
+        "replacements": [
+          {
+            "from_path": "example.com/r",
+            "kind": "module",
+            "to_module_path": "example.com/r2",
+            "to_version": "v1.1.0",
+            "checksum_status": "recorded",
+            "recorded_checksums": [
+              {
+                "kind": "module_content",
+                "value": "h1:23f9Aa+VciGkmJtks3cKg6PFYGhAW58OlAj+rlf9F+Q=",
+                "source": "workspace_go_work_sum",
+                "source_id": "4c280b3b829be81a23767f0e2d86776ac527f729e7381be87b86fa92b0713aa1",
+                "source_path": "/Users/dev/code/go.work.sum",
+                "verification": "not_verified"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "vendored_modules": [
+      {
+        "source_id": "788c370f331687df00dddc6a507489c1b5575dedc4f62cdc595c3f6161359197",
+        "module_path": "example.com/old",
+        "observed_version": "v0.9.0",
+        "replacement": {
+          "from_path": "example.com/old",
+          "from_version": "v0.9.0",
+          "kind": "module",
+          "to_module_path": "example.com/new",
+          "to_version": "v1.0.0",
+          "checksum_status": "recorded",
+          "recorded_checksums": [
+            {
+              "kind": "module_content",
+              "value": "h1:EVB6Di9eadXfpApiob17buV+a82FxnybhDGzb/8hxDc=",
+              "source": "project_go_sum",
+              "source_id": "6cbbc875f8394616466cd546c6190d50ba40283453e654cb8f202aea93c21694",
+              "source_path": "/Users/dev/code/app/go.sum",
+              "verification": "not_verified"
+            }
+          ]
+        },
+        "vendor_root": "/Users/dev/code/app/vendor",
+        "package_paths": [
+          "example.com/old/pkg"
+        ],
+        "checksum_status": "not_applicable"
+      },
+      {
+        "source_id": "788c370f331687df00dddc6a507489c1b5575dedc4f62cdc595c3f6161359197",
+        "module_path": "github.com/BurntSushi/toml",
+        "observed_version": "v1.3.2",
+        "vendor_root": "/Users/dev/code/app/vendor",
+        "package_paths": [
+          "github.com/BurntSushi/toml"
+        ],
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "module_content",
+            "value": "h1:3H2CPQjIs6cS0vdRPFNpBjVy4ck+j7p8jFxDP4ZbgUk=",
+            "source": "project_go_sum",
+            "source_id": "6cbbc875f8394616466cd546c6190d50ba40283453e654cb8f202aea93c21694",
+            "source_path": "/Users/dev/code/app/go.sum",
+            "verification": "not_verified"
+          },
+          {
+            "kind": "go_mod",
+            "value": "h1:ab/sBPVxSeJeGsPpbUeUCAKz1250W1CzZqFX9KRUJoU=",
+            "source": "project_go_sum",
+            "source_id": "6cbbc875f8394616466cd546c6190d50ba40283453e654cb8f202aea93c21694",
+            "source_path": "/Users/dev/code/app/go.sum",
+            "verification": "not_verified"
+          }
+        ]
+      }
+    ],
+    "cached_modules": [
+      {
+        "source_id": "5d612a96d0bbd07ef85d3f605609a8eec828c3298792f9adc471961218502bc5",
+        "module_path": "example.com/archiveonly",
+        "observed_version": "v1.2.0",
+        "root": "/Users/dev/go/pkg/mod",
+        "artifacts": [
+          {
+            "kind": "archive_present",
+            "path": "/Users/dev/go/pkg/mod/cache/download/example.com/archiveonly/@v/v1.2.0.zip",
+            "status": "present"
+          }
+        ],
+        "checksum_status": "absent"
+      },
+      {
+        "source_id": "5d612a96d0bbd07ef85d3f605609a8eec828c3298792f9adc471961218502bc5",
+        "module_path": "example.com/big",
+        "observed_version": "v1.0.0",
+        "root": "/Users/dev/go/pkg/mod",
+        "artifacts": [
+          {
+            "kind": "archive_present",
+            "path": "/Users/dev/go/pkg/mod/cache/download/example.com/big/@v/v1.0.0.zip",
+            "status": "partial"
+          }
+        ],
+        "checksum_status": "absent"
+      },
+      {
+        "source_id": "5d612a96d0bbd07ef85d3f605609a8eec828c3298792f9adc471961218502bc5",
+        "module_path": "github.com/BurntSushi/toml",
+        "observed_version": "v1.3.2",
+        "root": "/Users/dev/go/pkg/mod",
+        "artifacts": [
+          {
+            "kind": "extracted_source",
+            "path": "/Users/dev/go/pkg/mod/github.com/!burnt!sushi/toml@v1.3.2",
+            "status": "present"
+          },
+          {
+            "kind": "archive_present",
+            "path": "/Users/dev/go/pkg/mod/cache/download/github.com/!burnt!sushi/toml/@v/v1.3.2.zip",
+            "status": "present"
+          }
+        ],
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "module_content",
+            "value": "h1:VZ3h3igz+NWZsEsRbOEmDP1bwF2i5kfJAcSMEeXfYo0=",
+            "source": "cache_ziphash",
+            "source_id": "47f63c6a82d60b321f9ad97cd8ebc2bc46dfdf6c20a58d6b38731e69e188b3ca",
+            "source_path": "/Users/dev/go/pkg/mod/cache/download/github.com/!burnt!sushi/toml/@v/v1.3.2.ziphash",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "5d612a96d0bbd07ef85d3f605609a8eec828c3298792f9adc471961218502bc5",
+        "module_path": "golang.org/toolchain",
+        "observed_version": "v0.0.1-go1.24.2.darwin-arm64",
+        "root": "/Users/dev/go/pkg/mod",
+        "artifacts": [
+          {
+            "kind": "extracted_source",
+            "path": "/Users/dev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.2.darwin-arm64",
+            "status": "present"
+          },
+          {
+            "kind": "archive_present",
+            "path": "/Users/dev/go/pkg/mod/cache/download/golang.org/toolchain/@v/v0.0.1-go1.24.2.darwin-arm64.zip",
+            "status": "partial"
+          }
+        ],
+        "checksum_status": "absent"
+      },
+      {
+        "source_id": "5d612a96d0bbd07ef85d3f605609a8eec828c3298792f9adc471961218502bc5",
+        "module_path": "golang.org/x/net",
+        "observed_version": "v0.30.0",
+        "root": "/Users/dev/go/pkg/mod",
+        "artifacts": [
+          {
+            "kind": "extracted_source",
+            "path": "/Users/dev/go/pkg/mod/golang.org/x/net@v0.30.0",
+            "status": "partial"
+          },
+          {
+            "kind": "archive_present",
+            "path": "/Users/dev/go/pkg/mod/cache/download/golang.org/x/net/@v/v0.30.0.zip",
+            "status": "unreadable"
+          }
+        ],
+        "checksum_status": "invalid"
+      }
+    ],
+    "installed_tools": [
+      {
+        "source_id": "c2c30e0c0c73dec803b03bc06d653bbd8eaf4ca51ac00a5e463c916662f91e42",
+        "binary_path": "/Users/dev/go/bin/goimports",
+        "main_package_path": "golang.org/x/tools/cmd/goimports",
+        "main_module_path": "golang.org/x/tools",
+        "version_status": "unknown",
+        "dependencies": [],
+        "checksum_status": "not_applicable"
+      },
+      {
+        "source_id": "1d5877cf828393f2f76d130bd63bae5f61e88de290392d4056b2164d88fb1043",
+        "binary_path": "/Users/dev/go/bin/stringer",
+        "main_package_path": "golang.org/x/tools/cmd/stringer",
+        "main_module_path": "golang.org/x/tools",
+        "observed_version": "v0.30.0",
+        "version_status": "known",
+        "dependencies": [
+          {
+            "module_path": "golang.org/x/mod",
+            "observed_version": "v0.23.0",
+            "version_status": "known",
+            "checksum_status": "recorded",
+            "recorded_checksums": [
+              {
+                "kind": "module_content",
+                "value": "h1:D8G5lA3+M9Y9pC3g9tr1WecRj5xfxUtezf32V2sbCFg=",
+                "source": "binary_buildinfo",
+                "source_id": "1d5877cf828393f2f76d130bd63bae5f61e88de290392d4056b2164d88fb1043",
+                "source_path": "/Users/dev/go/bin/stringer",
+                "verification": "not_verified"
+              }
+            ]
+          },
+          {
+            "module_path": "golang.org/x/sync",
+            "observed_version": "v0.11.0",
+            "version_status": "known",
+            "checksum_status": "absent"
+          },
+          {
+            "module_path": "example.com/bad",
+            "observed_version": "v1.0.0",
+            "version_status": "known",
+            "checksum_status": "invalid"
+          },
+          {
+            "module_path": "example.com/rep",
+            "observed_version": "v1.0.0",
+            "version_status": "known",
+            "replacement": {
+              "from_path": "example.com/rep",
+              "from_version": "v1.0.0",
+              "kind": "module",
+              "to_module_path": "example.com/fork",
+              "to_version": "v1.0.1-0.20250102030405-abcdefabcdef",
+              "checksum_status": "recorded",
+              "recorded_checksums": [
+                {
+                  "kind": "module_content",
+                  "value": "h1:jQx6yZKvL0kTtH1CWvD+CNyjXRV8vyfkDCA1ibmD0f0=",
+                  "source": "binary_buildinfo",
+                  "source_id": "1d5877cf828393f2f76d130bd63bae5f61e88de290392d4056b2164d88fb1043",
+                  "source_path": "/Users/dev/go/bin/stringer",
+                  "verification": "not_verified"
+                }
+              ]
+            },
+            "checksum_status": "not_applicable"
+          },
+          {
+            "module_path": "example.com/loc",
+            "observed_version": "v1.0.0",
+            "version_status": "known",
+            "replacement": {
+              "from_path": "example.com/loc",
+              "from_version": "v1.0.0",
+              "kind": "local",
+              "to_local_path": "../loc",
+              "checksum_status": "not_applicable"
+            },
+            "checksum_status": "not_applicable"
+          }
+        ],
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "module_content",
+            "value": "h1:+dNdQ3cNOQkqZj5mXoKuHYSp4No9DRDEB6ytpqQM0oE=",
+            "source": "binary_buildinfo",
+            "source_id": "1d5877cf828393f2f76d130bd63bae5f61e88de290392d4056b2164d88fb1043",
+            "source_path": "/Users/dev/go/bin/stringer",
+            "verification": "not_verified"
+          }
+        ]
+      }
+    ]
+  },
+  "go_config_audit": {
+    "schema_version": 1,
+    "status": "complete",
+    "reasons": [],
+    "files": [
+      {
+        "source_id": "28ae3bd7cccca7d0f31ecedfa0a82c182320a61e966682a67ef46259a3b9a4fb",
+        "scope": "process",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "GOAUTH",
+            "display": "command",
+            "redacted": true,
+            "source_id": "28ae3bd7cccca7d0f31ecedfa0a82c182320a61e966682a67ef46259a3b9a4fb"
+          },
+          {
+            "key": "GOFLAGS",
+            "display": "-modfile=/Users/dev/code/app/ci.mod",
+            "redacted": true,
+            "source_id": "28ae3bd7cccca7d0f31ecedfa0a82c182320a61e966682a67ef46259a3b9a4fb"
+          },
+          {
+            "key": "GOROOT",
+            "display": "/Users/dev/sdk/go1.24.2",
+            "source_id": "28ae3bd7cccca7d0f31ecedfa0a82c182320a61e966682a67ef46259a3b9a4fb"
+          }
+        ]
+      },
+      {
+        "source_id": "ddeb29ac2688fceb1b47f1bde405132b690c8c968de3af9cdae1dedc53c8514e",
+        "scope": "toolchain",
+        "path": "/Users/dev/sdk/go1.24.2/go.env",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "GOPROXY",
+            "display": "https://proxy.golang.org,direct",
+            "source_id": "ddeb29ac2688fceb1b47f1bde405132b690c8c968de3af9cdae1dedc53c8514e"
+          },
+          {
+            "key": "GOSUMDB",
+            "display": "sum.golang.org",
+            "source_id": "ddeb29ac2688fceb1b47f1bde405132b690c8c968de3af9cdae1dedc53c8514e"
+          },
+          {
+            "key": "GOTOOLCHAIN",
+            "display": "auto",
+            "source_id": "ddeb29ac2688fceb1b47f1bde405132b690c8c968de3af9cdae1dedc53c8514e"
+          }
+        ]
+      },
+      {
+        "source_id": "883fdb6d9042c086110b154e4208b0c1ab0c944a0b8de780842265a844705756",
+        "scope": "user",
+        "default_path": "/Users/dev/Library/Application Support/go/env",
+        "path": "/Users/dev/Library/Application Support/go/env",
+        "status": "present",
+        "reasons": [
+          "duplicate_key"
+        ],
+        "settings": [
+          {
+            "key": "GOINSECURE",
+            "display": "example.com/insecure",
+            "source_id": "883fdb6d9042c086110b154e4208b0c1ab0c944a0b8de780842265a844705756"
+          },
+          {
+            "key": "GOPRIVATE",
+            "display": "example.com/private",
+            "source_id": "883fdb6d9042c086110b154e4208b0c1ab0c944a0b8de780842265a844705756"
+          },
+          {
+            "key": "GOPROXY",
+            "display": "https://proxy.corp.example/mod|https://proxy.golang.org,direct",
+            "redacted": true,
+            "source_id": "883fdb6d9042c086110b154e4208b0c1ab0c944a0b8de780842265a844705756"
+          },
+          {
+            "key": "GOSUMDB",
+            "display": "off",
+            "source_id": "883fdb6d9042c086110b154e4208b0c1ab0c944a0b8de780842265a844705756"
+          }
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "code": "go-001",
+        "severity": "HIGH",
+        "source_id": "883fdb6d9042c086110b154e4208b0c1ab0c944a0b8de780842265a844705756",
+        "key": "GOSUMDB",
+        "detail": "checksum database verification is disabled"
+      },
+      {
+        "code": "go-002",
+        "severity": "HIGH",
+        "source_id": "883fdb6d9042c086110b154e4208b0c1ab0c944a0b8de780842265a844705756",
+        "key": "GOINSECURE",
+        "detail": "insecure fetching is allowed for matching module paths"
+      },
+      {
+        "code": "go-003",
+        "severity": "MEDIUM",
+        "source_id": "883fdb6d9042c086110b154e4208b0c1ab0c944a0b8de780842265a844705756",
+        "key": "GOPROXY",
+        "detail": "a non-public proxy falls back to a public proxy or direct fetch"
+      },
+      {
+        "code": "go-004",
+        "severity": "HIGH",
+        "source_id": "883fdb6d9042c086110b154e4208b0c1ab0c944a0b8de780842265a844705756",
+        "key": "GOPROXY",
+        "detail": "URL embeds credentials or query values; redacted before reporting"
+      },
+      {
+        "code": "go-005",
+        "severity": "MEDIUM",
+        "source_id": "28ae3bd7cccca7d0f31ecedfa0a82c182320a61e966682a67ef46259a3b9a4fb",
+        "key": "GOAUTH",
+        "detail": "GOAUTH runs a command to obtain credentials"
+      },
+      {
+        "code": "go-006",
+        "severity": "MEDIUM",
+        "source_id": "883fdb6d9042c086110b154e4208b0c1ab0c944a0b8de780842265a844705756",
+        "key": "GOPRIVATE",
+        "detail": "security setting is defined more than once; the last value wins"
+      }
+    ]
+  }
+}

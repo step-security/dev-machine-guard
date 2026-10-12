@@ -63,6 +63,12 @@ func FuzzParseSource(f *testing.F) {
 		"https://u:p@\n",
 		"//r/:_authToken=v\n",
 		"${VAULT_TOKEN}\n",
+		`{"_id":"req_1","type":"Request","authentication":{"type":"bearer","token":"v"},"headers":[{"name":"Authorization","value":"v"}]}` + "\n",
+		`{"_id":"req_1","$$deleted":true}` + "\n",
+		`{"$$indexCreated":{"fieldName":"type","unique":false}}` + "\n",
+		`{"_id":"env_1","type":"Environment","data":{"__insomnia_vault":{"k":"` + envelope() + `"}},"kvPairData":[{"name":"k","value":"` + envelope() + `","type":"secret"}]}` + "\n",
+		`{"_id":"rv_1","type":"RequestVersion","compressedRequest":"` + compressed(`{"_id":"req_1","type":"Request","authentication":{"type":"bearer","token":"v"}}`) + `"}` + "\n",
+		`{"_id":"rv_1","type":"RequestVersion","compressedRequest":"H4sI"}` + "\n",
 		"\x00\x00\x00\x00",
 		"\r\n\r\n",
 	}

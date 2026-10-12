@@ -7,6 +7,8 @@ import (
 	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
 // skillMeta is the parsed result of a SKILL.md frontmatter block plus the
@@ -55,6 +57,10 @@ func (d *SkillsDetector) parseSkillMD(mdPath string) skillMeta {
 	content, err := d.exec.ReadFile(mdPath)
 	if err != nil {
 		m.frontmatterError = "unreadable"
+		return m
+	}
+	if len(content) > maxSkillMDReadBytes {
+		m.frontmatterError = "file_too_large"
 		return m
 	}
 
@@ -305,4 +311,74 @@ func truncRunes(s string, n int) string {
 	}
 	r := []rune(s)
 	return string(r[:n])
+}
+
+// commandMeta is the parsed result of a legacy command Markdown file. A
+// command's callable name comes from its path, so the skill-only name and
+// description health checks do not apply; readError carries a wire error code
+// when the bytes could not be read.
+type commandMeta struct {
+	description       string
+	version           string
+	license           string
+	allowedTools      []string
+	disableModelInvoc bool
+	userInvocDisabled bool
+	hasHooks          bool
+	hasShellInjection bool
+	hasFrontmatter    bool
+	frontmatterError  string
+	hash              string // hex(sha256(raw file bytes))
+	readError         string
+}
+
+// parseCommandMD reads and parses one command Markdown file with the same read
+// cap, frontmatter detection and body scan as parseSkillMD.
+func (d *SkillsDetector) parseCommandMD(mdPath string) commandMeta {
+	var m commandMeta
+	fi, err := d.exec.Stat(mdPath)
+	switch {
+	case err != nil, !fi.Mode().IsRegular():
+		m.readError = model.AgentScanErrReadFailed
+		return m
+	case fi.Size() > maxSkillMDReadBytes:
+		m.readError = model.AgentScanErrLimitExceeded
+		return m
+	}
+	content, err := d.exec.ReadFile(mdPath)
+	if err != nil {
+		m.readError = model.AgentScanErrReadFailed
+		return m
+	}
+	if len(content) > maxSkillMDReadBytes {
+		m.readError = model.AgentScanErrLimitExceeded
+		return m
+	}
+	sum := sha256.Sum256(content)
+	m.hash = hex.EncodeToString(sum[:])
+
+	fm, body, ok := splitFrontmatter(string(content))
+	if !ok {
+		m.hasShellInjection = hasLoadTimeShellExec(string(content))
+		return m
+	}
+	m.hasFrontmatter = true
+	m.hasShellInjection = hasLoadTimeShellExec(body)
+	parsed, perr := parseYAMLMap(fm)
+	if perr != nil {
+		if parsed, perr = parseYAMLMap(quoteFixYAML(fm)); perr != nil {
+			m.frontmatterError = "invalid_yaml"
+			return m
+		}
+	}
+	m.description = truncRunes(stringField(parsed, "description"), maxDescriptionRunes)
+	m.license = truncRunes(stringField(parsed, "license"), maxLicenseRunes)
+	m.version = stringField(parsed, "version")
+	m.allowedTools = normalizeAllowedTools(parsed["allowed-tools"])
+	m.disableModelInvoc = boolField(parsed, "disable-model-invocation")
+	if v, ok := parsed["user-invocable"].(bool); ok && !v {
+		m.userInvocDisabled = true
+	}
+	_, m.hasHooks = parsed["hooks"]
+	return m
 }

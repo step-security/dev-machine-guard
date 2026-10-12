@@ -58,7 +58,7 @@ The steps below install the binary directly and are intended for **community use
 
 ### Install from release (community)
 
-Download the latest binary for your platform from [GitHub Releases](https://github.com/step-security/dev-machine-guard/releases). Release asset filenames embed the version (for example, `stepsecurity-dev-machine-guard-1.16.0-darwin`), so the snippets below resolve the latest tag first rather than hardcoding a version.
+Download the latest binary for your platform from [GitHub Releases](https://github.com/step-security/dev-machine-guard/releases). Release asset filenames embed the version (for example, `stepsecurity-dev-machine-guard-1.17.0-darwin`), so the snippets below resolve the latest tag first rather than hardcoding a version.
 
 **macOS** (universal binary — Apple Silicon and Intel)
 
@@ -286,13 +286,16 @@ See [SCAN_COVERAGE.md](SCAN_COVERAGE.md) for the full catalog of supported detec
 | AI CLI Tools         | Claude Code, Codex, Gemini CLI, Kiro CLI, GitHub Copilot CLI, Aider, OpenCode, Cursor Agent, Pi, Factory Droid, Amp, Grok Build, Kimi Code, Muse Code, Hermes Agent, Oh My Pi |
 | AI Agents            | Claude Cowork, OpenClaw, ClawdBot, GPT-Engineer                                          |
 | AI Frameworks        | Ollama, LM Studio, LocalAI, Text Generation WebUI                                        |
-| MCP Server Configs   | Claude Desktop, Claude Code, Cursor, Windsurf, Antigravity, Zed, Open Interpreter, Codex, OpenCode |
+| MCP Server Configs   | Claude Desktop, Claude Code, Cursor, Windsurf, Antigravity, Zed, Open Interpreter, Codex, OpenCode, GitHub Copilot |
+| Agent Plugins & Skills | Claude Code, Codex and GitHub Copilot (CLI, standalone app and VS Code) plugin installations, declared components, standalone Claude commands, and recorded skill-use counters |
 | IDE Extensions       | VS Code, Cursor, Windsurf, Antigravity, JetBrains, Eclipse, Xcode, Android Studio        |
 | Browser Extensions   | Google Chrome, Microsoft Edge, Mozilla Firefox                                           |
 | Node.js Packages     | npm, yarn, pnpm, bun (opt-in)                                                            |
 | Homebrew Packages    | Formulae and casks with rich metadata (opt-in)                                            |
 | Python Packages      | pip, poetry, pipenv, uv, conda, rye (opt-in)                                             |
 | System Packages      | rpm, dpkg, pacman, apk, snap, flatpak (Linux)                                            |
+| Go Modules           | `go.mod`/`go.work` declarations, vendored modules, module cache, `GOBIN` tools, recorded checksums (enterprise) |
+| Rust Packages        | `Cargo.toml` declarations, `Cargo.lock`, registry cache, Git checkouts, vendored sources, `cargo install` receipts (enterprise) |
 | Package Configs      | npm (`.npmrc`), pnpm, bun (`bunfig.toml`), yarn classic & berry (`.yarnrc`/`.yarnrc.yml`), pip (`pip.conf`) — effective registry, cooldown policy, and auth surface across every scope |
 | Suspicious Files     | Malicious-file IOCs from StepSecurity-maintained rules — e.g. `binding.gyp` that runs during `npm install`, and editor/AI-tool config files that auto-execute on project open |
 
@@ -308,7 +311,7 @@ Compromised packages most often reach a machine because that machine resolves di
 - **Cooldown policy** — whether a cooldown window against newly published packages is in effect.
 - **Authentication surface** — what credentials are configured against the registry.
 
-Configuration is read from `.npmrc` (npm), pnpm config, `bunfig.toml` (bun), `.yarnrc` / `.yarnrc.yml` (yarn classic and berry), and `pip.conf` (pip). In enterprise mode this rolls up into the **Package Configs** view in the dashboard, where you can spot machines that are unprotected or pointed at the wrong registry.
+Configuration is read from `.npmrc` (npm), pnpm config, `bunfig.toml` (bun), `.yarnrc` / `.yarnrc.yml` (yarn classic and berry), `pip.conf` (pip), Go's `go/env` and process environment (proxy, checksum database, private-module and auth settings, redacted on the device), and Cargo's `.cargo/config.toml` files and process environment (registries, source replacement, proxy and TLS settings, redacted on the device). In enterprise mode this rolls up into the **Package Configs** view in the dashboard, where you can spot machines that are unprotected or pointed at the wrong registry.
 
 Enterprise Device Policy can also set StepSecurity Secure Registry as the sole user-level Python index for pip and uv. It manages only the resolved developer's user configuration and shared StepSecurity `.netrc` entry, keeps pip and uv results independent, and restores owned settings on an explicit policy clear. Project files, virtual environments, system configuration, environment variables, direct URLs, and Poetry are not modified.
 

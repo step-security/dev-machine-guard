@@ -194,6 +194,35 @@ func (r *Reader) ReadDir(path string) ([]os.DirEntry, error) {
 	return entries, nil
 }
 
+// ReadDirLimit is ReadDir bounded to at most max+1 entries read from the
+// directory, so a caller's entry budget caps allocation before a cap is
+// declared. more reports that entries were left unread; the entries returned
+// are then the first max in directory order, sorted by name.
+func (r *Reader) ReadDirLimit(path string, max int) ([]os.DirEntry, bool, error) {
+	if max < 0 {
+		return nil, false, refuse(ReasonDenied)
+	}
+	resolved, err := r.Resolve(path)
+	if err != nil {
+		return nil, false, err
+	}
+	f, _, err := openVerified(resolved, true, false)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = f.Close() }()
+	entries, err := f.ReadDir(max + 1)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, false, refuse(ReasonDenied)
+	}
+	more := len(entries) > max
+	if more {
+		entries = entries[:max]
+	}
+	slices.SortFunc(entries, func(a, b os.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+	return entries, more, nil
+}
+
 func splitPendingPath(path string) (volume string, comps []string) {
 	volume = filepath.VolumeName(path)
 	rest := strings.TrimPrefix(path[len(volume):], string(filepath.Separator))

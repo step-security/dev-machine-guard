@@ -97,13 +97,21 @@ func venvSitePackages(venvPath string) []string {
 // install metadata. Packages are de-duplicated by (lowercased name, version)
 // so the same install surfaced once is reported once, and the result is
 // sorted by name then version for stable output.
+//
+// A successful empty walk returns a non-nil slice. A walk failure returns nil
+// so delta cannot replace previously uploaded inventory with a partial result.
 func (d *PythonDistDetector) ScanRoots(roots []string) []model.PackageDetail {
+	if len(roots) == 0 {
+		return nil
+	}
 	seen := make(map[string]struct{})
-	var pkgs []model.PackageDetail
+	pkgs := []model.PackageDetail{}
+	walkFailed := false
 
 	for _, root := range roots {
 		_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 			if err != nil {
+				walkFailed = true
 				return nil
 			}
 			if entry.IsDir() {
@@ -130,6 +138,9 @@ func (d *PythonDistDetector) ScanRoots(roots []string) []model.PackageDetail {
 		})
 	}
 
+	if walkFailed {
+		return nil
+	}
 	sort.Slice(pkgs, func(i, j int) bool {
 		if pkgs[i].Name == pkgs[j].Name {
 			return pkgs[i].Version < pkgs[j].Version

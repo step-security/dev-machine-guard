@@ -39,13 +39,20 @@ type deltaSnapshot struct {
 // A nil scan state means delta is disabled and the caller should use the
 // legacy payload shape.
 func buildDeltaSnapshot(
-	s *state.State, fullSync bool,
+	s *state.State, fullSync, npmEnabled, pythonEnabled bool,
 	npmResults []model.NodeScanResult, npmDiscovered []string,
 	pythonResults []model.ProjectInfo, pythonDiscovered []string,
 	npmGlobals []model.NodeScanResult, pythonGlobals []model.PythonScanResult,
 ) *deltaSnapshot {
 	if s == nil {
 		return nil
+	}
+	// Disabled scans provide no evidence of changes or removals.
+	if !npmEnabled {
+		npmResults, npmGlobals = nil, nil
+	}
+	if !pythonEnabled {
+		pythonResults, pythonGlobals = nil, nil
 	}
 	snap := &deltaSnapshot{fullSync: fullSync}
 
@@ -65,13 +72,16 @@ func buildDeltaSnapshot(
 	snap.pyGlobalsChanged, snap.pyGlobalsUnchanged = splitPythonGlobals(s.PythonGlobal, pythonGlobals, snap.pyGlobalRecords, pyGChanged, pyGUnchanged)
 
 	now := time.Now()
-	_, _, npmRemovedPaths := s.Reconcile(state.EcosystemNPM, npmDiscovered)
-	_, _, pyRemovedPaths := s.Reconcile(state.EcosystemPython, pythonDiscovered)
-	s.MarkRemovedPending(state.EcosystemNPM, npmRemovedPaths, now)
-	s.MarkRemovedPending(state.EcosystemPython, pyRemovedPaths, now)
-
-	snap.npmRemoved = removedRefsFor(s, state.EcosystemNPM, npmDiscovered)
-	snap.pyRemoved = removedRefsFor(s, state.EcosystemPython, pythonDiscovered)
+	if npmEnabled {
+		_, _, removed := s.Reconcile(state.EcosystemNPM, npmDiscovered)
+		s.MarkRemovedPending(state.EcosystemNPM, removed, now)
+		snap.npmRemoved = removedRefsFor(s, state.EcosystemNPM, npmDiscovered)
+	}
+	if pythonEnabled {
+		_, _, removed := s.Reconcile(state.EcosystemPython, pythonDiscovered)
+		s.MarkRemovedPending(state.EcosystemPython, removed, now)
+		snap.pyRemoved = removedRefsFor(s, state.EcosystemPython, pythonDiscovered)
+	}
 	return snap
 }
 
@@ -116,12 +126,13 @@ func pythonRecordsFromResults(results []model.ProjectInfo) []state.ScanRecord {
 		if r.Path == "" {
 			continue
 		}
-		exitCode := 0
+		// A nil list means failed or unscanned, not empty. ProjectInfo has
+		// no wire error field, so omit it rather than replacing prior inventory.
 		if r.Packages == nil {
-			exitCode = 1
+			continue
 		}
 		out = append(out, state.ScanRecordFromValue(
-			r.Path, r.PackageManager, "", r.Packages, exitCode,
+			r.Path, r.PackageManager, "", r.Packages, 0,
 		))
 	}
 	return out

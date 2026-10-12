@@ -115,10 +115,11 @@ func candidatesFor(s source, paths userPaths, env map[string]string, platform st
 }
 
 // relocationCandidates expands the first override that is set, in the declaration
-// order the tools themselves apply, and reports that one was. Later overrides are
-// not consulted: where a tool reads one variable in preference to another, so does
-// this, and probing the lower-precedence target would report a file the tool has
-// stopped reading.
+// order the tools themselves apply, and reports that one was. Overrides for other
+// variables are not consulted: where a tool reads one variable in preference to
+// another, so does this, and probing the lower-precedence target would report a
+// file the tool has stopped reading. Later overrides on the same variable are
+// expanded with it, for a tool that keeps several files under one directory.
 //
 // Being set is what displaces the defaults, not naming somewhere real. A target
 // that does not exist is still the answer: the developer pointed the tool somewhere
@@ -127,7 +128,7 @@ func candidatesFor(s source, paths userPaths, env map[string]string, platform st
 // is how the tools read it, the default restored by unsetting the variable and not
 // by emptying it. Neither is an error, because nothing failed.
 func relocationCandidates(s source, env map[string]string) ([]string, bool) {
-	for _, o := range s.Overrides {
+	for i, o := range s.Overrides {
 		value := strings.TrimSpace(env[o.Var])
 		if value == "" {
 			continue
@@ -135,6 +136,12 @@ func relocationCandidates(s source, env map[string]string) ([]string, bool) {
 		out, expandable := expandOverride(o, value)
 		if !expandable {
 			continue
+		}
+		for _, more := range s.Overrides[i+1:] {
+			if more.Var == o.Var {
+				extra, _ := expandOverride(more, value)
+				out = append(out, extra...)
+			}
 		}
 		return out, true
 	}

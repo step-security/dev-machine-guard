@@ -115,6 +115,18 @@ func TestMCPVendorForPath_OpenCode(t *testing.T) {
 // TestDiscoverWalkedMCPConfigs_OpenCode: a project-level OpenCode config in
 // either spelling is found by the ordinary basename walk — no project-root
 // logic and no new walk root — and is reported as discovered_mcp / OpenCode.
+func TestDiscoverWalkedMCPConfigs_Codex(t *testing.T) {
+	root := t.TempDir()
+	want := writeFile(t, root, "widgets/.codex/config.toml")
+	writeFile(t, root, "widgets/config.toml")
+	writeFile(t, root, "widgets/node_modules/tool/.codex/config.toml")
+	d := &MCPDetector{}
+	specs := d.discoverWalkedMCPConfigs([]string{root}, "")
+	if len(specs) != 1 || specs[0].ConfigPath != want || specs[0].SourceName != "codex" || specs[0].Vendor != "OpenAI" {
+		t.Fatalf("configs = %+v", specs)
+	}
+}
+
 func TestDiscoverWalkedMCPConfigs_OpenCode(t *testing.T) {
 	root := t.TempDir()
 	wantJSON := writeFile(t, root, "proj-a/opencode.json")

@@ -326,6 +326,20 @@ func (m *Mock) ReadDir(path string) ([]os.DirEntry, error) {
 	return nil, fmt.Errorf("mock: directory not found: %s", path)
 }
 
+func (m *Mock) ReadDirLimit(path string, max int) ([]os.DirEntry, bool, error) {
+	ents, err := m.ReadDir(path)
+	if err != nil {
+		return nil, false, err
+	}
+	if max < 0 {
+		return nil, false, fmt.Errorf("mock: negative limit: %s", path)
+	}
+	if len(ents) > max {
+		return ents[:max:max], true, nil
+	}
+	return ents, false, nil
+}
+
 func (m *Mock) Stat(path string) (os.FileInfo, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

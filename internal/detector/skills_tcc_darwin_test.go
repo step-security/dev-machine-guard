@@ -26,7 +26,7 @@ type ancestorTraversalRecorder struct {
 
 func (r *ancestorTraversalRecorder) GuardedFiles(roots []string, guard func(string) string, maxReadBytes int64) executor.Executor {
 	return r.Real.GuardedFiles(roots, func(p string) string {
-		if p == r.protected {
+		if p == r.protected || strings.HasPrefix(p, r.protected+"/") {
 			r.guarded = append(r.guarded, p)
 		}
 		return guard(p)
@@ -370,6 +370,7 @@ func TestDetect_LinkIntoProtectedNeverFollowed(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			m, fs := newSkillsMock()
+			fs.addFile(filepath.Join(testHome, ".claude.json"), "{}")
 			fs.addSkill(protected+"/secret/skill", "SKILL.md", validFrontmatter("secret", "d"), nil)
 			link := testHome + "/.claude/skills/decoy"
 			fs.addSymlink(link, protected+"/secret/skill")
@@ -388,5 +389,38 @@ func TestDetect_LinkIntoProtectedNeverFollowed(t *testing.T) {
 				t.Errorf("no filesystem access may occur under %q (would fire a TCC prompt), got: %v", protected, hits)
 			}
 		})
+	}
+}
+
+func TestPluginMetadataAndUsageRejectProtectedSymlinks(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	protected := filepath.Join(home, "Documents")
+	if err := os.MkdirAll(protected, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(protected, "state.json"), []byte(`{"skillUsage":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, alias := range []string{".claude.json", "metadata.json"} {
+		if err := os.Symlink(filepath.Join(protected, "state.json"), filepath.Join(home, alias)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := &ancestorTraversalRecorder{Real: executor.NewReal(), protected: protected}
+	d := NewSkillsDetector(rec).WithSkipper(tcc.New(home))
+	s := &pluginScan{d: d, home: home, ctx: context.Background()}
+	_, absent, code := s.readMetadata(s.guarded(home), filepath.Join(home, "metadata.json"))
+	if absent || code != model.AgentScanErrUnsafePath {
+		t.Fatalf("plugin metadata: absent=%v code=%s", absent, code)
+	}
+	state := readClaudeState(rec, d.skipper, home)
+	if state.absent || state.code != model.AgentScanErrUnsafePath {
+		t.Fatalf("usage: %+v", state)
+	}
+	if len(rec.traversed) != 0 || len(rec.guarded) == 0 {
+		t.Fatalf("protected target reached before guard: traversed=%v guarded=%v", rec.traversed, rec.guarded)
 	}
 }

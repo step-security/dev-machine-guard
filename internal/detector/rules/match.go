@@ -47,3 +47,25 @@ func evalGroup(g ConditionGroup, data []byte, fileHash string) (model.GroupResul
 	}
 	return res, satisfied
 }
+
+// satisfiesRule screens mandatory conditions before computing optional evidence.
+// A reported file still goes through evalGroup for every group, preserving all
+// condition results (including results from groups that did not satisfy).
+func satisfiesRule(r *Rule, data []byte, fileHash string) bool {
+	if len(r.Groups) == 0 {
+		return true
+	}
+	for _, g := range r.Groups {
+		satisfied := true
+		for _, c := range g.Conditions {
+			if c.Mandatory && !evalCondition(c, data, fileHash) {
+				satisfied = false
+				break
+			}
+		}
+		if satisfied {
+			return true
+		}
+	}
+	return false
+}

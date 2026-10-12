@@ -45,3 +45,24 @@ func TestPythonScanner_ScansUsrBinWhenCLTInstalled(t *testing.T) {
 		t.Errorf("expected exit code 0, got %d", results[0].ExitCode)
 	}
 }
+
+func TestPythonProjectDetector_PipEmptyAndFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name, output string
+		exit         int
+		failed       bool
+	}{
+		{"empty", "[]", 0, false},
+		{"command failure", "[]", 1, true},
+		{"malformed output", "invalid", 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := executor.NewMock()
+			mock.SetCommand(tc.output, "", tc.exit, "pip", "list", "--format", "json")
+			got := NewPythonProjectDetector(mock).listVenvPackages(context.Background(), "/venv", "pip")
+			if (got == nil) != tc.failed || len(got) != 0 {
+				t.Fatalf("packages=%v nil=%v, want failure=%v", got, got == nil, tc.failed)
+			}
+		})
+	}
+}

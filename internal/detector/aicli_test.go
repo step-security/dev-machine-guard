@@ -108,6 +108,60 @@ func TestAICLIDetector_AcceptsRealCopilotVersion(t *testing.T) {
 	}
 }
 
+// The Homebrew cask ships a quarantined native binary that spctl rejects, so
+// the exec fallback can never prove it. The exact Caskroom layout is the
+// identity and the cask version is the version; nothing is launched.
+func TestAICLIDetector_AcceptsCopilotHomebrewCask(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS(model.PlatformDarwin)
+	mock.SetHomeDir("/Users/u")
+	mock.SetPath("copilot", "/opt/homebrew/bin/copilot")
+	mock.SetSymlink("/opt/homebrew/bin/copilot", "/opt/homebrew/Caskroom/copilot-cli/1.0.88/copilot")
+	rec := &recExec{Mock: mock, t: t, trapExec: true}
+
+	got := findAITool(NewAICLIDetector(rec).Detect(context.Background()), "github-copilot-cli")
+	if got == nil {
+		t.Fatal("github-copilot-cli not detected from the Homebrew cask")
+	}
+	if got.BinaryPath != "/opt/homebrew/bin/copilot" {
+		t.Errorf("BinaryPath = %q, want /opt/homebrew/bin/copilot", got.BinaryPath)
+	}
+	if got.Version != "1.0.88" {
+		t.Errorf("Version = %q, want 1.0.88", got.Version)
+	}
+	if len(rec.execs) != 0 {
+		t.Errorf("execs = %v, want none", rec.execs)
+	}
+}
+
+// Every near-miss of the cask layout stays on the existing fallback policy,
+// which the stub-less mock cannot satisfy: spctl fails, or `--version` errors.
+func TestAICLIDetector_CopilotNoStaticBypass(t *testing.T) {
+	tests := []struct {
+		name, goos, resolved string
+	}{
+		{"AWS Cellar/copilot-cli formula", model.PlatformDarwin, "/opt/homebrew/Cellar/copilot-cli/1.0.0/bin/copilot"},
+		{"cask path at the wrong depth", model.PlatformDarwin, "/opt/homebrew/Caskroom/copilot-cli/1.0.88/bin/copilot"},
+		{"nested repeated cask token", model.PlatformDarwin, "/opt/homebrew/Caskroom/copilot-cli/1.0.88/sub/copilot-cli/2.0/copilot"},
+		{"another cask", model.PlatformDarwin, "/opt/homebrew/Caskroom/other/1.0.88/copilot"},
+		{"cask without a version segment", model.PlatformDarwin, "/opt/homebrew/Caskroom/copilot-cli/latest/copilot"},
+		{"cask layout off macOS", model.PlatformLinux, "/home/linuxbrew/.linuxbrew/Caskroom/copilot-cli/1.0.88/copilot"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := executor.NewMock()
+			mock.SetGOOS(tc.goos)
+			mock.SetHomeDir("/Users/u")
+			mock.SetPath("copilot", "/opt/homebrew/bin/copilot")
+			mock.SetSymlink("/opt/homebrew/bin/copilot", tc.resolved)
+
+			if got := findAITool(NewAICLIDetector(mock).Detect(context.Background()), "github-copilot-cli"); got != nil {
+				t.Errorf("detected %+v from %s, want rejection", *got, tc.resolved)
+			}
+		})
+	}
+}
+
 func TestAICLIDetector_VersionUnknown(t *testing.T) {
 	mock := executor.NewMock()
 	mock.SetPath("codex", "/usr/local/bin/codex")

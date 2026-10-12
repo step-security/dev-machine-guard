@@ -243,6 +243,9 @@ type fold struct {
 	// the count: a file can hold one confirmed credential and one entry this
 	// build cannot read, and reporting only the first would call the rest clean.
 	unrecognized bool
+	// Set where the parser stopped counting at a bound of its own, so the count
+	// is a lower bound the same way a byte-capped read's is.
+	capped bool
 }
 
 // add records one credential. A state outside the two-value vocabulary is not a
@@ -271,11 +274,14 @@ type observation struct {
 	// Never a finding on its own — a parse failure is not evidence a credential
 	// is there — so it travels as an error and costs the scan its completeness.
 	Unrecognized bool
+	// The parser reached a bound of its own before the end of the file, so the
+	// count is a lower bound.
+	Capped bool
 }
 
 // result closes the fold.
 func (f *fold) result() observation {
-	return observation{Count: f.count, Protection: f.state, Unrecognized: f.unrecognized}
+	return observation{Count: f.count, Protection: f.state, Unrecognized: f.unrecognized, Capped: f.capped}
 }
 
 // unparseable is the observation for a file that exists, was read, and has no
@@ -323,6 +329,7 @@ var parsers = map[string]parser{
 	sourceKubeconfig:           parseKubeconfig,
 	sourceTerraformCredentials: parseTerraformCredentials,
 	sourceVaultToken:           parseVaultToken,
+	sourceInsomnia:             parseInsomnia,
 }
 
 // parseSource reads one location with the parser its source declares. A source

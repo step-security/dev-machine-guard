@@ -34,6 +34,10 @@ func (e *UserAwareExecutor) GuardedFiles(roots []string, guard func(string) stri
 
 var userEnvironmentKeys = []string{
 	"APPDATA",
+	"COPILOT_HOME",
+	"COPILOT_CACHE_HOME",
+	"XDG_CACHE_HOME",
+	"LOCALAPPDATA",
 	"GOAUTH",
 	"GOENV",
 	"GOPROXY",
@@ -53,6 +57,8 @@ var userEnvironmentKeys = []string{
 	"UV_INDEX_URL",
 	"UV_NO_CONFIG",
 	"UV_NO_INDEX",
+	"VSCODE_AGENT_PLUGINS",
+	"VSCODE_PORTABLE",
 	"VIRTUAL_ENV",
 	"XDG_CONFIG_HOME",
 }
@@ -228,6 +234,9 @@ func (e *UserAwareExecutor) DirExists(path string) bool           { return e.inn
 func (e *UserAwareExecutor) ReadFile(path string) ([]byte, error) { return e.inner.ReadFile(path) }
 func (e *UserAwareExecutor) ReadDir(path string) ([]os.DirEntry, error) {
 	return e.inner.ReadDir(path)
+}
+func (e *UserAwareExecutor) ReadDirLimit(path string, max int) ([]os.DirEntry, bool, error) {
+	return e.inner.ReadDirLimit(path, max)
 }
 func (e *UserAwareExecutor) Stat(path string) (os.FileInfo, error) { return e.inner.Stat(path) }
 func (e *UserAwareExecutor) Hostname() (string, error)             { return e.inner.Hostname() }

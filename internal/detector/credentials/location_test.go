@@ -217,6 +217,16 @@ func TestCandidatesFor(t *testing.T) {
 	xdg := filepath.Join(string(filepath.Separator), "opt", "config")
 	kubeA := filepath.Join(string(filepath.Separator), "opt", "kube", "a")
 	kubeB := filepath.Join(string(filepath.Separator), "opt", "kube", "b")
+	insomniaDir := filepath.Join(string(filepath.Separator), "opt", "insomnia")
+	// The API client keeps every database under one directory, so each root
+	// yields one candidate per file.
+	insomniaUnder := func(root string, elems ...string) []string {
+		out := make([]string, 0, len(insomniaFiles))
+		for _, f := range insomniaFiles {
+			out = append(out, filepath.Join(append(append([]string{root}, elems...), f)...))
+		}
+		return out
+	}
 
 	tests := []struct {
 		name     string
@@ -270,6 +280,12 @@ func TestCandidatesFor(t *testing.T) {
 			env:  map[string]string{"KUBECONFIG": strings.Repeat(string(os.PathListSeparator), 3)},
 			want: []string{},
 		},
+		// One variable relocates every file of the source, so setting it displaces
+		// all of the defaults and names all of the files under the new directory.
+		{name: "a directory override relocates every file", sourceID: sourceInsomnia, home: unixHome, platform: model.PlatformDarwin, env: map[string]string{"INSOMNIA_DATA_PATH": insomniaDir}, want: insomniaUnder(insomniaDir)},
+		{name: "the application support directory on darwin", sourceID: sourceInsomnia, home: unixHome, platform: model.PlatformDarwin, want: insomniaUnder(unixHome, "Library", "Application Support", "Insomnia")},
+		{name: "the roaming profile on windows", sourceID: sourceInsomnia, home: winHome, platform: model.PlatformWindows, want: insomniaUnder(winHome, "AppData", "Roaming", "Insomnia")},
+		{name: "the configuration directory on linux", sourceID: sourceInsomnia, home: unixHome, platform: model.PlatformLinux, want: insomniaUnder(unixHome, ".config", "Insomnia")},
 		{name: "the dotted spelling on unix", sourceID: sourceNetrc, home: unixHome, platform: model.PlatformDarwin, want: []string{filepath.Join(unixHome, ".netrc")}},
 		// The Windows name uses an underscore.
 		{name: "the underscored spelling on windows", sourceID: sourceNetrc, home: winHome, platform: model.PlatformWindows, want: []string{filepath.Join(winHome, "_netrc")}},
@@ -428,6 +444,7 @@ func TestCatalog_Invariants(t *testing.T) {
 			sourceGitHubCLIHosts, sourceNPMRC, sourcePypirc,
 			sourceDockerConfig, sourceKubeconfig,
 			sourceTerraformCredentials, sourceVaultToken,
+			sourceInsomnia,
 		}
 		got := make([]string, 0, len(sources))
 		for _, s := range sources {
@@ -455,6 +472,7 @@ func TestCatalog_Invariants(t *testing.T) {
 			model.CredentialCategoryPackageReg:     true,
 			model.CredentialCategoryContainers:     true,
 			model.CredentialCategoryInfrastructure: true,
+			model.CredentialCategoryAPIClients:     true,
 		}
 		for _, s := range sources {
 			if !valid[s.Category] {

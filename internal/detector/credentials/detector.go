@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -194,8 +195,14 @@ func (d *Detector) collectSource(ctx context.Context, scan *scanState, s source)
 		scan.addError(s.ID, model.CredentialReasonLocationUnresolved)
 	}
 
+	guarded := scan.guarded
+	if s.ID == sourceInsomnia && scan.platform == model.PlatformDarwin {
+		// Only catalog paths are exempt, never directories supplied by an override.
+		fixed := candidatesFor(s, scan.paths, nil, scan.platform)
+		guarded = safepath.New(scan.paths.Home, d.consentGuard(fixed...))
+	}
 	for _, c := range candidatesFor(s, scan.paths, scan.env.Values, scan.platform) {
-		found := d.collectCandidate(ctx, scan, s, c, scan.guarded)
+		found := d.collectCandidate(ctx, scan, s, c, guarded)
 		if scan.capped {
 			return
 		}
@@ -221,7 +228,9 @@ func (d *Detector) collectCandidate(ctx context.Context, scan *scanState, s sour
 		// credential exists, so nothing is recorded.
 		return false
 	default:
-		scan.addError(s.ID, refusalReason(err))
+		// Once per source: a directory override relocating several files fails
+		// them all for the one reason.
+		scan.addErrorOnce(s.ID, refusalReason(err))
 		return false
 	}
 	if info.IsDir() != (s.Mode == readKeyDir) {
@@ -232,10 +241,11 @@ func (d *Detector) collectCandidate(ctx context.Context, scan *scanState, s sour
 	if s.Mode == readKeyDir {
 		return d.collectKeyDir(ctx, scan, s, path, resolver)
 	}
-	if truncated {
-		// The parse saw a prefix of a longer document, so its count is a lower
-		// bound. Recorded before the count is looked at: a document whose
-		// credentials sit past the cap would otherwise read as empty and complete.
+	if truncated || obs.Capped {
+		// The parse saw a prefix of a longer document, or stopped counting at a
+		// bound of its own, so its count is a lower bound. Recorded before the
+		// count is looked at: a document whose credentials sit past the cap would
+		// otherwise read as empty and complete.
 		scan.markCapped(s.ID)
 	}
 	if obs.Unrecognized {
@@ -380,12 +390,20 @@ var errUnsupportedEncoding = errors.New(model.CredentialReasonUnsupportedEncodin
 // consentGuard is what the resolver asks before it touches a path, answering in
 // this phase's own reason code so a refusal reads like every other one. A nil
 // guard is the whole answer with no skipper: the access has been granted.
-func (d *Detector) consentGuard() safepath.Guard {
+func (d *Detector) consentGuard(fixedFiles ...string) safepath.Guard {
 	if d.skipper == nil {
 		return nil
 	}
 	return func(path string) string {
-		if d.skipper.WithinProtected(path) {
+		cleaned := filepath.Clean(path)
+		for _, file := range fixedFiles {
+			// Allow the exact file and its ancestors, not siblings or descendants.
+			// The resolver applies this again to every symlink target before access.
+			if cleaned == file || strings.HasPrefix(file, cleaned+string(filepath.Separator)) {
+				return ""
+			}
+		}
+		if d.skipper.WithinProtected(cleaned) {
 			return model.CredentialReasonRefusedTCC
 		}
 		return ""

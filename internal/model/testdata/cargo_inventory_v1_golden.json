@@ -1,0 +1,1344 @@
+{
+  "cargo_inventory": {
+    "schema_version": 1,
+    "status": "partial",
+    "reasons": [
+      "extraction_incomplete",
+      "parse_error",
+      "path_unresolved",
+      "permission_denied",
+      "skipped_protected",
+      "unsupported_format"
+    ],
+    "sources": [
+      {
+        "source_id": "8905068107d33cde3731bca3d641d20a0b4f4030d471302dd87bb4273f793031",
+        "kind": "install_root",
+        "path": "/opt/cargo-tools",
+        "status": "complete",
+        "presence": "absent",
+        "reasons": [],
+        "discovered_sources": []
+      },
+      {
+        "source_id": "df3970b19cab9a65a2d37be09f6a80abab641114265d69b0c7eccd9964cc4105",
+        "kind": "install_root",
+        "path": "/Users/dev/.cargo",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": []
+      },
+      {
+        "source_id": "143557442baf02cbb6be674e5ef3a703ace66ba693497698721d39a512c2387d",
+        "kind": "git_checkout_root",
+        "path": "/Users/dev/.cargo/git/checkouts",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "extraction_incomplete"
+        ],
+        "discovered_sources": []
+      },
+      {
+        "source_id": "475bfb9f26f82c3029eec3f5ed81281a07e39d0849e485f11707861dafba5e86",
+        "kind": "registry_cache",
+        "path": "/Users/dev/.cargo/registry",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "extraction_incomplete",
+          "parse_error"
+        ],
+        "discovered_sources": []
+      },
+      {
+        "source_id": "8ea97bb1a66be91de8b9013eedd3e300e47f98c74feec63dd75a43e56f799615",
+        "kind": "project_search_root",
+        "path": "/Users/dev/Documents",
+        "status": "partial",
+        "presence": "unknown",
+        "reasons": [
+          "skipped_protected"
+        ],
+        "discovered_sources": []
+      },
+      {
+        "source_id": "6b3a956d3cf6144da563cdb862cd24ce83c97c49173d0ca33a5c11da2cc69841",
+        "kind": "project_search_root",
+        "path": "/Users/dev/code",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "5d57b04308fbe06210f6352543de5418d376c35acac3211c75ae9379fee1aa51",
+          "419034f0fe8e8417792da0fe3c598470ed2b64b0ec2f18761daf8f70657adc65",
+          "b4e029f5458222ea9864851ff5d2d717d65a0bbacec71ba2a9e3d38989fcda24",
+          "54e931b84112086fc9b8b3d9f421504b47f82fecd3e9ca1a3b7af232739b96e9",
+          "355843aed7375a9971af2bff2577e588c464a7ef188e861cd9e983ceab4693f2",
+          "6ea696797b1a49e36144de59a044a173282fb6c3970989d0d1e4cb398e952525",
+          "bcdf5a06f92bd25fdd295f1656ebcfabb285d912958596edd5a0c0dfec4cc593",
+          "8e6f580762e827c39d0425cd39590f52dc5c80555b466bb2081931adf457c994"
+        ]
+      },
+      {
+        "source_id": "f7f452b98eab6a2e194e73de28e02336cfd2a87d3f32f502035858b93537f4dd",
+        "kind": "lockfile",
+        "path": "/Users/dev/code/lib/Cargo.lock",
+        "status": "partial",
+        "presence": "absent",
+        "reasons": [
+          "path_unresolved"
+        ],
+        "parent_source_id": "6ea696797b1a49e36144de59a044a173282fb6c3970989d0d1e4cb398e952525",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "6ea696797b1a49e36144de59a044a173282fb6c3970989d0d1e4cb398e952525",
+        "kind": "manifest",
+        "path": "/Users/dev/code/lib/Cargo.toml",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "6b3a956d3cf6144da563cdb862cd24ce83c97c49173d0ca33a5c11da2cc69841",
+        "discovered_sources": [
+          "f7f452b98eab6a2e194e73de28e02336cfd2a87d3f32f502035858b93537f4dd"
+        ]
+      },
+      {
+        "source_id": "8e6f580762e827c39d0425cd39590f52dc5c80555b466bb2081931adf457c994",
+        "kind": "manifest",
+        "path": "/Users/dev/code/locked/Cargo.toml",
+        "status": "partial",
+        "presence": "unknown",
+        "reasons": [
+          "permission_denied"
+        ],
+        "parent_source_id": "6b3a956d3cf6144da563cdb862cd24ce83c97c49173d0ca33a5c11da2cc69841",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "9c2ddf092ca9d4b31a137b6672d2ed3cb4fe88770a9c5086d38fb4f5c3c94e5c",
+        "kind": "lockfile",
+        "path": "/Users/dev/code/old/Cargo.lock",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "unsupported_format"
+        ],
+        "parent_source_id": "419034f0fe8e8417792da0fe3c598470ed2b64b0ec2f18761daf8f70657adc65",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "419034f0fe8e8417792da0fe3c598470ed2b64b0ec2f18761daf8f70657adc65",
+        "kind": "manifest",
+        "path": "/Users/dev/code/old/Cargo.toml",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "6b3a956d3cf6144da563cdb862cd24ce83c97c49173d0ca33a5c11da2cc69841",
+        "discovered_sources": [
+          "9c2ddf092ca9d4b31a137b6672d2ed3cb4fe88770a9c5086d38fb4f5c3c94e5c"
+        ]
+      },
+      {
+        "source_id": "2725180af5f8b5e3a011a0d48fb30559b4d7044afd3c988c0d9e82cde8ae74fd",
+        "kind": "lockfile",
+        "path": "/Users/dev/code/ws/Cargo.lock",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "path_unresolved"
+        ],
+        "parent_source_id": "5d57b04308fbe06210f6352543de5418d376c35acac3211c75ae9379fee1aa51",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "5d57b04308fbe06210f6352543de5418d376c35acac3211c75ae9379fee1aa51",
+        "kind": "manifest",
+        "path": "/Users/dev/code/ws/Cargo.toml",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "6b3a956d3cf6144da563cdb862cd24ce83c97c49173d0ca33a5c11da2cc69841",
+        "discovered_sources": [
+          "2725180af5f8b5e3a011a0d48fb30559b4d7044afd3c988c0d9e82cde8ae74fd"
+        ]
+      },
+      {
+        "source_id": "bcdf5a06f92bd25fdd295f1656ebcfabb285d912958596edd5a0c0dfec4cc593",
+        "kind": "manifest",
+        "path": "/Users/dev/code/ws/crates/core/Cargo.toml",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "6b3a956d3cf6144da563cdb862cd24ce83c97c49173d0ca33a5c11da2cc69841",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "f8b8c8f1c6e745b41c2e6b0565dca26345a1f41c8ddcabf71371c7da5045197f",
+        "kind": "lockfile",
+        "path": "/Users/dev/code/ws/crates/skip/Cargo.lock",
+        "status": "partial",
+        "presence": "absent",
+        "reasons": [
+          "path_unresolved"
+        ],
+        "parent_source_id": "355843aed7375a9971af2bff2577e588c464a7ef188e861cd9e983ceab4693f2",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "355843aed7375a9971af2bff2577e588c464a7ef188e861cd9e983ceab4693f2",
+        "kind": "manifest",
+        "path": "/Users/dev/code/ws/crates/skip/Cargo.toml",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "6b3a956d3cf6144da563cdb862cd24ce83c97c49173d0ca33a5c11da2cc69841",
+        "discovered_sources": [
+          "f8b8c8f1c6e745b41c2e6b0565dca26345a1f41c8ddcabf71371c7da5045197f"
+        ]
+      },
+      {
+        "source_id": "54e931b84112086fc9b8b3d9f421504b47f82fecd3e9ca1a3b7af232739b96e9",
+        "kind": "manifest",
+        "path": "/Users/dev/code/ws/crates/util/Cargo.toml",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "6b3a956d3cf6144da563cdb862cd24ce83c97c49173d0ca33a5c11da2cc69841",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "34e46c93ce42de179b7dbca0b0756e5ac92d44aa811eb1b27b3e1a9672df1dfd",
+        "kind": "local_registry",
+        "path": "/Users/dev/code/ws/localreg",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": []
+      },
+      {
+        "source_id": "b4e029f5458222ea9864851ff5d2d717d65a0bbacec71ba2a9e3d38989fcda24",
+        "kind": "directory_source",
+        "path": "/Users/dev/code/ws/vendor",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "6b3a956d3cf6144da563cdb862cd24ce83c97c49173d0ca33a5c11da2cc69841",
+        "discovered_sources": []
+      }
+    ],
+    "projects": [
+      {
+        "manifest_source_id": "6ea696797b1a49e36144de59a044a173282fb6c3970989d0d1e4cb398e952525",
+        "manifest_path": "/Users/dev/code/lib/Cargo.toml",
+        "project_path": "/Users/dev/code/lib",
+        "package_name": "tiny-lib",
+        "package_version": "0.1.0",
+        "lockfile_paths": [
+          "/Users/dev/code/lib/Cargo.lock"
+        ]
+      },
+      {
+        "manifest_source_id": "419034f0fe8e8417792da0fe3c598470ed2b64b0ec2f18761daf8f70657adc65",
+        "manifest_path": "/Users/dev/code/old/Cargo.toml",
+        "project_path": "/Users/dev/code/old",
+        "package_name": "old",
+        "package_version": "0.1.0",
+        "lockfile_paths": [
+          "/Users/dev/code/old/Cargo.lock"
+        ]
+      },
+      {
+        "manifest_source_id": "5d57b04308fbe06210f6352543de5418d376c35acac3211c75ae9379fee1aa51",
+        "manifest_path": "/Users/dev/code/ws/Cargo.toml",
+        "project_path": "/Users/dev/code/ws",
+        "workspace_manifest_path": "/Users/dev/code/ws/Cargo.toml",
+        "lockfile_paths": [
+          "/Users/dev/code/ws/Cargo.lock"
+        ]
+      },
+      {
+        "manifest_source_id": "bcdf5a06f92bd25fdd295f1656ebcfabb285d912958596edd5a0c0dfec4cc593",
+        "manifest_path": "/Users/dev/code/ws/crates/core/Cargo.toml",
+        "project_path": "/Users/dev/code/ws/crates/core",
+        "package_name": "ws-core",
+        "package_version": "0.3.0",
+        "workspace_manifest_path": "/Users/dev/code/ws/Cargo.toml",
+        "lockfile_paths": [
+          "/Users/dev/code/ws/Cargo.lock"
+        ]
+      },
+      {
+        "manifest_source_id": "355843aed7375a9971af2bff2577e588c464a7ef188e861cd9e983ceab4693f2",
+        "manifest_path": "/Users/dev/code/ws/crates/skip/Cargo.toml",
+        "project_path": "/Users/dev/code/ws/crates/skip",
+        "package_name": "skipped",
+        "package_version": "0.0.1",
+        "lockfile_paths": [
+          "/Users/dev/code/ws/crates/skip/Cargo.lock"
+        ]
+      },
+      {
+        "manifest_source_id": "54e931b84112086fc9b8b3d9f421504b47f82fecd3e9ca1a3b7af232739b96e9",
+        "manifest_path": "/Users/dev/code/ws/crates/util/Cargo.toml",
+        "project_path": "/Users/dev/code/ws/crates/util",
+        "package_name": "ws-util",
+        "package_version": "0.1.0",
+        "workspace_manifest_path": "/Users/dev/code/ws/Cargo.toml",
+        "lockfile_paths": [
+          "/Users/dev/code/ws/Cargo.lock"
+        ]
+      }
+    ],
+    "workspaces": [
+      {
+        "manifest_source_id": "5d57b04308fbe06210f6352543de5418d376c35acac3211c75ae9379fee1aa51",
+        "manifest_path": "/Users/dev/code/ws/Cargo.toml",
+        "members": [
+          {
+            "manifest_path": "/Users/dev/code/ws/crates/core/Cargo.toml",
+            "status": "complete"
+          },
+          {
+            "manifest_path": "/Users/dev/code/ws/crates/util/Cargo.toml",
+            "status": "complete"
+          }
+        ]
+      }
+    ],
+    "packages": [
+      {
+        "source_id": "475bfb9f26f82c3029eec3f5ed81281a07e39d0849e485f11707861dafba5e86",
+        "evidence": "cached_package",
+        "package_name": "anyhow",
+        "dependency_relation": "unknown",
+        "reasons": [],
+        "observed_version": "1.0.86",
+        "version_status": "known",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "cache_unknown",
+          "cache_root": "/Users/dev/.cargo/registry",
+          "cache_id": "index.crates.io-1949cf8c6b5b557f"
+        },
+        "source_path": "/Users/dev/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/anyhow-1.0.86",
+        "artifacts": [
+          {
+            "kind": "extracted",
+            "path": "/Users/dev/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/anyhow-1.0.86",
+            "presence": "present",
+            "status": "partial",
+            "reasons": [
+              "extraction_incomplete"
+            ]
+          }
+        ],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "475bfb9f26f82c3029eec3f5ed81281a07e39d0849e485f11707861dafba5e86",
+        "evidence": "cached_package",
+        "package_name": "log",
+        "dependency_relation": "unknown",
+        "reasons": [],
+        "observed_version": "0.4.21",
+        "version_status": "known",
+        "identity_status": "filename_inferred",
+        "origin": {
+          "kind": "cache_unknown",
+          "cache_root": "/Users/dev/.cargo/registry",
+          "cache_id": "index.crates.io-1949cf8c6b5b557f"
+        },
+        "source_path": "/Users/dev/.cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/log-0.4.21.crate",
+        "artifacts": [
+          {
+            "kind": "archive",
+            "path": "/Users/dev/.cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/log-0.4.21.crate",
+            "presence": "present",
+            "status": "partial",
+            "reasons": [
+              "parse_error"
+            ]
+          }
+        ],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "34e46c93ce42de179b7dbca0b0756e5ac92d44aa811eb1b27b3e1a9672df1dfd",
+        "evidence": "cached_package",
+        "package_name": "make-me",
+        "dependency_relation": "unknown",
+        "reasons": [],
+        "observed_version": "0.2.0",
+        "version_status": "known",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "vendor_unknown",
+          "path": "/Users/dev/code/ws/localreg"
+        },
+        "source_path": "/Users/dev/code/ws/localreg/make-me-0.2.0.crate",
+        "artifacts": [
+          {
+            "kind": "archive",
+            "path": "/Users/dev/code/ws/localreg/make-me-0.2.0.crate",
+            "presence": "present",
+            "status": "complete",
+            "reasons": []
+          }
+        ],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "475bfb9f26f82c3029eec3f5ed81281a07e39d0849e485f11707861dafba5e86",
+        "evidence": "cached_package",
+        "package_name": "serde",
+        "dependency_relation": "unknown",
+        "reasons": [],
+        "observed_version": "1.0.200",
+        "version_status": "known",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "cache_unknown",
+          "cache_root": "/Users/dev/.cargo/registry",
+          "cache_id": "index.crates.io-1949cf8c6b5b557f"
+        },
+        "source_path": "/Users/dev/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.200",
+        "artifacts": [
+          {
+            "kind": "extracted",
+            "path": "/Users/dev/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.200",
+            "presence": "present",
+            "status": "complete",
+            "reasons": []
+          },
+          {
+            "kind": "archive",
+            "path": "/Users/dev/.cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/serde-1.0.200.crate",
+            "presence": "present",
+            "status": "complete",
+            "reasons": []
+          }
+        ],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "6ea696797b1a49e36144de59a044a173282fb6c3970989d0d1e4cb398e952525",
+        "evidence": "declared_requirement",
+        "package_name": "anyhow",
+        "dependency_relation": "direct",
+        "reasons": [],
+        "requested_version": "1",
+        "version_status": "unknown",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "registry",
+          "url": "https://github.com/rust-lang/crates.io-index",
+          "registry_name": "crates-io"
+        },
+        "source_path": "/Users/dev/code/lib/Cargo.toml",
+        "project_path": "/Users/dev/code/lib",
+        "declaration": {
+          "declared_name": "anyhow",
+          "dependency_kind": "normal",
+          "features": [],
+          "workspace_inherited": false
+        },
+        "artifacts": [],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "bcdf5a06f92bd25fdd295f1656ebcfabb285d912958596edd5a0c0dfec4cc593",
+        "evidence": "declared_requirement",
+        "package_name": "cc",
+        "dependency_relation": "direct",
+        "reasons": [],
+        "requested_version": "1",
+        "version_status": "unknown",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "registry",
+          "url": "https://github.com/rust-lang/crates.io-index",
+          "registry_name": "crates-io"
+        },
+        "source_path": "/Users/dev/code/ws/crates/core/Cargo.toml",
+        "project_path": "/Users/dev/code/ws/crates/core",
+        "workspace_path": "/Users/dev/code/ws",
+        "declaration": {
+          "declared_name": "cc",
+          "dependency_kind": "build",
+          "features": [],
+          "workspace_inherited": false
+        },
+        "artifacts": [],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "bcdf5a06f92bd25fdd295f1656ebcfabb285d912958596edd5a0c0dfec4cc593",
+        "evidence": "declared_requirement",
+        "package_name": "libc",
+        "dependency_relation": "direct",
+        "reasons": [],
+        "requested_version": "0.2",
+        "version_status": "unknown",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "registry",
+          "url": "https://github.com/rust-lang/crates.io-index",
+          "registry_name": "crates-io"
+        },
+        "source_path": "/Users/dev/code/ws/crates/core/Cargo.toml",
+        "project_path": "/Users/dev/code/ws/crates/core",
+        "workspace_path": "/Users/dev/code/ws",
+        "declaration": {
+          "declared_name": "libc",
+          "dependency_kind": "normal",
+          "target": "cfg(unix)",
+          "features": [],
+          "workspace_inherited": false
+        },
+        "artifacts": [],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "bcdf5a06f92bd25fdd295f1656ebcfabb285d912958596edd5a0c0dfec4cc593",
+        "evidence": "declared_requirement",
+        "package_name": "mystery",
+        "dependency_relation": "direct",
+        "reasons": [
+          "origin_unresolved"
+        ],
+        "requested_version": "1",
+        "version_status": "unknown",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "registry_unknown",
+          "registry_name": "unknown-alias",
+          "path": "/Users/dev/code/ws/crates/core"
+        },
+        "source_path": "/Users/dev/code/ws/crates/core/Cargo.toml",
+        "project_path": "/Users/dev/code/ws/crates/core",
+        "workspace_path": "/Users/dev/code/ws",
+        "declaration": {
+          "declared_name": "mystery",
+          "dependency_kind": "normal",
+          "features": [],
+          "workspace_inherited": false
+        },
+        "artifacts": [],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "bcdf5a06f92bd25fdd295f1656ebcfabb285d912958596edd5a0c0dfec4cc593",
+        "evidence": "declared_requirement",
+        "package_name": "proptest",
+        "dependency_relation": "direct",
+        "reasons": [],
+        "requested_version": "*",
+        "version_status": "unknown",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "registry",
+          "url": "https://github.com/rust-lang/crates.io-index",
+          "registry_name": "crates-io"
+        },
+        "source_path": "/Users/dev/code/ws/crates/core/Cargo.toml",
+        "project_path": "/Users/dev/code/ws/crates/core",
+        "workspace_path": "/Users/dev/code/ws",
+        "declaration": {
+          "declared_name": "proptest",
+          "dependency_kind": "dev",
+          "features": [],
+          "workspace_inherited": false
+        },
+        "artifacts": [],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "bcdf5a06f92bd25fdd295f1656ebcfabb285d912958596edd5a0c0dfec4cc593",
+        "evidence": "declared_requirement",
+        "package_name": "secret",
+        "dependency_relation": "direct",
+        "reasons": [],
+        "requested_version": "2",
+        "version_status": "unknown",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "registry",
+          "url": "sparse+https://crates.internal.example/api/",
+          "registry_name": "internal"
+        },
+        "source_path": "/Users/dev/code/ws/crates/core/Cargo.toml",
+        "project_path": "/Users/dev/code/ws/crates/core",
+        "workspace_path": "/Users/dev/code/ws",
+        "declaration": {
+          "declared_name": "secret",
+          "dependency_kind": "normal",
+          "features": [],
+          "workspace_inherited": false
+        },
+        "artifacts": [],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "bcdf5a06f92bd25fdd295f1656ebcfabb285d912958596edd5a0c0dfec4cc593",
+        "evidence": "declared_requirement",
+        "package_name": "serde",
+        "dependency_relation": "direct",
+        "reasons": [],
+        "requested_version": "1.0",
+        "version_status": "unknown",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "registry",
+          "url": "https://github.com/rust-lang/crates.io-index",
+          "registry_name": "crates-io"
+        },
+        "source_path": "/Users/dev/code/ws/crates/core/Cargo.toml",
+        "project_path": "/Users/dev/code/ws/crates/core",
+        "workspace_path": "/Users/dev/code/ws",
+        "declaration": {
+          "declared_name": "serde",
+          "dependency_kind": "normal",
+          "optional": true,
+          "features": [
+            "derive",
+            "rc"
+          ],
+          "workspace_inherited": true
+        },
+        "artifacts": [],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "bcdf5a06f92bd25fdd295f1656ebcfabb285d912958596edd5a0c0dfec4cc593",
+        "evidence": "declared_requirement",
+        "package_name": "serde_json",
+        "dependency_relation": "direct",
+        "reasons": [],
+        "requested_version": "=1.0.117",
+        "version_status": "unknown",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "registry",
+          "url": "https://github.com/rust-lang/crates.io-index",
+          "registry_name": "crates-io"
+        },
+        "source_path": "/Users/dev/code/ws/crates/core/Cargo.toml",
+        "project_path": "/Users/dev/code/ws/crates/core",
+        "workspace_path": "/Users/dev/code/ws",
+        "declaration": {
+          "declared_name": "json",
+          "dependency_kind": "normal",
+          "default_features": false,
+          "features": [],
+          "workspace_inherited": false
+        },
+        "artifacts": [],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "bcdf5a06f92bd25fdd295f1656ebcfabb285d912958596edd5a0c0dfec4cc593",
+        "evidence": "declared_requirement",
+        "package_name": "tokio",
+        "dependency_relation": "direct",
+        "reasons": [],
+        "version_status": "unknown",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/tokio-rs/tokio",
+          "tag": "tokio-1.38.0"
+        },
+        "source_path": "/Users/dev/code/ws/crates/core/Cargo.toml",
+        "project_path": "/Users/dev/code/ws/crates/core",
+        "workspace_path": "/Users/dev/code/ws",
+        "declaration": {
+          "declared_name": "tokio",
+          "dependency_kind": "normal",
+          "features": [],
+          "workspace_inherited": false
+        },
+        "artifacts": [],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "bcdf5a06f92bd25fdd295f1656ebcfabb285d912958596edd5a0c0dfec4cc593",
+        "evidence": "declared_requirement",
+        "package_name": "util",
+        "dependency_relation": "direct",
+        "reasons": [],
+        "version_status": "unknown",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "local",
+          "path": "/Users/dev/code/ws/crates/util",
+          "is_local": true
+        },
+        "source_path": "/Users/dev/code/ws/crates/core/Cargo.toml",
+        "project_path": "/Users/dev/code/ws/crates/core",
+        "workspace_path": "/Users/dev/code/ws",
+        "declaration": {
+          "declared_name": "util",
+          "dependency_kind": "normal",
+          "features": [],
+          "workspace_inherited": false
+        },
+        "artifacts": [],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "143557442baf02cbb6be674e5ef3a703ace66ba693497698721d39a512c2387d",
+        "evidence": "git_cached_package",
+        "package_name": "rand",
+        "dependency_relation": "unknown",
+        "reasons": [
+          "origin_unresolved"
+        ],
+        "observed_version": "0.9.0",
+        "version_status": "known",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "git_unknown",
+          "cache_root": "/Users/dev/.cargo/git/checkouts",
+          "cache_id": "rand-99aa00bb11cc22dd/fedcba9"
+        },
+        "source_path": "/Users/dev/.cargo/git/checkouts/rand-99aa00bb11cc22dd/fedcba9",
+        "artifacts": [
+          {
+            "kind": "git_checkout",
+            "path": "/Users/dev/.cargo/git/checkouts/rand-99aa00bb11cc22dd/fedcba9",
+            "presence": "present",
+            "status": "partial",
+            "reasons": [
+              "extraction_incomplete"
+            ]
+          }
+        ],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "143557442baf02cbb6be674e5ef3a703ace66ba693497698721d39a512c2387d",
+        "evidence": "git_cached_package",
+        "package_name": "tokio",
+        "dependency_relation": "unknown",
+        "reasons": [],
+        "observed_version": "1.38.0",
+        "version_status": "known",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "git_unknown",
+          "cache_root": "/Users/dev/.cargo/git/checkouts",
+          "cache_id": "tokio-6ad7bb1d2a1b1c1a/0123456",
+          "resolved_revision": "0123456789abcdef0123456789abcdef01234567"
+        },
+        "source_path": "/Users/dev/.cargo/git/checkouts/tokio-6ad7bb1d2a1b1c1a/0123456/tokio",
+        "artifacts": [
+          {
+            "kind": "git_checkout",
+            "path": "/Users/dev/.cargo/git/checkouts/tokio-6ad7bb1d2a1b1c1a/0123456/tokio",
+            "presence": "present",
+            "status": "complete",
+            "reasons": []
+          }
+        ],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "df3970b19cab9a65a2d37be09f6a80abab641114265d69b0c7eccd9964cc4105",
+        "evidence": "installed_tool",
+        "package_name": "mytool",
+        "dependency_relation": "unknown",
+        "reasons": [],
+        "observed_version": "0.1.0",
+        "version_status": "known",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/example/mytool",
+          "branch": "main",
+          "resolved_revision": "89abcdef0123456789abcdef0123456789abcdef"
+        },
+        "source_path": "/Users/dev/.cargo/.crates.toml",
+        "artifacts": [],
+        "installation": {
+          "root_path": "/Users/dev/.cargo",
+          "bins": [
+            {
+              "name": "mytool",
+              "path": "/Users/dev/.cargo/bin/mytool",
+              "presence": "present"
+            },
+            {
+              "name": "mytool-helper",
+              "path": "/Users/dev/.cargo/bin/mytool-helper",
+              "presence": "absent"
+            }
+          ],
+          "status": "partial"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "df3970b19cab9a65a2d37be09f6a80abab641114265d69b0c7eccd9964cc4105",
+        "evidence": "installed_tool",
+        "package_name": "ripgrep",
+        "dependency_relation": "unknown",
+        "reasons": [],
+        "observed_version": "14.1.0",
+        "version_status": "known",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "registry",
+          "url": "https://github.com/rust-lang/crates.io-index"
+        },
+        "source_path": "/Users/dev/.cargo/.crates.toml",
+        "artifacts": [],
+        "installation": {
+          "root_path": "/Users/dev/.cargo",
+          "bins": [
+            {
+              "name": "rg",
+              "path": "/Users/dev/.cargo/bin/rg",
+              "presence": "present"
+            }
+          ],
+          "status": "complete",
+          "version_req": "^14",
+          "features": [
+            "pcre2"
+          ],
+          "all_features": false,
+          "no_default_features": false,
+          "target": "aarch64-apple-darwin",
+          "profile": "release",
+          "rustc": "rustc 1.79.0 (129f3b996 2024-06-10)"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "2725180af5f8b5e3a011a0d48fb30559b4d7044afd3c988c0d9e82cde8ae74fd",
+        "evidence": "locked_package",
+        "package_name": "memchr",
+        "dependency_relation": "unknown",
+        "reasons": [
+          "checksum_mismatch"
+        ],
+        "observed_version": "2.7.4",
+        "version_status": "known",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "registry",
+          "url": "https://github.com/rust-lang/crates.io-index"
+        },
+        "source_path": "/Users/dev/code/ws/Cargo.lock",
+        "project_path": "/Users/dev/code/ws",
+        "workspace_path": "/Users/dev/code/ws",
+        "artifacts": [],
+        "checksum_status": "partial",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a8e50a1b0d8d14d4b5",
+            "source_kind": "lockfile",
+            "source_path": "/Users/dev/code/ws/Cargo.lock",
+            "source_id": "2725180af5f8b5e3a011a0d48fb30559b4d7044afd3c988c0d9e82cde8ae74fd",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "0000000000000000000000000000000000000000000000000000000000000000",
+            "source_kind": "lockfile",
+            "source_path": "/Users/dev/code/ws/Cargo.lock",
+            "source_id": "2725180af5f8b5e3a011a0d48fb30559b4d7044afd3c988c0d9e82cde8ae74fd",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "2725180af5f8b5e3a011a0d48fb30559b4d7044afd3c988c0d9e82cde8ae74fd",
+        "evidence": "locked_package",
+        "package_name": "orphan-local",
+        "dependency_relation": "unknown",
+        "reasons": [],
+        "observed_version": "0.9.0",
+        "version_status": "known",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "local_unknown",
+          "path": "/Users/dev/code/ws/Cargo.lock",
+          "is_local": true
+        },
+        "source_path": "/Users/dev/code/ws/Cargo.lock",
+        "project_path": "/Users/dev/code/ws",
+        "workspace_path": "/Users/dev/code/ws",
+        "artifacts": [],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "2725180af5f8b5e3a011a0d48fb30559b4d7044afd3c988c0d9e82cde8ae74fd",
+        "evidence": "locked_package",
+        "package_name": "serde",
+        "dependency_relation": "unknown",
+        "reasons": [],
+        "observed_version": "1.0.200",
+        "version_status": "known",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "registry",
+          "url": "https://github.com/rust-lang/crates.io-index"
+        },
+        "source_path": "/Users/dev/code/ws/Cargo.lock",
+        "project_path": "/Users/dev/code/ws",
+        "workspace_path": "/Users/dev/code/ws",
+        "artifacts": [],
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "ddc6f9cc94d67c0e21aaf7eda3a010fd3af78ebf6e096aa6e2e13c79749cce4f",
+            "source_kind": "lockfile",
+            "source_path": "/Users/dev/code/ws/Cargo.lock",
+            "source_id": "2725180af5f8b5e3a011a0d48fb30559b4d7044afd3c988c0d9e82cde8ae74fd",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "2725180af5f8b5e3a011a0d48fb30559b4d7044afd3c988c0d9e82cde8ae74fd",
+        "evidence": "locked_package",
+        "package_name": "serde_json",
+        "dependency_relation": "unknown",
+        "reasons": [
+          "checksum_invalid"
+        ],
+        "observed_version": "1.0.117",
+        "version_status": "known",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "registry",
+          "url": "sparse+https://index.crates.io/"
+        },
+        "source_path": "/Users/dev/code/ws/Cargo.lock",
+        "project_path": "/Users/dev/code/ws",
+        "workspace_path": "/Users/dev/code/ws",
+        "artifacts": [],
+        "checksum_status": "partial",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "2725180af5f8b5e3a011a0d48fb30559b4d7044afd3c988c0d9e82cde8ae74fd",
+        "evidence": "locked_package",
+        "package_name": "tokio",
+        "dependency_relation": "unknown",
+        "reasons": [],
+        "observed_version": "1.38.0",
+        "version_status": "known",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/tokio-rs/tokio",
+          "tag": "tokio-1.38.0",
+          "resolved_revision": "0123456789abcdef0123456789abcdef01234567"
+        },
+        "source_path": "/Users/dev/code/ws/Cargo.lock",
+        "project_path": "/Users/dev/code/ws",
+        "workspace_path": "/Users/dev/code/ws",
+        "artifacts": [],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "2725180af5f8b5e3a011a0d48fb30559b4d7044afd3c988c0d9e82cde8ae74fd",
+        "evidence": "locked_package",
+        "package_name": "ws-util",
+        "dependency_relation": "unknown",
+        "reasons": [],
+        "observed_version": "0.1.0",
+        "version_status": "known",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "local",
+          "path": "/Users/dev/code/ws/crates/util",
+          "is_local": true
+        },
+        "source_path": "/Users/dev/code/ws/Cargo.lock",
+        "project_path": "/Users/dev/code/ws",
+        "workspace_path": "/Users/dev/code/ws",
+        "artifacts": [],
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "b4e029f5458222ea9864851ff5d2d717d65a0bbacec71ba2a9e3d38989fcda24",
+        "evidence": "vendored_package",
+        "package_name": "itoa",
+        "dependency_relation": "unknown",
+        "reasons": [],
+        "observed_version": "1.0.11",
+        "version_status": "known",
+        "identity_status": "metadata",
+        "origin": {
+          "kind": "vendor_unknown",
+          "path": "/Users/dev/code/ws/vendor"
+        },
+        "source_path": "/Users/dev/code/ws/vendor/itoa",
+        "artifacts": [
+          {
+            "kind": "vendor",
+            "path": "/Users/dev/code/ws/vendor/itoa",
+            "presence": "present",
+            "status": "complete",
+            "reasons": []
+          }
+        ],
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b",
+            "source_kind": "vendor_checksum",
+            "source_path": "/Users/dev/code/ws/vendor/itoa/.cargo-checksum.json",
+            "source_id": "b4e029f5458222ea9864851ff5d2d717d65a0bbacec71ba2a9e3d38989fcda24",
+            "verification": "not_verified"
+          }
+        ]
+      }
+    ]
+  },
+  "cargo_config_audit": {
+    "schema_version": 1,
+    "status": "partial",
+    "reasons": [
+      "config_include_unresolved"
+    ],
+    "files": [
+      {
+        "source_id": "617f2dedd54f1f0e6fb6ed0f7d671a87a68a08c164d15ba7ae23465c1cb898a2",
+        "scope": "included",
+        "path": "/Users/dev/.cargo/extra.toml",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "net.git-fetch-with-cli",
+            "display": "true",
+            "source_id": "617f2dedd54f1f0e6fb6ed0f7d671a87a68a08c164d15ba7ae23465c1cb898a2",
+            "redacted": false
+          }
+        ],
+        "include_parent_source_id": "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478"
+      },
+      {
+        "source_id": "9cb9c53ce482e002c10064cdc1ac8a902c97b7f35de51013576feaa21238534d",
+        "scope": "included",
+        "path": "/Users/dev/code/lib/.cargo/missing.toml",
+        "status": "absent",
+        "reasons": [],
+        "settings": [],
+        "include_parent_source_id": "b23fe9622a2fc51bf7f3a92a71f27b7d99f8ce023496776f9113629010b12349"
+      },
+      {
+        "source_id": "fcbdb66633c76fc24485747279521cf63106db17fc3797f1632f746a299eec3b",
+        "scope": "process",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "CARGO_NET_OFFLINE",
+            "display": "true",
+            "source_id": "fcbdb66633c76fc24485747279521cf63106db17fc3797f1632f746a299eec3b",
+            "redacted": false
+          },
+          {
+            "key": "CARGO_REGISTRIES_CORP_TOKEN",
+            "display": "configured",
+            "source_id": "fcbdb66633c76fc24485747279521cf63106db17fc3797f1632f746a299eec3b",
+            "redacted": true
+          }
+        ]
+      },
+      {
+        "source_id": "b23fe9622a2fc51bf7f3a92a71f27b7d99f8ce023496776f9113629010b12349",
+        "scope": "project",
+        "path": "/Users/dev/code/lib/.cargo/config",
+        "status": "invalid",
+        "reasons": [
+          "config_include_unresolved"
+        ],
+        "settings": [
+          {
+            "key": "include",
+            "display": "/Users/dev/code/lib/.cargo/missing.toml",
+            "source_id": "b23fe9622a2fc51bf7f3a92a71f27b7d99f8ce023496776f9113629010b12349",
+            "redacted": false
+          },
+          {
+            "key": "net.git-fetch-with-cli",
+            "display": "true",
+            "source_id": "b23fe9622a2fc51bf7f3a92a71f27b7d99f8ce023496776f9113629010b12349",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "e9de3efb4866e2faad1ca0ebf6dc8cd341923f2eab7a6bf5b55728163819d59e",
+        "scope": "project",
+        "path": "/Users/dev/code/lib/.cargo/config.toml",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "net.offline",
+            "display": "true",
+            "source_id": "e9de3efb4866e2faad1ca0ebf6dc8cd341923f2eab7a6bf5b55728163819d59e",
+            "redacted": false
+          }
+        ],
+        "shadowed_by": "b23fe9622a2fc51bf7f3a92a71f27b7d99f8ce023496776f9113629010b12349"
+      },
+      {
+        "source_id": "13a627b21ef76c78bda217bd029e02c378abd37030e3e283ca5024c623eef719",
+        "scope": "project",
+        "path": "/Users/dev/code/ws/.cargo/config.toml",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "registries.internal.index",
+            "display": "sparse+https://crates.internal.example/api/",
+            "source_id": "13a627b21ef76c78bda217bd029e02c378abd37030e3e283ca5024c623eef719",
+            "redacted": false
+          },
+          {
+            "key": "resolver.lockfile-path",
+            "display": "{workspace}/Cargo.lock",
+            "source_id": "13a627b21ef76c78bda217bd029e02c378abd37030e3e283ca5024c623eef719",
+            "redacted": false
+          },
+          {
+            "key": "source.crates-io.replace-with",
+            "display": "vendored",
+            "source_id": "13a627b21ef76c78bda217bd029e02c378abd37030e3e283ca5024c623eef719",
+            "redacted": false
+          },
+          {
+            "key": "source.gitmirror.branch",
+            "display": "main",
+            "source_id": "13a627b21ef76c78bda217bd029e02c378abd37030e3e283ca5024c623eef719",
+            "redacted": false
+          },
+          {
+            "key": "source.gitmirror.git",
+            "display": "http://git.example/mirror.git",
+            "source_id": "13a627b21ef76c78bda217bd029e02c378abd37030e3e283ca5024c623eef719",
+            "redacted": false
+          },
+          {
+            "key": "source.localreg.local-registry",
+            "display": "/Users/dev/code/ws/localreg",
+            "source_id": "13a627b21ef76c78bda217bd029e02c378abd37030e3e283ca5024c623eef719",
+            "redacted": false
+          },
+          {
+            "key": "source.mirror.registry",
+            "display": "sparse+https://mirror.example/index/",
+            "source_id": "13a627b21ef76c78bda217bd029e02c378abd37030e3e283ca5024c623eef719",
+            "redacted": false
+          },
+          {
+            "key": "source.vendored.directory",
+            "display": "/Users/dev/code/ws/vendor",
+            "source_id": "13a627b21ef76c78bda217bd029e02c378abd37030e3e283ca5024c623eef719",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+        "scope": "user",
+        "path": "/Users/dev/.cargo/config.toml",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "http.check-revoke",
+            "display": "false",
+            "source_id": "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+            "redacted": false
+          },
+          {
+            "key": "http.proxy",
+            "display": "http://proxy.example:8080",
+            "source_id": "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+            "redacted": true
+          },
+          {
+            "key": "include",
+            "display": "/Users/dev/.cargo/extra.toml",
+            "source_id": "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+            "redacted": false
+          },
+          {
+            "key": "install.root",
+            "display": "/opt/cargo-tools",
+            "source_id": "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+            "redacted": false
+          },
+          {
+            "key": "registries.corp.credential-provider",
+            "display": "cargo:token-from-stdout",
+            "source_id": "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+            "redacted": true
+          },
+          {
+            "key": "registries.corp.index",
+            "display": "http://registry.corp.example/index",
+            "source_id": "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+            "redacted": true
+          },
+          {
+            "key": "registries.corp.token",
+            "display": "configured",
+            "source_id": "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+            "redacted": true
+          }
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "code": "cargo-001",
+        "severity": "MEDIUM",
+        "source_id": "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+        "key": "registries.corp.index",
+        "detail": "registry index uses plaintext http transport"
+      },
+      {
+        "code": "cargo-002",
+        "severity": "MEDIUM",
+        "source_id": "13a627b21ef76c78bda217bd029e02c378abd37030e3e283ca5024c623eef719",
+        "key": "source.gitmirror.git",
+        "detail": "Git source uses http or unauthenticated git transport"
+      },
+      {
+        "code": "cargo-003",
+        "severity": "MEDIUM",
+        "source_id": "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+        "key": "registries.corp.token",
+        "detail": "registry token is written in a config file rather than a credentials file or provider"
+      },
+      {
+        "code": "cargo-004",
+        "severity": "LOW",
+        "source_id": "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+        "key": "http.check-revoke",
+        "detail": "certificate revocation checking is disabled; TLS peer validation is unaffected"
+      }
+    ],
+    "contexts": [
+      {
+        "config_source_ids": [
+          "fcbdb66633c76fc24485747279521cf63106db17fc3797f1632f746a299eec3b",
+          "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+          "617f2dedd54f1f0e6fb6ed0f7d671a87a68a08c164d15ba7ae23465c1cb898a2"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "project_path": "/Users/dev/code/lib",
+        "config_source_ids": [
+          "fcbdb66633c76fc24485747279521cf63106db17fc3797f1632f746a299eec3b",
+          "b23fe9622a2fc51bf7f3a92a71f27b7d99f8ce023496776f9113629010b12349",
+          "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+          "617f2dedd54f1f0e6fb6ed0f7d671a87a68a08c164d15ba7ae23465c1cb898a2"
+        ],
+        "selection_status": "partial"
+      },
+      {
+        "project_path": "/Users/dev/code/old",
+        "config_source_ids": [
+          "fcbdb66633c76fc24485747279521cf63106db17fc3797f1632f746a299eec3b",
+          "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+          "617f2dedd54f1f0e6fb6ed0f7d671a87a68a08c164d15ba7ae23465c1cb898a2"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "project_path": "/Users/dev/code/ws",
+        "workspace_path": "/Users/dev/code/ws",
+        "config_source_ids": [
+          "fcbdb66633c76fc24485747279521cf63106db17fc3797f1632f746a299eec3b",
+          "13a627b21ef76c78bda217bd029e02c378abd37030e3e283ca5024c623eef719",
+          "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+          "617f2dedd54f1f0e6fb6ed0f7d671a87a68a08c164d15ba7ae23465c1cb898a2"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "project_path": "/Users/dev/code/ws/crates/core",
+        "workspace_path": "/Users/dev/code/ws",
+        "config_source_ids": [
+          "fcbdb66633c76fc24485747279521cf63106db17fc3797f1632f746a299eec3b",
+          "13a627b21ef76c78bda217bd029e02c378abd37030e3e283ca5024c623eef719",
+          "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+          "617f2dedd54f1f0e6fb6ed0f7d671a87a68a08c164d15ba7ae23465c1cb898a2"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "project_path": "/Users/dev/code/ws/crates/skip",
+        "config_source_ids": [
+          "fcbdb66633c76fc24485747279521cf63106db17fc3797f1632f746a299eec3b",
+          "13a627b21ef76c78bda217bd029e02c378abd37030e3e283ca5024c623eef719",
+          "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+          "617f2dedd54f1f0e6fb6ed0f7d671a87a68a08c164d15ba7ae23465c1cb898a2"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "project_path": "/Users/dev/code/ws/crates/util",
+        "workspace_path": "/Users/dev/code/ws",
+        "config_source_ids": [
+          "fcbdb66633c76fc24485747279521cf63106db17fc3797f1632f746a299eec3b",
+          "13a627b21ef76c78bda217bd029e02c378abd37030e3e283ca5024c623eef719",
+          "d19e0b5e61d61111310927948b3dfc647601c1d87c3f3c31b45ce223fef49478",
+          "617f2dedd54f1f0e6fb6ed0f7d671a87a68a08c164d15ba7ae23465c1cb898a2"
+        ],
+        "selection_status": "observed"
+      }
+    ],
+    "credential_files": [
+      {
+        "path": "/Users/dev/.cargo/credentials",
+        "status": "absent",
+        "presence": "absent"
+      },
+      {
+        "path": "/Users/dev/.cargo/credentials.toml",
+        "status": "present",
+        "presence": "present"
+      }
+    ]
+  }
+}

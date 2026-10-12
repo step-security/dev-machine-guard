@@ -67,6 +67,8 @@ type Config struct {
 	// The zero value scans, so a caller that never consulted the gate, or one
 	// whose check-in failed, behaves as before.
 	CredentialScanningDisabled bool
+	// DeltaScanEnabled is set by run-config, never by a CLI flag.
+	DeltaScanEnabled bool
 
 	// WSLScanEnabled and WSLScanReason are populated at runtime (not CLI flags)
 	// from the run-config check-in's wsl_directive. They gate scanning INSIDE

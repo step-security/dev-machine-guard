@@ -132,6 +132,22 @@ var cliToolDefinitions = []cliToolSpec{
 			if versionmeta.NPMPackageName(exec, binary) == "@github/copilot" {
 				return true
 			}
+			// The Homebrew cask ships a quarantined native binary that spctl
+			// rejects, so the exec fallback below can never verify it. The
+			// exact Caskroom/copilot-cli/<version>/copilot layout plus its
+			// static version segment is the identity instead; nothing is
+			// launched. AWS's Cellar/copilot-cli formula and the VS Code
+			// extension shim never resolve into a Caskroom.
+			if exec.GOOS() == model.PlatformDarwin {
+				if resolved, err := exec.EvalSymlinks(binary); err == nil && resolved != "" {
+					if pathBase(resolved) == "copilot" &&
+						pathBase(pathDir(pathDir(resolved))) == "copilot-cli" &&
+						pathBase(pathDir(pathDir(pathDir(resolved)))) == "Caskroom" &&
+						versionmeta.IsVersionLike(pathBase(pathDir(resolved))) {
+						return true
+					}
+				}
+			}
 			if safe, reason := execguard.SafeToExec(ctx, exec, binary); !safe {
 				log.Warn("skipping %s: %s — cannot verify identity", binary, reason)
 				return false
@@ -188,6 +204,9 @@ var cliToolDefinitions = []cliToolSpec{
 		Binaries: []string{
 			"pi", "~/.local/bin/pi", "~/.bun/bin/pi", "~/.bun/bin/pi.exe",
 			"~/AppData/Roaming/npm/pi.cmd", "/snap/pi-coding-agent/current/bin/pi",
+			// Installed-but-unlinked Homebrew formula.
+			"/opt/homebrew/opt/pi-coding-agent/bin/pi", "/usr/local/opt/pi-coding-agent/bin/pi",
+			"/home/linuxbrew/.linuxbrew/opt/pi-coding-agent/bin/pi",
 		},
 		// The documented config root is ~/.pi/agent, not ~/.pi — which holds
 		// only agent/. install_path already carries the install location.
@@ -213,7 +232,12 @@ var cliToolDefinitions = []cliToolSpec{
 		// On a default install.sh machine both ~/.amp/bin/amp and the
 		// ~/.local/bin/amp symlink exist and point at the same file; the
 		// anchor is what binary_path must report.
-		Binaries:          []string{"~/.amp/bin/amp", "amp"},
+		Binaries: []string{
+			"~/.amp/bin/amp", "amp",
+			// Installed-but-unlinked vendor Homebrew formula.
+			"/opt/homebrew/opt/ampcode/bin/amp", "/usr/local/opt/ampcode/bin/amp",
+			"/home/linuxbrew/.linuxbrew/opt/ampcode/bin/amp",
+		},
 		ConfigDirs:        []string{"~/.config/amp"},
 		ResolveFunc:       resolveAmp,
 		StaticVersionOnly: true,
@@ -1044,11 +1068,12 @@ func npmIdentity(exec executor.Executor, found, resolved string, names ...string
 // through packageRoot — and packageRoot returns "" for exactly the layouts the
 // ladders need (a standalone tarball, a snap payload).
 //
-// maxBytes caps the read, 0 for uncapped. Callers that reach a package root the
-// way versionmeta does pass 0 deliberately: that read already happens uncapped
+// maxBytes rejects oversized metadata, 0 for uncapped. Callers that reach a
+// package root the way versionmeta does pass 0 deliberately: that read already happens uncapped
 // in versionmeta for every existing spec, so capping only this copy would move
-// no attacker and would let the two disagree about the same file. Only
-// siblingManifest, which has no versionmeta counterpart, passes a cap.
+// no attacker and would let the two disagree about the same file. Only the
+// reads with no versionmeta counterpart (siblingManifest, piBrewManifest)
+// pass a cap. piBrewManifest also supplies a bounded file reader.
 func readNPMManifest(exec executor.Executor, pkgRoot string, maxBytes int64) (name, version string) {
 	path := joinPath(pkgRoot, "package.json")
 	if maxBytes > 0 {
@@ -1380,6 +1405,21 @@ func resolvePi(_ context.Context, exec executor.Executor, log *progress.Logger, 
 			}
 		}
 
+		// Homebrew formula. Cellar/<keg>/bin/pi is a shell
+		// wrapper: no manifest beside it, no node_modules ancestor, and the
+		// libexec/bin/pi it launches is a link that is never followed.
+		// Identity lives in the keg's fixed libexec npm tree; the wrapper is
+		// never parsed. An unprovable keg is a reject, not a fall-through.
+		if keg := brewKeg(resolved); keg != "" && cleanPath(resolved) == joinPath(keg, "bin", "pi") {
+			if _, pkg := brewRoot(resolved); pkg == "pi-coding-agent" {
+				if brewVersion, brewOK := piBrewManifest(exec, keg); brewOK {
+					return brewVersion, true
+				}
+				log.Debug("pi: rejecting %s — Homebrew keg %s has no %s manifest", found, keg, piPackageName)
+				return "", false
+			}
+		}
+
 		// Rule 3 — reject. Both colliders land here: neither has a sibling
 		// manifest nor a node_modules ancestor claiming the Pi package.
 		if name != "" {
@@ -1389,6 +1429,25 @@ func resolvePi(_ context.Context, exec executor.Executor, log *progress.Logger, 
 		}
 		return "", false
 	})
+}
+
+// piBrewManifest reads the Pi package manifest at the fixed path inside a
+// Homebrew keg and reports whether it names the Pi package. A link anywhere
+// on that path (keg, libexec tree, the manifest itself) rejects before any
+// Stat or read, so a replaced keg cannot aim the read outside it. An empty
+// version with ok is fine: getVersion recovers the Cellar segment.
+func piBrewManifest(exec executor.Executor, keg string) (version string, ok bool) {
+	rel := joinPath("libexec", "lib", "node_modules", piPackageName)
+	if !linkFreeUnder(exec, keg, joinPath(rel, "package.json")) {
+		return "", false
+	}
+	pkgRoot := joinPath(keg, rel)
+	if !regularFileWithin(exec, joinPath(pkgRoot, "package.json"), siblingManifestMaxBytes) {
+		return "", false
+	}
+	reader := exec.GuardedFiles([]string{keg}, nil, siblingManifestMaxBytes)
+	name, version := readNPMManifest(reader, pkgRoot, siblingManifestMaxBytes)
+	return version, name == piPackageName
 }
 
 // resolveFactory proves a Factory Droid install. The collider is
@@ -1504,6 +1563,16 @@ func resolveAmp(_ context.Context, exec executor.Executor, log *progress.Logger,
 		if underHomeDir(exec, homeDir, resolved, "~/.cargo") {
 			log.Debug("amp: rejecting %s — under ~/.cargo, the cargo-installed amp.rs editor", found)
 			return "", false
+		}
+
+		// Vendor Homebrew formula (ampcode/tap), a native launcher with
+		// no manifest; only the exact Cellar/ampcode/<v>/bin/amp layout counts
+		// and getVersion recovers the Cellar segment. Never collides with the
+		// Cellar/amp editor rejected above.
+		if keg := brewKeg(resolved); keg != "" && cleanPath(resolved) == joinPath(keg, "bin", "amp") {
+			if _, pkg := brewRoot(resolved); pkg == "ampcode" {
+				return "", true
+			}
 		}
 
 		// Rule 5 — reject.

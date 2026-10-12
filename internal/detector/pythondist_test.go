@@ -188,3 +188,94 @@ func TestPythonProjectDetector_DiskScan(t *testing.T) {
 		t.Fatalf("expected Flask 3.0.0 from disk, got %+v", got)
 	}
 }
+
+func TestPythonDistDetector_EmptyAndFailedWalks(t *testing.T) {
+	root := t.TempDir()
+	mock := executor.NewMock()
+	populated := filepath.Join(root, "populated")
+	mustWriteMeta(t, mock, filepath.Join(populated, "x.dist-info", "METADATA"), "Name: x\nVersion: 1\n")
+	empty := t.TempDir()
+	missing := filepath.Join(root, "missing")
+	for _, tc := range []struct {
+		name   string
+		roots  []string
+		failed bool
+	}{
+		{"empty", []string{empty}, false},
+		{"missing", []string{missing}, true},
+		{"partial", []string{populated, missing}, true},
+		{"no roots", nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := NewPythonDistDetector(mock).ScanRoots(tc.roots)
+			if (got == nil) != tc.failed || len(got) != 0 {
+				t.Fatalf("packages=%v nil=%v, want failure=%v", got, got == nil, tc.failed)
+			}
+		})
+	}
+}
+
+func TestPythonProjectDetector_NoPipIsUnscannedUnlessDiskInspected(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		disk, populated bool
+		want            int
+	}{
+		{"legacy empty", false, false, -1},
+		{"legacy populated", false, true, -1},
+		{"disk empty", true, false, 0},
+		{"disk populated", true, true, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			venv := filepath.Join(root, "venv")
+			sp := filepath.Join(venv, "lib", "python3.13", "site-packages")
+			if err := os.MkdirAll(sp, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			mock := executor.NewMock()
+			mock.SetFile(filepath.Join(venv, "pyvenv.cfg"), []byte("home = /usr/bin"))
+			if tc.populated {
+				mustWriteMeta(t, mock, filepath.Join(sp, "x.dist-info", "METADATA"), "Name: x\nVersion: 1\n")
+			}
+			d := NewPythonProjectDetector(mock)
+			if tc.disk {
+				d.WithDiskScan(NewPythonDistDetector(mock))
+			}
+			projects, discovered := d.ListProjects([]string{root}, nil)
+			if len(projects) != 1 || len(discovered) != 1 || discovered[0] != venv {
+				t.Fatalf("projects=%v discovered=%v", projects, discovered)
+			}
+			pkgs := projects[0].Packages
+			if tc.want < 0 {
+				if pkgs != nil {
+					t.Fatal("unscanned venv treated as empty")
+				}
+				return
+			}
+			if pkgs == nil || len(pkgs) != tc.want {
+				t.Fatalf("packages=%v nil=%v, want %d", pkgs, pkgs == nil, tc.want)
+			}
+		})
+	}
+}
+
+func TestPythonDistDetector_UnreadableWalkIsNotEmpty(t *testing.T) {
+	root := t.TempDir()
+	blocked := filepath.Join(root, "blocked")
+	if err := os.Mkdir(blocked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(blocked, 0); err != nil {
+		t.Skip(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0o700) })
+	if _, err := os.ReadDir(blocked); err == nil {
+		t.Skip("filesystem permits reading mode-000 directories")
+	}
+	for _, path := range []string{blocked, root} {
+		if got := NewPythonDistDetector(executor.NewMock()).ScanRoots([]string{path}); got != nil {
+			t.Fatalf("unreadable walk %s returned successful inventory: %v", path, got)
+		}
+	}
+}

@@ -375,6 +375,7 @@ func TestParsers_ByteOrderMarkChangesNothing(t *testing.T) {
 		{name: "npmrc", body: "//registry.example.com/:_authToken=value\n", parse: parseNPMRC, want: obsPlain(1)},
 		{name: "yaml host map", body: "github.com:\n    oauth_token: value\n", parse: parseGitHubCLIHosts, want: obsPlain(1)},
 		{name: "whole-file token", body: "a-token\n", parse: parseVaultToken, want: obsPlain(1)},
+		{name: "json lines", body: `{"_id":"req_1","type":"Request","authentication":{"type":"bearer","token":"value"}}` + "\n", parse: parseInsomnia, want: obsPlain(1)},
 	}
 
 	for _, tt := range tests {

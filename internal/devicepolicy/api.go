@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -249,11 +250,10 @@ func (c *HTTPFetcher) Fetch(ctx context.Context, customerID, deviceID, category,
 // shaped differently per category, so an ide_extension key requirement must never
 // be imposed on a package_config object.
 //
-//   - ide_extension: extensions.allowed is the mandatory core of the policy — it
+//   - ide_extension: extensions.allowed is the mandatory core of the policy, it
 //     MUST be present and a JSON object. This rejects an allowlist-missing settings
 //     map (e.g. a gallery-only response) before it can be written and read back
-//     "compliant". Other keys stay backend-owned: their values are heterogeneous
-//     (the allowlist an object, the gallery URL a string).
+//     "compliant". The only other supported setting is an optional HTTPS gallery URL.
 //   - package_config: object shape is sufficient here. The npm structure
 //     (ecosystem / registry_url / auth) is validated downstream by
 //     RenderNPMRCBlock, which rejects a malformed policy before any write.
@@ -271,6 +271,29 @@ func validateCategoryPolicy(category string, policy json.RawMessage) error {
 	}
 	if !isJSONObject(allow) {
 		return errors.New("devicepolicy: malformed policy: " + allowedExtensionsSettingKey + " is not a JSON object")
+	}
+	for key, value := range settings {
+		switch key {
+		case allowedExtensionsSettingKey:
+		case galleryServiceURLSettingKey:
+			var raw string
+			if err := json.Unmarshal(value, &raw); err != nil || raw == "" || len(raw) > 2048 || raw != strings.TrimSpace(raw) ||
+				strings.IndexFunc(raw, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+				return errors.New("devicepolicy: malformed policy: invalid gallery URL")
+			}
+			u, err := url.Parse(raw)
+			if err != nil || !strings.EqualFold(u.Scheme, "https") || u.Hostname() == "" || u.User != nil || strings.Contains(raw, "#") {
+				return errors.New("devicepolicy: malformed policy: invalid gallery URL")
+			}
+			if port := u.Port(); port != "" {
+				n, err := strconv.Atoi(port)
+				if err != nil || n < 1 || n > 65535 {
+					return errors.New("devicepolicy: malformed policy: invalid gallery URL")
+				}
+			}
+		default:
+			return errors.New("devicepolicy: malformed policy: unsupported IDE setting")
+		}
 	}
 	return nil
 }

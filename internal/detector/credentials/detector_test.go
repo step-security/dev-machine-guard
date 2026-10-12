@@ -275,7 +275,7 @@ func runDetectCases(t *testing.T, cases []detectCase) {
 			// A guarded case names a location that was never created: a refusal
 			// reported for a path that is not there proves the decision came
 			// before any access, since probing first would have found silence.
-			if tc.guard {
+			if tc.guard && tc.noFinding {
 				for name, path := range env {
 					if _, err := os.Stat(path); !os.IsNotExist(err) {
 						t.Fatalf("%s names %s, which exists; the case proves nothing", name, path)
@@ -371,6 +371,7 @@ func TestDetect_InventoriesTheKnownLocations(t *testing.T) {
 	terraform := perPlatform("AppData/Roaming/terraform.d/credentials.tfrc.json", ".terraform.d/credentials.tfrc.json")
 	gcloud := perPlatform("AppData/Roaming/gcloud/application_default_credentials.json", ".config/gcloud/application_default_credentials.json")
 	ghHosts := perPlatform("AppData/Roaming/GitHub CLI/hosts.yml", ".config/gh/hosts.yml")
+	insomnia := insomniaRel("insomnia.Request.db")
 
 	writeTree(t, home, map[string]string{
 		".aws/credentials":    awsBody,
@@ -386,6 +387,7 @@ func TestDetect_InventoriesTheKnownLocations(t *testing.T) {
 		terraform:             `{"credentials":{"app.terraform.io":{"token":"` + canary + `"}}}`,
 		gcloud:                `{"type":"authorized_user","client_secret":"` + canary + `","refresh_token":"` + canary + `"}`,
 		ghHosts:               ghBody,
+		insomnia:              insomniaBody,
 	})
 
 	info := detect(t, home)
@@ -422,6 +424,7 @@ func TestDetect_InventoriesTheKnownLocations(t *testing.T) {
 		sourceGitHubCLIHosts:       {obsPlain(1), perPlatform("$APPDATA/GitHub CLI/hosts.yml", "$HOME/.config/gh/hosts.yml")},
 		sourceTerraformCredentials: {obsPlain(1), perPlatform("$APPDATA/terraform.d/credentials.tfrc.json", "$HOME/.terraform.d/credentials.tfrc.json")},
 		sourceGCPADC:               {obsPlain(1), perPlatform("$APPDATA/gcloud/application_default_credentials.json", "$HOME/.config/gcloud/application_default_credentials.json")},
+		sourceInsomnia:             {obsPlain(2), insomniaLocation("insomnia.Request.db")},
 	}
 	// Every catalog source is covered, so a source added without a fixture fails
 	// here rather than going untested end to end.
@@ -519,14 +522,16 @@ func TestDetect_AsksNoToolAboutItsCredentials(t *testing.T) {
 func TestDetect_NeverEmitsCredentialMaterial(t *testing.T) {
 	home := testHome(t)
 	writeTree(t, home, map[string]string{
-		".aws/credentials":     "[default]\naws_access_key_id = AKIA" + canary + "\naws_secret_access_key = " + canary + "\n",
-		".git-credentials":     gitBody,
-		".npmrc":               "//registry.example.invalid/:_authToken=" + canary + "\n",
-		".docker/config.json":  dockerBody,
-		".kube/config":         kubeBody,
-		".vault-token":         canary,
-		".ssh/id_ed25519":      string(opensshKey("none", "none", "ssh-ed25519")),
-		".config/gh/hosts.yml": ghBody,
+		".aws/credentials":                     "[default]\naws_access_key_id = AKIA" + canary + "\naws_secret_access_key = " + canary + "\n",
+		".git-credentials":                     gitBody,
+		".npmrc":                               "//registry.example.invalid/:_authToken=" + canary + "\n",
+		".docker/config.json":                  dockerBody,
+		".kube/config":                         kubeBody,
+		".vault-token":                         canary,
+		".ssh/id_ed25519":                      string(opensshKey("none", "none", "ssh-ed25519")),
+		".config/gh/hosts.yml":                 ghBody,
+		insomniaRel("insomnia.Request.db"):     insomniaBody,
+		insomniaRel("insomnia.Environment.db"): `{"_id":"env_1","type":"Environment","data":{"token":"` + canary + `"},"kvPairData":[{"name":"` + canary + `","value":"` + canary + `","type":"secret"}]}` + "\n",
 	})
 
 	info := New(newMock(t, home)).withEnv(staticEnv(nil)).Detect(context.Background())
@@ -942,12 +947,14 @@ func TestDetect_ReadsRelocationFromTheLoginSession(t *testing.T) {
 func TestDetect_WritesNothingToStandardError(t *testing.T) {
 	home := testHome(t)
 	writeTree(t, home, map[string]string{
-		".aws/credentials":    awsBody,
-		".docker/config.json": `{"auths":{"registry.example.invalid":{"auth":"` + canary,
-		".kube/config":        "users: [ unterminated " + canary + "\n",
-		".npmrc":              "//registry.example.invalid/:_authToken=" + canary + "\n",
-		".ssh/id_ed25519":     string(opensshKey("none", "none", "ssh-ed25519")),
-		".ssh/id_damaged":     "-----BEGIN OPENSSH PRIVATE KEY-----\n" + canary,
+		".aws/credentials":                        awsBody,
+		".docker/config.json":                     `{"auths":{"registry.example.invalid":{"auth":"` + canary,
+		".kube/config":                            "users: [ unterminated " + canary + "\n",
+		".npmrc":                                  "//registry.example.invalid/:_authToken=" + canary + "\n",
+		".ssh/id_ed25519":                         string(opensshKey("none", "none", "ssh-ed25519")),
+		".ssh/id_damaged":                         "-----BEGIN OPENSSH PRIVATE KEY-----\n" + canary,
+		insomniaRel("insomnia.Environment.db"):    `{"_id":"env_1","type":"Environment","data":{"token":"` + canary,
+		insomniaRel("insomnia.RequestVersion.db"): `{"_id":"rv_1","type":"RequestVersion","compressedRequest":"` + canary + `"}` + "\n",
 	})
 
 	captured := filepath.Join(t.TempDir(), "stderr")
@@ -1032,5 +1039,220 @@ func TestRefusalReason_CarriesTheResolverVocabularyUnchanged(t *testing.T) {
 	// rather than travelling as a library's own message.
 	if got := refusalReason(errors.New("read /home/a-user/.aws/credentials: some library detail")); got != model.CredentialReasonLocationUnresolved {
 		t.Errorf("an unrecognised error mapped to %q, want %q", got, model.CredentialReasonLocationUnresolved)
+	}
+}
+
+// insomniaBody is one live request holding a token and an authorization header.
+var insomniaBody = `{"_id":"req_1","type":"Request","authentication":{"type":"bearer","token":"` + canary + `"},"headers":[{"name":"Authorization","value":"` + canary + `"}]}` + "\n"
+
+// insomniaRel is where this platform keeps one of the API client's databases,
+// relative to the home.
+func insomniaRel(file string) string {
+	switch runtime.GOOS {
+	case model.PlatformWindows:
+		return "AppData/Roaming/Insomnia/" + file
+	case model.PlatformDarwin:
+		return "Library/Application Support/Insomnia/" + file
+	}
+	return ".config/Insomnia/" + file
+}
+
+// insomniaLocation is the tokenised spelling of the same path.
+func insomniaLocation(file string) string {
+	if runtime.GOOS == model.PlatformWindows {
+		return "$APPDATA/Insomnia/" + file
+	}
+	return "$HOME/" + insomniaRel(file)
+}
+
+// TestDetect_InsomniaDatabases covers the one source that spans several files:
+// each database that exists is its own finding, one variable relocates all of
+// them, and the store's habit of keeping deleted records means a file is read
+// whole rather than for its current records.
+func TestDetect_InsomniaDatabases(t *testing.T) {
+	secret := `{"_id":"env_1","type":"Environment","data":{"__insomnia_vault":{"k":"` + envelope() + `"}},"kvPairData":[{"name":"k","value":"` + envelope() + `","type":"secret"}]}` + "\n"
+	runDetectCases(t, []detectCase{
+		{
+			name: "each database is its own finding", source: sourceInsomnia,
+			tree: map[string]string{
+				insomniaRel("insomnia.Request.db"):     insomniaBody,
+				insomniaRel("insomnia.Environment.db"): secret,
+				insomniaRel("insomnia.OAuth2Token.db"): `{"_id":"tok_1","type":"OAuth2Token","accessToken":"` + canary + `"}` + "\n",
+			},
+			locations: []string{insomniaLocation("insomnia.Request.db"), insomniaLocation("insomnia.Environment.db"), insomniaLocation("insomnia.OAuth2Token.db")},
+		},
+		{
+			name: "a database of secrets alone is protected", source: sourceInsomnia,
+			tree: map[string]string{insomniaRel("insomnia.Environment.db"): secret},
+			want: obsProt(1), location: insomniaLocation("insomnia.Environment.db"),
+		},
+		{
+			name: "a secret beside a plain variable is in the clear", source: sourceInsomnia,
+			tree: map[string]string{insomniaRel("insomnia.Environment.db"): secret + `{"_id":"env_2","type":"Environment","data":{"token":"` + canary + `"}}` + "\n"},
+			want: obsPlain(2),
+		},
+		{
+			name: "the data directory variable relocates every file", source: sourceInsomnia,
+			tree: map[string]string{
+				"elsewhere/insomnia.Request.db":        insomniaBody,
+				"elsewhere/insomnia.OAuth2Token.db":    `{"_id":"tok_1","type":"OAuth2Token","refreshToken":"` + canary + `"}` + "\n",
+				insomniaRel("insomnia.Environment.db"): secret,
+			},
+			env:       map[string]string{"INSOMNIA_DATA_PATH": "{home}/elsewhere"},
+			locations: []string{"$HOME/elsewhere/insomnia.Request.db", "$HOME/elsewhere/insomnia.OAuth2Token.db"},
+		},
+		{
+			name: "the configuration directory variable moves the linux root", only: model.PlatformLinux, source: sourceInsomnia,
+			tree:     map[string]string{"xdg/Insomnia/insomnia.Request.db": insomniaBody},
+			env:      map[string]string{"XDG_CONFIG_HOME": "{home}/xdg"},
+			want:     obsPlain(2),
+			location: "$XDG_CONFIG_HOME/Insomnia/insomnia.Request.db",
+		},
+		// Ten relocated files outside the roots are one refusal, not ten.
+		{
+			name: "a data directory outside the user roots", source: sourceInsomnia,
+			outside: map[string]string{"data/insomnia.Request.db": insomniaBody},
+			env:     map[string]string{"INSOMNIA_DATA_PATH": "{out}/data"},
+			reason:  model.CredentialReasonRefusedOutsideRoots, noFinding: true, errors: 1, incomplete: true,
+		},
+		// Blank lines parse to nothing, so the prefix is clean and only the cap
+		// says the count is a lower bound.
+		{
+			name: "a database past the byte cap", source: sourceInsomnia,
+			tree: map[string]string{insomniaRel("insomnia.Request.db"): insomniaBody + strings.Repeat("\n", capInsomnia)},
+			want: obsPlain(2), reason: model.CredentialReasonCapped, incomplete: true, truncated: true,
+		},
+		{
+			name: "a database of tombstones holds nothing", source: sourceInsomnia,
+			tree:      map[string]string{insomniaRel("insomnia.Request.db"): `{"_id":"req_1","$$deleted":true}` + "\n"},
+			noFinding: true, noError: true,
+		},
+		{
+			name: "a deleted record is still material until compaction", source: sourceInsomnia,
+			tree: map[string]string{insomniaRel("insomnia.Request.db"): insomniaBody + `{"_id":"req_1","$$deleted":true}` + "\n"},
+			want: obsPlain(2),
+		},
+		{
+			name: "a damaged database is incomplete", source: sourceInsomnia,
+			tree:   map[string]string{insomniaRel("insomnia.Request.db"): `{"_id":"req_1","type":"Request","authentication":{`},
+			reason: model.CredentialReasonUnrecognizedFormat, noFinding: true, incomplete: true,
+		},
+	})
+}
+
+func TestDetect_InsomniaAccountStores(t *testing.T) {
+	for _, tc := range []struct {
+		file, body string
+		want       observation
+	}{
+		{"insomnia.GitCredentials.db", `{"_id":"git_1","type":"GitCredentials","credentials":{"token":"` + canary + `"}}`, obsPlain(1)},
+		{"insomnia.GitRepository.db", `{"_id":"repo_1","type":"GitRepository","credentials":{"password":"` + canary + `"}}`, obsPlain(1)},
+		{"insomnia.CloudCredential.db", `{"_id":"cloud_1","type":"CloudCredential","provider":"aws","credentials":{"secretAccessKey":"` + canary + `"}}`, obsPlain(1)},
+		{"insomnia.UserSession.db", `{"_id":"usr_1","type":"UserSession","id":"` + canary + `","symmetricKey":{"kty":"oct","k":"` + canary + `"}}`, obsPlain(2)},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			runDetectCases(t, []detectCase{
+				{name: "default location", source: sourceInsomnia, guard: runtime.GOOS == model.PlatformDarwin,
+					tree: map[string]string{insomniaRel(tc.file): tc.body}, want: tc.want, location: insomniaLocation(tc.file), noError: true},
+				{name: "relocated data directory", source: sourceInsomnia,
+					tree: map[string]string{"elsewhere/" + tc.file: tc.body}, want: tc.want,
+					env: map[string]string{"INSOMNIA_DATA_PATH": "{home}/elsewhere"}, location: "$HOME/elsewhere/" + tc.file, noError: true},
+			})
+		})
+	}
+}
+
+func TestDetect_InsomniaLibraryGuard(t *testing.T) {
+	if runtime.GOOS != model.PlatformDarwin {
+		t.Skip("macOS consent guard")
+	}
+	runDetectCases(t, []detectCase{
+		{name: "default database", guard: true, source: sourceInsomnia,
+			tree: map[string]string{insomniaRel("insomnia.Request.db"): insomniaBody}, want: obsPlain(2), noError: true},
+		{name: "override to default directory", guard: true, source: sourceInsomnia,
+			tree: map[string]string{insomniaRel("insomnia.Request.db"): insomniaBody},
+			env:  map[string]string{"INSOMNIA_DATA_PATH": "{home}/Library/Application Support/Insomnia"}, want: obsPlain(2), noError: true},
+		{name: "safe override", guard: true, source: sourceInsomnia,
+			tree: map[string]string{"custom/insomnia.Request.db": insomniaBody},
+			env:  map[string]string{"INSOMNIA_DATA_PATH": "{home}/custom"}, want: obsPlain(2), noError: true},
+		{name: "sibling override", guard: true, source: sourceInsomnia,
+			env:       map[string]string{"INSOMNIA_DATA_PATH": "{home}/Library/Application Support/Insomnia-backup"},
+			noFinding: true, reason: model.CredentialReasonRefusedTCC, incomplete: true},
+		{name: "nested override", guard: true, source: sourceInsomnia,
+			env:       map[string]string{"INSOMNIA_DATA_PATH": "{home}/Library/Application Support/Insomnia/backup"},
+			noFinding: true, reason: model.CredentialReasonRefusedTCC, incomplete: true},
+		{name: "protected override", guard: true, source: sourceInsomnia,
+			env:       map[string]string{"INSOMNIA_DATA_PATH": "{home}/Documents"},
+			noFinding: true, reason: model.CredentialReasonRefusedTCC, incomplete: true},
+		{name: "other source retains guard", guard: true, source: sourceAWSCredentials,
+			env:       map[string]string{"AWS_SHARED_CREDENTIALS_FILE": "{home}/Library/Application Support/Insomnia/insomnia.Request.db"},
+			noFinding: true, reason: model.CredentialReasonRefusedTCC, incomplete: true},
+	})
+	for _, tc := range []struct {
+		name, target string
+		directory    bool
+	}{
+		{"file to Mail", "Library/Mail/credential", false},
+		{"file to sibling", "Library/Application Support/Insomnia-backup/credential", false},
+		{"file to unlisted database", "Library/Application Support/Insomnia/insomnia.Settings.db", false},
+		{"directory to Documents", "Documents", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := testHome(t)
+			link := filepath.Join(home, insomniaRel("insomnia.Request.db"))
+			if tc.directory {
+				link = filepath.Dir(link)
+			}
+			if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			// The target is absent: a refusal proves the guard ran before its stat.
+			if err := os.Symlink(filepath.Join(home, tc.target), link); err != nil {
+				t.Fatal(err)
+			}
+			info := New(newMock(t, home)).withEnv(staticEnv(nil)).WithSkipper(tcc.New(home)).Detect(context.Background())
+			if len(info.Findings) != 0 || !hasScanError(info.Errors, sourceInsomnia, model.CredentialReasonRefusedTCC) || info.ScanComplete {
+				t.Fatalf("got %+v, want guarded refusal without findings", info)
+			}
+		})
+	}
+}
+
+func TestDetect_InsomniaLargerDatabases(t *testing.T) {
+	for _, tc := range []struct {
+		name, file       string
+		records, padding int
+		history          bool
+	}{
+		{"requests", "insomnia.Request.db", 2000, 2048, false},
+		{"environments", "insomnia.Environment.db", 2000, 2048, false},
+		{"history", "insomnia.RequestVersion.db", 1000, 4096, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var body strings.Builder
+			padding := strings.Repeat("x", tc.padding)
+			packed := compressed(`{"type":"Request","body":{"text":"` + padding + `"}}`)
+			for i := range tc.records {
+				switch {
+				case tc.history:
+					fmt.Fprintf(&body, "{\"_id\":\"rev_%d\",\"type\":\"RequestVersion\",\"compressedRequest\":\"%s\"}\n", i, packed)
+				case tc.name == "environments":
+					fmt.Fprintf(&body, "{\"_id\":\"env_%d\",\"type\":\"Environment\",\"data\":{\"description\":\"%s\"}}\n", i, padding)
+				default:
+					fmt.Fprintf(&body, "{\"_id\":\"req_%d\",\"type\":\"Request\",\"body\":{\"text\":\"%s\"}}\n", i, padding)
+				}
+			}
+			// Material only at the tail: reading a prefix cannot pass this test.
+			if tc.history {
+				fmt.Fprintf(&body, "{\"_id\":\"last\",\"type\":\"RequestVersion\",\"compressedRequest\":\"%s\"}\n", compressed(insomniaBody))
+			} else if tc.name == "environments" {
+				fmt.Fprintf(&body, "{\"_id\":\"last\",\"type\":\"Environment\",\"data\":{\"token\":\"%s\",\"password\":\"%s\"}}\n", canary, canary)
+			} else {
+				body.WriteString(insomniaBody)
+			}
+			t.Logf("records=%d file_bytes=%d expanded_padding_bytes=%d", tc.records+1, body.Len(), tc.records*tc.padding)
+			runDetectCases(t, []detectCase{{name: "tail found", source: sourceInsomnia,
+				tree: map[string]string{insomniaRel(tc.file): body.String()}, want: obsPlain(2), noError: true}})
+		})
 	}
 }

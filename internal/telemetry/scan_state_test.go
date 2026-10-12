@@ -48,7 +48,7 @@ func runDelta(
 	fullSync bool,
 ) (*deltaSnapshot, *state.State) {
 	t.Helper()
-	snap := buildDeltaSnapshot(s, fullSync, npm, npmDisc, py, pyDisc, npmG, pyG)
+	snap := buildDeltaSnapshot(s, fullSync, true, true, npm, npmDisc, py, pyDisc, npmG, pyG)
 	if err := commitDeltaSnapshot(s, snap, statePath, execID, buildinfo.Version); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestDelta_ReappearedProjectIsFilteredFromRemovedRefs(t *testing.T) {
 	// can test the filter on the next call.
 	s2.MarkRemovedPending(state.EcosystemNPM, []string{"/b"}, timeFixture)
 	// Now /b reappears with the same content.
-	snap := buildDeltaSnapshot(s2, false,
+	snap := buildDeltaSnapshot(s2, false, true, true,
 		[]model.NodeScanResult{
 			nodeResult("/a", "npm", `{"x":1}`),
 			nodeResult("/b", "npm", `{"y":2}`),
@@ -298,10 +298,172 @@ func TestDelta_FullSyncForcesAllChanged(t *testing.T) {
 }
 
 func TestDelta_NilStateReturnsNilSnapshot(t *testing.T) {
-	snap := buildDeltaSnapshot(nil, false,
+	snap := buildDeltaSnapshot(nil, false, true, true,
 		[]model.NodeScanResult{nodeResult("/svc", "npm", `{"x":1}`)},
 		[]string{"/svc"}, nil, nil, nil, nil)
 	if snap != nil {
 		t.Errorf("nil state should produce nil snapshot, got %+v", snap)
+	}
+}
+
+// An empty venv scans successfully and must converge to an unchanged ref.
+// Regression: conflating an empty package list with a failed scan kept it out
+// of the scan state, so it re-shipped a full body on every run, forever.
+func TestDelta_EmptyVenvConvergesToUnchanged(t *testing.T) {
+	path := tempStateFile(t)
+	s := state.New(buildinfo.Version)
+	empty := []model.ProjectInfo{
+		{Path: "/proj/.venv", PackageManager: "pip", Packages: []model.PackageDetail{}},
+	}
+	snap, reloaded := runDelta(t, s, path, "exec-1", nil, nil, empty, []string{"/proj/.venv"}, nil, nil, false)
+	if len(snap.pyChanged) != 1 {
+		t.Fatalf("first run: expected the venv as changed, got %+v", snap.pyChanged)
+	}
+	if _, ok := reloaded.PythonProjects["/proj/.venv"]; !ok {
+		t.Fatal("an empty venv that scanned successfully must be recorded in scan state")
+	}
+
+	s2, _ := state.Load(path, buildinfo.Version)
+	snap2, _ := runDelta(t, s2, path, "exec-2", nil, nil, empty, []string{"/proj/.venv"}, nil, nil, false)
+	if len(snap2.pyChanged) != 0 {
+		t.Errorf("second run: empty venv must not re-ship a body, got %+v", snap2.pyChanged)
+	}
+	if len(snap2.pyUnchanged) != 1 {
+		t.Errorf("second run: expected 1 unchanged ref, got %+v", snap2.pyUnchanged)
+	}
+}
+
+// The other direction of the same contract: a nil package list means the scan
+// failed, so its hash must be withheld rather than convincing the backend the
+// venv is empty.
+func TestDelta_FailedVenvScanIsNotRecorded(t *testing.T) {
+	path := tempStateFile(t)
+	s := state.New(buildinfo.Version)
+	failed := []model.ProjectInfo{
+		{Path: "/proj/.venv", PackageManager: "pip", Packages: nil},
+	}
+	snap, reloaded := runDelta(t, s, path, "exec-1", nil, nil, failed, []string{"/proj/.venv"}, nil, nil, false)
+	if len(snap.pyChanged) != 0 || len(snap.pyRecords) != 0 {
+		t.Fatal("failed new venv must not appear in the payload")
+	}
+	if _, ok := reloaded.PythonProjects["/proj/.venv"]; ok {
+		t.Error("a failed venv scan must not be recorded in scan state")
+	}
+}
+
+// A populated venv that later scans empty is a real package removal, not a
+// failure: the change must ship and the new hash must land.
+func TestDelta_VenvEmptiedShipsAsChanged(t *testing.T) {
+	path := tempStateFile(t)
+	s := state.New(buildinfo.Version)
+	full := []model.ProjectInfo{
+		{Path: "/proj/.venv", PackageManager: "pip", Packages: []model.PackageDetail{{Name: "django", Version: "5.0"}}},
+	}
+	runDelta(t, s, path, "exec-1", nil, nil, full, []string{"/proj/.venv"}, nil, nil, false)
+	before, _ := state.Load(path, buildinfo.Version)
+	fullHash := before.PythonProjects["/proj/.venv"].ScanOutputHash
+
+	s2, _ := state.Load(path, buildinfo.Version)
+	emptied := []model.ProjectInfo{
+		{Path: "/proj/.venv", PackageManager: "pip", Packages: []model.PackageDetail{}},
+	}
+	snap, reloaded := runDelta(t, s2, path, "exec-2", nil, nil, emptied, []string{"/proj/.venv"}, nil, nil, false)
+	if len(snap.pyChanged) != 1 {
+		t.Errorf("emptying a venv must ship as changed, got %+v", snap.pyChanged)
+	}
+	if reloaded.PythonProjects["/proj/.venv"].ScanOutputHash == fullHash {
+		t.Error("emptied venv must record a new hash, not keep the populated one")
+	}
+}
+
+func TestDelta_DisabledEcosystemsPreserveInventory(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		npm, python bool
+	}{
+		{"both disabled", false, false},
+		{"npm disabled", false, true},
+		{"python disabled", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := tempStateFile(t)
+			s := state.New(buildinfo.Version)
+			npm := []model.NodeScanResult{nodeResult("/node", "npm", `{"x":1}`)}
+			py := []model.ProjectInfo{{Path: "/python", PackageManager: "pip", Packages: []model.PackageDetail{{Name: "x", Version: "1"}}}}
+			_, s = runDelta(t, s, path, "seed", npm, []string{"/node"}, py, []string{"/python"}, nil, nil, false)
+			// Pending removals must also remain unacknowledged while disabled.
+			s.MarkRemovedPending(state.EcosystemNPM, []string{"/node"}, timeFixture)
+			s.MarkRemovedPending(state.EcosystemPython, []string{"/python"}, timeFixture)
+			snap := buildDeltaSnapshot(s, false, tc.npm, tc.python, nil, nil, nil, nil, nil, nil)
+			if len(snap.npmRemoved) != boolCount(tc.npm) || len(snap.pyRemoved) != boolCount(tc.python) {
+				t.Fatalf("removals: npm=%v python=%v", snap.npmRemoved, snap.pyRemoved)
+			}
+			if err := commitDeltaSnapshot(s, snap, path, "disabled", buildinfo.Version); err != nil {
+				t.Fatal(err)
+			}
+			reloaded, err := state.Load(path, buildinfo.Version)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(reloaded.NPMProjects) != boolCount(!tc.npm) || len(reloaded.PythonProjects) != boolCount(!tc.python) {
+				t.Fatal("disabled inventory lost, or enabled empty discovery not reconciled")
+			}
+			if len(reloaded.PendingRemovalsFor(state.EcosystemNPM)) != boolCount(!tc.npm) || len(reloaded.PendingRemovalsFor(state.EcosystemPython)) != boolCount(!tc.python) {
+				t.Fatal("disabled pending removals acknowledged")
+			}
+		})
+	}
+}
+
+func boolCount(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func TestDelta_FailedVenvPreservesPriorInventoryAndRetries(t *testing.T) {
+	path := tempStateFile(t)
+	s := state.New(buildinfo.Version)
+	py := []model.ProjectInfo{{Path: "/venv", PackageManager: "pip", Packages: []model.PackageDetail{{Name: "x", Version: "1"}}}}
+	_, s = runDelta(t, s, path, "seed", nil, nil, py, []string{"/venv"}, nil, nil, false)
+	prior := s.PythonProjects["/venv"]
+	failed := []model.ProjectInfo{{Path: "/venv", PackageManager: "pip"}}
+	snap, s := runDelta(t, s, path, "failed", nil, nil, failed, []string{"/venv"}, nil, nil, false)
+	if len(snap.pyChanged) != 0 || len(snap.pyUnchanged) != 0 || len(snap.pyRemoved) != 0 || len(snap.pyRecords) != 0 {
+		t.Fatalf("failed scan emitted delta records: %+v", snap)
+	}
+	if s.PythonProjects["/venv"] != prior {
+		t.Fatal("failed scan overwrote prior inventory")
+	}
+	py[0].Packages[0].Version = "2"
+	snap, _ = runDelta(t, s, path, "retry", nil, nil, py, []string{"/venv"}, nil, nil, false)
+	if len(snap.pyChanged) != 1 {
+		t.Fatal("successful retry did not upload changed inventory")
+	}
+}
+
+func TestLegacyTransitionDiscardsOldDeltaBaseline(t *testing.T) {
+	path := tempStateFile(t)
+	s := state.New(buildinfo.Version)
+	s.CommitAfterUpload(time.Now(), "old-upload", buildinfo.Version, []state.ScanRecord{{Path: "/project", Hash: "A"}}, nil, nil, nil, true)
+	if err := s.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	// A legacy run can upload B, then the inventory can return to A. The old
+	// A hash must not let the next delta run reference the pre-legacy upload.
+	if err := state.Invalidate(path); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := state.Load(path, buildinfo.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.IsFullSyncDue(time.Now(), buildinfo.Version, state.DefaultFullSyncHorizon) {
+		t.Fatal("expected fresh full sync")
+	}
+	changed, unchanged := loaded.Partition(state.EcosystemNPM, []state.ScanRecord{{Path: "/project", Hash: "A"}}, false)
+	if len(changed) != 1 || len(unchanged) != 0 {
+		t.Fatal("reused stale inventory reference")
 	}
 }

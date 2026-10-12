@@ -56,6 +56,7 @@ type WSLDirective struct {
 // scan_directive and scanners are kept raw and decoded one at a time, so a
 // malformed block on one side cannot discard a valid answer on the other.
 type runConfigEnvelope struct {
+	PackageScan   json.RawMessage `json:"package_scan"`
 	ScanDirective json.RawMessage `json:"scan_directive"`
 	WSLDirective  *WSLDirective   `json:"wsl_directive"`
 	Scanners      json.RawMessage `json:"scanners"`

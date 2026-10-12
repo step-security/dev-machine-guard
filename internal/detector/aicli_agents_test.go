@@ -487,6 +487,76 @@ func runAICLICases(t *testing.T, tests []aicliCase) {
 // Pi (§7 "Pi")
 // ---------------------------------------------------------------------------
 
+// piBrewKeg is the ARM Homebrew keg; piBrewPkgRel is the fixed libexec npm
+// tree inside every keg, where the formula's identity lives.
+const (
+	piBrewKeg    = "/opt/homebrew/Cellar/pi-coding-agent/0.87.1"
+	piBrewPkgRel = "/libexec/lib/node_modules/" + piPackageName
+)
+
+// setLink registers a symlink under BOTH spellings: the ladders' own paths are
+// slash-joined while linkFreeUnder walks with the host filepath, and the two
+// differ when a Unix-shaped fixture runs on a Windows host (as setConfigDir).
+func setLink(m *executor.Mock, path, target string) {
+	m.SetSymlink(path, target)
+	m.SetSymlink(filepath.Clean(path), target)
+}
+
+// addPiBrew wires link (a bin/ or opt/ symlink) at the keg's bin/pi shell
+// wrapper. The manifest is the case's own business.
+func addPiBrew(m *executor.Mock, link, keg string) {
+	addFile(m, link, []byte{})
+	addFile(m, joinPath(keg, "bin", "pi"), []byte("#!/bin/bash\n"))
+	m.SetSymlink(link, joinPath(keg, "bin", "pi"))
+}
+
+type piBrewReadRecorder struct {
+	executor.Executor
+	t *testing.T
+}
+
+func (e *piBrewReadRecorder) Stat(path string) (os.FileInfo, error) {
+	// Model a size check before the manifest grows.
+	return sizedInfo{n: filepath.Base(path), sz: 0}, nil
+}
+
+func (e *piBrewReadRecorder) ReadFile(path string) ([]byte, error) {
+	e.t.Fatalf("unbounded ReadFile(%q)", path)
+	return nil, nil
+}
+
+func TestPiBrewManifest_BoundedRead(t *testing.T) {
+	keg, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkgRoot := filepath.Join(keg, "libexec", "lib", "node_modules", piPackageName)
+	if err := os.MkdirAll(pkgRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(pkgRoot, "package.json")
+	exec := &piBrewReadRecorder{Executor: executor.NewReal(), t: t}
+	for _, tc := range []struct {
+		name, content string
+		wantOK        bool
+	}{
+		{"normal manifest", string(aicliManifest(piPackageName, "0.87.1")), true},
+		{"grew beyond size check", `{"name":"` + piPackageName + `","version":"0.87.1","pad":"` +
+			strings.Repeat("x", int(siblingManifestMaxBytes)) + `"}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			exec.t = t
+			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			version, ok := piBrewManifest(exec, keg)
+			if ok != tc.wantOK || (ok && version != "0.87.1") {
+				t.Fatalf("piBrewManifest = %q, %v; want acceptance %v", version, ok, tc.wantOK)
+			}
+		})
+	}
+}
+
 func TestAICLIAgents_Pi(t *testing.T) {
 	const piPkg = piPackageName
 	runAICLICases(t, []aicliCase{
@@ -571,6 +641,143 @@ func TestAICLIAgents_Pi(t *testing.T) {
 				addManifest(m, "/opt/pi", piPkg, "")
 			},
 			want: []aicliWant{{tool: "pi", binary: "/opt/pi/pi", version: "unknown"}},
+		},
+		{
+			name: "(j) the Homebrew formula is accepted from its libexec manifest, wrapper never parsed",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("pi", "/opt/homebrew/bin/pi")
+				addPiBrew(m, "/opt/homebrew/bin/pi", piBrewKeg)
+				addManifest(m, piBrewKeg+piBrewPkgRel, piPkg, "0.87.1")
+			},
+			want: []aicliWant{{tool: "pi", binary: "/opt/homebrew/bin/pi", version: "0.87.1"}},
+		},
+		{
+			name: "(j2) the Intel prefix is the same layout under /usr/local",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				keg := "/usr/local/Cellar/pi-coding-agent/0.87.1"
+				m.SetPath("pi", "/usr/local/bin/pi")
+				addPiBrew(m, "/usr/local/bin/pi", keg)
+				addManifest(m, keg+piBrewPkgRel, piPkg, "0.87.1")
+			},
+			want: []aicliWant{{tool: "pi", binary: "/usr/local/bin/pi", version: "0.87.1"}},
+		},
+		{
+			name: "(j3) an unlinked brew install is reached through the opt anchor",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				addPiBrew(m, "/opt/homebrew/opt/pi-coding-agent/bin/pi", piBrewKeg)
+				addManifest(m, piBrewKeg+piBrewPkgRel, piPkg, "0.87.1")
+			},
+			want: []aicliWant{{tool: "pi", binary: "/opt/homebrew/opt/pi-coding-agent/bin/pi", version: "0.87.1"}},
+		},
+		{
+			name: "(j4) the Linuxbrew prefix is accepted through its opt anchor",
+			setup: func(m *executor.Mock, _ string) {
+				keg := "/home/linuxbrew/.linuxbrew/Cellar/pi-coding-agent/0.87.1"
+				addPiBrew(m, "/home/linuxbrew/.linuxbrew/opt/pi-coding-agent/bin/pi", keg)
+				addManifest(m, keg+piBrewPkgRel, piPkg, "0.87.1")
+			},
+			want: []aicliWant{{tool: "pi", binary: "/home/linuxbrew/.linuxbrew/opt/pi-coding-agent/bin/pi", version: "0.87.1"}},
+		},
+		{
+			name: "(j5) a keg manifest without a version falls back to the Cellar segment, never to an exec",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("pi", "/opt/homebrew/bin/pi")
+				addPiBrew(m, "/opt/homebrew/bin/pi", piBrewKeg)
+				addManifest(m, piBrewKeg+piBrewPkgRel, piPkg, "")
+			},
+			want: []aicliWant{{tool: "pi", binary: "/opt/homebrew/bin/pi", version: "0.87.1"}},
+		},
+		{
+			name: "(j6) a keg with no libexec manifest is rejected, naming the keg",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("pi", "/opt/homebrew/bin/pi")
+				addPiBrew(m, "/opt/homebrew/bin/pi", piBrewKeg)
+			},
+			wantDebug: []string{"Homebrew keg " + piBrewKeg + " has no " + piPkg + " manifest"},
+		},
+		{
+			name: "(j7) a keg whose libexec manifest names the PI-number collider is rejected",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("pi", "/opt/homebrew/bin/pi")
+				addPiBrew(m, "/opt/homebrew/bin/pi", piBrewKeg)
+				addManifest(m, piBrewKeg+piBrewPkgRel, "pi", "2.0.5")
+			},
+			wantDebug: []string{"Homebrew keg " + piBrewKeg + " has no " + piPkg + " manifest"},
+		},
+		{
+			// The manifest is registered at BOTH the keg path and the link
+			// target, so an implementation that skips the link check would
+			// accept this; only linkFreeUnder keeps the read off ~/Documents.
+			name: "(j8) a linked package dir inside the keg is rejected before any read",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, home string) {
+				m.SetPath("pi", "/opt/homebrew/bin/pi")
+				addPiBrew(m, "/opt/homebrew/bin/pi", piBrewKeg)
+				target := joinPath(home, "Documents", "x")
+				setLink(m, piBrewKeg+piBrewPkgRel, target)
+				addManifest(m, piBrewKeg+piBrewPkgRel, piPkg, "0.87.1")
+				addManifest(m, target, piPkg, "0.87.1")
+			},
+			noReadPrefix:   []string{"/Users/u/Documents"},
+			noFollowPrefix: []string{"/Users/u/Documents"},
+			wantDebug:      []string{"Homebrew keg " + piBrewKeg + " has no " + piPkg + " manifest"},
+		},
+		{
+			name: "(j9) a linked package.json inside the keg is rejected before any read",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, home string) {
+				m.SetPath("pi", "/opt/homebrew/bin/pi")
+				addPiBrew(m, "/opt/homebrew/bin/pi", piBrewKeg)
+				target := joinPath(home, "Documents", "x")
+				setLink(m, joinPath(piBrewKeg+piBrewPkgRel, "package.json"), joinPath(target, "package.json"))
+				addManifest(m, piBrewKeg+piBrewPkgRel, piPkg, "0.87.1")
+				addManifest(m, target, piPkg, "0.87.1")
+			},
+			noReadPrefix:   []string{"/Users/u/Documents"},
+			noFollowPrefix: []string{"/Users/u/Documents"},
+			wantDebug:      []string{"Homebrew keg " + piBrewKeg + " has no " + piPkg + " manifest"},
+		},
+		{
+			name: "(j10) an oversized keg manifest is refused rather than loaded",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("pi", "/opt/homebrew/bin/pi")
+				addPiBrew(m, "/opt/homebrew/bin/pi", piBrewKeg)
+				addFile(m, joinPath(piBrewKeg+piBrewPkgRel, "package.json"), []byte(
+					`{"name":"`+piPkg+`","version":"0.87.1","_pad":"`+
+						strings.Repeat("x", int(siblingManifestMaxBytes))+`"}`))
+			},
+			wantDebug: []string{"Homebrew keg " + piBrewKeg + " has no " + piPkg + " manifest"},
+		},
+		{
+			// FileExists says yes and the content parses; only the
+			// regular-file check keeps a directory (or FIFO) out.
+			name: "(j10b) a keg package.json that is not a regular file is refused",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("pi", "/opt/homebrew/bin/pi")
+				addPiBrew(m, "/opt/homebrew/bin/pi", piBrewKeg)
+				addManifest(m, piBrewKeg+piBrewPkgRel, piPkg, "0.87.1")
+				m.SetFileInfo(joinPath(piBrewKeg+piBrewPkgRel, "package.json"), &dirInfo{n: "package.json"})
+			},
+			wantDebug: []string{"Homebrew keg " + piBrewKeg + " has no " + piPkg + " manifest"},
+		},
+		{
+			name: "(j11) only the keg's bin/pi wrapper is the brew channel; libexec/bin/pi is not",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("pi", "/opt/homebrew/bin/pi")
+				addFile(m, "/opt/homebrew/bin/pi", []byte{})
+				m.SetSymlink("/opt/homebrew/bin/pi", piBrewKeg+"/libexec/bin/pi")
+				addManifest(m, piBrewKeg+piBrewPkgRel, piPkg, "0.87.1")
+			},
+			wantDebug: []string{"nothing proves " + piPkg + " owns it"},
 		},
 	})
 }
@@ -848,6 +1055,42 @@ func TestAICLIAgents_Amp(t *testing.T) {
 				addManifest(m, inner, ampPkg, ampVersion)
 			},
 			want: []aicliWant{{tool: "amp", binary: "/usr/local/bin/amp", version: ampVersion}},
+		},
+		{
+			name: "(j) the vendor ampcode/tap formula is accepted from its exact Cellar layout",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("amp", "/opt/homebrew/bin/amp")
+				m.SetSymlink("/opt/homebrew/bin/amp", "/opt/homebrew/Cellar/ampcode/1.2.3/bin/amp")
+			},
+			want: []aicliWant{{tool: "amp", binary: "/opt/homebrew/bin/amp", version: "1.2.3"}},
+		},
+		{
+			name: "(j2) an unlinked ampcode keg is reached through the opt anchor",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				addFile(m, "/opt/homebrew/opt/ampcode/bin/amp", []byte{})
+				m.SetSymlink("/opt/homebrew/opt/ampcode/bin/amp", "/opt/homebrew/Cellar/ampcode/1.2.3/bin/amp")
+			},
+			want: []aicliWant{{tool: "amp", binary: "/opt/homebrew/opt/ampcode/bin/amp", version: "1.2.3"}},
+		},
+		{
+			name: "(j3) the Linuxbrew prefix is accepted through its opt anchor",
+			setup: func(m *executor.Mock, _ string) {
+				link := "/home/linuxbrew/.linuxbrew/opt/ampcode/bin/amp"
+				addFile(m, link, []byte{})
+				m.SetSymlink(link, "/home/linuxbrew/.linuxbrew/Cellar/ampcode/1.2.3/bin/amp")
+			},
+			want: []aicliWant{{tool: "amp", binary: "/home/linuxbrew/.linuxbrew/opt/ampcode/bin/amp", version: "1.2.3"}},
+		},
+		{
+			name: "(j4) anything in the ampcode keg other than bin/amp is not the channel",
+			goos: model.PlatformDarwin,
+			setup: func(m *executor.Mock, _ string) {
+				m.SetPath("amp", "/opt/homebrew/bin/amp")
+				m.SetSymlink("/opt/homebrew/bin/amp", "/opt/homebrew/Cellar/ampcode/1.2.3/libexec/amp")
+			},
+			wantDebug: []string{"no Amp channel claims it"},
 		},
 	})
 }

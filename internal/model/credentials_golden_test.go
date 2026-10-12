@@ -112,6 +112,7 @@ func TestCredentialScanGolden_CoversTheWholeVocabulary(t *testing.T) {
 			CredentialCategoryPackageReg,
 			CredentialCategoryContainers,
 			CredentialCategoryInfrastructure,
+			CredentialCategoryAPIClients,
 		}},
 		// Every root token, including the opaque one, whose identifier segment
 		// is the part a reader validates and an agent is likeliest to omit.
@@ -124,6 +125,7 @@ func TestCredentialScanGolden_CoversTheWholeVocabulary(t *testing.T) {
 			"github_cli_hosts", "npmrc", "pypirc",
 			"docker_config", "kubeconfig",
 			"terraform_credentials", "vault_token",
+			"insomnia",
 		}},
 	} {
 		for _, want := range tt.want {
@@ -132,8 +134,8 @@ func TestCredentialScanGolden_CoversTheWholeVocabulary(t *testing.T) {
 			}
 		}
 	}
-	if len(sources) != 13 {
-		t.Errorf("golden payload covers %d sources, want the whole catalog of 13", len(sources))
+	if len(sources) != 14 {
+		t.Errorf("golden payload covers %d sources, want the whole catalog of 14", len(sources))
 	}
 
 	// The mixed result the three-state parser produces: one source both reported a

@@ -113,6 +113,12 @@ func (s *PythonScanner) ScanGlobalPackagesFromDisk(skipper *tcc.Skipper) []model
 	dist := NewPythonDistDetector(s.exec).WithLogger(s.log).WithSkipper(skipper)
 	pkgs := dist.ScanRoots(roots)
 	duration := time.Since(start).Milliseconds()
+	if pkgs == nil {
+		return []model.PythonScanResult{{
+			PackageManager: "pip", ExitCode: 1,
+			Error: "site-packages walk failed", ScanDurationMs: duration,
+		}}
+	}
 
 	type pipEntry struct {
 		Name    string `json:"name"`

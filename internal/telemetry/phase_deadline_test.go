@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
 // resolvePhaseBudget honors STEPSEC_PHASE_BUDGET_<NAME> > map entry > default,
@@ -24,6 +26,7 @@ func TestResolvePhaseBudget(t *testing.T) {
 		{"env junk ignored, falls to map", "node_scan", "junk", 15 * time.Minute, true},
 		{"env negative ignored, falls to map", "node_scan", "-5m", 15 * time.Minute, true},
 		{"map entry used when env empty", "ide_scan", "", 2 * time.Minute, true},
+		{"plugin phase has its own budget", "agent_plugins_scan", "", 2 * time.Minute, true},
 		{"unlisted phase falls to default", "totally_made_up_phase", "", defaultPhaseBudget, true},
 	}
 	for _, tc := range cases {
@@ -84,6 +87,28 @@ func TestStartPhase_DeadlineWiring(t *testing.T) {
 			t.Errorf("deadline %v out of expected ~20m window", remaining)
 		}
 	})
+}
+
+func TestSkillsAndPluginsHaveSeparatePhaseLifecycles(t *testing.T) {
+	t.Setenv("STEPSEC_PHASE_BUDGET_AGENT_SKILLS_SCAN", "1m")
+	t.Setenv("STEPSEC_PHASE_BUDGET_AGENT_PLUGINS_SCAN", "2m")
+	tracker := NewPhaseTracker()
+	log := progress.NewNoop()
+	parent := context.Background()
+	skillsCtx, skillsCancel := startPhase(parent, tracker, "agent_skills_scan")
+	endPhase(skillsCtx, skillsCancel, tracker, log, "agent_skills_scan")
+	pluginsCtx, pluginsCancel := startPhase(parent, tracker, "agent_plugins_scan")
+	defer pluginsCancel()
+	if skillsCtx.Err() != context.Canceled || pluginsCtx.Err() != nil {
+		t.Fatal("plugin phase inherited the finished skills context")
+	}
+	if got := tracker.Snapshot(); got.CurrentPhase != "agent_plugins_scan" || len(got.PhasesCompleted) != 1 || got.PhasesCompleted[0].Name != "agent_skills_scan" {
+		t.Fatalf("incorrect plugin progress: %+v", got)
+	}
+	endPhase(pluginsCtx, pluginsCancel, tracker, log, "agent_plugins_scan")
+	if got := tracker.Snapshot(); got.CurrentPhase != "" || len(got.PhasesCompleted) != 2 || got.PhasesCompleted[1].Name != "agent_plugins_scan" {
+		t.Fatalf("plugin phase was not recorded separately: %+v", got)
+	}
 }
 
 // upper uppercases an ASCII phase name for the env-var key, mirroring

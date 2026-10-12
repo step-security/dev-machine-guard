@@ -121,9 +121,8 @@ func (d *PythonProjectDetector) ListProjects(searchDirs []string, knownLastVerif
 			d.log.Progress("  Scanning: %s (%s)", c.path, c.pm)
 			pkgs = d.listVenvPackages(ctx, c.path, c.pipPath)
 		default:
-			// A valid venv (pyvenv.cfg present) created with --without-pip:
-			// there's nothing to list, but record that we saw it so the
-			// absence of packages is explained rather than silent.
+			// No pip means this path cannot inspect the inventory. Keep nil
+			// so delta retries instead of caching an unverified empty result.
 			d.log.Debug("python venv has no pip — skipping package list: %s (%s)", c.path, c.pm)
 		}
 		projects = append(projects, model.ProjectInfo{

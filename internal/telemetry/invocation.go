@@ -3,7 +3,6 @@ package telemetry
 import (
 	"context"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 
@@ -37,7 +36,7 @@ const jobStateProbeTimeout = 3 * time.Second
 // run; if it's running, or the probe is inconclusive, we keep "install" so a
 // genuine scheduled run is never mislabeled. Best-effort and never errors.
 func DetectInvocationMethod(exec executor.Executor, log *progress.Logger) string {
-	if !isSchedulerInstalled() {
+	if !isSchedulerInstalled(exec) {
 		return InvocationOneTime
 	}
 	if idle, known := schedulerJobIdle(exec, log); known && idle {
@@ -46,14 +45,14 @@ func DetectInvocationMethod(exec executor.Executor, log *progress.Logger) string
 	return InvocationInstall
 }
 
-func isSchedulerInstalled() bool {
-	switch runtime.GOOS {
+func isSchedulerInstalled(exec executor.Executor) bool {
+	switch exec.GOOS() {
 	case model.PlatformDarwin:
 		return fileExists(launchd.DaemonPlistPath) || fileExists(launchd.UserPlistPath())
 	case model.PlatformLinux:
 		return fileExists(systemd.TimerUnitPath())
 	case model.PlatformWindows:
-		return schtasks.IsTaskRegistered()
+		return schtasks.IsTaskRegistered(context.Background(), exec)
 	default:
 		return false
 	}
@@ -67,7 +66,7 @@ func isSchedulerInstalled() bool {
 // /query's localized Status field). The exact probe command is logged at debug
 // so a misbehaving machine can be reproduced by hand.
 func schedulerJobIdle(exec executor.Executor, log *progress.Logger) (idle, known bool) {
-	switch runtime.GOOS {
+	switch exec.GOOS() {
 	case model.PlatformDarwin:
 		// `launchctl list <label>` prints a "PID" key only while the job runs.
 		out, code, err := runStateProbe(exec, log, "launchctl", "list", launchd.Label)
