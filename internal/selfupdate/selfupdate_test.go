@@ -319,3 +319,49 @@ func TestVerifySSHSig_OverlappingArmorMarkersDoNotPanic(t *testing.T) {
 		}
 	}
 }
+
+func TestRun_MirrorFallbackStillVerifiesPayload(t *testing.T) {
+	for _, body := range []string{fixturePayload, "corrupt"} {
+		t.Run(body, func(t *testing.T) {
+			st := stageAll(t, validMeta(), fixturePayload)
+			originalClient, originalMirror := http.DefaultClient, config.UpdateMirrorURL
+			defer func() { http.DefaultClient, config.UpdateMirrorURL = originalClient, originalMirror }()
+			mirror := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/9.9.9/"+assetName("9.9.9") {
+					t.Errorf("unexpected mirror path: %s", r.URL.Path)
+				}
+				if r.Header.Get("Authorization") != "" {
+					t.Error("API credentials sent to artifact mirror")
+				}
+				_, _ = w.Write([]byte(body))
+			}))
+			defer mirror.Close()
+			http.DefaultClient = mirror.Client()
+			config.UpdateMirrorURL = mirror.URL
+			releaseBaseURL += "/unavailable" // primary returns 404
+			installed := Run(context.Background(), executor.NewMock(), progress.NewLogger(progress.LevelInfo))
+			if installed != (body == fixturePayload) {
+				t.Fatalf("installed = %v for mirrored body %q", installed, body)
+			}
+			if !installed {
+				got, _ := os.ReadFile(st.exe)
+				if string(got) != "old-binary-content\n" {
+					t.Fatal("corrupt mirror payload changed executable")
+				}
+			}
+		})
+	}
+}
+
+func TestRun_CanceledDownloadLeavesCurrentBinary(t *testing.T) {
+	st := stageAll(t, validMeta(), fixturePayload)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if Run(ctx, executor.NewMock(), progress.NewLogger(progress.LevelInfo)) {
+		t.Fatal("canceled update installed a binary")
+	}
+	got, err := os.ReadFile(st.exe)
+	if err != nil || string(got) != "old-binary-content\n" {
+		t.Fatalf("changed current binary: %q, %v", got, err)
+	}
+}

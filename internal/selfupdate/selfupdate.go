@@ -50,7 +50,7 @@ const (
 	metaTimeout     = 30 * time.Second
 	updateTimeout   = 2 * time.Minute
 	maxBinaryBytes  = 128 << 20
-	downloadTimeout = 5 * time.Minute
+	downloadTimeout = 45 * time.Second
 	maxMetaBytes    = 64 << 10
 	binaryName      = "stepsecurity-dev-machine-guard"
 
@@ -293,6 +293,14 @@ func verifyChecksumSignature(checksum, signed string) error {
 // stageDownload never changes the installed image.
 func stageDownload(ctx context.Context, t target, version string) (string, error) {
 	tmp, err := downloadAsset(ctx, version, t.asset(version), t.path)
+	if err != nil && config.UpdateMirrorURL != "" {
+		mirror, parseErr := url.Parse(config.UpdateMirrorURL)
+		if parseErr != nil || mirror.Scheme != "https" || mirror.Host == "" || mirror.User != nil || mirror.RawQuery != "" || mirror.Fragment != "" {
+			return "", fmt.Errorf("invalid HTTPS update mirror")
+		}
+		assetURL := strings.TrimRight(mirror.String(), "/") + "/" + version + "/" + t.asset(version)
+		tmp, err = downloadURL(ctx, assetURL, t.path)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -316,6 +324,7 @@ func verifyStaged(path, want string) error {
 }
 
 func stageCopy(src, want string) (string, error) {
+	// #nosec G304 -- source is our canonical installed executable, not remote metadata.
 	in, err := os.Open(src)
 	if err != nil {
 		return "", err
@@ -417,6 +426,10 @@ func fetchLatestBinary(ctx context.Context) (*latestBinaryResponse, error) {
 // the swap that follows is a rename rather than a copy. Returns the temp path.
 func downloadAsset(ctx context.Context, version, asset, dst string) (string, error) {
 	assetURL := fmt.Sprintf("%s/v%s/%s", releaseBaseURL, version, asset)
+	return downloadURL(ctx, assetURL, dst)
+}
+
+func downloadURL(ctx context.Context, assetURL, dst string) (string, error) {
 
 	ctx, cancel := context.WithTimeout(ctx, downloadTimeout)
 	defer cancel()

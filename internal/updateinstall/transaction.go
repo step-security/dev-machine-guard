@@ -28,6 +28,7 @@ const (
 type Lock struct{ file *os.File }
 
 func Acquire(dir string) (*Lock, error) {
+	// #nosec G304 -- fixed filename in the caller's installation directory.
 	f, err := os.OpenFile(filepath.Join(dir, ".selfupdate.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err
@@ -152,6 +153,7 @@ func replacePair(dir, launcher, agent string, checkpoint func(string)) error {
 // repeatable even if a previous recovery died between renames. Caller holds
 // the installation lock. Invalid/missing backup data fails closed.
 func Recover(dir string) error {
+	// #nosec G304 -- fixed recovery journal in the installation directory.
 	f, err := os.Open(filepath.Join(dir, journalName))
 	if errors.Is(err, os.ErrNotExist) {
 		cleanup(dir)
@@ -259,6 +261,7 @@ func hashRegular(path string) (string, error) {
 	if !fi.Mode().IsRegular() {
 		return "", fmt.Errorf("not a regular file")
 	}
+	// #nosec G304 -- backup path uses a validated directory and fixed executable name.
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -271,13 +274,14 @@ func hashRegular(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 func copySynced(src, dst string) (string, error) {
+	// #nosec G304 -- local executable or validated recovery backup under the install lock.
 	in, err := os.Open(src)
 	if err != nil {
 		return "", err
 	}
 	defer in.Close()
 	// Executable backup/restore copies need execute permission on Unix hosts.
-	// #nosec G302 -- private transaction directory; these are executable images.
+	// #nosec G302 G304 -- private transaction/staging path; these are executable images.
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
 	if err != nil {
 		return "", err

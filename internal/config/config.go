@@ -80,6 +80,10 @@ var (
 	UpdateCooldownHours int
 )
 
+// UpdateMirrorURL is the optional HTTPS packages mirror persisted by the Windows loader.
+// Release signatures and checksums remain mandatory for mirrored artifacts.
+var UpdateMirrorURL string
+
 // ConfigFile is the JSON structure persisted to ~/.stepsecurity/config.json.
 type ConfigFile struct {
 	CustomerID            string   `json:"customer_id,omitempty"`
@@ -101,6 +105,7 @@ type ConfigFile struct {
 	UseLegacyNodeScan     *bool    `json:"use_legacy_node_scan,omitempty"`
 	UseLegacyPythonScan   *bool    `json:"use_legacy_python_scan,omitempty"`
 	AutoUpdate            *bool    `json:"auto_update,omitempty"`
+	UpdateMirrorURL       string   `json:"update_mirror_url,omitempty"`
 	UpdateLagBehind       int      `json:"update_lag_behind,omitempty"`
 	UpdateCooldownHours   int      `json:"update_cooldown_hours,omitempty"`
 }
@@ -262,6 +267,9 @@ func Load() {
 	}
 	if cfg.UseLegacyPythonScan != nil {
 		UseLegacyPythonScan = *cfg.UseLegacyPythonScan
+	}
+	if cfg.UpdateMirrorURL != "" && UpdateMirrorURL == "" {
+		UpdateMirrorURL = cfg.UpdateMirrorURL
 	}
 	if cfg.AutoUpdate != nil {
 		AutoUpdate = *cfg.AutoUpdate
