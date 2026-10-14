@@ -107,6 +107,20 @@ type Config struct {
 	ConfigAPIEndpoint   string // --api-endpoint
 	ConfigAPIKey        string // --api-key (also accepts env var DMG_API_KEY)
 	ConfigScanFrequency string // --scan-frequency (hours)
+	// ConfigDeviceID is --device-id: the device identity template persisted
+	// as config.json device_id (a literal, or {serial} {hostname} {user}
+	// tokens; "-" clears it). ConfigRetireOnUninstall is
+	// --retire-on-uninstall[=true|false] (bare flag = true; an explicit empty
+	// value, as the MSI passes for an unset property, leaves it unchanged);
+	// nil = unchanged.
+	ConfigDeviceID          string
+	ConfigRetireOnUninstall *bool
+
+	// UninstallRetire / UninstallNoRetire are `uninstall --retire` and
+	// `uninstall --no-retire`: force or suppress the backend retire call that
+	// config.json retire_on_uninstall otherwise decides. Mutually exclusive.
+	UninstallRetire   bool
+	UninstallNoRetire bool
 
 	// IgnoreTelemetryError opts the `install` subcommand into treating an
 	// initial-telemetry POST failure as a warning rather than a fatal exit.
@@ -342,6 +356,36 @@ func Parse(args []string) (*Config, error) {
 			cfg.ConfigScanFrequency = args[i]
 		case strings.HasPrefix(arg, "--scan-frequency="):
 			cfg.ConfigScanFrequency = strings.TrimPrefix(arg, "--scan-frequency=")
+		case arg == "--device-id":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--device-id requires a value (a literal id, or a template over {serial} {hostname} {user}; \"-\" clears it)")
+			}
+			cfg.ConfigDeviceID = args[i]
+		case strings.HasPrefix(arg, "--device-id="):
+			cfg.ConfigDeviceID = strings.TrimPrefix(arg, "--device-id=")
+		case arg == "--retire-on-uninstall":
+			v := true
+			cfg.ConfigRetireOnUninstall = &v
+		case strings.HasPrefix(arg, "--retire-on-uninstall="):
+			raw := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(arg, "--retire-on-uninstall=")))
+			switch raw {
+			case "":
+				// Explicit empty value (--retire-on-uninstall=) means "unchanged":
+				// the MSI inline configure always passes the property, set or not.
+			case "true", "1", "yes":
+				v := true
+				cfg.ConfigRetireOnUninstall = &v
+			case "false", "0", "no":
+				v := false
+				cfg.ConfigRetireOnUninstall = &v
+			default:
+				return nil, fmt.Errorf("--retire-on-uninstall accepts true or false, got %q", raw)
+			}
+		case arg == "--retire":
+			cfg.UninstallRetire = true
+		case arg == "--no-retire":
+			cfg.UninstallNoRetire = true
 		case arg == "--verbose":
 			cfg.Verbose = true
 		case arg == "--override-gate":
@@ -444,6 +488,12 @@ func Parse(args []string) (*Config, error) {
 	// letting the installer fail opaquely on an empty path.
 	if cfg.InstallDirSet && cfg.InstallDir == "" && (cfg.Command == "install" || cfg.Command == "uninstall") {
 		return nil, fmt.Errorf("--install-dir= (empty) cannot be combined with %s — pass a directory or omit the flag", cfg.Command)
+	}
+	if cfg.UninstallRetire && cfg.UninstallNoRetire {
+		return nil, fmt.Errorf("--retire and --no-retire are mutually exclusive")
+	}
+	if (cfg.UninstallRetire || cfg.UninstallNoRetire) && cfg.Command != "uninstall" {
+		return nil, fmt.Errorf("--retire / --no-retire apply to the uninstall command only")
 	}
 
 	return cfg, nil
@@ -639,9 +689,21 @@ Non-interactive configure (for MSI / SCCM / Intune deployments):
   --api-endpoint URL            StepSecurity backend URL
   --api-key KEY                 Authentication key (or set DMG_API_KEY env var)
   --scan-frequency HOURS        Scheduled scan frequency
+  --device-id VALUE             Device identity: a literal id, or a template over
+                                {serial} {hostname} {user} (e.g. "{hostname}-{user}"
+                                for pooled virtual desktops). Blank/omitted keeps the
+                                hardware serial; "-" clears a saved template. The
+                                STEPSEC_DEVICE_ID env var overrides it at run time.
+  --retire-on-uninstall[=BOOL]  Make 'uninstall' retire this device in the dashboard
+                                before removing the scheduler job (default false)
   --ignore-telemetry-error      On 'install', treat a failed initial telemetry POST
                                 as a warning instead of a fatal exit (use in MSI
                                 custom actions to avoid rollback on transient network)
+
+Uninstall:
+  --retire                      Retire this device in the dashboard, then remove the
+                                scheduler job (overrides retire_on_uninstall=false)
+  --no-retire                   Never call the dashboard (overrides retire_on_uninstall)
 
 Configuration:
   Per-user config:    ~/.stepsecurity/config.json

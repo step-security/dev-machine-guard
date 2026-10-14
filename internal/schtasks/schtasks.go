@@ -13,6 +13,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
+	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
@@ -292,7 +293,7 @@ func applyBatterySettings(ctx context.Context, exec executor.Executor, log *prog
 		return
 	}
 
-	patched, changed := patchBatterySettings(decodeTaskXML(stdout))
+	patched, changed := patchBatterySettings(decodeTaskXML(stdout), perUserIdentity(exec))
 	if !changed {
 		log.Debug("task %q already has the desired battery settings", name)
 		return
@@ -362,13 +363,32 @@ const (
 // replace existing elements in place; RestartOnFailure is injected last in
 // <Settings> (where Task Scheduler itself serializes it), so the result stays
 // valid in a single re-import.
-func patchBatterySettings(xml string) (string, bool) {
+//
+// perUser additionally sets MultipleInstancesPolicy=Parallel. The /ru
+// INTERACTIVE task fires in every logged-on session; with the default
+// IgnoreNew policy a second session's instance is dropped while the first
+// user's scan is still running, so on a multi-session host with a {user}
+// identity only one user would ever be scanned per tick. With a shared
+// identity the default stays: the singleton lock already serialises overlaps.
+func patchBatterySettings(xml string, perUser bool) (string, bool) {
 	out := xml
 	out = setXMLElement(out, "DisallowStartIfOnBatteries", "false")
 	out = setXMLElement(out, "StopIfGoingOnBatteries", "false")
 	out = setXMLElement(out, "StartWhenAvailable", "true")
+	if perUser {
+		out = setXMLElement(out, "MultipleInstancesPolicy", "Parallel")
+	}
 	out = setRestartOnFailure(out, retryInterval, retryCount)
 	return out, out != xml
+}
+
+// perUserIdentity reports whether the configured device identity template
+// makes each logged-on user a separate device ({user} token). Resolved the
+// same way the scheduled runs resolve it (STEPSEC_DEVICE_ID, else the config
+// the installer just wrote).
+func perUserIdentity(exec executor.Executor) bool {
+	template, _ := device.IdentityTemplate(exec)
+	return strings.Contains(strings.ToLower(template), device.TokenUser)
 }
 
 // setRestartOnFailure forces <RestartOnFailure><Interval>..</Interval>

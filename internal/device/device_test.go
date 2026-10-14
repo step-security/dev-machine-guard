@@ -374,3 +374,56 @@ func TestIDForGuestPrecedence(t *testing.T) {
 		})
 	}
 }
+
+func TestGather_DeviceIDDefaultsToSerial(t *testing.T) {
+	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
+	mock.SetGOOS("darwin")
+	mock.SetHostname("test-mac.local")
+	mock.SetCommand(`"IOPlatformSerialNumber" = "SERIAL123"`, "", 0, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
+	mock.SetUsername("devuser")
+
+	dev := Gather(context.Background(), mock)
+	if dev.SerialNumber != "SERIAL123" || dev.DeviceID != "SERIAL123" {
+		t.Fatalf("default identity must equal the serial: %+v", dev)
+	}
+	if dev.DeviceIDSource != IdentitySourceSerial || dev.IdentityPerUser || dev.IdentityIncomplete {
+		t.Fatalf("unexpected identity metadata: %+v", dev)
+	}
+}
+
+func TestGather_DeviceIDAndSerialDiffer(t *testing.T) {
+	withConfigDeviceID(t, "{hostname}-{user}")
+	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
+	mock.SetGOOS("darwin")
+	mock.SetHostname("AVD-HOST-07")
+	mock.SetCommand(`"IOPlatformSerialNumber" = "SERIAL123"`, "", 0, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
+	mock.SetUsername("CONTOSO\\JDoe")
+
+	dev := Gather(context.Background(), mock)
+	if dev.DeviceID != "avd-host-07-jdoe" {
+		t.Fatalf("device id = %q", dev.DeviceID)
+	}
+	if dev.SerialNumber != "SERIAL123" {
+		t.Fatalf("serial must stay the hardware value, got %q", dev.SerialNumber)
+	}
+	if dev.DeviceIDSource != IdentitySourceConfig || !dev.IdentityPerUser || dev.IdentityIncomplete {
+		t.Fatalf("unexpected identity metadata: %+v", dev)
+	}
+	if got := ID(dev); got != "avd-host-07-jdoe" {
+		t.Fatalf("ID(dev) = %q, want the resolved template", got)
+	}
+
+	// Same machine, service-account context: the serial is still known (the
+	// process cache), but {user} cannot be completed.
+	mock.SetUsername("NT AUTHORITY\\SYSTEM")
+	mock.SetGOOS("windows")
+	dev = Gather(context.Background(), mock)
+	if !dev.IdentityIncomplete || dev.DeviceID != "" || dev.SerialNumber != "SERIAL123" {
+		t.Fatalf("SYSTEM with {user} must be incomplete but keep the serial: %+v", dev)
+	}
+	if got := ID(dev); got != "" {
+		t.Fatalf("ID(dev) for an incomplete identity = %q, want empty", got)
+	}
+}

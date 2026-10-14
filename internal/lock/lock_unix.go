@@ -4,10 +4,12 @@ package lock
 
 import (
 	"errors"
+	"path/filepath"
 	"syscall"
 )
 
-var lockFilePath = "/tmp/stepsecurity-dev-machine-guard.lock"
+// lockPath is /tmp/stepsecurity-dev-machine-guard[-<scope>].lock.
+func lockPath() string { return filepath.Join("/tmp", lockFileName()) }
 
 // isProcessAlive checks if a process with the given PID exists.
 // Returns true if the process is alive (signal 0 succeeds or returns EPERM).
