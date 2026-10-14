@@ -8,6 +8,7 @@ package launcher
 
 import (
 	"fmt"
+	"github.com/step-security/dev-machine-guard/internal/updateinstall"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,7 +75,12 @@ func ResolveTarget(argv []string) (string, []string, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	agent := filepath.Join(filepath.Dir(me), AgentBinary)
+	name := AgentBinary
+	if len(argv) > 0 && argv[0] == updateinstall.BootstrapFlag {
+		name = updateinstall.Launcher
+		argv = argv[1:]
+	}
+	agent := filepath.Join(filepath.Dir(me), name)
 	if _, err := os.Stat(agent); err != nil {
 		return "", nil, err
 	}

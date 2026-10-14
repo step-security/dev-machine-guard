@@ -113,14 +113,23 @@ jobs:
   #   - executor: Readlink on a real directory junction (ModeIrregular entry,
   #     NT-namespace target), which the skills detector's junction folding
   #     depends on
+  #   - selfupdate: replacing a live .exe, which Windows only permits by
+  #     renaming the mapped image aside rather than overwriting it
   #   - detector TestReal_*: the Kiro CLI registry reader against a scratch
   #     HKCU key, and skills junction folding over real junctions (the rest of
   #     the detector suite assumes a POSIX host, hence the -run filter)
   # This job executes them natively; scoped to these packages so the rest of the
   # suite (which assumes a POSIX host) is untouched.
   test-windows-native:
-    name: Test (windows native packages)
-    runs-on: windows-latest
+    name: Test (windows native packages, ${{ matrix.os }})
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            race: "-race"
+          - os: windows-11-arm
+            race: ""
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
@@ -131,10 +140,10 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
-      - run: go test -race -count=1 ./internal/devicepolicy/ ./internal/secureuserfile/ ./internal/detector/credentials/ ./internal/safepath/ ./internal/executor/
-      - run: go test -race -count=1 -run '^TestReal_' ./internal/detector/
+      - run: go test ${{ matrix.race }} -count=1 ./internal/devicepolicy/ ./internal/secureuserfile/ ./internal/detector/credentials/ ./internal/safepath/ ./internal/executor/ ./internal/selfupdate/ ./internal/updateinstall/ ./internal/launcher/ ./cmd/stepsecurity-dev-machine-guard-task/
+      - run: go test ${{ matrix.race }} -count=1 -run '^TestReal_' ./internal/detector/
       - name: Test scheduled scan console suppression
-        run: go test -race -count=1 -run 'Test(IsTaskRegistered|DetectInvocationMethod_Windows|HideWindow)' ./internal/schtasks/ ./internal/telemetry/ ./internal/winproc/
+        run: go test ${{ matrix.race }} -count=1 -run 'Test(IsTaskRegistered|DetectInvocationMethod_Windows|HideWindow)' ./internal/schtasks/ ./internal/telemetry/ ./internal/winproc/
 
   smoke:
     name: Smoke Tests

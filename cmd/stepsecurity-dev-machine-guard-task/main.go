@@ -12,7 +12,7 @@
 // CREATE_NO_WINDOW, and the only way to be that parent without flashing
 // our own console is to be GUI-subsystem.
 //
-// Two operating modes (target-resolution lives in internal/launcher so
+// Three operating modes (target-resolution lives in internal/launcher so
 // it can be unit-tested cross-platform):
 //
 //   - Default. Invoked without --exec, the launcher spawns its sibling
@@ -25,6 +25,10 @@
 //     `powershell.exe -File loader.ps1 send-telemetry` in the same
 //     no-console envelope the MSI flow uses for the agent.
 //
+//   - --recover-update mode. A stable copy of this launcher restores an
+//     interrupted update under the installation lock, then starts the
+//     replaceable task launcher. This is the self-managed install entrypoint.
+//
 // The agent (and any --exec target) stays console-subsystem so
 // interactive CLI use continues to work normally.
 //
@@ -35,14 +39,18 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/step-security/dev-machine-guard/internal/launcher"
+	"github.com/step-security/dev-machine-guard/internal/updateinstall"
 	"golang.org/x/sys/windows"
 )
 
@@ -56,6 +64,35 @@ func main() {
 // after the program name (os.Args[1:] in main); accepting it explicitly
 // keeps the windows-only test path open if we add one later.
 func run(argv []string) int {
+	var updateLock *updateinstall.Lock
+	me, exeErr := os.Executable()
+	_, bootstrapErr := os.Stat(filepath.Join(filepath.Dir(me), updateinstall.Bootstrap))
+	explicitBootstrap := len(argv) > 0 && argv[0] == updateinstall.BootstrapFlag
+	defaultMode := len(argv) == 0 || argv[0] != launcher.ExecFlag
+	if explicitBootstrap || (defaultMode && bootstrapErr == nil) {
+		err := exeErr
+		if err != nil {
+			return 1
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+		defer cancel()
+		for {
+			updateLock, err = updateinstall.Acquire(filepath.Dir(me))
+			if err == nil {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return 1
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+		defer updateLock.Release()
+		if err = updateinstall.Recover(filepath.Dir(me)); err != nil {
+			fmt.Fprintln(os.Stderr, "update recovery:", err)
+			return 1
+		}
+	}
 	target, childArgs, err := launcher.ResolveTarget(argv)
 	if err != nil {
 		// Two distinct failure shapes, matched to the legacy contract:
@@ -87,6 +124,9 @@ func run(argv []string) int {
 
 	if err := cmd.Start(); err != nil {
 		return 1
+	}
+	if updateLock != nil {
+		updateLock.Release()
 	}
 
 	// Best-effort: bind the child to a kill-on-close job. The job
