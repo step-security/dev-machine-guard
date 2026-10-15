@@ -323,6 +323,27 @@ Enterprise telemetry emits `composer_inventory` and `composer_config_audit` for 
 
 **Limits and privacy.** Each JSON input is capped at 2 MiB; discovery at 100,000 entries per root and depth 128; inventory at 50,000 records; audit at 256 KiB; combined sections at 16 MiB. Failures and limits carry partial coverage. URL credentials, queries and fragments are removed before telemetry. Auth objects become presence flags; arbitrary config, headers, scripts and auth-file contents are not collected. Standalone caches, PHARs, copied PHP without supported receipts, historical shell overrides and `installed.php`-only metadata are outside v1 coverage. Native VM and live API acceptance is tracked separately from local parser tests.
 
+## .NET Packages
+
+Enterprise telemetry emits `nuget_inventory` and `nuget_config_audit` for the resolved developer. Collection is static: `dotnet`, `nuget`, MSBuild, credential providers, scripts and discovered binaries are never executed, and no feed is contacted.
+
+| Evidence | Source and meaning |
+|---|---|
+| Declared requirements | `PackageReference`, `PackageDownload` and versioned `Sdk` items in `.csproj`/`.fsproj`/`.vbproj` files, with versions from the nearest `Directory.Packages.props` when central management applies; `packages.config` entries; `dotnet-tools.json` tools; `#:package`/`#:sdk` directives in file-based C# apps and `#r "nuget:"` in F# scripts. Conditional items are flagged. Build-time imports, property functions and `global.json` are not evaluated; a project that needs them is `partial`. |
+| Locked packages | `packages.lock.json` formats 1–3, with the direct/transitive dependency type and recorded content hash. A lock does not prove a restore. |
+| Restored packages | `project.assets.json` v3/v4 libraries and per-framework targets, including orphan assets whose project is unresolved. Each restored package is joined to the cache it was restored from for presence and origin; a `packages.config` package counts as restored only when its directory exists under the repository path. |
+| Cached packages | `<id>/<version>/` entries in the global packages folder, configured fallback and custom folders: `.nuspec` identity (loose or read from the `.nupkg` without unpacking), `.nupkg.metadata` content hash and source, `.nupkg.sha512` archive hash. Missing markers or a mismatched identity are reported, never guessed. |
+| Installed tools | Global tool store receipts, `DotnetToolSettings.xml` commands and shim presence; local manifests upgraded through the tool resolver cache. |
+| Installed templates | The template engine `packages.json` receipt. |
+| Binary dependencies | `*.deps.json` package libraries with their recorded hash, attributed to the owning project when one is found. |
+| Configuration | Project and ancestor `NuGet.Config` files inside the search roots, user and additional user configs, machine-wide configs and the verified process environment, with allowlisted package source, mapping, fallback folder, path, proxy, TLS, signer, audit and lock settings per ambient and restore context, and findings `nuget-001`…`nuget-004`. Credentials and API keys are recorded as configured only. |
+
+**Discovery.** Uses the selected search roots with protected-path and network-volume guards. VCS, `node_modules` and cache directories, conventional NuGet homes and directories holding `.nupkg` files are pruned from the project walk; `bin`/`obj` are walked so receipts are found by name. Directory symlinks are not followed. Paths named by configuration or restore metadata are resolved through the guard.
+
+**Meaning.** Declared, locked, restored and cached evidence stay independent when they disagree. Recorded SHA-512 values are reported as `recorded` and never verified. A feed origin comes only from a restore marker that names the source; everything else is `local` or `unknown`. Effective sources are not computed from `<clear/>` order.
+
+**Limits and privacy.** Each metadata file is capped at 2 MiB and each `.nupkg` read at 32 MiB; discovery at 100,000 entries per root and depth 128; inventory at 50,000 records; audit at 256 KiB; combined sections at 16 MiB. Failures and limits carry partial coverage. URL credentials, queries and fragments are removed before telemetry; `ClearTextPassword`, `Password`, API keys and credential-provider arguments are never collected, and an environment-variable reference is not reported as a stored password. `project.json`, `.ridpackage.json`, `#i` script sources and `global.json` SDK resolution are outside v1 coverage.
+
 ## System Package Scanning (Linux)
 
 System package scanning is **automatic on Linux** — no opt-in flag required. Multiple package managers can coexist.

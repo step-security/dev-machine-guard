@@ -297,6 +297,7 @@ See [SCAN_COVERAGE.md](SCAN_COVERAGE.md) for the full catalog of supported detec
 | Go Modules           | `go.mod`/`go.work` declarations, vendored modules, module cache, `GOBIN` tools, recorded checksums (enterprise) |
 | Rust Packages        | `Cargo.toml` declarations, `Cargo.lock`, registry cache, Git checkouts, vendored sources, `cargo install` receipts (enterprise) |
 | PHP Packages         | `composer.json` requirements, `composer.lock` snapshots and Composer 1/2 installed receipts, with separate directory presence (enterprise) |
+| .NET Packages        | MSBuild project and `packages.config` references, `packages.lock.json`, `project.assets.json` restores, global package cache, .NET tools, templates and `.deps.json` (enterprise) |
 | Package Configs      | npm (`.npmrc`), pnpm, bun (`bunfig.toml`), yarn classic & berry (`.yarnrc`/`.yarnrc.yml`), pip (`pip.conf`) — effective registry, cooldown policy, and auth surface across every scope |
 | Suspicious Files     | Malicious-file IOCs from StepSecurity-maintained rules — e.g. `binding.gyp` that runs during `npm install`, and editor/AI-tool config files that auto-execute on project open |
 
@@ -315,6 +316,8 @@ Compromised packages most often reach a machine because that machine resolves di
 Configuration is read from `.npmrc` (npm), pnpm config, `bunfig.toml` (bun), `.yarnrc` / `.yarnrc.yml` (yarn classic and berry), `pip.conf` (pip), Go's `go/env` and process environment (proxy, checksum database, private-module and auth settings, redacted on the device), and Cargo's `.cargo/config.toml` files and process environment (registries, source replacement, proxy and TLS settings, redacted on the device). In enterprise mode this rolls up into the **Package Configs** view in the dashboard, where you can spot machines that are unprotected or pointed at the wrong registry.
 
 Composer auditing reads selected global `config.json`, root manifests and verified process overrides. It reports observed repository, proxy, TLS and plugin settings with credentials redacted. It does not infer the repository that supplied a package or execute Composer to reconstruct runtime configuration. See [PHP Packages](SCAN_COVERAGE.md#php-packages) for scope and limits.
+
+NuGet auditing reads project, ancestor, user and machine `NuGet.Config` files plus verified process overrides. It reports package sources, source mapping, fallback folders, proxy, TLS and audit settings with credentials redacted, and records which configuration applied to each project and restore. It never executes `dotnet` or `nuget` or reads credential-provider output. See [.NET Packages](SCAN_COVERAGE.md#net-packages) for scope and limits.
 
 Enterprise Device Policy can also set StepSecurity Secure Registry as the sole user-level Python index for pip and uv. It manages only the resolved developer's user configuration and shared StepSecurity `.netrc` entry, keeps pip and uv results independent, and restores owned settings on an explicit policy clear. Project files, virtual environments, system configuration, environment variables, direct URLs, and Poetry are not modified.
 

@@ -125,6 +125,8 @@ type Payload struct {
 	CargoConfigAudit    *model.CargoConfigAudit    `json:"cargo_config_audit,omitempty"`
 	ComposerInventory   *model.ComposerInventory   `json:"composer_inventory,omitempty"`
 	ComposerConfigAudit *model.ComposerConfigAudit `json:"composer_config_audit,omitempty"`
+	NuGetInventory      *model.NuGetInventory      `json:"nuget_inventory,omitempty"`
+	NuGetConfigAudit    *model.NuGetConfigAudit    `json:"nuget_config_audit,omitempty"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -1106,6 +1108,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	endPhase(phaseCtx, phaseCancel, tracker, log, "composer_scan")
 	postPhase()
 
+	// NuGet metadata uses the raw executor and the same developer as Go/Cargo.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "nuget_scan")
+	log.Progress("Collecting .NET packages and NuGet configuration...")
+	nugetInventory, nugetConfigAudit := detector.NewNuGetScanner(exec, log).Scan(phaseCtx, browserTarget, searchDirs, cfg.IncludeNetworkVolumes)
+	log.Progress("  .NET: %d projects, %d package facts (inventory %s, config %s)", len(nugetInventory.Projects), len(nugetInventory.Packages), nugetInventory.Status, nugetConfigAudit.Status)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "nuget_scan")
+	postPhase()
+
 	// npm + pip configuration audits — surface-only inventory of every
 	// .npmrc and pip.conf on the host, plus the merged effective views
 	// each tool would resolve. We use the user-aware executor so npm and
@@ -1272,6 +1282,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		CargoConfigAudit:        cargoConfigAudit,
 		ComposerInventory:       composerInventory,
 		ComposerConfigAudit:     composerConfigAudit,
+		NuGetInventory:          nugetInventory,
+		NuGetConfigAudit:        nugetConfigAudit,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,

@@ -1649,3 +1649,140 @@ type ComposerConfigContext struct {
 	ConfigSourceIDs []string `json:"config_source_ids"` // highest precedence first
 	SelectionStatus string   `json:"selection_status"`  // observed | partial
 }
+
+// NuGetInventorySchemaVersion versions the static .NET/NuGet sections.
+const NuGetInventorySchemaVersion = 1
+
+// NuGetSource shares Cargo's source ownership and coverage contract. Kinds:
+// project_search_root, project_manifest, central_versions, project_assets,
+// lockfile, legacy_manifest, script_manifest, package_cache, package_archive,
+// tool_manifest, tool_store, tool_resolver_cache, template_receipt,
+// binary_metadata.
+type NuGetSource = CargoSource
+
+// NuGetInventory keeps declarations, locks, restored graphs, caches, tools,
+// templates and build manifests as independent evidence.
+type NuGetInventory struct {
+	SchemaVersion int            `json:"schema_version"`
+	Status        string         `json:"status"`
+	Reasons       []string       `json:"reasons"`
+	Sources       []NuGetSource  `json:"sources"`
+	Projects      []NuGetProject `json:"projects"`
+	Packages      []NuGetPackage `json:"packages"`
+}
+
+// NuGetProject is one declaration context. Target frameworks are the literal
+// project values; an unresolvable value leaves the selection partial.
+type NuGetProject struct {
+	ManifestSourceID string   `json:"manifest_source_id"`
+	ManifestPath     string   `json:"manifest_path"`
+	ProjectPath      string   `json:"project_path"`
+	ProjectKind      string   `json:"project_kind"` // msbuild | legacy | file_based | fsharp_script | tool_manifest
+	TargetFrameworks []string `json:"target_frameworks"`
+	SelectionStatus  string   `json:"selection_status"` // resolved | partial | unresolved
+	AssetsPath       string   `json:"assets_path,omitempty"`
+	LockfilePath     string   `json:"lockfile_path,omitempty"`
+	PackagesPath     string   `json:"packages_path,omitempty"` // legacy packages directory
+}
+
+// NuGetPackage is one fact owned by a single source. A declaration keeps its
+// requested range; exact versions come only from resolved or receipt metadata.
+type NuGetPackage struct {
+	SourceID              string                  `json:"source_id"`
+	Evidence              string                  `json:"evidence"`               // declared_requirement | locked_package | restored_package | cached_package | installed_tool | installed_template | binary_dependency
+	PackageName           string                  `json:"package_name"`           // lowercase canonical ID
+	DisplayName           string                  `json:"display_name,omitempty"` // ID as written
+	SourcePath            string                  `json:"source_path"`
+	ProjectPath           string                  `json:"project_path,omitempty"`
+	Scope                 string                  `json:"scope"` // project | user | custom | unknown
+	Reasons               []string                `json:"reasons"`
+	VersionStatus         string                  `json:"version_status"` // known | unknown
+	Version               string                  `json:"version,omitempty"`
+	VersionNormalized     string                  `json:"version_normalized,omitempty"` // lowercase prerelease identity
+	RequestedVersion      string                  `json:"requested_version,omitempty"`
+	DependencyRelation    string                  `json:"dependency_relation"` // direct | transitive | unknown
+	DevelopmentDependency *bool                   `json:"development_dependency,omitempty"`
+	PrivateAssets         string                  `json:"private_assets,omitempty"`
+	IncludeAssets         string                  `json:"include_assets,omitempty"`
+	ExcludeAssets         string                  `json:"exclude_assets,omitempty"`
+	FrameworkAlias        string                  `json:"framework_alias,omitempty"`
+	TargetFramework       string                  `json:"target_framework,omitempty"`
+	RuntimeIdentifier     string                  `json:"runtime_identifier,omitempty"`
+	Conditional           bool                    `json:"conditional,omitempty"` // declared under an MSBuild Condition
+	AllowedVersions       string                  `json:"allowed_versions,omitempty"`
+	DeclarationKind       string                  `json:"declaration_kind,omitempty"`     // package_reference | global_package_reference | package_download | msbuild_sdk
+	LockDependencyType    string                  `json:"lock_dependency_type,omitempty"` // Direct | Transitive | CentralTransitive
+	ToolCommands          []string                `json:"tool_commands,omitempty"`
+	Origin                NuGetOrigin             `json:"origin"`
+	Installation          *NuGetInstallation      `json:"installation,omitempty"`
+	ChecksumStatus        string                  `json:"checksum_status"` // recorded | not_recorded | partial
+	RecordedChecksums     []NuGetRecordedChecksum `json:"recorded_checksums"`
+}
+
+// NuGetOrigin is an observed download source, never a configured candidate.
+type NuGetOrigin struct {
+	Kind string `json:"kind"` // feed | local | unknown
+	URL  string `json:"url,omitempty"`
+	Path string `json:"path,omitempty"`
+}
+
+type NuGetInstallation struct {
+	Path       string `json:"path,omitempty"`
+	PathStatus string `json:"path_status"` // resolved | unresolved
+	Presence   string `json:"presence"`    // present | absent | unreadable | unknown | not_applicable
+}
+
+// NuGetRecordedChecksum distinguishes NuGet's package-content hash from the
+// archive byte hash; the two differ for signed packages.
+type NuGetRecordedChecksum struct {
+	Kind         string `json:"kind"`      // content | archive
+	Algorithm    string `json:"algorithm"` // sha512
+	Value        string `json:"value"`     // base64
+	SourceID     string `json:"source_id"`
+	SourceKind   string `json:"source_kind"`
+	SourcePath   string `json:"source_path"`
+	Verification string `json:"verification"` // recorded
+}
+
+// NuGetConfigAudit follows Composer's observed-source model. Credentials are
+// inline in NuGet.Config, so presence flags replace a credential-file list.
+// The endpoint lists and counts are derived from the read files; the backend
+// recomputes them and treats the producer's values as informational.
+type NuGetConfigAudit struct {
+	SchemaVersion         int                  `json:"schema_version"`
+	Status                string               `json:"status"` // complete | partial
+	Reasons               []string             `json:"reasons"`
+	Files                 []NuGetConfigFile    `json:"files"`
+	Contexts              []NuGetConfigContext `json:"contexts"`
+	Findings              []CargoConfigFinding `json:"findings"`
+	ObservedRegistries    []string             `json:"observed_registries"`
+	ObservedProxies       []string             `json:"observed_proxies"`
+	SourceCount           int                  `json:"source_count"`
+	ObservedRegistryCount int                  `json:"observed_registry_count"`
+	ObservedProxyCount    int                  `json:"observed_proxy_count"`
+	FindingCount          int                  `json:"finding_count"`
+	FindingCodeCounts     map[string]int       `json:"finding_code_counts"`
+	FindingCounts         map[string]int       `json:"finding_counts"` // by uppercase severity
+}
+
+// NuGetConfigFile is one configuration source. The process source has no
+// path; a source that was not read carries no current settings.
+type NuGetConfigFile struct {
+	SourceID string               `json:"source_id"`
+	Scope    string               `json:"scope"` // user | machine | project | process
+	Path     string               `json:"path,omitempty"`
+	Status   string               `json:"status"` // read | not_found | unreadable | unsupported
+	Reasons  []string             `json:"reasons"`
+	Settings []CargoConfigSetting `json:"settings"`
+}
+
+// NuGetConfigContext is an ambient config chain for a project directory, or
+// the config input an assets file recorded for one restore.
+type NuGetConfigContext struct {
+	ProjectPath         string   `json:"project_path"`
+	ContextKind         string   `json:"context_kind"` // ambient | restore
+	Status              string   `json:"status"`       // complete | partial
+	Reasons             []string `json:"reasons"`
+	ConfigSourceIDs     []string `json:"config_source_ids"` // highest precedence first
+	RestoreMetadataPath string   `json:"restore_metadata_path,omitempty"`
+}
