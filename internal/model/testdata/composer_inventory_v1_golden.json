@@ -1,0 +1,663 @@
+{
+  "composer_inventory": {
+    "schema_version": 1,
+    "status": "partial",
+    "reasons": [
+      "parse_error"
+    ],
+    "sources": [
+      {
+        "source_id": "0a7e0e47f8a2e91242acbcd87fc42da01c0865d1a8fba2f01c39545e8b409a69",
+        "kind": "composer_home",
+        "path": "/home/composer-fixture/.composer",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "0cf1f1a2d313b8b4540e79a5a9737981fd0e7b2de9f45c49b3c563e9be9e9864",
+          "2f23413ffa0b18814a7c62d12ff04ff9478c3ce2e2cd10c4be9014b19112da4a"
+        ]
+      },
+      {
+        "source_id": "0cf1f1a2d313b8b4540e79a5a9737981fd0e7b2de9f45c49b3c563e9be9e9864",
+        "kind": "manifest",
+        "path": "/home/composer-fixture/.composer/composer.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "0a7e0e47f8a2e91242acbcd87fc42da01c0865d1a8fba2f01c39545e8b409a69",
+        "discovered_sources": [
+          "7e7c21b8dbe42130e00573180150fdafe7b1d83cbeccdc988b978bfc9f97861b"
+        ]
+      },
+      {
+        "source_id": "7e7c21b8dbe42130e00573180150fdafe7b1d83cbeccdc988b978bfc9f97861b",
+        "kind": "lockfile",
+        "path": "/home/composer-fixture/.composer/composer.lock",
+        "status": "complete",
+        "presence": "absent",
+        "reasons": [],
+        "parent_source_id": "0cf1f1a2d313b8b4540e79a5a9737981fd0e7b2de9f45c49b3c563e9be9e9864",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "2f23413ffa0b18814a7c62d12ff04ff9478c3ce2e2cd10c4be9014b19112da4a",
+        "kind": "installed_metadata",
+        "path": "/home/composer-fixture/.composer/vendor/composer/installed.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "0a7e0e47f8a2e91242acbcd87fc42da01c0865d1a8fba2f01c39545e8b409a69",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "8681a0427360c7a940103f8021b88270800d2f46f38287d4af05dc17eab9ec64",
+        "kind": "composer_home",
+        "path": "/home/composer-fixture/.config/composer",
+        "status": "complete",
+        "presence": "absent",
+        "reasons": [],
+        "discovered_sources": []
+      },
+      {
+        "source_id": "15a3e47124f4d05c5a787ffa28cea51be09b52f64ffe25c0c2a8306f081594fb",
+        "kind": "project_search_root",
+        "path": "/home/composer-fixture/code",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "parse_error"
+        ],
+        "discovered_sources": [
+          "3fcbb92cdf9ff78e01fa427e79955f8dad1144f9ce2425550e7cbb1e4b174031",
+          "62b2930e895a07a5018ee62de4f7418f7c42be1803204bd0a34853621f3025c2",
+          "c225fc32131907c3017bc7abe4c27eb6076353f9c4341e2cbd5546c610f395ae"
+        ]
+      },
+      {
+        "source_id": "c225fc32131907c3017bc7abe4c27eb6076353f9c4341e2cbd5546c610f395ae",
+        "kind": "manifest",
+        "path": "/home/composer-fixture/code/app/composer.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "15a3e47124f4d05c5a787ffa28cea51be09b52f64ffe25c0c2a8306f081594fb",
+        "discovered_sources": [
+          "4c95c947ad2dbd653469db5bdcb4221c3662c76c8ddbec57fb9a5293a39645cc"
+        ]
+      },
+      {
+        "source_id": "4c95c947ad2dbd653469db5bdcb4221c3662c76c8ddbec57fb9a5293a39645cc",
+        "kind": "lockfile",
+        "path": "/home/composer-fixture/code/app/composer.lock",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "c225fc32131907c3017bc7abe4c27eb6076353f9c4341e2cbd5546c610f395ae",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "62b2930e895a07a5018ee62de4f7418f7c42be1803204bd0a34853621f3025c2",
+        "kind": "installed_metadata",
+        "path": "/home/composer-fixture/code/app/vendor/composer/installed.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "15a3e47124f4d05c5a787ffa28cea51be09b52f64ffe25c0c2a8306f081594fb",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "3fcbb92cdf9ff78e01fa427e79955f8dad1144f9ce2425550e7cbb1e4b174031",
+        "kind": "installed_metadata",
+        "path": "/home/composer-fixture/code/orphan/composer/installed.json",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "parse_error"
+        ],
+        "parent_source_id": "15a3e47124f4d05c5a787ffa28cea51be09b52f64ffe25c0c2a8306f081594fb",
+        "discovered_sources": []
+      }
+    ],
+    "projects": [
+      {
+        "manifest_source_id": "0cf1f1a2d313b8b4540e79a5a9737981fd0e7b2de9f45c49b3c563e9be9e9864",
+        "manifest_path": "/home/composer-fixture/.composer/composer.json",
+        "project_path": "/home/composer-fixture/.composer",
+        "scope": "global",
+        "vendor_path": "/home/composer-fixture/.composer/vendor",
+        "selection_status": "observed",
+        "lockfile_path": "/home/composer-fixture/.composer/composer.lock"
+      },
+      {
+        "manifest_source_id": "c225fc32131907c3017bc7abe4c27eb6076353f9c4341e2cbd5546c610f395ae",
+        "manifest_path": "/home/composer-fixture/code/app/composer.json",
+        "project_path": "/home/composer-fixture/code/app",
+        "scope": "project",
+        "package_name": "example/app",
+        "package_version": "dev-main",
+        "vendor_path": "/home/composer-fixture/code/app/vendor",
+        "selection_status": "observed",
+        "lockfile_path": "/home/composer-fixture/code/app/composer.lock"
+      }
+    ],
+    "packages": [
+      {
+        "source_id": "0cf1f1a2d313b8b4540e79a5a9737981fd0e7b2de9f45c49b3c563e9be9e9864",
+        "evidence": "declared_requirement",
+        "package_name": "example/tool",
+        "source_path": "/home/composer-fixture/.composer/composer.json",
+        "project_path": "/home/composer-fixture/.composer",
+        "scope": "global",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_version": "^1",
+        "dependency_kind": "require",
+        "dependency_relation": "direct",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "2f23413ffa0b18814a7c62d12ff04ff9478c3ce2e2cd10c4be9014b19112da4a",
+        "evidence": "installed_package",
+        "package_name": "example/tool",
+        "source_path": "/home/composer-fixture/.composer/vendor/composer/installed.json",
+        "project_path": "/home/composer-fixture/.composer",
+        "scope": "global",
+        "reasons": [],
+        "version_status": "known",
+        "version": "v1.0.0",
+        "dependency_kind": "unknown",
+        "dependency_relation": "unknown",
+        "package_type": "library",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/composer-fixture/.composer/vendor/example/tool/Legacy",
+          "path_status": "inferred",
+          "presence": "absent"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "c225fc32131907c3017bc7abe4c27eb6076353f9c4341e2cbd5546c610f395ae",
+        "evidence": "declared_requirement",
+        "package_name": "example/dev",
+        "source_path": "/home/composer-fixture/code/app/composer.json",
+        "project_path": "/home/composer-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_version": "^1",
+        "dependency_kind": "require_dev",
+        "dependency_relation": "direct",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "c225fc32131907c3017bc7abe4c27eb6076353f9c4341e2cbd5546c610f395ae",
+        "evidence": "declared_requirement",
+        "package_name": "example/lib",
+        "source_path": "/home/composer-fixture/code/app/composer.json",
+        "project_path": "/home/composer-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_version": "^2",
+        "dependency_kind": "require",
+        "dependency_relation": "direct",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "4c95c947ad2dbd653469db5bdcb4221c3662c76c8ddbec57fb9a5293a39645cc",
+        "evidence": "locked_package",
+        "package_name": "example/dev",
+        "source_path": "/home/composer-fixture/code/app/composer.lock",
+        "project_path": "/home/composer-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.1.0",
+        "dependency_kind": "require_dev",
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "4c95c947ad2dbd653469db5bdcb4221c3662c76c8ddbec57fb9a5293a39645cc",
+        "evidence": "locked_package",
+        "package_name": "example/lib",
+        "source_path": "/home/composer-fixture/code/app/composer.lock",
+        "project_path": "/home/composer-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2.1.0",
+        "dependency_kind": "require",
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "source",
+          "type": "git",
+          "url": "https://github.com/example/lib.git"
+        },
+        "source": {
+          "type": "git",
+          "url": "https://github.com/example/lib.git",
+          "reference": "release/2.1"
+        },
+        "dist": {
+          "type": "zip",
+          "url": "https://dist.example.invalid/lib.zip",
+          "reference": "release/2.1"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha1",
+            "value": "0123456789abcdef0123456789abcdef01234567",
+            "source_id": "4c95c947ad2dbd653469db5bdcb4221c3662c76c8ddbec57fb9a5293a39645cc",
+            "source_kind": "lockfile",
+            "source_path": "/home/composer-fixture/code/app/composer.lock",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "4c95c947ad2dbd653469db5bdcb4221c3662c76c8ddbec57fb9a5293a39645cc",
+        "evidence": "locked_package",
+        "package_name": "example/transitive",
+        "source_path": "/home/composer-fixture/code/app/composer.lock",
+        "project_path": "/home/composer-fixture/code/app",
+        "scope": "project",
+        "reasons": [
+          "checksum_invalid"
+        ],
+        "version_status": "known",
+        "version": "1.0.0",
+        "dependency_kind": "require",
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "dist",
+          "type": "zip",
+          "url": "https://dist.example.invalid/transitive.zip"
+        },
+        "dist": {
+          "type": "zip",
+          "url": "https://dist.example.invalid/transitive.zip"
+        },
+        "checksum_status": "partial",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "62b2930e895a07a5018ee62de4f7418f7c42be1803204bd0a34853621f3025c2",
+        "evidence": "installed_package",
+        "package_name": "example/lib",
+        "source_path": "/home/composer-fixture/code/app/vendor/composer/installed.json",
+        "project_path": "/home/composer-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.9.0",
+        "version_normalized": "1.9.0.0",
+        "dependency_kind": "require",
+        "dependency_relation": "unknown",
+        "package_type": "library",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/composer-fixture/code/app/vendor/example/lib",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "62b2930e895a07a5018ee62de4f7418f7c42be1803204bd0a34853621f3025c2",
+        "evidence": "installed_package",
+        "package_name": "example/local",
+        "source_path": "/home/composer-fixture/code/app/vendor/composer/installed.json",
+        "project_path": "/home/composer-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "dev-main",
+        "dependency_kind": "require",
+        "dependency_relation": "unknown",
+        "package_type": "library",
+        "origin": {
+          "kind": "local",
+          "type": "path",
+          "path": "/home/composer-fixture/local"
+        },
+        "dist": {
+          "type": "path",
+          "url": "../../local",
+          "reference": "local-reference"
+        },
+        "installation": {
+          "path": "/home/composer-fixture/code/app/vendor/example/local",
+          "path_status": "resolved",
+          "presence": "absent"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "62b2930e895a07a5018ee62de4f7418f7c42be1803204bd0a34853621f3025c2",
+        "evidence": "installed_package",
+        "package_name": "example/meta",
+        "source_path": "/home/composer-fixture/code/app/vendor/composer/installed.json",
+        "project_path": "/home/composer-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.0",
+        "dependency_kind": "require",
+        "dependency_relation": "unknown",
+        "package_type": "metapackage",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path_status": "not_applicable",
+          "presence": "not_applicable"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "62b2930e895a07a5018ee62de4f7418f7c42be1803204bd0a34853621f3025c2",
+        "evidence": "installed_package",
+        "package_name": "example/missing",
+        "source_path": "/home/composer-fixture/code/app/vendor/composer/installed.json",
+        "project_path": "/home/composer-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "dev-feature",
+        "dependency_kind": "require",
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/composer-fixture/code/app/vendor/example/missing",
+          "path_status": "resolved",
+          "presence": "absent"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "3fcbb92cdf9ff78e01fa427e79955f8dad1144f9ce2425550e7cbb1e4b174031",
+        "evidence": "installed_package",
+        "package_name": "example/orphan",
+        "source_path": "/home/composer-fixture/code/orphan/composer/installed.json",
+        "scope": "unknown",
+        "reasons": [
+          "path_unresolved"
+        ],
+        "version_status": "known",
+        "version": "dev-main",
+        "dependency_kind": "require",
+        "dependency_relation": "unknown",
+        "package_type": "custom-installer",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path_status": "unresolved",
+          "presence": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      }
+    ]
+  },
+  "composer_config_audit": {
+    "schema_version": 1,
+    "status": "complete",
+    "reasons": [],
+    "files": [
+      {
+        "source_id": "712f2e1c92b809b80a6c5f86661cf4503f8b224988625fde9a18c44a84f4cde1",
+        "scope": "process",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "HTTPS_PROXY",
+            "display": "https://proxy.example.invalid:8443/",
+            "source_id": "712f2e1c92b809b80a6c5f86661cf4503f8b224988625fde9a18c44a84f4cde1",
+            "redacted": true
+          },
+          {
+            "key": "NO_PROXY",
+            "display": "localhost,.example.invalid",
+            "source_id": "712f2e1c92b809b80a6c5f86661cf4503f8b224988625fde9a18c44a84f4cde1",
+            "redacted": false
+          },
+          {
+            "key": "auth_configured",
+            "display": "true",
+            "source_id": "712f2e1c92b809b80a6c5f86661cf4503f8b224988625fde9a18c44a84f4cde1",
+            "redacted": true
+          }
+        ]
+      },
+      {
+        "source_id": "25e5780a4b4dbead08c0dbc962730574cac781b688052331f2cac0550b2cc96b",
+        "scope": "project",
+        "path": "/home/composer-fixture/.composer/composer.json",
+        "status": "present",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+        "scope": "project",
+        "path": "/home/composer-fixture/code/app/composer.json",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "allow-plugins",
+            "display": "true",
+            "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+            "redacted": false
+          },
+          {
+            "key": "auth_configured",
+            "display": "true",
+            "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+            "redacted": true
+          },
+          {
+            "key": "disable-tls",
+            "display": "true",
+            "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+            "redacted": false
+          },
+          {
+            "key": "lock",
+            "display": "false",
+            "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+            "redacted": false
+          },
+          {
+            "key": "repositories.0.canonical",
+            "display": "false",
+            "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+            "redacted": false
+          },
+          {
+            "key": "repositories.0.only",
+            "display": "[\"example/*\"]",
+            "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+            "redacted": false
+          },
+          {
+            "key": "repositories.0.type",
+            "display": "composer",
+            "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+            "redacted": false
+          },
+          {
+            "key": "repositories.0.url",
+            "display": "http://repo.example.invalid/index",
+            "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+            "redacted": true
+          },
+          {
+            "key": "repositories.packagist.org",
+            "display": "false",
+            "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+            "redacted": false
+          },
+          {
+            "key": "secure-http",
+            "display": "false",
+            "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+            "redacted": false
+          },
+          {
+            "key": "source-fallback",
+            "display": "false",
+            "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "96669990a6f880301b3aec9af25460c12ddeb70da04aea1eea3048a8bd4af4cb",
+        "scope": "user",
+        "path": "/home/composer-fixture/.composer/config.json",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "audit.abandoned",
+            "display": "report",
+            "source_id": "96669990a6f880301b3aec9af25460c12ddeb70da04aea1eea3048a8bd4af4cb",
+            "redacted": false
+          },
+          {
+            "key": "policy.ignore-unreachable",
+            "display": "[\"audit\"]",
+            "source_id": "96669990a6f880301b3aec9af25460c12ddeb70da04aea1eea3048a8bd4af4cb",
+            "redacted": false
+          },
+          {
+            "key": "policy.malware.audit",
+            "display": "fail",
+            "source_id": "96669990a6f880301b3aec9af25460c12ddeb70da04aea1eea3048a8bd4af4cb",
+            "redacted": false
+          },
+          {
+            "key": "policy.malware.block",
+            "display": "true",
+            "source_id": "96669990a6f880301b3aec9af25460c12ddeb70da04aea1eea3048a8bd4af4cb",
+            "redacted": false
+          },
+          {
+            "key": "policy.malware.block-scope",
+            "display": "all",
+            "source_id": "96669990a6f880301b3aec9af25460c12ddeb70da04aea1eea3048a8bd4af4cb",
+            "redacted": false
+          },
+          {
+            "key": "preferred-install.*",
+            "display": "dist",
+            "source_id": "96669990a6f880301b3aec9af25460c12ddeb70da04aea1eea3048a8bd4af4cb",
+            "redacted": false
+          },
+          {
+            "key": "store-auths",
+            "display": "prompt",
+            "source_id": "96669990a6f880301b3aec9af25460c12ddeb70da04aea1eea3048a8bd4af4cb",
+            "redacted": false
+          }
+        ]
+      }
+    ],
+    "contexts": [
+      {
+        "project_path": "/home/composer-fixture/.composer",
+        "config_source_ids": [
+          "712f2e1c92b809b80a6c5f86661cf4503f8b224988625fde9a18c44a84f4cde1",
+          "25e5780a4b4dbead08c0dbc962730574cac781b688052331f2cac0550b2cc96b",
+          "96669990a6f880301b3aec9af25460c12ddeb70da04aea1eea3048a8bd4af4cb"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "project_path": "/home/composer-fixture/code/app",
+        "config_source_ids": [
+          "712f2e1c92b809b80a6c5f86661cf4503f8b224988625fde9a18c44a84f4cde1",
+          "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+          "96669990a6f880301b3aec9af25460c12ddeb70da04aea1eea3048a8bd4af4cb"
+        ],
+        "selection_status": "observed"
+      }
+    ],
+    "credential_files": [
+      {
+        "path": "/home/composer-fixture/.composer/auth.json",
+        "status": "present",
+        "presence": "present"
+      },
+      {
+        "path": "/home/composer-fixture/code/app/auth.json",
+        "status": "absent",
+        "presence": "absent"
+      }
+    ],
+    "findings": [
+      {
+        "code": "composer-001",
+        "severity": "MEDIUM",
+        "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+        "key": "disable-tls",
+        "detail": "TLS is disabled by Composer configuration."
+      },
+      {
+        "code": "composer-002",
+        "severity": "MEDIUM",
+        "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+        "key": "secure-http",
+        "detail": "Composer permits insecure HTTP connections."
+      },
+      {
+        "code": "composer-003",
+        "severity": "MEDIUM",
+        "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+        "key": "repositories.0.url",
+        "detail": "Composer repository uses plaintext HTTP."
+      },
+      {
+        "code": "composer-004",
+        "severity": "LOW",
+        "source_id": "88ea631a777d2e70b5c8a3a072cc0b43b10d821ff415f14e56f81b46c8b9b816",
+        "key": "allow-plugins",
+        "detail": "Composer allows all plugins."
+      }
+    ]
+  }
+}

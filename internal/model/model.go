@@ -1541,3 +1541,111 @@ type CargoCredentialFile struct {
 	Status   string `json:"status"`   // CargoConfig* status
 	Presence string `json:"presence"` // CargoPresence*
 }
+
+// ComposerInventorySchemaVersion versions the static Composer sections.
+const ComposerInventorySchemaVersion = 1
+
+// ComposerSource shares Cargo's source ownership and coverage contract.
+type ComposerSource = CargoSource
+
+// ComposerInventory keeps declarations, lock snapshots and receipts independent.
+// Directory presence belongs to a receipt, not to source completeness.
+type ComposerInventory struct {
+	SchemaVersion int               `json:"schema_version"`
+	Status        string            `json:"status"`
+	Reasons       []string          `json:"reasons"`
+	Sources       []ComposerSource  `json:"sources"`
+	Projects      []ComposerProject `json:"projects"`
+	Packages      []ComposerPackage `json:"packages"`
+}
+
+type ComposerProject struct {
+	ManifestSourceID string `json:"manifest_source_id"`
+	ManifestPath     string `json:"manifest_path"`
+	ProjectPath      string `json:"project_path"`
+	Scope            string `json:"scope"` // project | global
+	PackageName      string `json:"package_name,omitempty"`
+	PackageVersion   string `json:"package_version,omitempty"`
+	VendorPath       string `json:"vendor_path,omitempty"`
+	SelectionStatus  string `json:"selection_status"` // observed | partial
+	LockfilePath     string `json:"lockfile_path"`
+}
+
+// ComposerPackage is one fact owned by a manifest, lockfile or installed receipt.
+// Exact metadata versions are not normalized or inferred from constraints.
+type ComposerPackage struct {
+	SourceID           string                     `json:"source_id"`
+	Evidence           string                     `json:"evidence"` // declared_requirement | locked_package | installed_package
+	PackageName        string                     `json:"package_name"`
+	SourcePath         string                     `json:"source_path"`
+	ProjectPath        string                     `json:"project_path,omitempty"`
+	Scope              string                     `json:"scope"` // project | global | unknown
+	Reasons            []string                   `json:"reasons"`
+	VersionStatus      string                     `json:"version_status"` // known | unknown
+	Version            string                     `json:"version,omitempty"`
+	VersionNormalized  string                     `json:"version_normalized,omitempty"`
+	RequestedVersion   string                     `json:"requested_version,omitempty"`
+	DependencyKind     string                     `json:"dependency_kind"`     // require | require_dev | unknown
+	DependencyRelation string                     `json:"dependency_relation"` // direct | unknown
+	PackageType        string                     `json:"package_type,omitempty"`
+	Origin             ComposerOrigin             `json:"origin"`
+	Source             *ComposerDescriptor        `json:"source,omitempty"`
+	Dist               *ComposerDescriptor        `json:"dist,omitempty"`
+	Installation       *ComposerInstallation      `json:"installation,omitempty"`
+	ChecksumStatus     string                     `json:"checksum_status"` // absent | recorded | partial | unreadable
+	RecordedChecksums  []ComposerRecordedChecksum `json:"recorded_checksums"`
+}
+
+type ComposerOrigin struct {
+	Kind string `json:"kind"` // source | dist | local | unknown; never inferred registry provenance
+	Type string `json:"type,omitempty"`
+	URL  string `json:"url,omitempty"`
+	Path string `json:"path,omitempty"`
+}
+
+type ComposerDescriptor struct {
+	Type      string `json:"type"`
+	URL       string `json:"url"`
+	Reference string `json:"reference,omitempty"`
+}
+
+type ComposerInstallation struct {
+	Path       string `json:"path,omitempty"`
+	PathStatus string `json:"path_status"` // resolved | inferred | unresolved | not_applicable
+	Presence   string `json:"presence"`    // present | absent | unknown | not_applicable
+}
+
+// ComposerRecordedChecksum records dist.shasum without claiming file verification.
+type ComposerRecordedChecksum struct {
+	Algorithm    string `json:"algorithm"` // sha1
+	Value        string `json:"value"`
+	SourceID     string `json:"source_id"`
+	SourceKind   string `json:"source_kind"` // lockfile | installed_metadata
+	SourcePath   string `json:"source_path"`
+	Verification string `json:"verification"` // not_verified
+}
+
+type ComposerConfigAudit struct {
+	SchemaVersion   int                     `json:"schema_version"`
+	Status          string                  `json:"status"`
+	Reasons         []string                `json:"reasons"`
+	Files           []ComposerConfigFile    `json:"files"`
+	Contexts        []ComposerConfigContext `json:"contexts"`
+	CredentialFiles []CargoCredentialFile   `json:"credential_files"`
+	Findings        []CargoConfigFinding    `json:"findings"`
+}
+
+type ComposerConfigFile struct {
+	SourceID string               `json:"source_id"`
+	Scope    string               `json:"scope"` // user | project | process
+	Path     string               `json:"path,omitempty"`
+	Status   string               `json:"status"`
+	Reasons  []string             `json:"reasons"`
+	Settings []CargoConfigSetting `json:"settings"`
+}
+
+type ComposerConfigContext struct {
+	ProjectPath     string   `json:"project_path"`
+	ConfigSourceIDs []string `json:"config_source_ids"` // highest precedence first
+	SelectionStatus string   `json:"selection_status"`  // observed | partial
+}

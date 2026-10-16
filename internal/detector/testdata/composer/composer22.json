@@ -1,0 +1,13 @@
+{
+  "packages": [
+    {
+      "name": "example/contracts",
+      "version": "1.0.0",
+      "version_normalized": "1.0.0.0",
+      "type": "library",
+      "install-path": "../example/contracts"
+    }
+  ],
+  "dev": true,
+  "dev-package-names": []
+}
