@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/step-security/dev-machine-guard/internal/config"
+	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/heartbeat"
 	"github.com/step-security/dev-machine-guard/internal/paths"
@@ -113,80 +113,37 @@ func TestPost_RejectsUnusableInputs(t *testing.T) {
 	}
 }
 
-// seedState writes a last-run.json carrying a run-gate device id at path.
-func seedState(t *testing.T, path, deviceID string) {
-	t.Helper()
-	if err := heartbeat.UpdateRunGate(path, func(rg *heartbeat.RunGate) { rg.DeviceID = deviceID }); err != nil {
-		t.Fatalf("seed %s: %v", path, err)
-	}
-}
-
-func TestCollectIdentities_FromUserStateDirs(t *testing.T) {
+func TestCollectIdentitiesIgnoresCachedAndEnvironmentIDs(t *testing.T) {
 	home := t.TempDir()
 	paths.SetOverride(home)
-	t.Cleanup(func() { paths.SetOverride("") })
-	prev := config.DeviceID
-	config.DeviceID = "{hostname}-{user}"
-	t.Cleanup(func() { config.DeviceID = prev })
-
-	// The MSI uninstall runs as SYSTEM: the template cannot be completed, so
-	// only the cached per-user ids can be retired.
-	mock := executor.NewMock()
-	mock.SetGOOS("windows")
-	mock.SetHostname("avd-host-07")
-	mock.SetUsername(`NT AUTHORITY\SYSTEM`)
-
-	seedState(t, filepath.Join(home, heartbeat.Filename), "avd-host-07-admin")
-	for _, u := range []string{"jdoe", "asmith", "jdoe-dup"} {
-		dir := filepath.Join(home, "users", u)
-		if err := os.MkdirAll(dir, 0o700); err != nil {
+	device.ResetIDCache()
+	t.Cleanup(func() { paths.SetOverride(""); device.ResetIDCache() })
+	for _, path := range []string{filepath.Join(home, heartbeat.Filename), filepath.Join(home, "users", "test-user", heartbeat.Filename)} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		id := "avd-host-07-" + u
-		if u == "jdoe-dup" {
-			id = "avd-host-07-jdoe" // duplicate id across two state dirs
+		if err := heartbeat.UpdateRunGate(path, func(rg *heartbeat.RunGate) { rg.DeviceID = "another-device" }); err != nil {
+			t.Fatal(err)
 		}
-		seedState(t, filepath.Join(dir, heartbeat.Filename), id)
 	}
-	// A corrupt state file is skipped, not fatal.
-	if err := os.MkdirAll(filepath.Join(home, "users", "broken"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "users", "broken", heartbeat.Filename), []byte("{not json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetFile("/sys/class/dmi/id/product_serial", []byte("HOST-1"))
+	mock.SetEnv("STEPSEC_DEVICE_ID", "arbitrary-id")
 	ids := CollectIdentities(context.Background(), mock, progress.NewNoop())
-	want := []string{"avd-host-07-admin", "avd-host-07-asmith", "avd-host-07-jdoe"}
-	if len(ids) != len(want) {
-		t.Fatalf("ids = %v, want %v", ids, want)
-	}
-	for i := range want {
-		if ids[i] != want[i] {
-			t.Fatalf("ids = %v, want %v", ids, want)
-		}
-	}
-
-	// As a real user the resolved identity comes first, then the cache.
-	mock.SetUsername(`CONTOSO\JDoe`)
-	ids = CollectIdentities(context.Background(), mock, progress.NewNoop())
-	if len(ids) != 3 || ids[0] != "avd-host-07-jdoe" {
-		t.Fatalf("resolved id must lead: %v", ids)
+	if len(ids) != 1 || ids[0] != "HOST-1" {
+		t.Fatalf("retire identities = %v, want only HOST-1", ids)
 	}
 }
 
-func TestCollectIdentities_DefaultSerialWithNoState(t *testing.T) {
-	paths.SetOverride(t.TempDir())
-	t.Cleanup(func() { paths.SetOverride("") })
-	prev := config.DeviceID
-	config.DeviceID = ""
-	t.Cleanup(func() { config.DeviceID = prev })
-
+func TestCollectIdentitiesCanceledProbeDoesNotRetireCachedID(t *testing.T) {
+	device.ResetIDCache()
+	t.Cleanup(device.ResetIDCache)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 	mock := executor.NewMock()
 	mock.SetGOOS("linux")
-	mock.SetFile("/sys/class/dmi/id/product_serial", []byte("LNX-1\n"))
-	ids := CollectIdentities(context.Background(), mock, progress.NewNoop())
-	if len(ids) != 1 || ids[0] != "LNX-1" {
-		t.Fatalf("ids = %v", ids)
+	if ids := CollectIdentities(ctx, mock, progress.NewNoop()); len(ids) != 0 {
+		t.Fatalf("unresolved identity must not retire: %v", ids)
 	}
 }

@@ -9,9 +9,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// lockPath is %TEMP%\stepsecurity-dev-machine-guard[-<scope>].lock. %TEMP% is
-// already per-user (and per-session on multi-session hosts).
-func lockPath() string { return filepath.Join(os.TempDir(), lockFileName()) }
+var lockFilePath = filepath.Join(os.TempDir(), "stepsecurity-dev-machine-guard.lock")
 
 // isProcessAlive checks if a process with the given PID exists by attempting
 // to open a handle to it. This avoids shelling out to tasklist.

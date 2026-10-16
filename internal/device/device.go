@@ -6,32 +6,24 @@ import (
 	"sync"
 	"time"
 
-	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/wslguest"
 	"howett.net/plist"
 )
 
-// ID returns the device identity every backend call uses: the identity
-// Gather resolved (a configured template or literal, else the machine
-// identity), or "" when none is usable (never a placeholder like "unknown").
-// A Device not produced by Gather falls back to the configured literal (or
-// template, expanded from the Device's own fields) and then its serial. Keep
-// SerialNumber separate so telemetry retains the hardware identity.
+// ID returns the resolved machine identity, or "" when it is unusable.
+// Admin-managed display IDs never change this internal registration key.
+// Keep SerialNumber separate so telemetry retains the hardware identity.
 func ID(dev model.Device) string {
-	if dev.DeviceID != "" {
-		return dev.DeviceID
+	if usableSerial(dev.SerialNumber) {
+		return dev.SerialNumber
 	}
-	if dev.IdentityIncomplete {
-		return ""
-	}
-	return resolveWith(strings.TrimSpace(config.DeviceID), IdentitySourceConfig,
-		dev.SerialNumber, dev.Hostname, dev.UserIdentity, dev.Platform, false).DeviceID
+	return ""
 }
 
 // IDForGuest gives the host/distro identity precedence over an inherited host
-// config. Partial guest metadata falls back to the ordinary device identity.
+// identity. Partial guest metadata falls back to the ordinary device identity.
 func IDForGuest(dev model.Device, hostDeviceID, distroID string) string {
 	if id := wslguest.DeviceID(hostDeviceID, distroID); id != "" {
 		return id
@@ -39,9 +31,7 @@ func IDForGuest(dev model.Device, hostDeviceID, distroID string) string {
 	return ID(dev)
 }
 
-// Gather collects device information (hostname, serial, OS version, user
-// identity) and resolves the device identity (DeviceID) from the configured
-// template or, by default, the machine identity. See identity.go.
+// Gather collects device information (hostname, serial, OS version, user identity).
 func Gather(ctx context.Context, exec executor.Executor) model.Device {
 	platform := exec.GOOS()
 	hostname := getHostname(ctx, exec, platform)
@@ -58,7 +48,7 @@ func Gather(ctx context.Context, exec executor.Executor) model.Device {
 		osVersion = getOSVersionLinux(ctx, exec)
 	}
 
-	dev := model.Device{
+	return model.Device{
 		Hostname:     hostname,
 		SerialNumber: serial,
 		OSVersion:    osVersion,
@@ -66,8 +56,6 @@ func Gather(ctx context.Context, exec executor.Executor) model.Device {
 		UserIdentity: userIdentity,
 		Resources:    gatherResources(ctx, exec),
 	}
-	AttachIdentity(exec, &dev)
-	return dev
 }
 
 var (
@@ -75,8 +63,8 @@ var (
 	cachedID string
 )
 
-// SerialNumber resolves the machine identity (the device_id absent a
-// configured override) once per process, so the run gate, scan, enforcers and
+// SerialNumber resolves the machine identity once per process, so the
+// run gate, scan, enforcers and
 // hooks can't disagree. It runs before any network beacon. With no source it
 // generates and persists an ID; an exhausted ctx or an ID that can't be
 // persisted yields "unknown" (not cached, so a later caller retries).

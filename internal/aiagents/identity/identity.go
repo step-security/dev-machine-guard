@@ -7,7 +7,7 @@
 //     invocations have a 15s total budget; identity must not be the
 //     thing that exhausts it.
 //
-//  2. Use the configured device ID when present, otherwise the machine
+//  2. Use the resolved machine
 //     ID; "unknown" when the probe budget ran out, as before (the event
 //     ingest contract for an empty device_id is unverified).
 //
@@ -45,7 +45,7 @@ type Info struct {
 // device ID when present.
 //
 // On probe timeout, DeviceID and other gathered fields fall back to
-// "unknown". A configured device ID still takes precedence.
+// "unknown". Admin-managed display IDs do not alter hook identity.
 func Resolve(ctx context.Context, exec executor.Executor, customerID string) Info {
 	probeCtx, cancel := context.WithTimeout(ctx, ProbeTimeout)
 	defer cancel()

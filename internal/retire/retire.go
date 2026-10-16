@@ -18,9 +18,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -28,8 +25,6 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
-	"github.com/step-security/dev-machine-guard/internal/heartbeat"
-	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
@@ -45,12 +40,9 @@ const (
 	attemptTimeout = 2 * time.Second
 	attempts       = 2
 	retryBackoff   = 300 * time.Millisecond
-	// TotalBudget caps the whole retire step across every identity, so a
-	// machine with many per-user state dirs still uninstalls promptly.
-	TotalBudget = 10 * time.Second
-	// MaxIdentities caps how many ids CollectIdentities returns.
-	MaxIdentities = 20
-	maxErrorBody  = 4 << 10
+	// TotalBudget caps identity resolution and the retire request.
+	TotalBudget  = 10 * time.Second
+	maxErrorBody = 4 << 10
 )
 
 // ErrNotSupported is returned for a 404: the backend predates the retire
@@ -140,61 +132,12 @@ func post(ctx context.Context, target, apiKey string, body []byte) (retryable bo
 	}
 }
 
-// CollectIdentities returns every device id this installation may have
-// registered under: the identity resolved right now (when complete), plus the
-// run-gate cache of every state file under the install dir — last-run.json at
-// the top level and users/*/last-run.json for per-user identities. The latter
-// is what lets an MSI uninstall, which runs as SYSTEM and therefore cannot
-// complete a {user} template itself, retire each logged-in user's device.
-// Deduplicated, ordered, capped at MaxIdentities.
+// CollectIdentities returns only this machine's resolved internal identity.
+// Local scan caches are not authority to retire other registrations.
 func CollectIdentities(ctx context.Context, exec executor.Executor, log *progress.Logger) []string {
-	seen := map[string]bool{}
-	var ids []string
-	add := func(id string) {
-		id = strings.TrimSpace(id)
-		if id == "" || id == "unknown" || seen[id] {
-			return
-		}
-		seen[id] = true
-		ids = append(ids, id)
+	id := device.SerialNumber(ctx, exec)
+	if id == "" || id == "unknown" {
+		return nil
 	}
-
-	if id := device.ResolvedDeviceID(ctx, exec); !id.Incomplete {
-		add(id.DeviceID)
-	} else {
-		log.Debug("retire: identity template %q is incomplete in this context; relying on cached per-user ids", id.Template)
-	}
-
-	home := paths.Home()
-	if home == "" {
-		return capIDs(ids)
-	}
-	var files []string
-	if top := filepath.Join(home, heartbeat.Filename); fileExists(top) {
-		files = append(files, top)
-	}
-	if matches, err := filepath.Glob(filepath.Join(home, "users", "*", heartbeat.Filename)); err == nil {
-		sort.Strings(matches)
-		files = append(files, matches...)
-	}
-	for _, f := range files {
-		rec, err := heartbeat.Load(f)
-		if err != nil || rec == nil || rec.RunGate == nil {
-			continue
-		}
-		add(rec.RunGate.DeviceID)
-	}
-	return capIDs(ids)
-}
-
-func capIDs(ids []string) []string {
-	if len(ids) > MaxIdentities {
-		return ids[:MaxIdentities]
-	}
-	return ids
-}
-
-func fileExists(p string) bool {
-	st, err := os.Stat(p)
-	return err == nil && !st.IsDir()
+	return []string{id}
 }

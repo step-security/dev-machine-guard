@@ -241,30 +241,19 @@ func TestConfigFileIgnoresRetiredPackageScanFlag(t *testing.T) {
 	}
 }
 
-func TestDeviceIDConfig(t *testing.T) {
-	withHome(t)
-	old := DeviceID
-	t.Cleanup(func() { DeviceID = old })
-	for _, tc := range []struct{ name, value, want string }{
-		{"custom", " custom-device-123 ", "custom-device-123"},
-		{"empty", "", ""},
-		{"blank", " \t ", ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			DeviceID = ""
-			if err := save(&ConfigFile{DeviceID: tc.value}); err != nil {
-				t.Fatal(err)
-			}
-			Load()
-			if DeviceID != tc.want {
-				t.Fatalf("DeviceID = %q, want %q", DeviceID, tc.want)
-			}
-			if err := PersistMaxExecutionDuration("2h"); err != nil {
-				t.Fatal(err)
-			}
-			if got := loadExisting().DeviceID; got != tc.value {
-				t.Fatalf("config rewrite lost device ID: %q", got)
-			}
-		})
+func TestConfigIgnoresLegacyDeviceID(t *testing.T) {
+	var cfg ConfigFile
+	if err := json.Unmarshal([]byte(`{"device_id":"local-override","customer_id":"test-org"}`), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CustomerID != "test-org" {
+		t.Fatal("legacy field prevented loading config")
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte("device_id")) {
+		t.Fatal("local override survived config rewrite")
 	}
 }

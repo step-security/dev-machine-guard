@@ -217,7 +217,6 @@ This interactively prompts for all configurable settings:
 
 | Setting            | Description                                 | Default         |
 | ------------------ | ------------------------------------------- | --------------- |
-| Device ID          | Optional custom identifier for this device  | Machine serial  |
 | Customer ID        | Your StepSecurity customer identifier       | _(not set)_     |
 | API Endpoint       | StepSecurity backend URL                    | _(not set)_     |
 | API Key            | Authentication key for telemetry uploads    | _(not set)_     |
@@ -255,21 +254,10 @@ Configuration (~/.stepsecurity/config.json):
 
 Configuration is saved to `~/.stepsecurity/config.json` with `0600` permissions (owner read/write only).
 
-To use a custom device ID, add `"device_id": "my-device-123"` to the existing
-config JSON, or set **Device ID** through `configure`. The override is also
-supported in JSON supplied to `configure --from-file`. An omitted, empty, or
-whitespace-only value uses the machine serial as before. The agent continues
-reporting the actual machine serial in `serial_number`. WSL guest scans derive
-separate IDs from the host ID and distro ID.
-
-Choose an ID unique within your customer and keep it stable: changing the ID
-registers a separate device in the backend; it does not migrate existing history.
-
-The value may also be a template over `{serial}`, `{hostname}` and `{user}`
-(for example `{hostname}-{user}` on pooled virtual desktops, so each person on a
-shared host is their own device), and the `STEPSEC_DEVICE_ID` environment
-variable overrides it at run time. See
-[docs/deploying-on-virtual-desktops.md](docs/deploying-on-virtual-desktops.md).
+Device display IDs are managed by tenant administrators through the console.
+The agent always uses its machine-derived internal identity for telemetry,
+cadence, and policies. A legacy `device_id` config key is ignored; changing a
+console ID does not create a new registration or reset local scan state.
 
 **CLI flags always override config file values** — this matches the shell script behavior. For example, if your config has `output_format: json`, running `./stepsecurity-dev-machine-guard --pretty` uses pretty output. To clear a value during configuration, enter a single dash (`-`).
 
@@ -537,3 +525,10 @@ This project is licensed under the [Apache License 2.0](LICENSE).
 ---
 
 If you find Dev Machine Guard useful, please consider giving it a star. It helps others discover the project.
+### Virtual desktop teardown
+
+Use `uninstall --retire` or provision `retire_on_uninstall: true` to retire a
+host before removing its scheduled task. MSI supports `RETIREONUNINSTALL=1`
+and suppresses retirement during major upgrades. Device IDs are managed by
+admins in the console; this agent does not accept local ID templates or
+per-user registrations. See [virtual desktop deployment](docs/deploying-on-virtual-desktops.md).

@@ -11,7 +11,6 @@ import (
 
 // Default placeholders (replaced by backend for enterprise installation scripts).
 var (
-	DeviceID            string // Optional device identity: a literal id or a template over {serial} {hostname} {user}; empty uses the machine serial. STEPSEC_DEVICE_ID overrides it (read by the device package).
 	CustomerID          = "{{CUSTOMER_ID}}"
 	APIEndpoint         = "{{API_ENDPOINT}}"
 	APIKey              = "{{API_KEY}}" //#nosec G101 -- build-time placeholder substituted by the backend installer; the literal is not a real credential.
@@ -74,7 +73,6 @@ var RetireOnUninstall bool
 
 // ConfigFile is the JSON structure persisted to ~/.stepsecurity/config.json.
 type ConfigFile struct {
-	DeviceID              string   `json:"device_id,omitempty"`
 	CustomerID            string   `json:"customer_id,omitempty"`
 	APIEndpoint           string   `json:"api_endpoint,omitempty"`
 	APIKey                string   `json:"api_key,omitempty"`
@@ -199,9 +197,6 @@ func Load() {
 		return
 	}
 
-	if DeviceID == "" {
-		DeviceID = strings.TrimSpace(cfg.DeviceID)
-	}
 	if cfg.CustomerID != "" && isPlaceholder(CustomerID) {
 		CustomerID = cfg.CustomerID
 	}
@@ -280,10 +275,6 @@ func RunConfigure() error {
 	fmt.Println("To clear a value, enter a single dash (-).")
 	fmt.Println()
 
-	// A literal id, or a template over {serial} {hostname} {user}: a pooled
-	// virtual desktop fleet typically uses "{hostname}-{user}" so each person
-	// on a shared host is their own device. See docs/deploying-on-virtual-desktops.md.
-	existing.DeviceID = strings.TrimSpace(promptValue(reader, "Device ID (optional; default = machine serial; tokens {serial} {hostname} {user})", existing.DeviceID))
 	existing.CustomerID = promptValue(reader, "Customer ID", existing.CustomerID)
 	existing.APIEndpoint = promptValue(reader, "API Endpoint", existing.APIEndpoint)
 	existing.APIKey = promptSecret(reader, "API Key", existing.APIKey)
@@ -596,18 +587,11 @@ func save(cfg *ConfigFile) error {
 	return nil
 }
 
-// ShowConfigure prints the current configuration to stdout. resolvedIdentity,
-// when non-empty, is printed under the Device ID line ("<id> (source:
-// env|config|serial)"); main supplies it via device.ResolvedDeviceID because
-// the device package depends on this one, not the other way round.
-func ShowConfigure(resolvedIdentity string) {
+// ShowConfigure prints the current configuration to stdout.
+func ShowConfigure() {
 	cfg := loadExisting()
 
 	fmt.Printf("Configuration (%s):\n\n", ConfigFilePath())
-	fmt.Printf("  %-24s %s\n", "Device ID:", displayDeviceID(cfg.DeviceID))
-	if resolvedIdentity != "" {
-		fmt.Printf("  %-24s %s\n", "  resolves now to:", resolvedIdentity)
-	}
 	fmt.Printf("  %-24s %s\n", "Customer ID:", displayValue(cfg.CustomerID))
 	fmt.Printf("  %-24s %s\n", "API Endpoint:", displayValue(cfg.APIEndpoint))
 	fmt.Printf("  %-24s %s\n", "API Key:", maskSecret(cfg.APIKey))
@@ -636,13 +620,6 @@ func displayRetireOnUninstall(v *bool) string {
 		return "true (uninstall retires this device in the dashboard)"
 	}
 	return "false (default)"
-}
-
-func displayDeviceID(v string) string {
-	if v = strings.TrimSpace(v); v == "" {
-		return "machine serial (default)"
-	}
-	return v
 }
 
 func displayValue(v string) string {
@@ -771,10 +748,6 @@ type NonInteractiveOptions struct {
 	APIKey        string   // --api-key (or DMG_API_KEY env)
 	ScanFrequency string   // --scan-frequency (hours, as string)
 	SearchDirs    []string // --search-dirs (re-used from scan flag; empty = unchanged)
-	// DeviceID is --device-id: the identity template (literal or tokens).
-	// Empty = unchanged, like every other field; "-" clears it back to the
-	// hardware serial so an MSI property can reset a previously set template.
-	DeviceID string
 	// RetireOnUninstall is --retire-on-uninstall[=true|false]; nil = unchanged.
 	RetireOnUninstall *bool
 }
@@ -790,7 +763,6 @@ func (o NonInteractiveOptions) HasAny() bool {
 		o.APIKey != "" ||
 		o.ScanFrequency != "" ||
 		len(o.SearchDirs) > 0 ||
-		o.DeviceID != "" ||
 		o.RetireOnUninstall != nil
 }
 
@@ -832,14 +804,6 @@ func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
 	}
 	if len(opts.SearchDirs) > 0 {
 		existing.SearchDirs = opts.SearchDirs
-	}
-	switch v := strings.TrimSpace(opts.DeviceID); v {
-	case "":
-		// unchanged
-	case "-":
-		existing.DeviceID = ""
-	default:
-		existing.DeviceID = v
 	}
 	if opts.RetireOnUninstall != nil {
 		if *opts.RetireOnUninstall {

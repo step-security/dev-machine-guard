@@ -68,13 +68,7 @@
     <Property Id="APIKEY"        Secure="yes" Hidden="yes"/>
     <Property Id="SCANFREQUENCY" Secure="yes" Value="4"/>
     <Property Id="BOOTSTRAPFILE" Secure="yes"/>
-    <!-- DEVICEID: device identity template — a literal id or {serial}
-         {hostname} {user} tokens (e.g. "{hostname}-{user}" for pooled
-         virtual desktops). Empty keeps the hardware serial.
-         RETIREONUNINSTALL=1: `msiexec /x` retires the device in the
-         dashboard before removing the scheduled task. Both also accepted
-         as bootstrap.json keys (device_id / retire_on_uninstall). -->
-    <Property Id="DEVICEID"          Secure="yes"/>
+    <!-- RETIREONUNINSTALL=1 retires the machine before removing its task. -->
     <Property Id="RETIREONUNINSTALL" Secure="yes"/>
 
     <!-- Empty disable=do-not-allow-modify in Add/Remove Programs.
@@ -208,7 +202,7 @@
          property name. -->
 
     <SetProperty Id="RunConfigureInline"
-                 Value='"[INSTALLFOLDER]stepsecurity-dev-machine-guard.exe" configure --non-interactive --customer-id "[CUSTOMERID]" --api-endpoint "[APIENDPOINT]" --api-key "[APIKEY]" --scan-frequency "[SCANFREQUENCY]" --device-id="[DEVICEID]" --retire-on-uninstall="[RETIREONUNINSTALL]"'
+                 Value='"[INSTALLFOLDER]stepsecurity-dev-machine-guard.exe" configure --non-interactive --customer-id "[CUSTOMERID]" --api-endpoint "[APIENDPOINT]" --api-key "[APIKEY]" --scan-frequency "[SCANFREQUENCY]" --retire-on-uninstall="[RETIREONUNINSTALL]"'
                  Sequence="execute"
                  Before="RunConfigureInline"
                  Condition="APIKEY AND NOT BOOTSTRAPFILE AND NOT Installed"/>

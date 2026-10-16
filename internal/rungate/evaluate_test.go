@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
-	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
@@ -300,11 +299,9 @@ func TestEvaluatePackageDeltaDoesNotRememberOptIn(t *testing.T) {
 	}
 }
 
-func TestEvaluateConfiguredDeviceIDChanges(t *testing.T) {
+func TestEvaluateMachineAndGuestIdentityChanges(t *testing.T) {
 	withTempState(t)
-	old := config.DeviceID
-	t.Cleanup(func() { config.DeviceID = old })
-	config.DeviceID = ""
+
 	gateServer(t, 0, "")
 	var wantID string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -325,13 +322,13 @@ func TestEvaluateConfiguredDeviceIDChanges(t *testing.T) {
 	mock := executor.NewMock()
 	mock.SetGOOS("linux")
 	mock.SetFile("/sys/class/dmi/id/product_serial", []byte("HARDWARE-ID"))
-	for _, tc := range []struct{ configured, guest, want string }{
-		{"custom-1", "", "custom-1"},
-		{"custom-2", "", "custom-2"},
-		{"", "", "HARDWARE-ID"},
-		{"host-custom", "guest-id", "guest-id"},
+	for _, tc := range []struct{ guest, want string }{
+		{"guest-1", "guest-1"},
+		{"guest-2", "guest-2"},
+		{"", "HARDWARE-ID"},
+		{"guest-id", "guest-id"},
 	} {
-		config.DeviceID, wantID = tc.configured, tc.want
+		wantID = tc.want
 		if got := Evaluate(context.Background(), mock, progress.NewNoop(), false, tc.guest); got.Skip {
 			t.Fatalf("new identity skipped: %+v", got)
 		}
@@ -358,9 +355,7 @@ func TestEvaluatePersistsIdentityAcrossBypassesAndOfflineRuns(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			withTempState(t)
-			old := config.DeviceID
-			t.Cleanup(func() { config.DeviceID = old })
-			config.DeviceID = ""
+
 			gateServer(t, tc.status, "{"+fullDirective+"}")
 			if tc.killSwitch {
 				t.Setenv("STEPSEC_DISABLE_RUN_GATE", "1")
@@ -372,28 +367,28 @@ func TestEvaluatePersistsIdentityAcrossBypassesAndOfflineRuns(t *testing.T) {
 			if err := StampLastFullRun("hardware-A", now.Add(-5*time.Hour)); err != nil {
 				t.Fatal(err)
 			}
-			config.DeviceID = "custom-B"
+
 			mock := executor.NewMock()
 			mock.SetGOOS("linux")
 			mock.SetFile("/sys/class/dmi/id/product_serial", []byte("hardware-A"))
-			if got := Evaluate(context.Background(), mock, progress.NewNoop(), tc.forced, ""); got.Skip {
+			if got := Evaluate(context.Background(), mock, progress.NewNoop(), tc.forced, "guest-B"); got.Skip {
 				t.Fatalf("B skipped: %+v", got)
 			}
 			st, ok := readState()
-			if !ok || st.DeviceID != "custom-B" || st.ConfiguredDeviceID != "custom-B" || st.LastFullRunAt != 0 || st.GatingEnabled {
+			if !ok || st.DeviceID != "guest-B" || st.LastFullRunAt != 0 || st.GatingEnabled {
 				t.Fatalf("persisted cadence was not reset before completion: %+v", st)
 			}
-			if err := StampLastFullRun("custom-B", now); err != nil {
+			if err := StampLastFullRun("guest-B", now); err != nil {
 				t.Fatal(err)
 			}
-			config.DeviceID = ""
+
 			t.Setenv("STEPSEC_DISABLE_RUN_GATE", "")
 			gateServer(t, http.StatusServiceUnavailable, "")
 			if got := Evaluate(context.Background(), mock, progress.NewNoop(), false, ""); got.Skip {
 				t.Fatalf("A inherited B's recent completion: %+v", got)
 			}
 			st, ok = readState()
-			if !ok || st.DeviceID != "hardware-A" || st.ConfiguredDeviceID != "" || st.LastFullRunAt != 0 || st.GatingEnabled {
+			if !ok || st.DeviceID != "hardware-A" || st.LastFullRunAt != 0 || st.GatingEnabled {
 				t.Fatalf("restored hardware identity retained cadence: %+v", st)
 			}
 		})
@@ -405,9 +400,7 @@ func TestEvaluatePersistsIdentityAcrossBypassesAndOfflineRuns(t *testing.T) {
 // now reports a different one; the old cadence is discarded with it.
 func TestEvaluateRevalidatesCachedDeviceID(t *testing.T) {
 	withTempState(t)
-	old := config.DeviceID
-	t.Cleanup(func() { config.DeviceID = old })
-	config.DeviceID = ""
+
 	gateServer(t, 0, "")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("device_id"); got != "HW-NEW" {
@@ -436,78 +429,5 @@ func TestEvaluateRevalidatesCachedDeviceID(t *testing.T) {
 	st, ok := readState()
 	if !ok || st.DeviceID != "HW-NEW" || st.LastFullRunAt != 0 {
 		t.Fatalf("state = %+v, want reset to HW-NEW", st)
-	}
-}
-
-// withTemplate sets the config.json device identity template for a test.
-func withTemplate(t *testing.T, v string) {
-	t.Helper()
-	prev := config.DeviceID
-	config.DeviceID = v
-	t.Cleanup(func() { config.DeviceID = prev })
-}
-
-// identityMock is a Windows-flavoured mock whose serial probe would fail: the
-// tests below must resolve the id without ever probing.
-func identityMock(user string) *executor.Mock {
-	m := executor.NewMock()
-	m.SetGOOS("windows")
-	m.SetHostname("AVD-HOST-07")
-	m.SetUsername(user)
-	return m
-}
-
-func TestEvaluate_TemplateIdentityKeepsMatchingCache(t *testing.T) {
-	withTempState(t)
-	withTemplate(t, "{hostname}-{user}")
-	t.Cleanup(device.ResetIDCache)
-	d := Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}
-	if err := recordCheckin("avd-host-07-jdoe", d, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	if err := StampLastFullRun("avd-host-07-jdoe", time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	gateServer(t, http.StatusServiceUnavailable, "")
-
-	res := Evaluate(context.Background(), identityMock(`CONTOSO\JDoe`), progress.NewNoop(), false, "")
-	if !res.Skip {
-		t.Fatalf("a matching cache with a fresh full run must skip offline: %+v", res)
-	}
-}
-
-func TestEvaluate_IdentityIncompleteSkipsWithoutCheckin(t *testing.T) {
-	withTempState(t)
-	withTemplate(t, "{hostname}-{user}")
-	t.Cleanup(device.ResetIDCache)
-	hits := gateServer(t, 0, `{`+fullDirective+`}`)
-
-	for _, force := range []bool{false, true} {
-		res := Evaluate(context.Background(), identityMock(`NT AUTHORITY\SYSTEM`), progress.NewNoop(), force, "")
-		if !res.Skip || res.Reason != ReasonIdentityIncomplete {
-			t.Fatalf("force=%v: result = %+v, want identity_incomplete skip", force, res)
-		}
-	}
-	if hits.Load() != 0 {
-		t.Fatalf("an incomplete identity must never check in, hits = %d", hits.Load())
-	}
-}
-
-func TestEvaluate_RecordsTemplateResolvedID(t *testing.T) {
-	withTempState(t)
-	withTemplate(t, "{serial}-{user}")
-	t.Cleanup(device.ResetIDCache)
-	gateServer(t, 0, `{`+fullDirective+`}`)
-	m := identityMock(`CONTOSO\JDoe`)
-	m.SetGOOS("linux")
-	m.SetFile("/sys/class/dmi/id/product_serial", []byte("LNX-77\n"))
-
-	res := Evaluate(context.Background(), m, progress.NewNoop(), false, "")
-	if res.Skip {
-		t.Fatalf("full directive must proceed: %+v", res)
-	}
-	st, ok := readState()
-	if !ok || st.DeviceID != "LNX-77-jdoe" {
-		t.Fatalf("state = %+v (ok=%v), want device id LNX-77-jdoe", st, ok)
 	}
 }

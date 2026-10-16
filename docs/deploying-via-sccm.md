@@ -61,8 +61,6 @@ msiexec /i "stepsecurity-dev-machine-guard-<version>-x64.msi" /qn ^
 | `APIENDPOINT` | yes | StepSecurity backend URL (typically `https://agent.api.stepsecurity.io`) |
 | `APIKEY` | yes | Tenant API key from your StepSecurity dashboard |
 | `SCANFREQUENCY` | no | Scheduled scan frequency in hours (default `4`) |
-| `DEVICEID` | no | Device identity template: a literal id, or `{serial}` `{hostname}` `{user}` tokens (e.g. `{hostname}-{user}` for pooled virtual desktops). Empty keeps the hardware serial. See [deploying-on-virtual-desktops.md](deploying-on-virtual-desktops.md) |
-| `RETIREONUNINSTALL` | no | `1` makes `msiexec /x` retire the device in the dashboard before removing the scheduled task (a major upgrade never retires) |
 
 ### Option B — Pre-staged bootstrap file (recommended)
 
@@ -81,16 +79,9 @@ Contents:
   "customer_id": "acme-corp",
   "api_endpoint": "https://agent.api.stepsecurity.io",
   "api_key": "sk_live_xxxxxxxxxxxxxxxx",
-  "scan_frequency_hours": "4",
-  "device_id": "{hostname}-{user}",
-  "retire_on_uninstall": true
+  "scan_frequency_hours": "4"
 }
 ```
-
-`device_id` and `retire_on_uninstall` are optional; they are the bootstrap
-equivalents of the `DEVICEID` / `RETIREONUNINSTALL` properties above and
-matter for ephemeral or shared machines — see
-[deploying-on-virtual-desktops.md](deploying-on-virtual-desktops.md).
 
 **Step 2**: deploy the MSI with the `BOOTSTRAPFILE` property pointing at
 that path:
@@ -260,3 +251,11 @@ cosign verify-blob \
 > in UAC / SmartScreen / WDAC). If your environment requires
 > Authenticode-signed installers as a deployment precondition, please open
 > an issue — it's a tracked roadmap item.
+
+### Ephemeral host retirement
+
+For hosts removed after use, add `RETIREONUNINSTALL=1` to MSI provisioning,
+or set `retire_on_uninstall: true` in the bootstrap JSON. Scheduled teardown
+can invoke `uninstall --retire`; major upgrades suppress retirement.
+Manage device display IDs in the console, not through an MSI identity override.
+See [virtual desktop deployment](deploying-on-virtual-desktops.md).

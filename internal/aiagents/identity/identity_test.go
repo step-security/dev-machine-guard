@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 )
@@ -184,18 +183,5 @@ func TestResolve_DoesNotCancelParentContext(t *testing.T) {
 	case <-parent.Done():
 		t.Error("parent ctx Done channel fired — probe ctx cancel leaked upward")
 	default:
-	}
-}
-
-func TestResolve_CustomDeviceIDWithUnknownSerial(t *testing.T) {
-	old := config.DeviceID
-	t.Cleanup(func() { config.DeviceID = old })
-	config.DeviceID = "custom-device-123"
-	mock := executor.NewMock()
-	t.Cleanup(device.ResetIDCache)
-	mock.SetGOOS("darwin")
-	got := Resolve(context.Background(), mock, "cust-42")
-	if got.DeviceID != "custom-device-123" {
-		t.Fatalf("DeviceID = %q", got.DeviceID)
 	}
 }

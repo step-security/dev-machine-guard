@@ -107,13 +107,7 @@ type Config struct {
 	ConfigAPIEndpoint   string // --api-endpoint
 	ConfigAPIKey        string // --api-key (also accepts env var DMG_API_KEY)
 	ConfigScanFrequency string // --scan-frequency (hours)
-	// ConfigDeviceID is --device-id: the device identity template persisted
-	// as config.json device_id (a literal, or {serial} {hostname} {user}
-	// tokens; "-" clears it). ConfigRetireOnUninstall is
-	// --retire-on-uninstall[=true|false] (bare flag = true; an explicit empty
-	// value, as the MSI passes for an unset property, leaves it unchanged);
-	// nil = unchanged.
-	ConfigDeviceID          string
+	// ConfigRetireOnUninstall is --retire-on-uninstall; nil leaves it unchanged.
 	ConfigRetireOnUninstall *bool
 
 	// UninstallRetire / UninstallNoRetire are `uninstall --retire` and
@@ -356,14 +350,6 @@ func Parse(args []string) (*Config, error) {
 			cfg.ConfigScanFrequency = args[i]
 		case strings.HasPrefix(arg, "--scan-frequency="):
 			cfg.ConfigScanFrequency = strings.TrimPrefix(arg, "--scan-frequency=")
-		case arg == "--device-id":
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--device-id requires a value (a literal id, or a template over {serial} {hostname} {user}; \"-\" clears it)")
-			}
-			cfg.ConfigDeviceID = args[i]
-		case strings.HasPrefix(arg, "--device-id="):
-			cfg.ConfigDeviceID = strings.TrimPrefix(arg, "--device-id=")
 		case arg == "--retire-on-uninstall":
 			v := true
 			cfg.ConfigRetireOnUninstall = &v
@@ -689,11 +675,6 @@ Non-interactive configure (for MSI / SCCM / Intune deployments):
   --api-endpoint URL            StepSecurity backend URL
   --api-key KEY                 Authentication key (or set DMG_API_KEY env var)
   --scan-frequency HOURS        Scheduled scan frequency
-  --device-id VALUE             Device identity: a literal id, or a template over
-                                {serial} {hostname} {user} (e.g. "{hostname}-{user}"
-                                for pooled virtual desktops). Blank/omitted keeps the
-                                hardware serial; "-" clears a saved template. The
-                                STEPSEC_DEVICE_ID env var overrides it at run time.
   --retire-on-uninstall[=BOOL]  Make 'uninstall' retire this device in the dashboard
                                 before removing the scheduler job (default false)
   --ignore-telemetry-error      On 'install', treat a failed initial telemetry POST

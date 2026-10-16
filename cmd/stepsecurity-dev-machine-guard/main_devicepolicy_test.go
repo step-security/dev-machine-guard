@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/cli"
-	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/devicepolicy"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
@@ -204,9 +203,6 @@ func TestPackageConfigLanes_UseSeparateTimeoutContexts(t *testing.T) {
 }
 
 func TestWSLGuestPolicyRequestsUseGuestIdentity(t *testing.T) {
-	old := config.DeviceID
-	t.Cleanup(func() { config.DeviceID = old })
-	config.DeviceID = "host-custom"
 	cfg := &cli.Config{WSLHostSerial: "host-custom", WSLDistroID: "distro-1"}
 	wantID := wslguest.DeviceID(cfg.WSLHostSerial, cfg.WSLDistroID)
 	for _, tc := range []struct {

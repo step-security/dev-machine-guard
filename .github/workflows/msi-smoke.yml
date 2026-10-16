@@ -114,7 +114,7 @@ jobs:
             "APIENDPOINT=https://api.invalid.example",
             "APIKEY=ci-test-fake-api-key",
             "SCANFREQUENCY=4",
-            "DEVICEID={hostname}",
+            "RETIREONUNINSTALL=0",
             "/l*v", "dist\dmg-install.log"
           ) -Wait -PassThru
           Write-Host "msiexec exit: $($p.ExitCode)"
@@ -179,14 +179,12 @@ jobs:
             $checks += $false
           }
 
-          # 2. Machine-wide config exists and contains our values, including
-          # the DEVICEID property persisted as the device_id template.
+          # 2. Machine-wide config exists and contains our values
           if (Test-Path $cfg) {
             $content = Get-Content $cfg -Raw
             if ($content -match '"customer_id"\s*:\s*"ci-smoke"' -and
-                $content -match '"api_key"\s*:\s*"ci-test-fake-api-key"' -and
-                $content -match '"device_id"\s*:\s*"\{hostname\}"') {
-              Write-Host "[OK] Config written with expected values (incl. device_id template)"
+                $content -match '"api_key"\s*:\s*"ci-test-fake-api-key"') {
+              Write-Host "[OK] Config written with expected values"
               $checks += $true
             } else {
               Write-Host "::error::Config content unexpected:"
@@ -198,16 +196,9 @@ jobs:
             $checks += $false
           }
 
-          # 2b. `configure show` reports the template and resolves it to the
-          # (lower-cased) hostname — the identity every backend call will use.
-          $show = & $bin configure show 2>&1 | Out-String
-          $hostLower = $env:COMPUTERNAME.ToLower()
-          if ($show -match 'Device ID:\s*\{hostname\}' -and $show -match "resolves now to:\s*$([regex]::Escape($hostLower)) \(source: config\)") {
-            Write-Host "[OK] configure show resolves the device identity template to $hostLower"
-            $checks += $true
-          } else {
-            Write-Host "::error::configure show did not report the expected device identity:"
-            Write-Host $show
+          # Retired local identity properties must never appear in bootstrap output.
+          if ($content -match '"device_id"\s*:') {
+            Write-Host "::error::Unexpected local device_id override"
             $checks += $false
           }
 

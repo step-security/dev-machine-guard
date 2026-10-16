@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
-	"github.com/step-security/dev-machine-guard/internal/paths"
 )
 
 // Lock represents an acquired instance lock.
@@ -16,21 +15,9 @@ type Lock struct {
 	path string
 }
 
-// lockFileName is the PID file's basename. When a per-user device identity is
-// in force (paths.UserScope non-empty) the scope is suffixed, so two users'
-// concurrent sessions on one machine — two devices — never contend for one
-// lock; with a shared identity the name, and the directory, are unchanged.
-func lockFileName() string {
-	if scope := paths.UserScope(); scope != "" {
-		return "stepsecurity-dev-machine-guard-" + scope + ".lock"
-	}
-	return "stepsecurity-dev-machine-guard.lock"
-}
-
 // Acquire obtains an exclusive instance lock using atomic file creation.
 // Returns error if another instance is running.
 func Acquire(_ executor.Executor) (*Lock, error) {
-	lockFilePath := lockPath()
 	// Check for existing lock file
 	if data, err := os.ReadFile(lockFilePath); err == nil {
 		pidStr := strings.TrimSpace(string(data))

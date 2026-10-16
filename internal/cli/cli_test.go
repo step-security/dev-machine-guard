@@ -448,49 +448,6 @@ func TestParseHooks_AcceptsInstallDir(t *testing.T) {
 // cmd/stepsecurity-dev-machine-guard/main_test.go for the integration
 // test that asserts the binary always exits 0 on `_hook` invocations.
 
-func TestParse_ConfigureDeviceIDAndRetireOnUninstall(t *testing.T) {
-	cfg, err := Parse([]string{"configure", "--device-id", "{hostname}-{user}", "--retire-on-uninstall"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.ConfigDeviceID != "{hostname}-{user}" {
-		t.Errorf("ConfigDeviceID = %q", cfg.ConfigDeviceID)
-	}
-	if cfg.ConfigRetireOnUninstall == nil || !*cfg.ConfigRetireOnUninstall {
-		t.Errorf("bare --retire-on-uninstall must mean true, got %v", cfg.ConfigRetireOnUninstall)
-	}
-
-	cfg, err = Parse([]string{"configure", "--device-id=asset-1", "--retire-on-uninstall=false"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.ConfigDeviceID != "asset-1" {
-		t.Errorf("ConfigDeviceID = %q", cfg.ConfigDeviceID)
-	}
-	if cfg.ConfigRetireOnUninstall == nil || *cfg.ConfigRetireOnUninstall {
-		t.Errorf("--retire-on-uninstall=false must mean false, got %v", cfg.ConfigRetireOnUninstall)
-	}
-
-	// The MSI passes an empty property verbatim: empty means "unchanged".
-	cfg, err = Parse([]string{"configure", "--non-interactive", "--device-id=", "--retire-on-uninstall="})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.ConfigDeviceID != "" {
-		t.Errorf("empty --device-id must stay empty, got %q", cfg.ConfigDeviceID)
-	}
-	if cfg.ConfigRetireOnUninstall != nil {
-		t.Errorf("empty --retire-on-uninstall= must leave the setting unchanged (nil), got %v", *cfg.ConfigRetireOnUninstall)
-	}
-
-	if _, err := Parse([]string{"configure", "--retire-on-uninstall=maybe"}); err == nil {
-		t.Error("expected error for a non-boolean --retire-on-uninstall")
-	}
-	if _, err := Parse([]string{"configure", "--device-id"}); err == nil {
-		t.Error("expected error for --device-id without a value")
-	}
-}
-
 func TestParse_UninstallRetireFlags(t *testing.T) {
 	cfg, err := Parse([]string{"uninstall", "--retire"})
 	if err != nil {
@@ -511,5 +468,35 @@ func TestParse_UninstallRetireFlags(t *testing.T) {
 	}
 	if _, err := Parse([]string{"send-telemetry", "--retire"}); err == nil || !strings.Contains(err.Error(), "uninstall") {
 		t.Errorf("--retire outside uninstall must be rejected, got %v", err)
+	}
+}
+
+func TestParse_RetirementConfigurationAndRetiredDeviceID(t *testing.T) {
+	for _, flag := range []string{"--device-id=local-id", "--device-id"} {
+		if _, err := Parse([]string{"configure", flag}); err == nil {
+			t.Errorf("accepted local identity override %q", flag)
+		}
+	}
+	for _, tc := range []struct {
+		flag string
+		want bool
+	}{{"--retire-on-uninstall", true}, {"--retire-on-uninstall=false", false}} {
+		cfg, err := Parse([]string{"configure", tc.flag})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.ConfigRetireOnUninstall == nil || *cfg.ConfigRetireOnUninstall != tc.want {
+			t.Fatalf("retire flag %s = %v", tc.flag, cfg.ConfigRetireOnUninstall)
+		}
+	}
+	if _, err := Parse([]string{"configure", "--retire-on-uninstall=maybe"}); err == nil {
+		t.Fatal("invalid retire value accepted")
+	}
+	cfg, err := Parse([]string{"configure", "--non-interactive", "--retire-on-uninstall="})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ConfigRetireOnUninstall != nil {
+		t.Fatal("empty MSI property changed retirement policy")
 	}
 }

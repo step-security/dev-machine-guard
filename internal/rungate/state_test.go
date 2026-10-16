@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/heartbeat"
 )
@@ -153,9 +152,7 @@ func TestCorruptFileIsRecreated(t *testing.T) {
 
 func TestCompletionStampBindsIdentityWithoutCheckin(t *testing.T) {
 	withTempState(t)
-	old := config.DeviceID
-	t.Cleanup(func() { config.DeviceID = old })
-	config.DeviceID = ""
+
 	now := time.Now()
 	if err := recordCheckin("hardware-A", Directive{GatingEnabled: true, EffectiveIntervalMinutes: 240}, now); err != nil {
 		t.Fatal(err)
@@ -163,12 +160,12 @@ func TestCompletionStampBindsIdentityWithoutCheckin(t *testing.T) {
 	if err := StampLastFullRun("hardware-A", now.Add(-5*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	config.DeviceID = "custom-B"
-	if err := StampLastFullRun("custom-B", now); err != nil {
+
+	if err := StampLastFullRun("guest-B", now); err != nil {
 		t.Fatal(err)
 	}
 	st, ok := readState()
-	if !ok || st.DeviceID != "custom-B" || st.ConfiguredDeviceID != "custom-B" || st.LastFullRunAt != now.Unix() {
+	if !ok || st.DeviceID != "guest-B" || st.LastFullRunAt != now.Unix() {
 		t.Fatalf("completion stamped against wrong identity: %+v", st)
 	}
 	if st.GatingEnabled || st.EffectiveIntervalMinutes != 0 || st.DirectiveFetchedAt != 0 {

@@ -1,10 +1,8 @@
 package rungate
 
 import (
-	"strings"
 	"time"
 
-	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/heartbeat"
 	"github.com/step-security/dev-machine-guard/internal/paths"
 )
@@ -60,9 +58,8 @@ func recordCheckin(deviceID string, d Directive, fetchedAt time.Time) error {
 // bindIdentity discards cadence from another identity before any check-in or
 // completion stamp, including forced runs and failed check-ins.
 func bindIdentity(rg *heartbeat.RunGate, deviceID string) {
-	configuredID := strings.TrimSpace(config.DeviceID)
-	if rg.DeviceID != deviceID || rg.ConfiguredDeviceID != configuredID {
-		*rg = heartbeat.RunGate{DeviceID: deviceID, ConfiguredDeviceID: configuredID}
+	if rg.DeviceID != deviceID {
+		*rg = heartbeat.RunGate{DeviceID: deviceID}
 	}
 }
 
