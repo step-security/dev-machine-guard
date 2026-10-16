@@ -317,6 +317,23 @@ func (m *Mock) ReadFile(path string) ([]byte, error) {
 	return nil, fmt.Errorf("mock: file not found: %s", path)
 }
 
+// WriteFileAtomic stores data so ReadFile returns it.
+func (m *Mock) WriteFileAtomic(path string, data []byte, _ os.FileMode) error {
+	m.SetFile(path, append([]byte(nil), data...))
+	return nil
+}
+
+// CreateFileOnce stores data unless path already exists.
+func (m *Mock) CreateFileOnce(path string, data []byte, _ os.FileMode) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.files[path]; ok {
+		return os.ErrExist
+	}
+	m.files[path] = append([]byte(nil), data...)
+	return nil
+}
+
 func (m *Mock) ReadDir(path string) ([]os.DirEntry, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

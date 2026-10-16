@@ -46,12 +46,18 @@ top-level `build-windows` target is hardcoded amd64 only, so don't try
 | Drop `.exe` to `C:\Program Files\StepSecurity\` | MSI standard `InstallFiles` |
 | Write tenant config to `C:\ProgramData\StepSecurity\config.json` | Custom action invokes `.exe configure --non-interactive ...` |
 | Register Windows scheduled task | Custom action invokes `.exe install` (which shells `schtasks.exe`) |
-| On uninstall: remove scheduled task | Custom action invokes `.exe uninstall` |
+| On uninstall: remove scheduled task | Custom action invokes `.exe uninstall` (which first retires the device in the dashboard when `config.json` has `retire_on_uninstall`; a major upgrade passes `--no-retire`) |
 
 **`powershell.exe` is never spawned.** All work flows: `msiexec` →
 WiX's `WixQuietExec` (Util extension) → `stepsecurity-dev-machine-guard.exe`
 → `schtasks.exe`. This matters in environments where EDR blocks
 PowerShell egress — a common enterprise posture.
+
+Optional properties `DEVICEID` (device identity template, e.g.
+`{hostname}-{user}`) and `RETIREONUNINSTALL=1` are forwarded to
+`configure --device-id` / `--retire-on-uninstall`; both are also accepted
+as `device_id` / `retire_on_uninstall` keys in a `BOOTSTRAPFILE`. See
+`docs/deploying-on-virtual-desktops.md`.
 
 ## How tenants pass credentials
 

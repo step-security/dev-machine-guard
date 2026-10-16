@@ -284,7 +284,7 @@ func TestPatchBatterySettings_FlipsPresentValues(t *testing.T) {
 		"<StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>" +
 		"<StartWhenAvailable>false</StartWhenAvailable>" +
 		"<Enabled>true</Enabled></Settings></Task>"
-	out, changed := patchBatterySettings(xml)
+	out, changed := patchBatterySettings(xml, false)
 	if !changed {
 		t.Fatal("expected changed=true")
 	}
@@ -304,7 +304,7 @@ func TestPatchBatterySettings_FlipsPresentValues(t *testing.T) {
 
 func TestPatchBatterySettings_InjectsMissing(t *testing.T) {
 	xml := "<Task><Settings><Enabled>true</Enabled></Settings></Task>"
-	out, changed := patchBatterySettings(xml)
+	out, changed := patchBatterySettings(xml, false)
 	if !changed {
 		t.Fatal("expected changed=true (settings injected)")
 	}
@@ -327,7 +327,7 @@ func TestPatchBatterySettings_NoopWhenAlreadyDesired(t *testing.T) {
 		"<StartWhenAvailable>true</StartWhenAvailable>" +
 		"<RestartOnFailure><Interval>PT15M</Interval><Count>3</Count></RestartOnFailure>" +
 		"</Settings></Task>"
-	if _, changed := patchBatterySettings(xml); changed {
+	if _, changed := patchBatterySettings(xml, false); changed {
 		t.Error("expected changed=false when settings already desired")
 	}
 }
@@ -338,7 +338,7 @@ func TestPatchBatterySettings_AddsRetryOnFailure(t *testing.T) {
 		"<StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>" +
 		"<StartWhenAvailable>false</StartWhenAvailable>" +
 		"</Settings></Task>"
-	out, changed := patchBatterySettings(xml)
+	out, changed := patchBatterySettings(xml, false)
 	if !changed {
 		t.Fatal("expected changed=true")
 	}

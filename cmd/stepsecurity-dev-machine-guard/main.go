@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,6 +31,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 	"github.com/step-security/dev-machine-guard/internal/progress/filelog"
+	"github.com/step-security/dev-machine-guard/internal/retire"
 	"github.com/step-security/dev-machine-guard/internal/rungate"
 	"github.com/step-security/dev-machine-guard/internal/scan"
 	"github.com/step-security/dev-machine-guard/internal/schtasks"
@@ -160,6 +162,12 @@ func main() {
 			paths.SetOverride(cfg.InstallDir)
 		}
 	}
+	// Per-user state: when the device identity template contains {user},
+	// each logged-in user of this machine is a separate device, so the
+	// run-gate cache, delta scan state, node cache and run metrics live under
+	// <install dir>/users/<user>. Set before the heartbeat below stamps
+	// last-run.json. Probes nothing (no serial), so it is free here.
+	paths.SetUserScope(device.IdentityUserScope(exec))
 	installDir := paths.Home() // "" when SetDisabled or home unresolved
 	logFilePath := ""
 	if installDir != "" {
@@ -229,11 +237,13 @@ func main() {
 		// through the no-prompt code path. This is how MSI/SCCM/Intune
 		// custom actions drive configuration — they can't talk to stdin.
 		opts := config.NonInteractiveOptions{
-			FromFile:      cfg.ConfigFromFile,
-			CustomerID:    cfg.ConfigCustomerID,
-			APIEndpoint:   cfg.ConfigAPIEndpoint,
-			APIKey:        cfg.ConfigAPIKey,
-			ScanFrequency: cfg.ConfigScanFrequency,
+			FromFile:          cfg.ConfigFromFile,
+			CustomerID:        cfg.ConfigCustomerID,
+			APIEndpoint:       cfg.ConfigAPIEndpoint,
+			APIKey:            cfg.ConfigAPIKey,
+			ScanFrequency:     cfg.ConfigScanFrequency,
+			DeviceID:          cfg.ConfigDeviceID,
+			RetireOnUninstall: cfg.ConfigRetireOnUninstall,
 		}
 		if opts.APIKey == "" {
 			// Env-var fallback keeps the secret off the msiexec command
@@ -259,7 +269,7 @@ func main() {
 		}
 
 	case "configure show":
-		config.ShowConfigure()
+		config.ShowConfigure(resolvedIdentityLine(exec))
 
 	case "send-telemetry":
 		// Stamp the local heartbeat first — before the enterprise gate and
@@ -285,16 +295,16 @@ func main() {
 		// failed, so an emergency unassignment/offboarding directive is never
 		// blocked by a telemetry outage — hence before the error-exit below.
 		if targetOK {
-			runPackageConfigEnforce(targetExec, log)
+			runPackageConfigEnforce(targetExec, log, cfg)
 		}
 		if telemetryErr != nil {
 			restoreTarget()
 			log.Error("%v", telemetryErr)
 			os.Exit(1)
 		}
-		runHookStateReconcile(exec, log)
+		runHookStateReconcile(exec, log, cfg)
 		if targetOK {
-			runIDEExtensionEnforce(targetExec, log)
+			runIDEExtensionEnforce(targetExec, log, cfg)
 		}
 		restoreTarget()
 
@@ -348,7 +358,7 @@ func main() {
 			if err := schtasks.RunNow(exec, log); err != nil {
 				log.Warn("could not trigger initial scan (%v) — the scheduled task will fire on its next interval", err)
 			}
-			runHookStateReconcile(exec, log)
+			runHookStateReconcile(exec, log, cfg)
 			return
 		}
 
@@ -359,7 +369,7 @@ func main() {
 		// lock. Mirrors the Windows-SYSTEM path above; the launchd-triggered
 		// scan's output lands in agent.log.
 		if runtime.GOOS == model.PlatformDarwin {
-			runHookStateReconcile(exec, log)
+			runHookStateReconcile(exec, log, cfg)
 			return
 		}
 
@@ -396,7 +406,7 @@ func main() {
 		// mode, and the Windows-SYSTEM / macOS paths already returned above).
 		targetExec, restoreTarget, targetOK := resolveDevicePolicyTarget(exec, log)
 		if runtime.GOOS != model.PlatformWindows && targetOK {
-			runPackageConfigEnforce(targetExec, log)
+			runPackageConfigEnforce(targetExec, log, cfg)
 		}
 
 		if telemetryErr != nil {
@@ -414,14 +424,20 @@ func main() {
 				os.Exit(1)
 			}
 		}
-		runHookStateReconcile(exec, log)
+		runHookStateReconcile(exec, log, cfg)
 		if targetOK {
-			runIDEExtensionEnforce(targetExec, log)
+			runIDEExtensionEnforce(targetExec, log, cfg)
 		}
 		restoreTarget()
 
 	case "uninstall":
 		_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
+		// Retire FIRST, while config.json and the per-user state files are
+		// still on disk (the MSI removes nothing before this custom action,
+		// but a teardown script may wipe the install dir right after).
+		// Best-effort by contract: a dead network must never leave the
+		// scheduler job behind, so nothing here can fail the uninstall.
+		retireDeviceOnUninstall(exec, log, cfg)
 		switch runtime.GOOS {
 		case model.PlatformWindows:
 			if err := schtasks.Uninstall(exec, log); err != nil {
@@ -535,7 +551,7 @@ func main() {
 			// manually invoked one, and even when telemetry failed.
 			targetExec, restoreTarget, targetOK := resolveDevicePolicyTarget(exec, log)
 			if targetOK {
-				runPackageConfigEnforce(targetExec, log)
+				runPackageConfigEnforce(targetExec, log, cfg)
 			}
 			restoreTarget()
 			if telemetryErr != nil {
@@ -735,7 +751,64 @@ func writeHeartbeat(exec executor.Executor, command string, log *progress.Logger
 	}
 }
 
-func runHookStateReconcile(exec executor.Executor, log *progress.Logger) {
+// resolvedIdentityLine renders "<id> (source: env|config|serial)" for
+// `configure show`, or the reason the template cannot be completed here. It
+// lives in main because the device package depends on config, so config
+// cannot resolve the identity itself.
+func resolvedIdentityLine(exec executor.Executor) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	id := device.ResolvedDeviceID(ctx, exec)
+	if id.Incomplete {
+		return fmt.Sprintf("(incomplete: template %q needs a logged-in user; this context has none)", id.Template)
+	}
+	line := fmt.Sprintf("%s (source: %s)", id.DeviceID, id.Source)
+	if id.Source == device.IdentitySourceEnv {
+		line += " via " + device.EnvDeviceID
+	}
+	if id.Issue != "" {
+		line += " — " + id.Issue
+	}
+	return line
+}
+
+// retireDeviceOnUninstall tells the dashboard this device is going away.
+// Decided by `uninstall --retire` / `--no-retire`, else config.json's
+// retire_on_uninstall (written at provisioning time, so a plain `msiexec /x`
+// needs no arguments). Every identity this install may have registered under
+// is retired — the resolved one plus each cached per-user id, which is how an
+// MSI custom action running as SYSTEM retires a {user}-template fleet's rows.
+// Never fails the uninstall: failures are warnings.
+func retireDeviceOnUninstall(exec executor.Executor, log *progress.Logger, cfg *cli.Config) {
+	retireWanted := cfg.UninstallRetire || (config.RetireOnUninstall && !cfg.UninstallNoRetire)
+	if !retireWanted {
+		return
+	}
+	if !config.IsEnterpriseMode() {
+		log.Debug("retire: skipped (no enterprise config)")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), retire.TotalBudget)
+	defer cancel()
+	ids := retire.CollectIdentities(ctx, exec, log)
+	if len(ids) == 0 {
+		log.Warn("retire: no device id could be resolved; the device stays registered until it is retired from the dashboard or by inactivity")
+		return
+	}
+	for _, id := range ids {
+		err := retire.Post(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, id, buildinfo.Version, runtime.GOOS)
+		switch {
+		case err == nil:
+			log.Progress("Retired device %s in the dashboard", id)
+		case errors.Is(err, retire.ErrNotSupported):
+			log.Warn("retire: the dashboard backend does not support device retirement yet; %s stays registered (retire it from the dashboard or let inactivity retire it)", id)
+		default:
+			log.Warn("retire %s: %v (continuing uninstall)", id, err)
+		}
+	}
+}
+
+func runHookStateReconcile(exec executor.Executor, log *progress.Logger, runCfg *cli.Config) {
 	if !featuregate.IsEnabled(featuregate.FeatureAIAgentHooks) {
 		log.Debug("hook-state reconcile: skipped (feature gated)")
 		return
@@ -755,8 +828,9 @@ func runHookStateReconcile(exec executor.Executor, log *progress.Logger) {
 	defer cancel()
 
 	dev := device.Gather(ctx, exec)
-	if dev.SerialNumber == "" || dev.SerialNumber == "unknown" {
-		log.Warn("hook-state reconcile: device serial unresolved; skipping")
+	deviceID := device.IDForGuest(dev, runCfg.WSLHostSerial, runCfg.WSLDistroID)
+	if deviceID == "" || deviceID == "unknown" {
+		log.Warn("hook-state reconcile: device identity unresolved; skipping")
 		return
 	}
 
@@ -764,7 +838,7 @@ func runHookStateReconcile(exec executor.Executor, log *progress.Logger) {
 		Exec:        exec,
 		Fetcher:     fetcher,
 		CustomerID:  cfg.CustomerID,
-		DeviceID:    dev.SerialNumber,
+		DeviceID:    deviceID,
 		Stdout:      os.Stdout,
 		Stderr:      os.Stderr,
 		InstallFn:   aiagentscli.RunInstall,
@@ -800,7 +874,7 @@ func resolveDevicePolicyTarget(exec executor.Executor, log *progress.Logger) (ex
 // reconciler's probe and reported mdm_managed instead. Gated behind
 // FeatureDevicePolicy and a silent no-op in community mode (enterprise
 // config missing). Failures are logged but never crash main.
-func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
+func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger, runCfg *cli.Config) {
 	if !featuregate.IsEnabled(featuregate.FeatureDevicePolicy) {
 		log.Debug("ide-extension enforce: skipped (feature gated)")
 		return
@@ -832,8 +906,9 @@ func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
 	defer cancel()
 
 	dev := device.Gather(ctx, exec)
-	if dev.SerialNumber == "" || dev.SerialNumber == "unknown" {
-		log.Warn("ide-extension enforce: device serial unresolved; skipping")
+	deviceID := device.IDForGuest(dev, runCfg.WSLHostSerial, runCfg.WSLDistroID)
+	if deviceID == "" || deviceID == "unknown" {
+		log.Warn("ide-extension enforce: device identity unresolved; skipping")
 		return
 	}
 
@@ -842,7 +917,7 @@ func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
 		Reporter:   reporter,
 		Writer:     writer,
 		CustomerID: cfg.CustomerID,
-		DeviceID:   dev.SerialNumber,
+		DeviceID:   deviceID,
 		Platform:   dev.Platform,
 		// Probe defaults to devicepolicy.ProbeManagedPolicy (per-OS) when nil.
 		Logf:  func(format string, args ...any) { log.Debug(format, args...) },
@@ -855,7 +930,7 @@ func runIDEExtensionEnforce(exec executor.Executor, log *progress.Logger) {
 
 // runPackageConfigEnforce runs npm, PyPI, and Go independently after resolving their
 // shared enterprise and device identity once. Failures never crash main.
-func runPackageConfigEnforce(exec executor.Executor, log *progress.Logger) {
+func runPackageConfigEnforce(exec executor.Executor, log *progress.Logger, runCfg *cli.Config) {
 	cfg, ok := ingest.Snapshot()
 	if !ok {
 		log.Debug("package-config enforce: skipped (no enterprise config)")
@@ -875,11 +950,12 @@ func runPackageConfigEnforce(exec executor.Executor, log *progress.Logger) {
 	ctx, cancel := context.WithTimeout(context.Background(), devicePolicyEnforceTimeout)
 	dev := device.Gather(ctx, exec)
 	cancel()
-	if dev.SerialNumber == "" || dev.SerialNumber == "unknown" {
-		log.Warn("package-config enforce: device serial unresolved; skipping")
+	deviceID := device.IDForGuest(dev, runCfg.WSLHostSerial, runCfg.WSLDistroID)
+	if deviceID == "" || deviceID == "unknown" {
+		log.Warn("package-config enforce: device identity unresolved; skipping")
 		return
 	}
-	runPackageConfigLanes(exec, log, fetcher, reporter, cfg.CustomerID, dev.SerialNumber, dev.Platform)
+	runPackageConfigLanes(exec, log, fetcher, reporter, cfg.CustomerID, deviceID, dev.Platform)
 }
 
 func runPackageConfigLanes(exec executor.Executor, log *progress.Logger, fetcher devicepolicy.Fetcher, reporter devicepolicy.Reporter, customerID, serial, platform string) {

@@ -15,14 +15,14 @@ import (
 // getSerialNumberWindows reads the BIOS serial number.
 // Tries native registry first, then PowerShell WMI (for VMs where the registry
 // key may not exist), then falls back to MachineGuid.
-func getSerialNumberWindows(ctx context.Context, exec executor.Executor) string {
+func getSerialNumberWindows(ctx context.Context, exec executor.Executor) (string, bool) {
 	// Try BIOS registry key (fastest, no subprocess)
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `HARDWARE\DESCRIPTION\System\BIOS`, registry.QUERY_VALUE)
 	if err == nil {
 		serial, _, err := k.GetStringValue("SystemSerialNumber")
 		_ = k.Close()
-		if err == nil && serial != "" && serial != "System Serial Number" && serial != "To Be Filled By O.E.M." {
-			return serial
+		if err == nil && usableSerial(serial) {
+			return serial, true
 		}
 	}
 
@@ -32,8 +32,8 @@ func getSerialNumberWindows(ctx context.Context, exec executor.Executor) string 
 		"(Get-CimInstance -ClassName Win32_BIOS).SerialNumber")
 	if err == nil {
 		s := strings.TrimSpace(stdout)
-		if s != "" {
-			return s
+		if usableSerial(s) {
+			return s, true
 		}
 	}
 
@@ -42,12 +42,12 @@ func getSerialNumberWindows(ctx context.Context, exec executor.Executor) string 
 	if err == nil {
 		guid, _, err := k.GetStringValue("MachineGuid")
 		_ = k.Close()
-		if err == nil && guid != "" {
-			return guid
+		if err == nil && usableSerial(guid) {
+			return guid, false
 		}
 	}
 
-	return "unknown"
+	return "unknown", false
 }
 
 // getOSVersionWindows returns the Windows version using the native RtlGetVersion API.

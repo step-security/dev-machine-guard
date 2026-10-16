@@ -10,12 +10,18 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/heartbeat"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
-// serialProbeTimeout bounds the one-off device-id probe (macOS ioreg is the
-// slow case). The result is cached in the state file, so only a device's
-// first gated invocation pays it.
+// ReasonIdentityIncomplete is the skip reason when the configured device
+// identity template cannot be completed for this run ({user} under a service
+// account, {serial} with no usable machine identity). No check-in and no
+// beacon: an id built from a missing token would be a phantom device.
+const ReasonIdentityIncomplete = "identity_incomplete"
+
+// serialProbeTimeout bounds the device-id resolve (macOS ioreg is the slow
+// case). The result is cached for the process, so telemetry reuses it.
 const serialProbeTimeout = 10 * time.Second
 
 // Result is what main acts on: skip (exit 0 quietly) or proceed. Detail is a
@@ -68,21 +74,41 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 		log.Progress("Run gate: bypassed (--force-scan)")
 	}
 
-	// Device id: the guest identity when we were given one, else cached from a
-	// prior run, else a bounded local probe. Without a real id the backend
-	// can't be asked anything meaningful — fail open rather than gate on a
-	// bogus one.
+	// Device id: the guest identity, then the resolved identity (configured
+	// template or literal, else the machine id from a bounded resolve;
+	// device.ResolvedDeviceID owns that precedence). Without a real id the
+	// backend can't be asked anything meaningful — fail open rather than gate
+	// on a bogus one.
 	st, stOK := readState()
+	previousID, previousConfiguredID := st.DeviceID, st.ConfiguredDeviceID
+	// Overrides added, changed, or removed must not reuse another identity's cadence.
+	configuredID := strings.TrimSpace(config.DeviceID)
+	if st.ConfiguredDeviceID != configuredID {
+		st = heartbeat.RunGate{}
+		stOK = false
+	}
 	deviceID := strings.TrimSpace(guestDeviceID)
 	if deviceID != "" {
 		log.Debug("run-gate: gating as WSL guest %s", deviceID)
 	} else {
-		deviceID = st.DeviceID
-		if deviceID == "" || deviceID == "unknown" {
-			probeCtx, cancel := context.WithTimeout(ctx, serialProbeTimeout)
-			deviceID = device.SerialNumber(probeCtx, exec)
-			cancel()
+		// Always the process-wide resolver, never the cached ID: a stale one
+		// would gate as one device while telemetry uploads as another.
+		probeCtx, cancel := context.WithTimeout(ctx, serialProbeTimeout)
+		id := device.ResolvedDeviceID(probeCtx, exec)
+		cancel()
+		if id.Issue != "" {
+			log.Warn("run-gate: %s", id.Issue)
 		}
+		if id.Incomplete {
+			// Skipped regardless of --force-scan: there is no identity to
+			// force a run under. main logs the skip; this is its only trace.
+			log.Progress("Run gate: device identity template %q requires a logged-in user; none found (running as %q) — skipping this run",
+				id.Template, strings.TrimSpace(exec.Getenv("USERNAME")+exec.Getenv("USER")))
+			return Result{Skip: true, Reason: ReasonIdentityIncomplete,
+				Detail: "set the identity template to one this context can complete, or run the scan as a logged-in user",
+				WSL:    wslWithOverride(WSLDirective{})}
+		}
+		deviceID = id.DeviceID
 	}
 	if deviceID == "" || deviceID == "unknown" {
 		log.Debug("run-gate: no usable device id — failing open")
@@ -93,6 +119,18 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 		return Result{Skip: false, Reason: reason, WSL: wslWithOverride(WSLDirective{})}
 	}
 
+	if st.DeviceID != deviceID {
+		st = heartbeat.RunGate{}
+		stOK = false
+	}
+
+	// Persist the reset before any network result or force/kill-switch exit.
+	if previousID != deviceID || previousConfiguredID != configuredID {
+		if err := persistIdentity(deviceID); err != nil {
+			log.Debug("run-gate: could not persist device identity: %v", err)
+		}
+	}
+
 	log.Progress("Run gate: checking scan cadence with the dashboard...")
 	directive, wslDirective, credentialScanning, deltaEnabled, err := Checkin(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, deviceID, st.LastFullRunAt)
 	// Only an explicit false in this invocation's answer turns credential
@@ -100,7 +138,7 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 	credentialDisabled := err == nil && credentialScanning != nil && !*credentialScanning
 	if escape {
 		// Bypassing the cadence gate applies nothing else from the answer: no
-		// directive, no persistence, and no WSL scanning. Without a directive
+		// directive persistence and no WSL scanning. Without a directive
 		// we never scan inside a distro.
 		return Result{Skip: false, Reason: Decide(in).Reason, WSL: wslWithOverride(WSLDirective{}),
 			CredentialScanningDisabled: credentialDisabled, DeltaScanEnabled: err == nil && deltaEnabled}

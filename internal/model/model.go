@@ -56,12 +56,24 @@ type ScanResult struct {
 }
 
 type Device struct {
-	Hostname     string           `json:"hostname"`
-	SerialNumber string           `json:"serial_number"`
-	OSVersion    string           `json:"os_version"`
-	Platform     string           `json:"platform"`
-	UserIdentity string           `json:"user_identity"`
-	Resources    MachineResources `json:"resources"`
+	Hostname string `json:"hostname"`
+	// SerialNumber is the probed hardware serial. DeviceID is the identity
+	// every backend call uses: the same value unless a device identity template
+	// is configured (STEPSEC_DEVICE_ID / config.json device_id), in which case
+	// it is the expanded, sanitized template and DeviceIDSource says where it
+	// came from ("env" | "config" | "serial"). See internal/device/identity.go.
+	SerialNumber   string `json:"serial_number"`
+	DeviceID       string `json:"device_id,omitempty"`
+	DeviceIDSource string `json:"device_id_source,omitempty"`
+	// IdentityPerUser: the template contained {user}, so this machine's users
+	// are separate devices. IdentityIncomplete: a token expanded empty (e.g.
+	// {user} under SYSTEM); DeviceID is "" and the run must not upload.
+	IdentityPerUser    bool             `json:"-"`
+	IdentityIncomplete bool             `json:"-"`
+	OSVersion          string           `json:"os_version"`
+	Platform           string           `json:"platform"`
+	UserIdentity       string           `json:"user_identity"`
+	Resources          MachineResources `json:"resources"`
 	// WSL reports Windows Subsystem for Linux on a Windows host. Nil on every
 	// other platform, and nil on Windows unless the WSL-detection feature gate
 	// is on — so `omitempty` drops it entirely rather than emitting a zero

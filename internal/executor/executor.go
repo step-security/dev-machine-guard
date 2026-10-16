@@ -241,6 +241,63 @@ func (r *Real) ReadFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
+// WriteFileAtomic replaces path via a synced temp file and rename, so readers
+// never see a partial file. A missing parent is created world-traversable.
+// Not part of Executor; callers type-assert for it.
+func (r *Real) WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp, err := writeTemp(path, data, perm)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp) }() // no-op once renamed
+	return os.Rename(tmp, path)
+}
+
+// CreateFileOnce publishes a complete file at path only if none exists (hard
+// link, so concurrent creators can't clobber each other); otherwise it returns
+// an error matching os.ErrExist. Not part of Executor; callers type-assert.
+func (r *Real) CreateFileOnce(path string, data []byte, perm os.FileMode) error {
+	tmp, err := writeTemp(path, data, perm)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp) }()
+	return os.Link(tmp, path)
+}
+
+// writeTemp writes data to a synced temp file beside path and returns its name.
+func writeTemp(path string, data []byte, perm os.FileMode) (string, error) {
+	dir := filepath.Dir(path)
+	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+		// #nosec G301 -- the machine-wide device ID must be readable by user-context runs.
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", err
+		}
+		// #nosec G302 -- same: user-context runs must traverse it.
+		_ = os.Chmod(dir, 0o755) // undo a restrictive umask
+	}
+	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return "", err
+	}
+	tmp := f.Name()
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Chmod(perm)
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	return tmp, nil
+}
+
 func (r *Real) ReadDir(path string) ([]os.DirEntry, error) {
 	return os.ReadDir(path)
 }
