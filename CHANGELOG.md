@@ -14,6 +14,7 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 - Optional retire-on-uninstall for ephemeral hosts, with MSI upgrade suppression and bounded best-effort requests.
 - Windows service-account detection for `no_user_logged_in`; source metadata for machine and WSL identities.
 
+- Passive PHP/Composer package inventory and configuration audit for developer machines. Collects project and global declarations, lockfiles and installed receipts, with redacted settings and configuration findings. PHP, Composer, plugins and scripts are never executed.
 - GitHub Copilot plugin inventory for the CLI, standalone app and VS Code. Collects recorded installations and live directory-marketplace selections, supplied skills, custom agents, command/rule/hook/LSP declarations, and sanitized plugin/user/project MCP definitions. Collection is file-only; uncertain formats report incomplete coverage. Runtime activation is not inferred. No Copilot usage or credential collection is added.
 
 ### Fixed
