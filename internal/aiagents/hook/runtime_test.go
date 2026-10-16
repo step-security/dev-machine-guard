@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,7 +15,6 @@ import (
 	cc "github.com/step-security/dev-machine-guard/internal/aiagents/adapter/claudecode"
 	"github.com/step-security/dev-machine-guard/internal/aiagents/event"
 	"github.com/step-security/dev-machine-guard/internal/aiagents/state"
-	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 )
 
@@ -487,33 +484,5 @@ func TestRunSkipsUploadWithoutSeam(t *testing.T) {
 	// Stdout should still be the allow response.
 	if !strings.HasPrefix(strings.TrimSpace(stdout.String()), "{") {
 		t.Errorf("stdout should be JSON allow response: %q", stdout.String())
-	}
-}
-
-func TestCustomDeviceIDConflictDropsHookUploadAndAllowsAction(t *testing.T) {
-	old := config.DeviceID
-	t.Cleanup(func() { config.DeviceID = old })
-	config.DeviceID = "dev-123"
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusConflict) }))
-	defer srv.Close()
-	t.Setenv("DMG_API_ENDPOINT", srv.URL)
-	t.Setenv("DMG_API_KEY", "test-key")
-	t.Setenv("DMG_CUSTOMER_ID", "customer")
-	var stdout, stderr bytes.Buffer
-	rt, capture := newRuntime(t, strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"echo hello"}}`), &stdout, &stderr)
-	if err := rt.Run(context.Background(), event.HookPreToolUse); err != nil {
-		t.Fatal(err)
-	}
-	if len(capture.events) != 0 {
-		t.Fatal("hook uploaded an event for a conflicting device ID")
-	}
-	if len(capture.errs) != 1 || capture.errs[0].Code != "device_identity_unverified" {
-		t.Fatalf("missing identity error: %+v", capture.errs)
-	}
-	if !strings.Contains(stdout.String(), `"continue":true`) {
-		t.Fatalf("hook blocked the developer action: %s", stdout.String())
 	}
 }

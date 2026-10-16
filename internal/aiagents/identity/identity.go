@@ -35,7 +35,6 @@ const ProbeTimeout = time.Second
 // The wire field for DeviceID is `device_id`; the wire field for
 // UserIdentity is `user_identity`. See internal/aiagents/event.
 type Info struct {
-	SerialNumber string
 	CustomerID   string
 	DeviceID     string
 	UserIdentity string
@@ -52,7 +51,6 @@ func Resolve(ctx context.Context, exec executor.Executor, customerID string) Inf
 
 	d := device.Gather(probeCtx, exec)
 	return Info{
-		SerialNumber: d.SerialNumber,
 		CustomerID:   customerID,
 		DeviceID:     device.ID(d),
 		UserIdentity: d.UserIdentity,

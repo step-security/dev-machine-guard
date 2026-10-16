@@ -22,7 +22,6 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
 ### Added
 
-- Custom device IDs are atomically claimed before any device-specific requests. Duplicate IDs from another machine are rejected; ownership must be verified before scans and hooks upload data. Requires the matching backend update.
 - Optional `device_id` in config.json for a stable custom device identity across telemetry, run cadence, hooks, and managed policies. The hardware serial remains separate, and changing identity resets cached cadence and incremental inventory. WSL guests continue deriving separate IDs from the host and distro.
 
 ## [1.17.0] - 2026-09-24

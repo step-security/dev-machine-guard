@@ -151,13 +151,6 @@ func ConfigFilePath() string {
 	return filepath.Join(readConfigDir(), "config.json")
 }
 
-// DeviceIdentityFilePath stays machine-local even when --config points to a
-// Windows host or shared configuration file. It follows normal bootstrap
-// machine-vs-user discovery, independent of install-dir relocation.
-func DeviceIdentityFilePath() string {
-	return filepath.Join(readConfigDir(), "device-owner-id")
-}
-
 // WriteConfigFilePath returns the path config would be written to under
 // the current process's privilege level. Surfaced so `configure show` /
 // install messages can name the exact file the next save will touch.

@@ -28,8 +28,6 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/aiagents/ingest"
 	"github.com/step-security/dev-machine-guard/internal/aiagents/redact"
 	"github.com/step-security/dev-machine-guard/internal/aiagents/state"
-	"github.com/step-security/dev-machine-guard/internal/config"
-	"github.com/step-security/dev-machine-guard/internal/deviceidentity"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 )
 
@@ -130,12 +128,6 @@ func (rt *Runtime) Run(parent context.Context, hookType event.HookEvent) error {
 
 	cfg, _ := ingest.Snapshot()
 	id := identity.Resolve(ctx, rt.Exec, cfg.CustomerID)
-	if strings.TrimSpace(config.DeviceID) != "" {
-		if _, err := deviceidentity.Verify(ctx, cfg.APIEndpoint, cfg.APIKey, cfg.CustomerID, id.DeviceID, id.SerialNumber); err != nil {
-			rt.logError("identity", "device_identity_unverified", err.Error(), "")
-			return nil
-		}
-	}
 	upload := rt.resolveUpload()
 
 	raw, readErr := readBounded(rt.Stdin, MaxStdinBytes)

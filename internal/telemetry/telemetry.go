@@ -51,7 +51,6 @@ const CurrentPayloadSchemaVersion = 1
 
 // Payload is the enterprise telemetry JSON structure.
 type Payload struct {
-	DeviceIdentity string `json:"device_identity,omitempty"`
 	// PayloadSchemaVersion gates the delta-protocol sibling fields below
 	// (NodeProjectsUnchanged etc.). Zero/absent = legacy snapshot, every
 	// scanned project ships its full body in NodeProjects/PythonProjects.
@@ -1220,7 +1219,6 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 	// Build payload
 	payload := &Payload{
-		DeviceIdentity:       cfg.DeviceIdentity,
 		PayloadSchemaVersion: schemaVersion,
 		CustomerID:           config.CustomerID,
 		DeviceID:             deviceID,
