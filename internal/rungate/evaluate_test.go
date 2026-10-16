@@ -292,3 +292,103 @@ func TestEvaluatePackageDeltaDoesNotRememberOptIn(t *testing.T) {
 		t.Fatal("missing setting reused previous opt-in")
 	}
 }
+
+func TestEvaluateConfiguredDeviceIDChanges(t *testing.T) {
+	withTempState(t)
+	old := config.DeviceID
+	t.Cleanup(func() { config.DeviceID = old })
+	config.DeviceID = ""
+	gateServer(t, 0, "")
+	var wantID string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("device_id"); got != wantID {
+			t.Errorf("check-in device_id = %q, want %q", got, wantID)
+		}
+		if got := r.URL.Query().Get("last_run_at"); got != "" {
+			t.Errorf("new identity reused previous cadence: last_run_at=%s", got)
+		}
+		_, _ = w.Write([]byte("{" + fullDirective + "}"))
+	}))
+	t.Cleanup(srv.Close)
+	config.APIEndpoint = srv.URL
+	seedDeviceID(t)
+	if err := StampLastFullRun("SER-CACHED", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetFile("/sys/class/dmi/id/product_serial", []byte("HARDWARE-ID"))
+	for _, tc := range []struct{ configured, guest, want string }{
+		{"custom-1", "", "custom-1"},
+		{"custom-2", "", "custom-2"},
+		{"", "", "HARDWARE-ID"},
+		{"host-custom", "guest-id", "guest-id"},
+	} {
+		config.DeviceID, wantID = tc.configured, tc.want
+		if got := Evaluate(context.Background(), mock, progress.NewNoop(), false, tc.guest); got.Skip {
+			t.Fatalf("new identity skipped: %+v", got)
+		}
+		st, ok := readState()
+		if !ok || st.DeviceID != wantID || st.LastFullRunAt != 0 {
+			t.Fatalf("state = %+v, want fresh cadence for %s", st, wantID)
+		}
+		if err := StampLastFullRun(wantID, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestEvaluatePersistsIdentityAcrossBypassesAndOfflineRuns(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		forced, killSwitch bool
+		status             int
+	}{
+		{"forced online", true, false, 0},
+		{"forced offline", true, false, http.StatusServiceUnavailable},
+		{"kill switch offline", false, true, http.StatusServiceUnavailable},
+		{"offline", false, false, http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempState(t)
+			old := config.DeviceID
+			t.Cleanup(func() { config.DeviceID = old })
+			config.DeviceID = ""
+			gateServer(t, tc.status, "{"+fullDirective+"}")
+			if tc.killSwitch {
+				t.Setenv("STEPSEC_DISABLE_RUN_GATE", "1")
+			}
+			now := time.Now()
+			if err := recordCheckin("hardware-A", Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}, now); err != nil {
+				t.Fatal(err)
+			}
+			if err := StampLastFullRun("hardware-A", now.Add(-5*time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+			config.DeviceID = "custom-B"
+			mock := executor.NewMock()
+			mock.SetGOOS("linux")
+			mock.SetFile("/sys/class/dmi/id/product_serial", []byte("hardware-A"))
+			if got := Evaluate(context.Background(), mock, progress.NewNoop(), tc.forced, ""); got.Skip {
+				t.Fatalf("B skipped: %+v", got)
+			}
+			st, ok := readState()
+			if !ok || st.DeviceID != "custom-B" || st.ConfiguredDeviceID != "custom-B" || st.LastFullRunAt != 0 || st.GatingEnabled {
+				t.Fatalf("persisted cadence was not reset before completion: %+v", st)
+			}
+			if err := StampLastFullRun("custom-B", now); err != nil {
+				t.Fatal(err)
+			}
+			config.DeviceID = ""
+			t.Setenv("STEPSEC_DISABLE_RUN_GATE", "")
+			gateServer(t, http.StatusServiceUnavailable, "")
+			if got := Evaluate(context.Background(), mock, progress.NewNoop(), false, ""); got.Skip {
+				t.Fatalf("A inherited B's recent completion: %+v", got)
+			}
+			st, ok = readState()
+			if !ok || st.DeviceID != "hardware-A" || st.ConfiguredDeviceID != "" || st.LastFullRunAt != 0 || st.GatingEnabled {
+				t.Fatalf("restored hardware identity retained cadence: %+v", st)
+			}
+		})
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/heartbeat"
 )
 
@@ -23,7 +24,7 @@ func TestStampLastFullRunCreatesAndUpdates(t *testing.T) {
 	path := withTempState(t)
 	now := time.Unix(1_753_160_800, 0)
 
-	if err := StampLastFullRun(now); err != nil {
+	if err := StampLastFullRun("SER123", now); err != nil {
 		t.Fatalf("StampLastFullRun on absent file: %v", err)
 	}
 	st, ok := readState()
@@ -42,7 +43,7 @@ func TestStampLastFullRunCreatesAndUpdates(t *testing.T) {
 	}
 
 	later := now.Add(4 * time.Hour)
-	if err := StampLastFullRun(later); err != nil {
+	if err := StampLastFullRun("SER123", later); err != nil {
 		t.Fatalf("StampLastFullRun update: %v", err)
 	}
 	st, _ = readState()
@@ -55,7 +56,7 @@ func TestStampAndRecordPreserveEachOther(t *testing.T) {
 	withTempState(t)
 	now := time.Unix(1_753_160_800, 0)
 
-	if err := StampLastFullRun(now); err != nil {
+	if err := StampLastFullRun("SER123", now); err != nil {
 		t.Fatalf("stamp: %v", err)
 	}
 	d := Directive{Mode: ModeSkip, Reason: "not_due", GatingEnabled: true, EffectiveIntervalMinutes: 240}
@@ -74,7 +75,7 @@ func TestStampAndRecordPreserveEachOther(t *testing.T) {
 		t.Errorf("check-in fields not persisted: %+v", st)
 	}
 
-	if err := StampLastFullRun(now.Add(2 * time.Hour)); err != nil {
+	if err := StampLastFullRun("SER123", now.Add(2*time.Hour)); err != nil {
 		t.Fatalf("second stamp: %v", err)
 	}
 	st, _ = readState()
@@ -120,11 +121,11 @@ func TestFutureSchemaReadUnusableThenOverwritten(t *testing.T) {
 	// ...but is overwritten, not refused: the breadcrumb must always write and
 	// the gate cache is fail-open-safe, so we don't preserve unknown schemas.
 	now := time.Unix(1_753_160_800, 0)
-	if err := StampLastFullRun(now); err != nil {
+	if err := StampLastFullRun("SER123", now); err != nil {
 		t.Fatalf("StampLastFullRun over future-schema file: %v", err)
 	}
 	st, ok := readState()
-	if !ok || st.LastFullRunAt != now.Unix() || st.DeviceID != "" {
+	if !ok || st.LastFullRunAt != now.Unix() || st.DeviceID != "SER123" {
 		t.Fatalf("future-schema file not cleanly overwritten: %+v ok=%v", st, ok)
 	}
 }
@@ -138,11 +139,36 @@ func TestCorruptFileIsRecreated(t *testing.T) {
 		t.Fatal("corrupt file must read as unusable")
 	}
 	now := time.Unix(1_753_160_800, 0)
-	if err := StampLastFullRun(now); err != nil {
+	if err := StampLastFullRun("SER123", now); err != nil {
 		t.Fatalf("stamp over corrupt file: %v", err)
 	}
 	st, ok := readState()
 	if !ok || st.LastFullRunAt != now.Unix() {
 		t.Fatalf("state not recreated cleanly: %+v ok=%v", st, ok)
+	}
+}
+
+func TestCompletionStampBindsIdentityWithoutCheckin(t *testing.T) {
+	withTempState(t)
+	old := config.DeviceID
+	t.Cleanup(func() { config.DeviceID = old })
+	config.DeviceID = ""
+	now := time.Now()
+	if err := recordCheckin("hardware-A", Directive{GatingEnabled: true, EffectiveIntervalMinutes: 240}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := StampLastFullRun("hardware-A", now.Add(-5*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	config.DeviceID = "custom-B"
+	if err := StampLastFullRun("custom-B", now); err != nil {
+		t.Fatal(err)
+	}
+	st, ok := readState()
+	if !ok || st.DeviceID != "custom-B" || st.ConfiguredDeviceID != "custom-B" || st.LastFullRunAt != now.Unix() {
+		t.Fatalf("completion stamped against wrong identity: %+v", st)
+	}
+	if st.GatingEnabled || st.EffectiveIntervalMinutes != 0 || st.DirectiveFetchedAt != 0 {
+		t.Fatalf("completion retained A's directive: %+v", st)
 	}
 }

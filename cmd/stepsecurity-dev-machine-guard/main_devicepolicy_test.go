@@ -3,16 +3,21 @@ package main
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/step-security/dev-machine-guard/internal/cli"
+	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/devicepolicy"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/wslguest"
 )
 
 type packageConfigFetcher struct {
@@ -195,5 +200,46 @@ func TestPackageConfigLanes_UseSeparateTimeoutContexts(t *testing.T) {
 	}
 	if _, ok := goCtx.Deadline(); !ok {
 		t.Error("Go context has no deadline")
+	}
+}
+
+func TestWSLGuestPolicyRequestsUseGuestIdentity(t *testing.T) {
+	old := config.DeviceID
+	t.Cleanup(func() { config.DeviceID = old })
+	config.DeviceID = "host-custom"
+	cfg := &cli.Config{WSLHostSerial: "host-custom", WSLDistroID: "distro-1"}
+	wantID := wslguest.DeviceID(cfg.WSLHostSerial, cfg.WSLDistroID)
+	for _, tc := range []struct {
+		name      string
+		run       func(executor.Executor, *progress.Logger, *cli.Config)
+		wantCalls int
+	}{
+		{"IDE extensions", runIDEExtensionEnforce, 1},
+		{"package configs", runPackageConfigEnforce, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := make(chan string, 8)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls <- r.URL.Query().Get("device_id")
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer srv.Close()
+			t.Setenv("DMG_API_ENDPOINT", srv.URL)
+			t.Setenv("DMG_API_KEY", "test-key")
+			t.Setenv("DMG_CUSTOMER_ID", "customer")
+			mock := executor.NewMock()
+			mock.SetGOOS("linux")
+			mock.SetHomeDir(t.TempDir())
+			mock.SetFile("/sys/class/dmi/id/product_serial", []byte("guest-serial"))
+			tc.run(mock, progress.NewNoop(), cfg)
+			if len(calls) != tc.wantCalls {
+				t.Fatalf("requests = %d, want %d", len(calls), tc.wantCalls)
+			}
+			for len(calls) > 0 {
+				if got := <-calls; got != wantID {
+					t.Errorf("policy device_id = %q, want guest %q", got, wantID)
+				}
+			}
+		})
 	}
 }

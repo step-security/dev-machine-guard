@@ -58,6 +58,7 @@ type PendingRemoval struct {
 
 // State is the on-disk envelope. Marshaled as scan-state.json.
 type State struct {
+	DeviceID                  string                  `json:"device_id,omitempty"`
 	SchemaVersion             int                     `json:"schema_version"`
 	AgentVersion              string                  `json:"agent_version"`
 	LastFullSyncAt            time.Time               `json:"last_full_sync_at"`
@@ -81,6 +82,17 @@ func New(agentVersion string) *State {
 		PythonGlobal:      map[string]GlobalEntry{},
 		RemovedPendingAck: []PendingRemoval{},
 	}
+}
+
+// ForDevice binds the cached inventory to a device identity. A new identity
+// needs a full snapshot because the backend has no inventory under its key.
+// Older state files have no DeviceID and also get one initial full snapshot.
+func (s *State) ForDevice(deviceID, agentVersion string) *State {
+	if s.DeviceID != deviceID {
+		s = New(agentVersion)
+		s.DeviceID = deviceID
+	}
+	return s
 }
 
 // Load reads scan-state.json. Missing file, parse error, or schema mismatch

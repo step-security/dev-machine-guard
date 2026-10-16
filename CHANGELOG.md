@@ -18,6 +18,12 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
 - **macOS hostname no longer flips with the network.** The agent reported `kern.hostname`, which macOS rewrites from DHCP or reverse DNS whenever `HostName` is unset, so a Mac on a VPN resolving through AWS showed up as `ip-…ec2.internal` on some scans and its real name on others. It now reports the configured `HostName` when set, else `LocalHostName`, read from the SystemConfiguration preferences plist with `scutil --get` as the fallback, and only then the kernel hostname. Existing Macs will show a new name once.
 
+## [1.18.0] - 2026-10-05
+
+### Added
+
+- Optional `device_id` in config.json for a stable custom device identity across telemetry, run cadence, hooks, and managed policies. The hardware serial remains separate, and changing identity resets cached cadence and incremental inventory. WSL guests continue deriving separate IDs from the host and distro.
+
 ## [1.17.0] - 2026-09-24
 
 ### Added
