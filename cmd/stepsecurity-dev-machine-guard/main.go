@@ -20,6 +20,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
 	"github.com/step-security/dev-machine-guard/internal/device"
+	"github.com/step-security/dev-machine-guard/internal/deviceidentity"
 	"github.com/step-security/dev-machine-guard/internal/devicepolicy"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/featuregate"
@@ -221,6 +222,11 @@ func main() {
 		config.IsEnterpriseMode(), config.APIEndpoint, config.ScanFrequencyHours, config.SearchDirs, config.LogLevel)
 	log.Debug("cli parsed: command=%q output_format=%q output_format_set=%v color=%s include_bundled=%v",
 		cfg.Command, cfg.OutputFormat, cfg.OutputFormatSet, cfg.ColorMode, cfg.IncludeBundledPlugins)
+
+	if err := verifyCustomDeviceID(exec, cfg); err != nil {
+		log.Error("%v", err)
+		os.Exit(1)
+	}
 
 	switch cfg.Command {
 	case "configure":
@@ -979,4 +985,34 @@ func runGoPackageConfigLane(ctx context.Context, exec executor.Executor, log *pr
 		Warnf:      log.Warn,
 	}
 	return coordinator.Reconcile(ctx)
+}
+
+// Verify before cadence, reconciliation, registration or uploads. Operators
+// must still be able to reconfigure or uninstall a conflicting installation.
+func verifyCustomDeviceID(exec executor.Executor, cfg *cli.Config) error {
+	if strings.TrimSpace(config.DeviceID) == "" || !config.IsEnterpriseMode() {
+		return nil
+	}
+	switch cfg.Command {
+	case "send-telemetry", "install", "hooks install":
+	case "":
+		if cfg.OutputFormatSet || cfg.HTMLOutputFile != "" || cfg.NPMRCOnly || cfg.PipConfigOnly || cfg.PnpmRCOnly || cfg.BunfigOnly || cfg.YarnRCOnly {
+			return nil
+		}
+	default:
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	serial := device.SerialNumber(ctx, exec)
+	id := device.IDForGuest(model.Device{SerialNumber: serial}, cfg.WSLHostSerial, cfg.WSLDistroID)
+	if guestID := wslguest.DeviceID(cfg.WSLHostSerial, cfg.WSLDistroID); guestID != "" {
+		serial = guestID
+	}
+	owner, err := deviceidentity.Verify(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, id, serial)
+	if err != nil {
+		return err
+	}
+	cfg.DeviceIdentity = owner
+	return nil
 }

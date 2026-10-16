@@ -262,6 +262,18 @@ whitespace-only value uses the machine serial as before. The agent continues
 reporting the actual machine serial in `serial_number`. WSL guest scans derive
 separate IDs from the host ID and distro ID.
 
+Custom IDs are verified with the backend before cadence checks, policies, or uploads.
+The first machine claims the ID. Another machine using that ID receives a collision
+error and must choose a different ID. This requires the matching backend update;
+custom-ID runs stop if ownership cannot be verified, including while offline.
+
+The agent persists `device-owner-id` in the local bootstrap config directory,
+using the machine serial or a generated identifier when no serial is available.
+Shared config files do not share ownership state. Preserve the ownership file
+across upgrades and do not copy it to other machines. Deleting a registered device
+releases its ID for reassignment. Identical underlying machine identities or cloned ownership state can remain
+indistinguishable; this check prevents accidental ID reuse, not impersonation.
+
 Choose an ID unique within your customer and keep it stable: changing the ID
 registers a separate device in the backend; it does not migrate existing history.
 

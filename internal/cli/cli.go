@@ -17,6 +17,7 @@ import (
 // failure, so the hot path bypasses cli.Parse entirely — see main.go's
 // early-return and internal/aiagents/cli.RunHook.
 type Config struct {
+	DeviceIdentity        string // Verified ownership of a custom ID; runtime-only.
 	Command               string // "", "install", "uninstall", "send-telemetry", "configure", "configure show", "hooks install", "hooks uninstall"
 	OutputFormat          string // "pretty", "json", "html"
 	OutputFormatSet       bool   // true if --pretty/--json/--html was explicitly passed (not persisted)
