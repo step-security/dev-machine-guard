@@ -25,12 +25,25 @@ for package in "$@"; do
     package_label=${package#./}
     package_label=${package_label//\//_}
     while IFS= read -r target; do
-        echo "Fuzzing $package / $target for $FUZZ_TIME ($FUZZ_WORKERS workers)"
-        if ! go test "$package" -run '^$' -fuzz "^${target}$" \
-            -fuzztime "$FUZZ_TIME" -parallel "$FUZZ_WORKERS" -timeout "$FUZZ_TIMEOUT" \
-            2>&1 | tee "$FUZZ_LOG_DIR/${package_label}-${target}.log"; then
-            status=1
-        fi
+        log="$FUZZ_LOG_DIR/${package_label}-${target}.log"
+        for attempt in 1 2; do
+            echo "Fuzzing $package / $target for $FUZZ_TIME ($FUZZ_WORKERS workers, attempt $attempt)"
+            if go test "$package" -run '^$' -fuzz "^${target}$" \
+                -fuzztime "$FUZZ_TIME" -parallel "$FUZZ_WORKERS" -timeout "$FUZZ_TIMEOUT" \
+                2>&1 | tee "$log"; then
+                break
+            fi
+            # go test can report "context deadline exceeded" with no failing
+            # input when -fuzztime ends mid-input; that isn't a finding. A real
+            # one always writes a crasher. Retry once, then don't fail on it.
+            if grep -q 'Failing input written to' "$log" || ! grep -q 'context deadline exceeded' "$log"; then
+                status=1
+                break
+            fi
+            if [ "$attempt" -eq 2 ]; then
+                echo "::warning::$package / $target: fuzz deadline ended mid-input twice with no failing input"
+            fi
+        done
     done <<< "$targets"
 done
 exit "$status"
