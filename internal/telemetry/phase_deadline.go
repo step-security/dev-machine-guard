@@ -43,7 +43,8 @@ var phaseBudgets = map[string]time.Duration{
 	"syspkg_scan":             5 * time.Minute,
 	"node_scan":               15 * time.Minute,
 	// Spawns only — it never waits for a distro scan to finish — so this
-	// bounds a wedged wsl.exe, not the work.
+	// bounds a wedged wsl.exe, not the work. Also bounds the download of
+	// the Linux agent on hosts that have none (wslagent caps it at 90s).
 	"wsl_scan":         2 * time.Minute,
 	"telemetry_upload": 10 * time.Minute,
 }

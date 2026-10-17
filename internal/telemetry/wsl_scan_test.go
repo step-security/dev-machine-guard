@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/wslagent"
 )
 
 var errFakeSpawn = errors.New("simulated spawn failure")
@@ -51,7 +53,7 @@ func TestTriggerWSLScans_OnlyRunningDistros(t *testing.T) {
 		model.WSLDistro{Name: "Debian", DistroID: "{aaa}", Running: true, DefaultUID: uidPtr(1000)},
 		model.WSLDistro{Name: "Ubuntu", DistroID: "{bbb}", Running: false, DefaultUID: uidPtr(1000)},
 	)
-	res := triggerWSLScans(m, log, &cli.Config{WSLScanEnabled: true}, dev)
+	res := triggerWSLScans(context.Background(), m, log, &cli.Config{WSLScanEnabled: true}, dev)
 
 	got := outcomes(res)
 	if got["Debian"] != wslScanLaunched {
@@ -93,7 +95,7 @@ func TestTriggerWSLScans_Skips(t *testing.T) {
 
 	t.Run("root-only distro has no user home worth scanning", func(t *testing.T) {
 		m := wslScanMock(t, `C:\agent\dmg-linux`)
-		res := triggerWSLScans(m, log, &cli.Config{WSLScanEnabled: true},
+		res := triggerWSLScans(context.Background(), m, log, &cli.Config{WSLScanEnabled: true},
 			hostDevice(model.WSLDistro{Name: "Imported", DistroID: "{aaa}", Running: true, DefaultUID: uidPtr(0)}))
 		if outcomes(res)["Imported"] != wslScanSkippedNoUser {
 			t.Errorf("got %q, want skipped_no_user", outcomes(res)["Imported"])
@@ -105,7 +107,7 @@ func TestTriggerWSLScans_Skips(t *testing.T) {
 
 	t.Run("distro with no id cannot be paired", func(t *testing.T) {
 		m := wslScanMock(t, `C:\agent\dmg-linux`)
-		res := triggerWSLScans(m, log, &cli.Config{WSLScanEnabled: true},
+		res := triggerWSLScans(context.Background(), m, log, &cli.Config{WSLScanEnabled: true},
 			hostDevice(model.WSLDistro{Name: "Legacy", Running: true, DefaultUID: uidPtr(1000)}))
 		if outcomes(res)["Legacy"] != wslScanSkippedNoDistroID {
 			t.Errorf("got %q, want skipped_no_distro_id", outcomes(res)["Legacy"])
@@ -114,7 +116,7 @@ func TestTriggerWSLScans_Skips(t *testing.T) {
 
 	t.Run("directive off means nothing is triggered", func(t *testing.T) {
 		m := wslScanMock(t, `C:\agent\dmg-linux`)
-		res := triggerWSLScans(m, log, &cli.Config{WSLScanEnabled: false},
+		res := triggerWSLScans(context.Background(), m, log, &cli.Config{WSLScanEnabled: false},
 			hostDevice(model.WSLDistro{Name: "Debian", DistroID: "{aaa}", Running: true, DefaultUID: uidPtr(1000)}))
 		if res != nil || len(m.DetachedCalls) != 0 {
 			t.Errorf("tenant opt-out must trigger nothing: %v / %v", res, m.DetachedCalls)
@@ -125,7 +127,7 @@ func TestTriggerWSLScans_Skips(t *testing.T) {
 		m := wslScanMock(t, `C:\agent\dmg-linux`)
 		dev := hostDevice(model.WSLDistro{Name: "Debian", DistroID: "{aaa}", Running: true, DefaultUID: uidPtr(1000)})
 		dev.SerialNumber = "unknown"
-		if res := triggerWSLScans(m, log, &cli.Config{WSLScanEnabled: true}, dev); res != nil {
+		if res := triggerWSLScans(context.Background(), m, log, &cli.Config{WSLScanEnabled: true}, dev); res != nil {
 			t.Errorf("want nothing triggered, got %v", res)
 		}
 		if len(m.DetachedCalls) != 0 {
@@ -137,7 +139,7 @@ func TestTriggerWSLScans_Skips(t *testing.T) {
 		m := executor.NewMock()
 		m.SetGOOS(model.PlatformWindows)
 		t.Setenv(wslLinuxBinaryEnv, `C:\nope\dmg-linux`)
-		res := triggerWSLScans(m, log, &cli.Config{WSLScanEnabled: true},
+		res := triggerWSLScans(context.Background(), m, log, &cli.Config{WSLScanEnabled: true},
 			hostDevice(model.WSLDistro{Name: "Debian", DistroID: "{aaa}", Running: true, DefaultUID: uidPtr(1000)}))
 		if res != nil || len(m.DetachedCalls) != 0 {
 			t.Errorf("missing binary must skip cleanly: %v / %v", res, m.DetachedCalls)
@@ -149,7 +151,7 @@ func TestTriggerWSLScans_Skips(t *testing.T) {
 func TestTriggerWSLScans_LaunchFailureIsIsolated(t *testing.T) {
 	m := wslScanMock(t, `C:\agent\dmg-linux`)
 	m.StartDetachedErr = errFakeSpawn
-	res := triggerWSLScans(m, progress.NewNoop(), &cli.Config{WSLScanEnabled: true},
+	res := triggerWSLScans(context.Background(), m, progress.NewNoop(), &cli.Config{WSLScanEnabled: true},
 		hostDevice(
 			model.WSLDistro{Name: "Debian", DistroID: "{aaa}", Running: true, DefaultUID: uidPtr(1000)},
 			model.WSLDistro{Name: "Alpine", DistroID: "{bbb}", Running: true, DefaultUID: uidPtr(1000)},
@@ -183,5 +185,89 @@ func TestWindowsPathToWSL(t *testing.T) {
 		if got := windowsPathToWSL(in); got != want {
 			t.Errorf("windowsPathToWSL(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// The Linux agent is only resolved (and, on hosts without one, downloaded)
+// when a distro will actually be launched.
+func TestTriggerWSLScans_ResolvesBinaryOnlyWhenNeeded(t *testing.T) {
+	stub := func(t *testing.T, path string) *int {
+		t.Helper()
+		calls := 0
+		prev := wslLinuxBinaryResolver
+		wslLinuxBinaryResolver = func(context.Context, executor.Executor, *progress.Logger) string {
+			calls++
+			return path
+		}
+		t.Cleanup(func() { wslLinuxBinaryResolver = prev })
+		return &calls
+	}
+
+	t.Run("all distros stopped or root-only", func(t *testing.T) {
+		calls := stub(t, `C:\agent\dmg-linux`)
+		m := executor.NewMock()
+		m.SetGOOS(model.PlatformWindows)
+		res := triggerWSLScans(context.Background(), m, progress.NewNoop(), &cli.Config{WSLScanEnabled: true}, hostDevice(
+			model.WSLDistro{Name: "Ubuntu", DistroID: "{aaa}", Running: false, DefaultUID: uidPtr(1000)},
+			model.WSLDistro{Name: "Imported", DistroID: "{bbb}", Running: true, DefaultUID: uidPtr(0)},
+		))
+		if *calls != 0 {
+			t.Errorf("resolver called %d times, want 0", *calls)
+		}
+		got := outcomes(res)
+		if got["Ubuntu"] != wslScanSkippedNotRunning || got["Imported"] != wslScanSkippedNoUser {
+			t.Errorf("outcomes = %v", got)
+		}
+	})
+
+	t.Run("launchable distro resolves once", func(t *testing.T) {
+		calls := stub(t, `C:\agent\dmg-linux`)
+		m := executor.NewMock()
+		m.SetGOOS(model.PlatformWindows)
+		triggerWSLScans(context.Background(), m, progress.NewNoop(), &cli.Config{WSLScanEnabled: true}, hostDevice(
+			model.WSLDistro{Name: "Debian", DistroID: "{aaa}", Running: true, DefaultUID: uidPtr(1000)},
+			model.WSLDistro{Name: "Ubuntu", DistroID: "{bbb}", Running: true},
+		))
+		if *calls != 1 {
+			t.Errorf("resolver called %d times, want 1", *calls)
+		}
+		if len(m.DetachedCalls) != 2 {
+			t.Errorf("want 2 launches, got %v", m.DetachedCalls)
+		}
+	})
+
+	t.Run("resolver finds nothing", func(t *testing.T) {
+		stub(t, "")
+		m := executor.NewMock()
+		m.SetGOOS(model.PlatformWindows)
+		res := triggerWSLScans(context.Background(), m, progress.NewNoop(), &cli.Config{WSLScanEnabled: true}, hostDevice(
+			model.WSLDistro{Name: "Debian", DistroID: "{aaa}", Running: true, DefaultUID: uidPtr(1000)},
+		))
+		if res != nil || len(m.DetachedCalls) != 0 {
+			t.Errorf("want clean skip, got %v / %v", res, m.DetachedCalls)
+		}
+	})
+}
+
+// The download asks for the host's native arch, not the agent's build arch.
+func TestWSLLinuxBinaryPath_UsesNativeArch(t *testing.T) {
+	t.Setenv(wslLinuxBinaryEnv, "")
+	prevArch, prevEnsure := wslagent.NativeArch, wslLinuxAgentEnsure
+	t.Cleanup(func() { wslagent.NativeArch, wslLinuxAgentEnsure = prevArch, prevEnsure })
+
+	wslagent.NativeArch = func() string { return "arm64" }
+	var gotArch string
+	wslLinuxAgentEnsure = func(_ context.Context, dir, _ string, arch string) (string, bool, error) {
+		gotArch = arch
+		return dir + `\dmg-linux`, true, nil
+	}
+
+	m := executor.NewMock()
+	m.SetGOOS(model.PlatformWindows)
+	if p := wslLinuxBinaryPath(context.Background(), m, progress.NewNoop()); p == "" {
+		t.Fatal("want a path")
+	}
+	if gotArch != "arm64" {
+		t.Errorf("Ensure asked for %q, want the native arm64", gotArch)
 	}
 }

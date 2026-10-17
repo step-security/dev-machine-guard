@@ -543,7 +543,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	if cfg != nil && cfg.WSLScanEnabled {
 		wslCtx, wslCancel := startPhase(ctx, tracker, "wsl_scan")
 		log.Progress("Triggering WSL distribution scans (%s)...", cfg.WSLScanReason)
-		triggerWSLScans(exec, log, cfg, &dev)
+		triggerWSLScans(wslCtx, exec, log, cfg, &dev)
 		endPhase(wslCtx, wslCancel, tracker, log, "wsl_scan")
 	}
 

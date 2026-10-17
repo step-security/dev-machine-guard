@@ -1,16 +1,19 @@
 package telemetry
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/step-security/dev-machine-guard/internal/buildinfo"
 	"github.com/step-security/dev-machine-guard/internal/cli"
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/wslagent"
 )
 
 // Per-distro outcomes of the trigger phase. The host only ever learns whether
@@ -24,13 +27,23 @@ const (
 	wslScanFailed            = "failed"
 )
 
-// wslLinuxBinaryEnv overrides where the Linux agent binary is found. Delivery
-// of that binary to a Windows host is not built yet, so this is how a test
-// machine points at one.
+// wslLinuxBinaryEnv overrides where the Linux agent binary is found, for a
+// test machine pointing at a local build. Nothing is downloaded when it is set.
 const wslLinuxBinaryEnv = "STEPSEC_WSL_LINUX_BINARY"
 
-// wslLinuxBinaryNames are the names looked for next to the Windows agent.
-var wslLinuxBinaryNames = []string{"dmg-linux", "stepsecurity-dev-machine-guard-linux"}
+// wslLinuxBinaryAltName is an older name looked for next to the Windows agent
+// when dmg-linux is absent. Never downloaded under this name.
+const wslLinuxBinaryAltName = "stepsecurity-dev-machine-guard-linux"
+
+// wslLinuxBinaryResolver finds, or installs, the Linux agent binary. A
+// variable so tests can keep the download out of unit runs.
+var wslLinuxBinaryResolver = wslLinuxBinaryPath
+
+// wslLinuxAgentEnsure downloads the Linux agent when no installer provided
+// one. A variable so tests can check what is asked for without the network.
+var wslLinuxAgentEnsure = func(ctx context.Context, dir, version, arch string) (string, bool, error) {
+	return wslagent.New().Ensure(ctx, dir, version, arch)
+}
 
 // wslScanResult is one distro's trigger outcome.
 type wslScanResult struct {
@@ -51,7 +64,7 @@ type wslScanResult struct {
 //
 // Returns one result per registered distro, for the log. Never errors: a
 // failure to launch one distro must not affect the host's own scan.
-func triggerWSLScans(exec executor.Executor, log *progress.Logger, cfg *cli.Config, dev *model.Device) []wslScanResult {
+func triggerWSLScans(ctx context.Context, exec executor.Executor, log *progress.Logger, cfg *cli.Config, dev *model.Device) []wslScanResult {
 	if cfg == nil || !cfg.WSLScanEnabled {
 		return nil
 	}
@@ -66,10 +79,15 @@ func triggerWSLScans(exec executor.Executor, log *progress.Logger, cfg *cli.Conf
 		return nil
 	}
 
-	linuxBin := wslLinuxBinaryPath(exec)
-	if linuxBin == "" {
-		log.Warn("WSL scan: no Linux agent binary found next to the agent (set %s) — skipping", wslLinuxBinaryEnv)
-		return nil
+	// Resolve the binary only when some distro will actually be launched, so
+	// a host whose distros are all stopped never downloads it.
+	linuxBin := ""
+	if anyLaunchableDistro(dev.WSL.Distros) {
+		linuxBin = wslLinuxBinaryResolver(ctx, exec, log)
+		if linuxBin == "" {
+			log.Warn("WSL scan: no Linux agent binary available next to the agent (set %s), skipping", wslLinuxBinaryEnv)
+			return nil
+		}
 	}
 	guestConfig := windowsPathToWSL(config.ConfigFilePath())
 
@@ -125,11 +143,24 @@ func logWSLScanResult(log *progress.Logger, res wslScanResult) {
 	}
 }
 
+// anyLaunchableDistro reports whether the loop below would launch at least
+// one distro. Mirrors its skip cases.
+func anyLaunchableDistro(distros []model.WSLDistro) bool {
+	for _, d := range distros {
+		if d.Running && d.DistroID != "" && (d.DefaultUID == nil || *d.DefaultUID != 0) {
+			return true
+		}
+	}
+	return false
+}
+
 // wslLinuxBinaryPath locates the Linux agent binary on the Windows host. The
-// env override wins; otherwise look beside the running executable. Returns ""
-// when there is nothing to run, which is the current default — host-side
-// delivery of the Linux binary is not implemented.
-func wslLinuxBinaryPath(exec executor.Executor) string {
+// env override wins; otherwise look beside the running executable, where the
+// MSI and the loader install dmg-linux. When neither did (binary-only
+// installs, older loaders), download the signed release binary for this
+// agent's version into the same place. Returns "" when there is nothing to
+// run.
+func wslLinuxBinaryPath(ctx context.Context, exec executor.Executor, log *progress.Logger) string {
 	if p := strings.TrimSpace(os.Getenv(wslLinuxBinaryEnv)); p != "" {
 		if exec.FileExists(p) {
 			return p
@@ -141,13 +172,22 @@ func wslLinuxBinaryPath(exec executor.Executor) string {
 		return ""
 	}
 	dir := filepath.Dir(self)
-	for _, name := range wslLinuxBinaryNames {
-		p := filepath.Join(dir, name)
-		if exec.FileExists(p) {
-			return p
+	if !exec.FileExists(filepath.Join(dir, wslagent.BinaryName)) {
+		if alt := filepath.Join(dir, wslLinuxBinaryAltName); exec.FileExists(alt) {
+			return alt
 		}
 	}
-	return ""
+
+	path, downloaded, err := wslLinuxAgentEnsure(ctx, dir, buildinfo.Version, wslagent.NativeArch())
+	switch {
+	case err != nil && path != "":
+		log.Warn("WSL scan: could not update the Linux agent (%v); using the existing copy", err)
+	case err != nil:
+		log.Warn("WSL scan: could not install the Linux agent: %v", err)
+	case downloaded:
+		log.Progress("WSL scan: installed Linux agent v%s at %s", buildinfo.Version, path)
+	}
+	return path
 }
 
 // windowsPathToWSL rewrites a Windows path to the form a distro sees over the
