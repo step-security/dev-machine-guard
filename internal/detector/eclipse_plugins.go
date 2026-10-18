@@ -84,30 +84,120 @@ var eclipseIniPatterns = []string{
 	"myeclipse.ini",
 }
 
-// ---------- macOS detection (unchanged) ----------
+// ---------- macOS detection ----------
 
-var eclipseFeatureDirsDarwin = []string{
-	"/Applications/Eclipse.app/Contents/Eclipse/features",
-	"/Applications/Eclipse.app/Contents/Eclipse/dropins",
-}
+// eclipseInstallRootDarwin is the Eclipse install directory inside the macOS
+// app bundle — the equivalent of the install dir scanned on Windows.
+const eclipseInstallRootDarwin = "/Applications/Eclipse.app/Contents/Eclipse"
 
 // ---------- Public API ----------
 
 // DetectEclipsePlugins scans Eclipse installations for plugins.
-// On macOS: scans features/dropins directories.
+// On macOS: scans the install-local features/dropins directories plus the
+// features directory of the p2 shared bundle pool, when the install uses one.
 // On Windows: multi-stage pipeline using detected IDE paths, path probes,
 // and drive letter scanning, with validation before reporting.
 func (d *ExtensionDetector) DetectEclipsePlugins(ctx context.Context, ides []model.IDE) []model.Extension {
 	if d.exec.GOOS() != model.PlatformWindows {
-		var results []model.Extension
-		for _, dir := range eclipseFeatureDirsDarwin {
-			if d.exec.DirExists(dir) {
-				results = append(results, d.collectEclipseFeatures(dir)...)
-			}
-		}
-		return results
+		return d.detectEclipsePluginsDarwin()
 	}
 	return d.detectEclipsePluginsWindows(ctx, ides)
+}
+
+// detectEclipsePluginsDarwin enumerates plugins for the macOS app-bundle install.
+//
+// Feature groups are the unit worth reporting: one entry per installed product
+// (e.g. software.aws.toolkits.eclipse.amazonq.feature) rather than each of the
+// dozens of OSGi bundles it ships. Installs created by the Eclipse Installer
+// keep those features in a shared p2 bundle pool outside the app bundle, so the
+// pool's features dir is scanned alongside the install-local one — which still
+// covers self-contained installs that use no pool.
+func (d *ExtensionDetector) detectEclipsePluginsDarwin() []model.Extension {
+	installDir := eclipseInstallRootDarwin
+	if !d.exec.DirExists(installDir) {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	var results []model.Extension
+	add := func(exts []model.Extension) {
+		for _, ext := range exts {
+			key := ext.ID + "@" + ext.Version
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			results = append(results, ext)
+		}
+	}
+
+	// Install-local features (self-contained installs).
+	installFeatures := filepath.Join(installDir, "features")
+	if d.exec.DirExists(installFeatures) {
+		add(d.collectEclipseFeatures(installFeatures))
+	}
+
+	// Features from the shared bundle pool, when the install uses one.
+	if pool := d.resolveEclipsePoolDir(installDir); pool != "" {
+		poolFeatures := filepath.Join(pool, "features")
+		if d.exec.DirExists(poolFeatures) {
+			add(d.collectEclipseFeatures(poolFeatures))
+		}
+	}
+
+	// Dropins — collectDropins also handles nested eclipse/plugins layouts and
+	// tags the source as "dropins".
+	add(d.collectDropins(filepath.Join(installDir, "dropins")))
+
+	return results
+}
+
+// resolveEclipsePoolDir locates the p2 shared bundle pool for an install.
+//
+// The agent's data area is recorded in configuration/config.ini as a Java
+// properties entry with escaped colons, e.g.
+//
+//	eclipse.p2.data.area=file\:/Users/alice/.p2/
+//
+// and the pool sits at <dataArea>/pool. Falls back to ~/.p2/pool, the default
+// the Eclipse Installer uses, when config.ini carries no such entry. Returns ""
+// if neither resolves to an existing directory.
+func (d *ExtensionDetector) resolveEclipsePoolDir(installDir string) string {
+	if dataArea := d.readEclipseP2DataArea(filepath.Join(installDir, "configuration", "config.ini")); dataArea != "" {
+		if pool := filepath.Join(dataArea, "pool"); d.exec.DirExists(pool) {
+			return pool
+		}
+	}
+	if home := getHomeDir(d.exec); home != "" {
+		if pool := filepath.Join(home, ".p2", "pool"); d.exec.DirExists(pool) {
+			return pool
+		}
+	}
+	return ""
+}
+
+// readEclipseP2DataArea reads the eclipse.p2.data.area property from a
+// config.ini and normalizes it to a filesystem path.
+func (d *ExtensionDetector) readEclipseP2DataArea(configINI string) string {
+	data, err := d.exec.ReadFile(configINI)
+	if err != nil {
+		return ""
+	}
+	const key = "eclipse.p2.data.area="
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, key) {
+			continue
+		}
+		// Java properties escape the URI colon as "\:".
+		value := strings.ReplaceAll(strings.TrimPrefix(line, key), `\:`, ":")
+		value = strings.TrimPrefix(value, "file:")
+		if value == "" {
+			continue
+		}
+		return filepath.Clean(value)
+	}
+	return ""
 }
 
 // ---------- Windows multi-stage pipeline ----------
