@@ -265,6 +265,12 @@ separate IDs from the host ID and distro ID.
 Choose an ID unique within your customer and keep it stable: changing the ID
 registers a separate device in the backend; it does not migrate existing history.
 
+The value may also be a template over `{serial}`, `{hostname}` and `{user}`
+(for example `{hostname}-{user}` on pooled virtual desktops, so each person on a
+shared host is their own device), and the `STEPSEC_DEVICE_ID` environment
+variable overrides it at run time. See
+[docs/deploying-on-virtual-desktops.md](docs/deploying-on-virtual-desktops.md).
+
 **CLI flags always override config file values** — this matches the shell script behavior. For example, if your config has `output_format: json`, running `./stepsecurity-dev-machine-guard --pretty` uses pretty output. To clear a value during configuration, enter a single dash (`-`).
 
 ### Logging and Verbose Mode

@@ -286,7 +286,7 @@ func TestPatchBatterySettings_FlipsPresentValues(t *testing.T) {
 		"<StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>" +
 		"<StartWhenAvailable>false</StartWhenAvailable>" +
 		"<Enabled>true</Enabled></Settings></Task>"
-	out, changed := patchBatterySettings(xml, "PT4H30M")
+	out, changed := patchBatterySettings(xml, "PT4H30M", false)
 	if !changed {
 		t.Fatal("expected changed=true")
 	}
@@ -306,7 +306,7 @@ func TestPatchBatterySettings_FlipsPresentValues(t *testing.T) {
 
 func TestPatchBatterySettings_InjectsMissing(t *testing.T) {
 	xml := "<Task><Settings><Enabled>true</Enabled></Settings></Task>"
-	out, changed := patchBatterySettings(xml, "PT4H30M")
+	out, changed := patchBatterySettings(xml, "PT4H30M", false)
 	if !changed {
 		t.Fatal("expected changed=true (settings injected)")
 	}
@@ -330,7 +330,7 @@ func TestPatchBatterySettings_NoopWhenAlreadyDesired(t *testing.T) {
 		"<ExecutionTimeLimit>PT4H30M</ExecutionTimeLimit>" +
 		"<RestartOnFailure><Interval>PT15M</Interval><Count>3</Count></RestartOnFailure>" +
 		"</Settings></Task>"
-	if _, changed := patchBatterySettings(xml, "PT4H30M"); changed {
+	if _, changed := patchBatterySettings(xml, "PT4H30M", false); changed {
 		t.Error("expected changed=false when settings already desired")
 	}
 }
@@ -341,7 +341,7 @@ func TestPatchBatterySettings_AddsRetryOnFailure(t *testing.T) {
 		"<StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>" +
 		"<StartWhenAvailable>false</StartWhenAvailable>" +
 		"</Settings></Task>"
-	out, changed := patchBatterySettings(xml, "PT4H30M")
+	out, changed := patchBatterySettings(xml, "PT4H30M", false)
 	if !changed {
 		t.Fatal("expected changed=true")
 	}
@@ -554,7 +554,7 @@ func TestPatchBatterySettings_ReplacesExecutionTimeLimit(t *testing.T) {
 			if bad := settingsMismatches(xml, "PT4H30M"); len(bad) != 3 {
 				t.Errorf("default XML mismatches = %v, want 3", bad)
 			}
-			out, changed := patchBatterySettings(xml, "PT4H30M")
+			out, changed := patchBatterySettings(xml, "PT4H30M", false)
 			if !changed {
 				t.Fatal("expected changed=true")
 			}
@@ -571,7 +571,7 @@ func TestPatchBatterySettings_ReplacesExecutionTimeLimit(t *testing.T) {
 func TestSettingsMismatches_UnrecognizedXML(t *testing.T) {
 	// No </Settings>: the patcher can't inject, so verification must flag it.
 	xml := "<Task><Settings/></Task>"
-	out, changed := patchBatterySettings(xml, "PT4H30M")
+	out, changed := patchBatterySettings(xml, "PT4H30M", false)
 	if changed {
 		t.Fatal("expected no-op patch on XML without </Settings>")
 	}
@@ -608,7 +608,7 @@ func captureStderr(t *testing.T, f func()) string {
 }
 
 func TestApplyBatterySettings_VerifiesAfterImport(t *testing.T) {
-	patched, _ := patchBatterySettings(defaultTaskXML, "PT4H30M")
+	patched, _ := patchBatterySettings(defaultTaskXML, "PT4H30M", false)
 	for name, tc := range map[string]struct {
 		afterImport string
 		wantWarn    bool

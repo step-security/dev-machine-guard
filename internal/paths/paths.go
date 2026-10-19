@@ -57,6 +57,47 @@ func SetOverride(s string) {
 	cliDisabled = false
 }
 
+// userScope names the per-user state subdirectory (users/<scope>) when the
+// device identity template contains {user}: every logged-in user of the
+// machine is then a separate device, so the run-gate cache, delta scan state,
+// node cache and run metrics must not be shared between them. "" (the
+// default) keeps every file directly under Home(). Set once at startup by main
+// from device.IdentityUserScope; never mutated thereafter.
+var userScope string
+
+// SetUserScope installs the per-user state scope. The value must already be
+// key-safe (device.SanitizeDeviceID output); anything that could escape the
+// install dir — path separators, "." or ".." — is rejected and leaves state
+// shared, which fails safe rather than writing outside Home().
+func SetUserScope(s string) {
+	s = strings.TrimSpace(s)
+	if s == "." || s == ".." || strings.ContainsAny(s, `/\`) {
+		s = ""
+	}
+	userScope = s
+}
+
+// UserScope returns the per-user state scope set by SetUserScope ("" when
+// state is shared). The lock package suffixes its PID file with it.
+func UserScope() string { return userScope }
+
+// StateDir returns the directory for per-run state files (last-run.json,
+// scan-state.json, node-scan-cache.json, run-metrics.jsonl): Home() itself, or
+// Home()/users/<scope> when a per-user identity is in force. Returns "" when
+// Home() is disabled, with the same "skip writing" contract. The scoped
+// directory is created best-effort on first use; on Windows the install dir's
+// Users:Modify ACL propagates to it, so each session's user can write their
+// own subtree (peers can read each other's caches — none hold secrets).
+func StateDir() string {
+	home := Home()
+	if home == "" || userScope == "" {
+		return home
+	}
+	dir := filepath.Join(home, "users", userScope)
+	_ = os.MkdirAll(dir, 0o700)
+	return dir
+}
+
 // SetDisabled marks the install dir as explicitly disabled for this
 // run. After this call Home() returns "" regardless of env/config/
 // legacy values, so no on-disk artifact is written under the resolved
@@ -143,12 +184,13 @@ func LegacyHome() string {
 
 // ScanStateFile returns the absolute path to scan-state.json, or "" when
 // Home() is disabled. Callers must treat "" as "state tracking unavailable".
+// Lives under StateDir(), so it is per-user when the identity is.
 func ScanStateFile() string {
-	home := Home()
-	if home == "" {
+	dir := StateDir()
+	if dir == "" {
 		return ""
 	}
-	return filepath.Join(home, "scan-state.json")
+	return filepath.Join(dir, "scan-state.json")
 }
 
 // HeartbeatFile returns the absolute path to last-run.json, or "" when
@@ -158,11 +200,11 @@ func ScanStateFile() string {
 // heartbeat.RunGate / internal/rungate) — one file for the same "last run"
 // data rather than a separate run-gate-state.json.
 func HeartbeatFile() string {
-	home := Home()
-	if home == "" {
+	dir := StateDir()
+	if dir == "" {
 		return ""
 	}
-	return filepath.Join(home, "last-run.json")
+	return filepath.Join(dir, "last-run.json")
 }
 
 // RunMetricsFile returns the absolute path to run-metrics.jsonl, or ""
@@ -170,9 +212,9 @@ func HeartbeatFile() string {
 // feature is off, not an error. One JSON record per run, capped by
 // internal/procusage.
 func RunMetricsFile() string {
-	home := Home()
-	if home == "" {
+	dir := StateDir()
+	if dir == "" {
 		return ""
 	}
-	return filepath.Join(home, "run-metrics.jsonl")
+	return filepath.Join(dir, "run-metrics.jsonl")
 }

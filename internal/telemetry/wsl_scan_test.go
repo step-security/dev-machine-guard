@@ -27,6 +27,7 @@ func wslScanMock(t *testing.T, binary string) *executor.Mock {
 func hostDevice(distros ...model.WSLDistro) *model.Device {
 	return &model.Device{
 		SerialNumber: "host-serial-1",
+		DeviceID:     "host-serial-1", // what Gather sets by default; guests pair on the RESOLVED id
 		WSL: &model.WSLInfo{
 			Presence: model.WSLPresenceYes, Installed: true, Distros: distros,
 		},
@@ -124,7 +125,7 @@ func TestTriggerWSLScans_Skips(t *testing.T) {
 	t.Run("host without a usable serial cannot pair a guest", func(t *testing.T) {
 		m := wslScanMock(t, `C:\agent\dmg-linux`)
 		dev := hostDevice(model.WSLDistro{Name: "Debian", DistroID: "{aaa}", Running: true, DefaultUID: uidPtr(1000)})
-		dev.SerialNumber = "unknown"
+		dev.SerialNumber, dev.DeviceID = "unknown", "unknown"
 		if res := triggerWSLScans(m, log, &cli.Config{WSLScanEnabled: true}, dev); res != nil {
 			t.Errorf("want nothing triggered, got %v", res)
 		}

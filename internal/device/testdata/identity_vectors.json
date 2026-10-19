@@ -1,0 +1,164 @@
+[
+  {
+    "name": "literal",
+    "template": "asset-12345",
+    "serial": "SER1",
+    "hostname": "AVD-HOST-07",
+    "user": "jdoe",
+    "goos": "windows",
+    "expect_id": "asset-12345"
+  },
+  {
+    "name": "literal_kept_verbatim",
+    "template": "Asset 12345!",
+    "serial": "SER1",
+    "hostname": "h",
+    "user": "u",
+    "goos": "windows",
+    "expect_id": "Asset 12345!"
+  },
+  {
+    "name": "hostname",
+    "template": "{hostname}",
+    "serial": "SER1",
+    "hostname": "AVD-HOST-07",
+    "user": "jdoe",
+    "goos": "windows",
+    "expect_id": "avd-host-07"
+  },
+  {
+    "name": "hostname_user",
+    "template": "{hostname}-{user}",
+    "serial": "SER1",
+    "hostname": "AVD-HOST-07",
+    "user": "CONTOSO\\JDoe",
+    "goos": "windows",
+    "expect_id": "avd-host-07-jdoe"
+  },
+  {
+    "name": "user_email_local_part",
+    "template": "{user}",
+    "serial": "SER1",
+    "hostname": "h",
+    "user": "J.Doe@Example.com",
+    "goos": "windows",
+    "expect_id": "j.doe"
+  },
+  {
+    "name": "user_azuread",
+    "template": "vdi-{user}",
+    "serial": "SER1",
+    "hostname": "h",
+    "user": "AzureAD\\JDoe",
+    "goos": "windows",
+    "expect_id": "vdi-jdoe"
+  },
+  {
+    "name": "serial_token_kept_verbatim_then_sanitized",
+    "template": "{serial}",
+    "serial": "VMware-56 4d 1a",
+    "hostname": "h",
+    "user": "jdoe",
+    "goos": "linux",
+    "expect_id": "VMware-56-4d-1a"
+  },
+  {
+    "name": "serial_and_user",
+    "template": "{serial}~{user}",
+    "serial": "ABC123",
+    "hostname": "h",
+    "user": "jdoe",
+    "goos": "darwin",
+    "expect_id": "ABC123~jdoe"
+  },
+  {
+    "name": "token_case_insensitive",
+    "template": "{HOSTNAME}",
+    "serial": "SER1",
+    "hostname": "Host1",
+    "user": "jdoe",
+    "goos": "windows",
+    "expect_id": "host1"
+  },
+  {
+    "name": "unsafe_runes_replaced",
+    "template": "pool/east#{hostname} {user}",
+    "serial": "SER1",
+    "hostname": "h1",
+    "user": "a b",
+    "goos": "linux",
+    "expect_id": "pool-east-h1-a-b"
+  },
+  {
+    "name": "collapse_and_trim",
+    "template": "--{hostname}--.",
+    "serial": "SER1",
+    "hostname": "h1",
+    "user": "jdoe",
+    "goos": "linux",
+    "expect_id": "h1"
+  },
+  {
+    "name": "system_is_incomplete",
+    "template": "{hostname}-{user}",
+    "serial": "SER1",
+    "hostname": "h1",
+    "user": "NT AUTHORITY\\SYSTEM",
+    "goos": "windows",
+    "expect_incomplete": true
+  },
+  {
+    "name": "machine_account_is_incomplete",
+    "template": "{user}",
+    "serial": "SER1",
+    "hostname": "h1",
+    "user": "WORKGROUP\\HOST1$",
+    "goos": "windows",
+    "expect_incomplete": true
+  },
+  {
+    "name": "local_service_is_incomplete",
+    "template": "{user}",
+    "serial": "SER1",
+    "hostname": "h1",
+    "user": "NT AUTHORITY\\LOCAL SERVICE",
+    "goos": "windows",
+    "expect_incomplete": true
+  },
+  {
+    "name": "unknown_user_is_incomplete",
+    "template": "{user}",
+    "serial": "SER1",
+    "hostname": "h1",
+    "user": "unknown",
+    "goos": "linux",
+    "expect_incomplete": true
+  },
+  {
+    "name": "unknown_serial_is_incomplete",
+    "template": "{serial}-{user}",
+    "serial": "unknown",
+    "hostname": "h1",
+    "user": "jdoe",
+    "goos": "linux",
+    "expect_incomplete": true
+  },
+  {
+    "name": "empty_hostname_is_incomplete",
+    "template": "{hostname}",
+    "serial": "SER1",
+    "hostname": "",
+    "user": "jdoe",
+    "goos": "linux",
+    "expect_incomplete": true
+  },
+  {
+    "name": "long_expansion_trimmed_prefix_plus_hash",
+    "template": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-{user}",
+    "serial": "SER1",
+    "hostname": "h",
+    "user": "bbbbbbbbbbbbbbbbbbbb",
+    "goos": "linux",
+    "expect_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-74e82d78aed4"
+  }
+]

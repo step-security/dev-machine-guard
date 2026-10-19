@@ -13,17 +13,21 @@ import (
 	"howett.net/plist"
 )
 
-// ID returns the configured device identity, falling back to the machine
-// serial, or "" when neither is usable (never a placeholder like "unknown").
-// Keep SerialNumber separate so telemetry retains the hardware identity.
+// ID returns the device identity every backend call uses: the identity
+// Gather resolved (a configured template or literal, else the machine
+// identity), or "" when none is usable (never a placeholder like "unknown").
+// A Device not produced by Gather falls back to the configured literal (or
+// template, expanded from the Device's own fields) and then its serial. Keep
+// SerialNumber separate so telemetry retains the hardware identity.
 func ID(dev model.Device) string {
-	if id := strings.TrimSpace(config.DeviceID); id != "" {
-		return id
+	if dev.DeviceID != "" {
+		return dev.DeviceID
 	}
-	if usableSerial(dev.SerialNumber) {
-		return dev.SerialNumber
+	if dev.IdentityIncomplete {
+		return ""
 	}
-	return ""
+	return resolveWith(strings.TrimSpace(config.DeviceID), IdentitySourceConfig,
+		dev.SerialNumber, dev.Hostname, dev.UserIdentity, dev.Platform, false).DeviceID
 }
 
 // IDForGuest gives the host/distro identity precedence over an inherited host
@@ -35,7 +39,9 @@ func IDForGuest(dev model.Device, hostDeviceID, distroID string) string {
 	return ID(dev)
 }
 
-// Gather collects device information (hostname, serial, OS version, user identity).
+// Gather collects device information (hostname, serial, OS version, user
+// identity) and resolves the device identity (DeviceID) from the configured
+// template or, by default, the machine identity. See identity.go.
 func Gather(ctx context.Context, exec executor.Executor) model.Device {
 	platform := exec.GOOS()
 	hostname := getHostname(ctx, exec, platform)
@@ -52,7 +58,7 @@ func Gather(ctx context.Context, exec executor.Executor) model.Device {
 		osVersion = getOSVersionLinux(ctx, exec)
 	}
 
-	return model.Device{
+	dev := model.Device{
 		Hostname:     hostname,
 		SerialNumber: serial,
 		OSVersion:    osVersion,
@@ -60,6 +66,8 @@ func Gather(ctx context.Context, exec executor.Executor) model.Device {
 		UserIdentity: userIdentity,
 		Resources:    gatherResources(ctx, exec),
 	}
+	AttachIdentity(exec, &dev)
+	return dev
 }
 
 var (

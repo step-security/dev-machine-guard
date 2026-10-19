@@ -31,6 +31,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 	"github.com/step-security/dev-machine-guard/internal/progress/filelog"
+	"github.com/step-security/dev-machine-guard/internal/retire"
 	"github.com/step-security/dev-machine-guard/internal/rungate"
 	"github.com/step-security/dev-machine-guard/internal/scan"
 	"github.com/step-security/dev-machine-guard/internal/schtasks"
@@ -161,6 +162,12 @@ func main() {
 			paths.SetOverride(cfg.InstallDir)
 		}
 	}
+	// Per-user state: when the device identity template contains {user},
+	// each logged-in user of this machine is a separate device, so the
+	// run-gate cache, delta scan state, node cache and run metrics live under
+	// <install dir>/users/<user>. Set before the heartbeat below stamps
+	// last-run.json. Probes nothing (no serial), so it is free here.
+	paths.SetUserScope(device.IdentityUserScope(exec))
 	installDir := paths.Home() // "" when SetDisabled or home unresolved
 	logFilePath := ""
 	if installDir != "" {
@@ -233,11 +240,13 @@ func main() {
 		// through the no-prompt code path. This is how MSI/SCCM/Intune
 		// custom actions drive configuration — they can't talk to stdin.
 		opts := config.NonInteractiveOptions{
-			FromFile:      cfg.ConfigFromFile,
-			CustomerID:    cfg.ConfigCustomerID,
-			APIEndpoint:   cfg.ConfigAPIEndpoint,
-			APIKey:        cfg.ConfigAPIKey,
-			ScanFrequency: cfg.ConfigScanFrequency,
+			FromFile:          cfg.ConfigFromFile,
+			CustomerID:        cfg.ConfigCustomerID,
+			APIEndpoint:       cfg.ConfigAPIEndpoint,
+			APIKey:            cfg.ConfigAPIKey,
+			ScanFrequency:     cfg.ConfigScanFrequency,
+			DeviceID:          cfg.ConfigDeviceID,
+			RetireOnUninstall: cfg.ConfigRetireOnUninstall,
 		}
 		if opts.APIKey == "" {
 			// Env-var fallback keeps the secret off the msiexec command
@@ -263,7 +272,7 @@ func main() {
 		}
 
 	case "configure show":
-		config.ShowConfigure()
+		config.ShowConfigure(resolvedIdentityLine(exec))
 
 	case "send-telemetry":
 		// Stamp the local heartbeat first — before the enterprise gate and
@@ -428,6 +437,12 @@ func main() {
 
 	case "uninstall":
 		_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
+		// Retire FIRST, while config.json and the per-user state files are
+		// still on disk (the MSI removes nothing before this custom action,
+		// but a teardown script may wipe the install dir right after).
+		// Best-effort by contract: a dead network must never leave the
+		// scheduler job behind, so nothing here can fail the uninstall.
+		retireDeviceOnUninstall(exec, log, cfg)
 		switch runtime.GOOS {
 		case model.PlatformWindows:
 			if err := schtasks.Uninstall(exec, log); err != nil {
@@ -738,6 +753,63 @@ func gateSkipsRun(exec executor.Executor, log *progress.Logger, cfg *cli.Config)
 func writeHeartbeat(exec executor.Executor, command string, log *progress.Logger) {
 	if err := heartbeat.Write(paths.HeartbeatFile(), command, telemetry.DetectInvocationMethod(exec, log)); err != nil {
 		log.Debug("heartbeat: failed to write %s: %v", paths.HeartbeatFile(), err)
+	}
+}
+
+// resolvedIdentityLine renders "<id> (source: env|config|serial)" for
+// `configure show`, or the reason the template cannot be completed here. It
+// lives in main because the device package depends on config, so config
+// cannot resolve the identity itself.
+func resolvedIdentityLine(exec executor.Executor) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	id := device.ResolvedDeviceID(ctx, exec)
+	if id.Incomplete {
+		return fmt.Sprintf("(incomplete: template %q needs a logged-in user; this context has none)", id.Template)
+	}
+	line := fmt.Sprintf("%s (source: %s)", id.DeviceID, id.Source)
+	if id.Source == device.IdentitySourceEnv {
+		line += " via " + device.EnvDeviceID
+	}
+	if id.Issue != "" {
+		line += " — " + id.Issue
+	}
+	return line
+}
+
+// retireDeviceOnUninstall tells the dashboard this device is going away.
+// Decided by `uninstall --retire` / `--no-retire`, else config.json's
+// retire_on_uninstall (written at provisioning time, so a plain `msiexec /x`
+// needs no arguments). Every identity this install may have registered under
+// is retired — the resolved one plus each cached per-user id, which is how an
+// MSI custom action running as SYSTEM retires a {user}-template fleet's rows.
+// Never fails the uninstall: failures are warnings.
+func retireDeviceOnUninstall(exec executor.Executor, log *progress.Logger, cfg *cli.Config) {
+	retireWanted := cfg.UninstallRetire || (config.RetireOnUninstall && !cfg.UninstallNoRetire)
+	if !retireWanted {
+		return
+	}
+	if !config.IsEnterpriseMode() {
+		log.Debug("retire: skipped (no enterprise config)")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), retire.TotalBudget)
+	defer cancel()
+	ids := retire.CollectIdentities(ctx, exec, log)
+	if len(ids) == 0 {
+		log.Warn("retire: no device id could be resolved; the device stays registered until it is retired from the dashboard or by inactivity")
+		return
+	}
+	for _, id := range ids {
+		err := retire.Post(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, id, buildinfo.Version, runtime.GOOS)
+		switch {
+		case err == nil:
+			log.Progress("Retired device %s in the dashboard", id)
+		case errors.Is(err, retire.ErrNotSupported):
+			log.Warn("retire: the dashboard backend does not support device retirement yet; %s stays registered (retire it from the dashboard or let inactivity retire it)", id)
+		default:
+			log.Warn("retire %s: %v (continuing uninstall)", id, err)
+		}
 	}
 }
 

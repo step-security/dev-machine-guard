@@ -67,6 +67,7 @@ type Payload struct {
 	CustomerID           string                 `json:"customer_id"`
 	DeviceID             string                 `json:"device_id"`
 	SerialNumber         string                 `json:"serial_number"`
+	DeviceIDSource       string                 `json:"device_id_source,omitempty"` // env | config | serial | wsl_guest
 	UserIdentity         string                 `json:"user_identity"`
 	Hostname             string                 `json:"hostname"`
 	Platform             string                 `json:"platform"`
@@ -502,6 +503,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	if featuregate.IsEnabled(featuregate.FeatureWSLDetection) {
 		dev.WSL = device.GatherWSL(phaseCtx, exec)
 	}
+	// The run gate already refused an incomplete identity before any beacon;
+	// this guards the paths that bypass it (kill switch, a direct run). No
+	// "started" post has happened yet, so returning here leaves no trace.
+	if dev.IdentityIncomplete {
+		endPhase(phaseCtx, phaseCancel, tracker, log, "device_info")
+		log.Progress("Device identity template requires a logged-in user; none found (running as %q) — skipping this run", dev.UserIdentity)
+		return nil
+	}
 	deviceID = device.ID(dev)
 	if wslGuest != nil {
 		deviceID = device.IDForGuest(dev, wslGuest.HostDeviceID, wslGuest.DistroID)
@@ -510,18 +519,21 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		// The device_info budget ran out before any source answered; retry on
 		// the run's deadline rather than upload without an identity.
 		dev.SerialNumber = device.SerialNumber(ctx, exec)
+		device.AttachIdentity(exec, &dev)
 		if deviceID = device.ID(dev); deviceID == "" {
 			phaseCancel()
 			return fmt.Errorf("device identity could not be determined")
 		}
 	}
 	// Single source of truth for "is this a real developer or a daemon
-	// context?" — same predicate the payload uses below, so the warning,
-	// the Developer: line, and the telemetry field always agree.
-	noUserLoggedIn := dev.UserIdentity == "" ||
-		dev.UserIdentity == "unknown" ||
-		(dev.UserIdentity == "root" && exec.IsRoot())
-	log.Progress("Device ID: %s", deviceID)
+	// context?" — same predicate the identity template uses, so the warning,
+	// the Developer: line, the telemetry field and the {user} token agree.
+	noUserLoggedIn := device.IsServiceAccount(exec, dev.UserIdentity)
+	if dev.DeviceIDSource == "" || dev.DeviceIDSource == device.IdentitySourceSerial {
+		log.Progress("Device ID: %s", deviceID)
+	} else {
+		log.Progress("Device ID: %s (source %s)", deviceID, dev.DeviceIDSource)
+	}
 	log.Progress("Serial Number: %s", dev.SerialNumber)
 	log.Progress("OS Version: %s", dev.OSVersion)
 	if noUserLoggedIn {
@@ -529,7 +541,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	} else {
 		log.Progress("Developer: %s", dev.UserIdentity)
 	}
-	log.Debug("device gathered: hostname=%q platform=%q serial=%q user_identity=%q no_user=%v", dev.Hostname, dev.Platform, dev.SerialNumber, dev.UserIdentity, noUserLoggedIn)
+	log.Debug("device gathered: hostname=%q platform=%q device_id=%q source=%q serial=%q user_identity=%q no_user=%v",
+		dev.Hostname, dev.Platform, deviceID, dev.DeviceIDSource, dev.SerialNumber, dev.UserIdentity, noUserLoggedIn)
 	if noUserLoggedIn {
 		log.Warn("no real developer identity (UserIdentity=%q, root=%v) — telemetry will be marked no_user_logged_in", dev.UserIdentity, exec.IsRoot())
 	}
@@ -1247,9 +1260,15 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// Its own identity is unusable: the hostname is the Windows host's, and a
 	// minimal or WSL1 distro has no machine-id, so dev.SerialNumber reads
 	// "unknown" and every such distro would collide on one record.
-	deviceIdentity := dev.SerialNumber
+	//
+	// Otherwise device_id is the resolved identity (configured template or the
+	// machine id) while serial_number stays the machine identity, so a rebuilt
+	// virtual desktop that keeps its configured identity still reports the
+	// hardware change.
+	deviceIdentity, identitySource := dev.SerialNumber, dev.DeviceIDSource
 	if wslGuest != nil {
 		deviceIdentity = wslguest.DeviceID(wslGuest.HostDeviceID, wslGuest.DistroID)
+		identitySource = "wsl_guest"
 		log.Progress("WSL guest: distro %s on host %s — device id %s",
 			wslGuest.DistroID, wslGuest.HostDeviceID, deviceIdentity)
 	}
@@ -1260,6 +1279,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		CustomerID:           config.CustomerID,
 		DeviceID:             deviceID,
 		SerialNumber:         deviceIdentity,
+		DeviceIDSource:       identitySource,
 		UserIdentity:         dev.UserIdentity,
 		Hostname:             dev.Hostname,
 		Platform:             dev.Platform,

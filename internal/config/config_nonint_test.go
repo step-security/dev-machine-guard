@@ -154,3 +154,163 @@ func TestNonInteractiveOptions_HasAny(t *testing.T) {
 		t.Error("FromFile alone should be enough")
 	}
 }
+
+func TestRunConfigureNonInteractive_DeviceIDAndRetireFlags(t *testing.T) {
+	withHome(t)
+	retire := true
+	err := RunConfigureNonInteractive(NonInteractiveOptions{
+		CustomerID:        "cust-1",
+		APIEndpoint:       "https://api.example.com",
+		APIKey:            "sk-abcdef",
+		DeviceID:          " {hostname}-{user} ",
+		RetireOnUninstall: &retire,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cfg := loadExisting()
+	if cfg.DeviceID != "{hostname}-{user}" {
+		t.Errorf("DeviceID: got %q", cfg.DeviceID)
+	}
+	if cfg.RetireOnUninstall == nil || !*cfg.RetireOnUninstall {
+		t.Errorf("RetireOnUninstall: got %v", cfg.RetireOnUninstall)
+	}
+	raw, _ := os.ReadFile(filepath.Join(withHomeDir(t), ".stepsecurity", "config.json"))
+	for _, want := range []string{`"device_id": "{hostname}-{user}"`, `"retire_on_uninstall": true`} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("config.json missing %s:\n%s", want, raw)
+		}
+	}
+
+	// Omitted = unchanged; "-" clears the template; false drops the retire key.
+	off := false
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{APIKey: "sk-2", RetireOnUninstall: &off}); err != nil {
+		t.Fatalf("second configure: %v", err)
+	}
+	cfg = loadExisting()
+	if cfg.DeviceID != "{hostname}-{user}" {
+		t.Errorf("omitted --device-id must keep the template, got %q", cfg.DeviceID)
+	}
+	if cfg.RetireOnUninstall != nil {
+		t.Errorf("retire_on_uninstall=false must be omitted from the file, got %v", *cfg.RetireOnUninstall)
+	}
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{DeviceID: "-"}); err != nil {
+		t.Fatalf("third configure: %v", err)
+	}
+	if cfg = loadExisting(); cfg.DeviceID != "" {
+		t.Errorf("\"-\" must clear the template, got %q", cfg.DeviceID)
+	}
+}
+
+// withHomeDir returns the HOME withHome set (HOME is read back rather than
+// threaded through so the helper's signature stays the same).
+func withHomeDir(t *testing.T) string {
+	t.Helper()
+	return os.Getenv("HOME")
+}
+
+func TestHasAny_DeviceIDAndRetire(t *testing.T) {
+	if (NonInteractiveOptions{}).HasAny() {
+		t.Fatal("empty options report HasAny")
+	}
+	if !(NonInteractiveOptions{DeviceID: "x"}).HasAny() {
+		t.Fatal("DeviceID alone must count as an inline value")
+	}
+	v := false
+	if !(NonInteractiveOptions{RetireOnUninstall: &v}).HasAny() {
+		t.Fatal("RetireOnUninstall alone must count as an inline value")
+	}
+}
+
+func TestLoad_DeviceIDAndRetireOnUninstall(t *testing.T) {
+	dir := withHome(t)
+	cfgDir := filepath.Join(dir, ".stepsecurity")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"customer_id":"c","api_endpoint":"https://e","api_key":"k","device_id":" {hostname}-{user} ","retire_on_uninstall":true}`
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prevID, prevRetire := DeviceID, RetireOnUninstall
+	prevCust, prevEnd, prevKey := CustomerID, APIEndpoint, APIKey
+	DeviceID, RetireOnUninstall = "", false
+	t.Cleanup(func() {
+		DeviceID, RetireOnUninstall = prevID, prevRetire
+		CustomerID, APIEndpoint, APIKey = prevCust, prevEnd, prevKey
+	})
+	Load()
+	if DeviceID != "{hostname}-{user}" {
+		t.Fatalf("DeviceID = %q", DeviceID)
+	}
+	if !RetireOnUninstall {
+		t.Fatal("RetireOnUninstall not applied")
+	}
+	// An already-set (build-time) template wins over the file.
+	DeviceID = "pinned"
+	Load()
+	if DeviceID != "pinned" {
+		t.Fatalf("Load overrode an in-memory template: %q", DeviceID)
+	}
+}
+
+func TestShowConfigure_PrintsDeviceIdentity(t *testing.T) {
+	withHome(t)
+	retire := true
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{
+		CustomerID: "c", APIEndpoint: "https://e", APIKey: "sk-abcdef",
+		DeviceID: "{hostname}", RetireOnUninstall: &retire,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() { ShowConfigure("avd-host-07 (source: config)") })
+	for _, want := range []string{
+		"Device ID:               {hostname}",
+		"resolves now to:       avd-host-07 (source: config)",
+		"Retire On Uninstall:     true",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("configure show missing %q:\n%s", want, out)
+		}
+	}
+	out = captureStdout(t, func() { ShowConfigure("") })
+	if strings.Contains(out, "resolves now to") {
+		t.Errorf("empty resolved line must be omitted:\n%s", out)
+	}
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{DeviceID: "-"}); err != nil {
+		t.Fatal(err)
+	}
+	out = captureStdout(t, func() { ShowConfigure("") })
+	if !strings.Contains(out, "machine serial (default)") {
+		t.Errorf("default identity label missing:\n%s", out)
+	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := os.Stdout
+	os.Stdout = w
+	done := make(chan string)
+	go func() {
+		var b strings.Builder
+		buf := make([]byte, 4096)
+		for {
+			n, err := r.Read(buf)
+			b.Write(buf[:n])
+			if err != nil {
+				break
+			}
+		}
+		done <- b.String()
+	}()
+	fn()
+	os.Stdout = prev
+	_ = w.Close()
+	out := <-done
+	_ = r.Close()
+	return out
+}

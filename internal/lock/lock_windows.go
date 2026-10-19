@@ -16,6 +16,8 @@ var mutexName = "StepSecurityDevMachineGuard"
 
 func setLockTarget(name string) (old string) { old, mutexName = mutexName, name; return old }
 
+func lockTarget() string { return mutexName }
+
 // mutexSDDL lets any account (Everyone) wait on and release the mutex, so
 // SYSTEM, admin and user runs exclude each other; SYSTEM and Administrators
 // keep full control.
