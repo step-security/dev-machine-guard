@@ -137,6 +137,7 @@ Each release includes:
 | `stepsecurity-dev-machine-guard-windows_amd64.exe.bundle` | Sigstore cosign bundle (covers the signed bytes) |
 | `stepsecurity-dev-machine-guard-VERSION-windows_arm64.exe` | Authenticode-signed Windows ARM64 agent |
 | `stepsecurity-dev-machine-guard-windows_arm64.exe.bundle` | Sigstore cosign bundle (covers the signed bytes) |
+| `stepsecurity-dev-machine-guard-VERSION-windows_{amd64,arm64}_signed.exe` | Byte-identical copies of the signed agents, for Windows loaders generated before v1.11.4 that still download the `_signed.exe` name |
 | `stepsecurity-dev-machine-guard-task-VERSION-windows_amd64.exe` | Authenticode-signed Windows 64-bit launcher |
 | `stepsecurity-dev-machine-guard-task-windows_amd64.exe.bundle` | Sigstore cosign bundle (covers the signed bytes) |
 | `stepsecurity-dev-machine-guard-task-VERSION-windows_arm64.exe` | Authenticode-signed Windows ARM64 launcher |
