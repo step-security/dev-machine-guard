@@ -71,18 +71,20 @@ func Decide(in Inputs) Decision {
 // decideOffline is the check-in-failed path: replay the cached interval
 // against the local last-full-run stamp. Every missing precondition fails
 // open — no cache, gating off at last contact, no interval, never completed a
-// run, or a cache older than max(floor, 2×interval).
+// run, a cache older than max(floor, 2×interval), or stamps in the future
+// (clock moved backwards — otherwise it would skip until real time caught up).
 func decideOffline(st *heartbeat.RunGate, now time.Time) Decision {
 	if st == nil || !st.GatingEnabled || st.EffectiveIntervalMinutes <= 0 || st.LastFullRunAt <= 0 {
 		return Decision{Skip: false, Reason: "offline_fail_open"}
 	}
 	interval := time.Duration(st.EffectiveIntervalMinutes) * time.Minute
 	staleness := max(2*interval, offlineCacheMinFloor)
-	if st.DirectiveFetchedAt <= 0 || now.Sub(time.Unix(st.DirectiveFetchedAt, 0)) >= staleness {
+	cacheAge := now.Sub(time.Unix(st.DirectiveFetchedAt, 0))
+	if st.DirectiveFetchedAt <= 0 || cacheAge < 0 || cacheAge >= staleness {
 		return Decision{Skip: false, Reason: "offline_fail_open"}
 	}
 	sinceLast := now.Sub(time.Unix(st.LastFullRunAt, 0))
-	if sinceLast >= interval {
+	if sinceLast < 0 || sinceLast >= interval {
 		return Decision{Skip: false, Reason: "offline_fail_open"}
 	}
 	return Decision{

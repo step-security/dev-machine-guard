@@ -111,7 +111,7 @@ func (d *NodeProjectDetector) listInDir(dir string) []model.ProjectInfo {
 // here; it survives in the enterprise path.
 func (d *NodeProjectDetector) projectPackages(projectDir, pm, packageJSONPath string) []model.PackageDetail {
 	if d.dist != nil {
-		return nodePackagesToDetails(d.dist.ScanProject(projectDir, pm))
+		return nodePackagesToDetails(d.dist.ScanProject(context.Background(), projectDir, pm))
 	}
 	return d.readPackageJSONDeps(packageJSONPath)
 }

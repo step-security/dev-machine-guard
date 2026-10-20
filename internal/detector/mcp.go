@@ -73,10 +73,10 @@ func (d *MCPDetector) WithSkipper(s *tcc.Skipper) *MCPDetector {
 // MCPConfig structs (path, source, and vendor only). It does not read config
 // content — DetectEnterprise does that. The enterprise parameter is unused and
 // kept only for call-site compatibility.
-func (d *MCPDetector) Detect(_ context.Context, userIdentity string, searchDirs []string, enterprise bool) []model.MCPConfig {
+func (d *MCPDetector) Detect(ctx context.Context, userIdentity string, searchDirs []string, enterprise bool) []model.MCPConfig {
 	homeDir := getHomeDir(d.exec)
 	var results []model.MCPConfig
-	for _, loc := range d.allConfigLocations(homeDir, searchDirs) {
+	for _, loc := range d.allConfigLocations(ctx, homeDir, searchDirs) {
 		results = append(results, model.MCPConfig{
 			ConfigSource: loc.SourceName,
 			ConfigPath:   loc.ConfigPath,
@@ -87,11 +87,11 @@ func (d *MCPDetector) Detect(_ context.Context, userIdentity string, searchDirs 
 }
 
 // DetectEnterprise returns enterprise-mode MCP configs with base64 content.
-func (d *MCPDetector) DetectEnterprise(_ context.Context, searchDirs []string) []model.MCPConfigEnterprise {
+func (d *MCPDetector) DetectEnterprise(ctx context.Context, searchDirs []string) []model.MCPConfigEnterprise {
 	homeDir := getHomeDir(d.exec)
 	var results []model.MCPConfigEnterprise
 
-	for _, loc := range d.allConfigLocations(homeDir, searchDirs) {
+	for _, loc := range d.allConfigLocations(ctx, homeDir, searchDirs) {
 		reader := d.exec
 		if loc.SourceName == "codex" || loc.SourceName == model.AgentCopilot || isCopilotProjectMCP(loc.ConfigPath) {
 			roots := []string{filepath.Dir(loc.ConfigPath)}

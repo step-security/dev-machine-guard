@@ -47,7 +47,9 @@ func IsTaskRegistered(ctx context.Context, exec executor.Executor) bool {
 
 // Install configures Windows Task Scheduler for periodic scanning.
 // If already installed, upgrades by removing and re-creating the task.
-func Install(exec executor.Executor, log *progress.Logger) error {
+// maxExec is the agent's execution-watchdog duration (0 = disabled); the
+// task's ExecutionTimeLimit is derived from it.
+func Install(exec executor.Executor, log *progress.Logger, maxExec time.Duration) error {
 	ctx := context.Background()
 
 	// Check for existing installation and upgrade
@@ -109,7 +111,8 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	if exitCode != 0 {
 		return fmt.Errorf("failed to create scheduled task (exit code %d): %s", exitCode, stderr)
 	}
-	applyBatterySettings(ctx, exec, log, taskName)
+	timeLimit := executionTimeLimit(maxExec)
+	applyBatterySettings(ctx, exec, log, taskName, timeLimit)
 
 	// Companion at-logon task: makes login a catch-up trigger so a device
 	// that's been off/asleep scans on next sign-in rather than waiting for the
@@ -119,7 +122,7 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	if _, lstderr, lexit, lerr := exec.Run(ctx, "schtasks", logonArgs...); lerr != nil || lexit != 0 {
 		log.Warn("could not create at-logon catch-up task (%v, exit %d): %s — hourly schedule still active", lerr, lexit, strings.TrimSpace(lstderr))
 	} else {
-		applyBatterySettings(ctx, exec, log, logonTaskName)
+		applyBatterySettings(ctx, exec, log, logonTaskName, timeLimit)
 	}
 
 	// Turn on Task Scheduler's operational history so every fire / miss /
@@ -278,22 +281,27 @@ func resolveLogDir(exec executor.Executor) string {
 // applyBatterySettings re-imports the named task's XML with the power /
 // missed-run / retry settings that `schtasks /create` cannot set from the
 // command line: DisallowStartIfOnBatteries=false, StopIfGoingOnBatteries=false,
-// StartWhenAvailable=true, and RestartOnFailure (15 min, 3 attempts). The OS
+// StartWhenAvailable=true, RestartOnFailure (15 min, 3 attempts) and
+// ExecutionTimeLimit (watchdog + margin instead of the 72h default). The OS
 // defaults (battery-restricted, no catch-up, 1-minute retry) otherwise leave a
 // laptop on battery silently never firing the task and retry too aggressively.
 // Flow: query the task's generated XML, force the Settings, and re-import via
 // `schtasks /create /xml`. Pure schtasks.exe — no dependency on the PowerShell
 // ScheduledTasks module (absent on Server Core). Best-effort: any failure
 // leaves the task with default settings, which is still better than no task.
-func applyBatterySettings(ctx context.Context, exec executor.Executor, log *progress.Logger, name string) {
+func applyBatterySettings(ctx context.Context, exec executor.Executor, log *progress.Logger, name, timeLimit string) {
 	stdout, stderr, code, err := exec.Run(ctx, "schtasks", "/query", "/tn", name, "/xml")
 	if err != nil || code != 0 {
 		log.Warn("could not read XML for task %q (%v, exit %d): %s — keeping default battery settings", name, err, code, strings.TrimSpace(stderr))
 		return
 	}
 
-	patched, changed := patchBatterySettings(decodeTaskXML(stdout))
+	patched, changed := patchBatterySettings(decodeTaskXML(stdout), timeLimit)
 	if !changed {
+		if bad := settingsMismatches(patched, timeLimit); len(bad) > 0 {
+			log.Warn("could not patch settings for task %q (unrecognized task XML): %s", name, strings.Join(bad, ", "))
+			return
+		}
 		log.Debug("task %q already has the desired battery settings", name)
 		return
 	}
@@ -322,7 +330,66 @@ func applyBatterySettings(ctx context.Context, exec executor.Executor, log *prog
 		log.Warn("could not re-import task %q with battery settings (%v, exit %d): %s — keeping defaults", name, rerr, rcode, strings.TrimSpace(rstderr))
 		return
 	}
+
+	// Verify the import took: a silent no-op leaves laptops on battery never
+	// firing and runs capped only by the 72h default.
+	vout, _, vcode, verr := exec.Run(ctx, "schtasks", "/query", "/tn", name, "/xml")
+	if verr != nil || vcode != 0 {
+		log.Warn("could not re-query task %q to verify settings (%v, exit %d)", name, verr, vcode)
+		return
+	}
+	if bad := settingsMismatches(decodeTaskXML(vout), timeLimit); len(bad) > 0 {
+		log.Warn("task %q settings not applied after re-import: %s", name, strings.Join(bad, ", "))
+		return
+	}
 	log.Debug("applied battery / StartWhenAvailable / retry settings to task %q", name)
+}
+
+// executionTimeLimitMargin pads the task's ExecutionTimeLimit past the agent's
+// own watchdog so the watchdog, not Task Scheduler, ends an overlong run.
+const (
+	executionTimeLimitMargin = 30 * time.Minute
+	executionTimeLimitNoWD   = "PT6H"
+)
+
+// executionTimeLimit renders the ISO-8601 ExecutionTimeLimit for a watchdog
+// duration, rounded up to the minute. maxExec <= 0 (watchdog off) gets a cap.
+func executionTimeLimit(maxExec time.Duration) string {
+	if maxExec <= 0 {
+		return executionTimeLimitNoWD
+	}
+	mins := int64((maxExec + executionTimeLimitMargin + time.Minute - 1) / time.Minute)
+	return fmt.Sprintf("PT%dH%dM", mins/60, mins%60)
+}
+
+// settingsMismatches reports which forced settings xml does not carry.
+func settingsMismatches(xml, timeLimit string) []string {
+	var bad []string
+	for _, kv := range [][2]string{
+		{"DisallowStartIfOnBatteries", "false"},
+		{"StopIfGoingOnBatteries", "false"},
+		{"ExecutionTimeLimit", timeLimit},
+	} {
+		if got, ok := xmlElementValue(xml, kv[0]); !ok || got != kv[1] {
+			bad = append(bad, fmt.Sprintf("%s=%q (want %q)", kv[0], got, kv[1]))
+		}
+	}
+	return bad
+}
+
+// xmlElementValue returns the trimmed text of the first <tag>..</tag> in xml.
+func xmlElementValue(xml, tag string) (string, bool) {
+	open, closeTag := "<"+tag+">", "</"+tag+">"
+	start := strings.Index(xml, open)
+	if start < 0 {
+		return "", false
+	}
+	rest := xml[start+len(open):]
+	end := strings.Index(rest, closeTag)
+	if end < 0 {
+		return "", false
+	}
+	return strings.TrimSpace(rest[:end]), true
 }
 
 // enableTaskHistory turns on the Task Scheduler "All Tasks History" — the
@@ -362,11 +429,12 @@ const (
 // replace existing elements in place; RestartOnFailure is injected last in
 // <Settings> (where Task Scheduler itself serializes it), so the result stays
 // valid in a single re-import.
-func patchBatterySettings(xml string) (string, bool) {
+func patchBatterySettings(xml, timeLimit string) (string, bool) {
 	out := xml
 	out = setXMLElement(out, "DisallowStartIfOnBatteries", "false")
 	out = setXMLElement(out, "StopIfGoingOnBatteries", "false")
 	out = setXMLElement(out, "StartWhenAvailable", "true")
+	out = setXMLElement(out, "ExecutionTimeLimit", timeLimit)
 	out = setRestartOnFailure(out, retryInterval, retryCount)
 	return out, out != xml
 }
@@ -423,12 +491,13 @@ var (
 //     utf16.Decode reassemble any surrogate pairs into runes. (i+1 < len guards
 //     a stray trailing byte on malformed/odd-length input.)
 //   - UTF-8 BOM: strip the 3-byte mark; the remainder is already UTF-8.
+//   - no BOM but "<\x00" lead: BOM-less UTF-16LE, decoded as above.
 //   - no BOM: the data is already UTF-8 / ASCII — return it unchanged.
 func decodeTaskXML(raw string) string {
 	b := []byte(raw)
 	switch {
-	case bytes.HasPrefix(b, bomUTF16LE):
-		body := b[len(bomUTF16LE):]
+	case bytes.HasPrefix(b, bomUTF16LE) || bytes.HasPrefix(b, []byte{'<', 0}):
+		body := bytes.TrimPrefix(b, bomUTF16LE)
 		u16 := make([]uint16, 0, len(body)/2)
 		for i := 0; i+1 < len(body); i += 2 {
 			u16 = append(u16, uint16(body[i])|uint16(body[i+1])<<8)

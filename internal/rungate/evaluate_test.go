@@ -39,8 +39,7 @@ func gateServer(t *testing.T, status int, body string) *atomic.Int32 {
 	return &hits
 }
 
-// seedDeviceID leaves a prior run's cache with a known device id so Evaluate
-// never probes the serial.
+// seedDeviceID leaves a prior run's cache for the ID evaluate's mock resolves.
 func seedDeviceID(t *testing.T) {
 	t.Helper()
 	d := Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}
@@ -49,9 +48,13 @@ func seedDeviceID(t *testing.T) {
 	}
 }
 
+// evaluate runs the gate on a machine whose resolved ID matches seedDeviceID.
 func evaluate(t *testing.T, forceScan bool) Result {
 	t.Helper()
-	return Evaluate(context.Background(), executor.NewMock(), progress.NewNoop(), forceScan, "")
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetFile("/sys/class/dmi/id/product_serial", []byte("SER-CACHED\n"))
+	return Evaluate(context.Background(), mock, progress.NewNoop(), forceScan, "")
 }
 
 // assertNothingRemembered pins the no-persistence rule: the state file never
@@ -216,8 +219,11 @@ func TestEvaluateNoDeviceIDScans(t *testing.T) {
 			withTempState(t)
 			hits := gateServer(t, 0, `{`+fullDirective+`,"scanners":{"credentials":{"enabled":false}}}`)
 
-			// The mock executor answers no serial probe, so the device id is unusable.
-			res := evaluate(t, tt.forceFlag)
+			// No serial probe answers and the budget is already spent, so no
+			// ID is generated either.
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			res := Evaluate(ctx, executor.NewMock(), progress.NewNoop(), tt.forceFlag, "")
 			if res.Skip || res.Reason != tt.wantReason || res.CredentialScanningDisabled {
 				t.Fatalf("result = %+v, want fail-open with reason %s and credentials enabled", res, tt.wantReason)
 			}
@@ -390,5 +396,44 @@ func TestEvaluatePersistsIdentityAcrossBypassesAndOfflineRuns(t *testing.T) {
 				t.Fatalf("restored hardware identity retained cadence: %+v", st)
 			}
 		})
+	}
+}
+
+// TestEvaluateRevalidatesCachedDeviceID: a device_id cached by an earlier run
+// (another context, or a pre-fix probe) must not be reused when the resolver
+// now reports a different one; the old cadence is discarded with it.
+func TestEvaluateRevalidatesCachedDeviceID(t *testing.T) {
+	withTempState(t)
+	old := config.DeviceID
+	t.Cleanup(func() { config.DeviceID = old })
+	config.DeviceID = ""
+	gateServer(t, 0, "")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("device_id"); got != "HW-NEW" {
+			t.Errorf("check-in device_id = %q, want HW-NEW", got)
+		}
+		if got := r.URL.Query().Get("last_run_at"); got != "" {
+			t.Errorf("reused stale identity's cadence: last_run_at=%s", got)
+		}
+		_, _ = w.Write([]byte("{" + fullDirective + "}"))
+	}))
+	t.Cleanup(srv.Close)
+	config.APIEndpoint = srv.URL
+	now := time.Now()
+	if err := recordCheckin("machine-id-old", Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := StampLastFullRun("machine-id-old", now); err != nil {
+		t.Fatal(err)
+	}
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetFile("/etc/stepsecurity/device-id", []byte("HW-NEW\n"))
+	if got := Evaluate(context.Background(), mock, progress.NewNoop(), false, ""); got.Skip {
+		t.Fatalf("skipped on stale identity's cadence: %+v", got)
+	}
+	st, ok := readState()
+	if !ok || st.DeviceID != "HW-NEW" || st.LastFullRunAt != 0 {
+		t.Fatalf("state = %+v, want reset to HW-NEW", st)
 	}
 }

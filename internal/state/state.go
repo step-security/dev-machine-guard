@@ -3,6 +3,7 @@ package state
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -109,6 +110,16 @@ func Load(path, agentVersion string) (*State, error) {
 		}
 		return New(agentVersion), err
 	}
+	// A baseline that Invalidate could only flag, or that this run can't
+	// rewrite, may predate a legacy upload: force a full sync off it.
+	if _, mErr := os.Lstat(invalidMarker(cleanedPath)); mErr == nil {
+		return New(agentVersion), errors.New("scan-state flagged invalid")
+	}
+	f, wErr := os.OpenFile(cleanedPath, os.O_WRONLY, 0)
+	if wErr != nil {
+		return New(agentVersion), fmt.Errorf("scan-state not writable: %w", wErr)
+	}
+	_ = f.Close()
 	var s State
 	if err := json.Unmarshal(data, &s); err != nil {
 		return New(agentVersion), err
@@ -173,8 +184,11 @@ func (s *State) Save(path string) error {
 		_ = os.Remove(tmpPath)
 		return err
 	}
+	_ = os.Remove(invalidMarker(cleanedPath))
 	return nil
 }
+
+func invalidMarker(path string) string { return path + ".invalid" }
 
 // IsFullSyncDue returns true when the next upload must include every
 // discovered project regardless of hash match. Triggered by:
@@ -484,12 +498,33 @@ func (s *State) globalMap(ecosystem string) map[string]GlobalEntry {
 
 // Invalidate discards a delta baseline before a legacy upload can replace it.
 // Missing state is already invalid; the next delta run will start with a full sync.
+// When the file can't be removed (read-only parent, Windows sharing violation)
+// it is renamed aside, truncated, or flagged with a sibling marker that Load
+// honors. An error means it is still intact, which also means unwritable, and
+// Load refuses an unwritable baseline.
 func Invalidate(path string) error {
 	if path == "" {
 		return nil
 	}
-	if err := os.Remove(filepath.Clean(path)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	p := filepath.Clean(path)
+	err := os.Remove(p)
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if fi, sErr := os.Lstat(p); sErr != nil || !fi.Mode().IsRegular() {
 		return err
 	}
-	return nil
+	aside := fmt.Sprintf("%s.stale-%d", p, time.Now().UnixNano())
+	if os.Rename(p, aside) == nil {
+		_ = os.Remove(aside)
+		return nil
+	}
+	// An empty file fails to parse, so Load treats it as no state.
+	if os.Truncate(p, 0) == nil {
+		return nil
+	}
+	if os.WriteFile(invalidMarker(p), nil, 0o600) == nil {
+		return nil
+	}
+	return err
 }

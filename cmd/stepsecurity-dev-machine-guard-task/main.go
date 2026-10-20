@@ -122,7 +122,9 @@ func newKillOnCloseJob() (windows.Handle, error) {
 	}
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
 		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
-			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+			// BREAKAWAY_OK lets the agent's CREATE_BREAKAWAY_FROM_JOB spawns
+			// (WSL guest scans) outlive this run instead of being killed.
+			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK,
 		},
 	}
 	if _, err := windows.SetInformationJobObject(

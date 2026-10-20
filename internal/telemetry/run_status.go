@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
@@ -52,6 +53,29 @@ type runStatusBody struct {
 	InvocationMethod string         `json:"invocation_method,omitempty"`
 	ErrorMessage     string         `json:"error_message,omitempty"`
 	StatusInfo       *RunStatusInfo `json:"status_info,omitempty"`
+}
+
+// fatalReporter holds the in-flight Run's once-only failure reporter.
+var fatalReporter atomic.Pointer[func(string)]
+
+// ReportFatal posts the in-flight Run's failed run-status (sharing Run's
+// once-only guard) and waits at most timeout. For exit paths that bypass
+// Run's own handlers, e.g. the Windows execution watchdog, which has no
+// signal to deliver. No-op when no Run is in flight.
+func ReportFatal(reason string, timeout time.Duration) {
+	f := fatalReporter.Load()
+	if f == nil {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		(*f)(reason)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+	}
 }
 
 // reportRunStatus POSTs a lifecycle transition to the backend with a small

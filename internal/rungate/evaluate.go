@@ -14,9 +14,8 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
-// serialProbeTimeout bounds the one-off device-id probe (macOS ioreg is the
-// slow case). The result is cached in the state file, so only a device's
-// first gated invocation pays it.
+// serialProbeTimeout bounds the device-id resolve (macOS ioreg is the slow
+// case). The result is cached for the process, so telemetry reuses it.
 const serialProbeTimeout = 10 * time.Second
 
 // Result is what main acts on: skip (exit 0 quietly) or proceed. Detail is a
@@ -69,8 +68,8 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 		log.Progress("Run gate: bypassed (--force-scan)")
 	}
 
-	// Device id: the guest identity, then the configured ID, then the cached
-	// machine ID or a bounded local probe. Without a real id the backend
+	// Device id: the guest identity, then the configured ID, then the machine
+	// ID from a bounded resolve. Without a real id the backend
 	// can't be asked anything meaningful — fail open rather than gate on a
 	// bogus one.
 	st, stOK := readState()
@@ -87,12 +86,11 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 	} else if configuredID != "" {
 		deviceID = configuredID
 	} else {
-		deviceID = st.DeviceID
-		if deviceID == "" || deviceID == "unknown" {
-			probeCtx, cancel := context.WithTimeout(ctx, serialProbeTimeout)
-			deviceID = device.SerialNumber(probeCtx, exec)
-			cancel()
-		}
+		// Always the process-wide resolver, never the cached ID: a stale one
+		// would gate as one device while telemetry uploads as another.
+		probeCtx, cancel := context.WithTimeout(ctx, serialProbeTimeout)
+		deviceID = device.SerialNumber(probeCtx, exec)
+		cancel()
 	}
 	if deviceID == "" || deviceID == "unknown" {
 		log.Debug("run-gate: no usable device id — failing open")

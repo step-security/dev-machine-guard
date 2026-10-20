@@ -139,6 +139,21 @@ func (m *Mock) SetFileInfo(path string, info os.FileInfo) {
 	m.fileInfos[path] = info
 }
 
+// SetExecutable registers `path` as an existing executable file (mode 0755)
+// so Stat-based lookups (UserAwareExecutor.LookPath's native PATH walk) can
+// resolve it.
+func (m *Mock) SetExecutable(path string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.fileInfos[path] = &mockFileInfo{
+		name: filepath.Base(path),
+		mode: 0o755,
+	}
+	if _, ok := m.files[path]; !ok {
+		m.files[path] = []byte{}
+	}
+}
+
 // SetFileMtime registers a stat result for `path` with a custom mtime
 // (Unix seconds) AND marks the file as existing (FileExists returns true).
 // Useful for cache-invalidation tests that need to assert behavior across
@@ -317,6 +332,23 @@ func (m *Mock) ReadFile(path string) ([]byte, error) {
 	return nil, fmt.Errorf("mock: file not found: %s", path)
 }
 
+// WriteFileAtomic stores data so ReadFile returns it.
+func (m *Mock) WriteFileAtomic(path string, data []byte, _ os.FileMode) error {
+	m.SetFile(path, append([]byte(nil), data...))
+	return nil
+}
+
+// CreateFileOnce stores data unless path already exists.
+func (m *Mock) CreateFileOnce(path string, data []byte, _ os.FileMode) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.files[path]; ok {
+		return os.ErrExist
+	}
+	m.files[path] = append([]byte(nil), data...)
+	return nil
+}
+
 func (m *Mock) ReadDir(path string) ([]os.DirEntry, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -466,14 +498,20 @@ type mockFileInfo struct {
 	size    int64
 	dir     bool
 	modTime time.Time
+	mode    os.FileMode // 0 = default 0o644
 }
 
 func (fi *mockFileInfo) Name() string       { return fi.name }
 func (fi *mockFileInfo) Size() int64        { return fi.size }
 func (fi *mockFileInfo) IsDir() bool        { return fi.dir }
 func (fi *mockFileInfo) ModTime() time.Time { return fi.modTime }
-func (fi *mockFileInfo) Mode() os.FileMode  { return 0o644 }
-func (fi *mockFileInfo) Sys() any           { return nil }
+func (fi *mockFileInfo) Mode() os.FileMode {
+	if fi.mode != 0 {
+		return fi.mode
+	}
+	return 0o644
+}
+func (fi *mockFileInfo) Sys() any { return nil }
 
 // MockDirEntry creates an os.DirEntry for use with SetDirEntries.
 func MockDirEntry(name string, isDir bool) os.DirEntry {

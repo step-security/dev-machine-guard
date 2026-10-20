@@ -109,7 +109,7 @@ func (d *PnpmDetector) Detect(ctx context.Context, searchDirs []string, loggedIn
 	}
 
 	for _, dir := range searchDirs {
-		for _, p := range d.findProjectNPMRCs(dir) {
+		for _, p := range d.findProjectNPMRCs(ctx, dir) {
 			if len(files) >= maxNPMRCFiles {
 				break
 			}
@@ -126,12 +126,15 @@ func (d *PnpmDetector) Detect(ctx context.Context, searchDirs []string, loggedIn
 
 // findProjectNPMRCs walks dir for .npmrc files using the same skip rules as
 // the npm detector. Returns absolute paths.
-func (d *PnpmDetector) findProjectNPMRCs(dir string) []string {
+func (d *PnpmDetector) findProjectNPMRCs(ctx context.Context, dir string) []string {
 	if dir == "" {
 		return nil
 	}
 	var results []string
 	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return filepath.SkipAll
+		}
 		if err != nil {
 			return nil
 		}

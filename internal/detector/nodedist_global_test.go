@@ -23,7 +23,7 @@ func TestScanGlobalModules(t *testing.T) {
 	mustWrite(t, filepath.Join(root, "@scope", "cli", "package.json"), `{"name":"@scope/cli","version":"1.0.0"}`)
 	mustWrite(t, filepath.Join(root, "typescript", "node_modules", "dep", "package.json"), `{"name":"dep","version":"2.0.0"}`)
 
-	got := newDistDetector().ScanGlobalModules(root)
+	got := newDistDetector().ScanGlobalModules(context.Background(), root)
 	assertPkgs(t, got, "typescript@5.4.0+direct", "@scope/cli@1.0.0+direct", "dep@2.0.0")
 }
 

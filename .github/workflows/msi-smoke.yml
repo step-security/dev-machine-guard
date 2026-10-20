@@ -5,7 +5,8 @@ name: MSI Smoke Test
 # the deferred-CA wiring, the configure --non-interactive path, or the
 # icacls hardening — all of which only surface on a real install.
 #
-# Path-filtered so it doesn't run on doc-only PRs.
+# Path-filtered so it doesn't run on doc-only PRs. The merge_group event has no
+# paths filter, so every merge-queue entry runs the full flow regardless.
 
 on:
   pull_request:
@@ -24,9 +25,22 @@ on:
       - 'packaging/windows/**'
       - 'Makefile'
       - '.github/workflows/msi-smoke.yml'
+  # Merge queue: GitHub builds a temporary gh-readonly-queue/main/* branch with
+  # the PR merged onto current main and runs checks there. Without this trigger
+  # nothing is reported on that commit and the queue entry fails.
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
 
 permissions:
   contents: read
+
+concurrency:
+  # One run per PR: a new push supersedes the in-flight run. Merge-queue and
+  # main runs key on their unique ref and are never cancelled, since cancelling
+  # a queue run fails the queue entry.
+  group: msi-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   msi-smoke:

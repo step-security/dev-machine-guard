@@ -117,6 +117,9 @@ func TestDecideOfflineFallback(t *testing.T) {
 			}),
 			wantSkip: true, wantReason: "offline_cache_skip",
 		},
+		// Clock moved backwards: future stamps must not skip until real time catches up.
+		{name: "last run in the future runs", st: state(func(s *heartbeat.RunGate) { s.LastFullRunAt = nowUnix + 365*24*3600 }), wantSkip: false, wantReason: "offline_fail_open"},
+		{name: "directive fetched in the future runs", st: state(func(s *heartbeat.RunGate) { s.DirectiveFetchedAt = nowUnix + 365*24*3600 }), wantSkip: false, wantReason: "offline_fail_open"},
 	}
 
 	for _, tt := range tests {

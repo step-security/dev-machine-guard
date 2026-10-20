@@ -1,59 +1,46 @@
+// Package lock provides the single-instance lock for agent runs. It is an OS
+// lock (flock on Unix, a named mutex on Windows) rather than a PID file, so the
+// kernel drops it on any exit — os.Exit, signal, SIGKILL, crash — and no stale
+// or forged file can block later runs.
 package lock
 
 import (
 	"errors"
-	"fmt"
-	"os"
-	"strconv"
-	"strings"
+	"sync"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 )
 
+// ErrHeld means another instance holds the lock.
+var ErrHeld = errors.New("another instance is already running")
+
 // Lock represents an acquired instance lock.
 type Lock struct {
-	path string
+	once    sync.Once
+	release func()
 }
 
-// Acquire obtains an exclusive instance lock using atomic file creation.
-// Returns error if another instance is running.
+// Acquire takes the instance lock without blocking. It returns an error
+// wrapping ErrHeld when another instance (any account) holds it.
 func Acquire(_ executor.Executor) (*Lock, error) {
-	// Check for existing lock file
-	if data, err := os.ReadFile(lockFilePath); err == nil {
-		pidStr := strings.TrimSpace(string(data))
-		if pid, err := strconv.Atoi(pidStr); err == nil && pid > 0 {
-			if isProcessAlive(pid) {
-				return nil, fmt.Errorf("another instance is already running (PID %d)", pid)
-			}
-		}
-		// Stale lock — remove before attempting atomic create
-		_ = os.Remove(lockFilePath)
-	}
-
-	// Atomic create: O_CREATE|O_EXCL fails if file already exists,
-	// preventing two processes from both creating the lock.
-	f, err := os.OpenFile(lockFilePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	release, err := acquire()
 	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			// Another process created the lock between our check and create
-			return nil, fmt.Errorf("another instance is already running (lock file created concurrently)")
-		}
-		return nil, fmt.Errorf("creating lock file: %w", err)
+		return nil, err
 	}
-
-	_, err = fmt.Fprintf(f, "%d", os.Getpid())
-	_ = f.Close()
-	if err != nil {
-		_ = os.Remove(lockFilePath)
-		return nil, fmt.Errorf("writing PID to lock file: %w", err)
-	}
-
-	return &Lock{path: lockFilePath}, nil
+	return &Lock{release: release}, nil
 }
 
-// Release removes the lock file.
+// SetTargetForTest points the lock at another file (Unix) or mutex name
+// (Windows) and returns a func restoring the previous one. Tests only.
+func SetTargetForTest(target string) (restore func()) {
+	old := setLockTarget(target)
+	return func() { setLockTarget(old) }
+}
+
+// Release drops the lock. Safe to call more than once.
 func (l *Lock) Release() {
-	if l != nil && l.path != "" {
-		_ = os.Remove(l.path)
+	if l == nil || l.release == nil {
+		return
 	}
+	l.once.Do(l.release)
 }

@@ -12,9 +12,9 @@ import (
 
 // armExecutionWatchdog spawns a single-shot goroutine that, after d
 // elapses, signals the process to exit. Graceful first (SIGTERM so the
-// signal handler at telemetry.go:259 posts the failure row, releases the
-// lock, and flushes the log tail), then a 5s hard-out via os.Exit(2) if
-// SIGTERM didn't take.
+// signal handler in telemetry.Run posts the failure row and flushes the log
+// tail), then a 5s hard-out via os.Exit(2) if SIGTERM didn't take. The OS
+// releases the instance lock on either exit.
 //
 // The watchdog defends against goroutine wedges that the scan-deadline
 // context cancel can't reach: a hung HTTP upload bound to a stuck TCP

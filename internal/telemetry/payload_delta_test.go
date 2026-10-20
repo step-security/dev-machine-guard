@@ -2,6 +2,8 @@ package telemetry
 
 import (
 	"encoding/json"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -112,5 +114,14 @@ func TestParseIngestStatus(t *testing.T) {
 				t.Errorf("parseIngestStatus(%q) = %v, want %v", tc.body, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestWithKnownPaths_KeepsStateOnPartialDiscovery(t *testing.T) {
+	known := map[string]int{"/a": 1, "/b": 2}
+	got := withKnownPaths([]string{"/a", "/c"}, known)
+	sort.Strings(got)
+	if want := []string{"/a", "/b", "/c"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }

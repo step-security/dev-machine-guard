@@ -60,6 +60,8 @@ type NodeScanner struct {
 	// The cache, ordering, size cap, and concurrency around the scan are
 	// unchanged — only the per-project package source differs.
 	dist *NodeDistDetector
+	// scanOverride replaces scanProject in tests.
+	scanOverride func(ctx context.Context, projectDir, pm string) (model.NodeScanResult, bool)
 }
 
 func NewNodeScanner(exec executor.Executor, log *progress.Logger, loggedInUser string) *NodeScanner {
@@ -195,7 +197,7 @@ func (s *NodeScanner) checkPath(ctx context.Context, name string) error {
 // otherwise it runs npm/yarn/pnpm list -g and returns raw base64 output.
 func (s *NodeScanner) ScanGlobalPackages(ctx context.Context) []model.NodeScanResult {
 	if s.dist != nil {
-		return s.scanGlobalPackagesFromDisk()
+		return s.scanGlobalPackagesFromDisk(ctx)
 	}
 
 	var results []model.NodeScanResult
@@ -436,6 +438,9 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string, kno
 	for _, dir := range searchDirs {
 		s.log.Progress("  Searching in: %s", dir)
 		_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+			if ctx.Err() != nil {
+				return filepath.SkipAll
+			}
 			if err != nil {
 				return nil
 			}
@@ -564,7 +569,7 @@ func (s *NodeScanner) scanProjectsConcurrent(ctx context.Context, projects []pro
 					p := projects[idx]
 					pm := slots[idx].pm
 					s.log.Progress("  Scanning: %s (%s)", p.dir, pm)
-					r, ok := s.scanProject(ctx, p.dir, pm)
+					r, ok := s.scanProjectSafe(ctx, p.dir, pm)
 					if !ok {
 						continue
 					}
@@ -673,7 +678,7 @@ func orderScanProjects(projects []projectEntry, knownLastVerified map[string]tim
 // with what the caller logged.
 func (s *NodeScanner) scanProject(ctx context.Context, projectDir, pm string) (model.NodeScanResult, bool) {
 	if s.dist != nil {
-		return s.scanProjectFromDisk(projectDir, pm)
+		return s.scanProjectFromDisk(ctx, projectDir, pm)
 	}
 
 	var cmd string
@@ -760,14 +765,41 @@ func (s *NodeScanner) scanProject(ctx context.Context, projectDir, pm string) (m
 	}, true
 }
 
+// scanProjectSafe turns a panic in one project's scan (e.g. a malformed
+// lockfile tripping a parser) into a failed result for that project, so a
+// worker goroutine can't crash the run.
+func (s *NodeScanner) scanProjectSafe(ctx context.Context, projectDir, pm string) (r model.NodeScanResult, ok bool) {
+	defer func() {
+		if p := recover(); p != nil {
+			s.log.Warn("node scan panicked on %s: %v", projectDir, p)
+			r = model.NodeScanResult{
+				ProjectPath:      projectDir,
+				PackageManager:   pm,
+				WorkingDirectory: projectDir,
+				Error:            fmt.Sprintf("scan panicked: %v", p),
+				ExitCode:         1,
+			}
+			ok = true
+		}
+	}()
+	if s.scanOverride != nil {
+		return s.scanOverride(ctx, projectDir, pm)
+	}
+	return s.scanProject(ctx, projectDir, pm)
+}
+
 // scanProjectFromDisk produces a project's NodeScanResult by parsing on-disk
 // lockfiles / node_modules instead of running the package manager. Unlike the
 // command path it does not require the PM binary to be installed, so a project
 // whose toolchain is absent is still inventoried. RawStdout/Stderr stay empty
 // (the backend reads Packages directly), and PMVersion is omitted — resolving
 // it would mean running the binary we are deliberately not invoking.
-func (s *NodeScanner) scanProjectFromDisk(projectDir, pm string) (model.NodeScanResult, bool) {
-	pkgs := s.dist.ScanProject(projectDir, pm)
+func (s *NodeScanner) scanProjectFromDisk(ctx context.Context, projectDir, pm string) (model.NodeScanResult, bool) {
+	pkgs := s.dist.ScanProject(ctx, projectDir, pm)
+	if ctx.Err() != nil {
+		// Possibly partial; drop it like any other unscanned project.
+		return model.NodeScanResult{}, false
+	}
 	return model.NodeScanResult{
 		ProjectPath:      projectDir,
 		PackageManager:   pm,
@@ -783,7 +815,7 @@ func (s *NodeScanner) scanProjectFromDisk(projectDir, pm string) (model.NodeScan
 // the backend reads it into the package row's project_paths. Roots are kept
 // separate so a package installed under two prefixes lists both; the delta
 // layer reconciles them back to one record per PM (globalRecordsFromNode).
-func (s *NodeScanner) scanGlobalPackagesFromDisk() []model.NodeScanResult {
+func (s *NodeScanner) scanGlobalPackagesFromDisk(ctx context.Context) []model.NodeScanResult {
 	roots := NodeGlobalRoots(s.exec)
 	if len(roots) == 0 {
 		s.log.Debug("node global disk scan: no global node_modules roots found")
@@ -792,12 +824,12 @@ func (s *NodeScanner) scanGlobalPackagesFromDisk() []model.NodeScanResult {
 	results := make([]model.NodeScanResult, 0, len(roots))
 	for _, r := range roots {
 		s.emitProgress("global: " + r.pm)
-		pkgs := s.dist.ScanGlobalModules(r.dir)
+		pkgs := s.dist.ScanGlobalModules(ctx, r.dir)
 		if len(pkgs) == 0 {
 			// pnpm symlinks its global node_modules into a content-addressed
 			// store the walk can't traverse. The install dir holds the
 			// lockfile with the resolved graph — parse that instead.
-			pkgs = s.dist.ScanProject(filepath.Dir(r.dir), r.pm)
+			pkgs = s.dist.ScanProject(ctx, filepath.Dir(r.dir), r.pm)
 		}
 		// A root that has gone empty is still reported. Dropping it would
 		// leave the PM out of the delta records entirely once its last root
@@ -806,14 +838,20 @@ func (s *NodeScanner) scanGlobalPackagesFromDisk() []model.NodeScanResult {
 		// zero-package result attaches this path to nothing.
 		pkgs = dedupSortPackages(pkgs)
 		s.log.Debug("node global disk scan: %s root %s -> %d packages", r.pm, r.dir, len(pkgs))
-		results = append(results, model.NodeScanResult{
+		res := model.NodeScanResult{
 			ProjectPath:      r.dir,
 			PackageManager:   r.pm,
 			WorkingDirectory: r.dir,
 			Packages:         pkgs,
 			PackagesCount:    len(pkgs),
 			ExitCode:         0,
-		})
+		}
+		// A cancelled walk is partial: fail it so delta neither caches nor
+		// trusts it.
+		if ctx.Err() != nil {
+			res.ExitCode, res.Error = 1, "scan cancelled"
+		}
+		results = append(results, res)
 	}
 	return results
 }

@@ -3,6 +3,7 @@ package systemd
 import (
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/progress"
@@ -64,5 +65,51 @@ func TestSystemdEnvEscape(t *testing.T) {
 				t.Errorf("systemdEnvEscape(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestOnCalendarFor(t *testing.T) {
+	cases := map[int]string{
+		0:    "*-*-* *:00:00",
+		1:    "*-*-* *:00:00",
+		4:    "*-*-* 00/4:00:00",
+		5:    "*-*-* 00/5:00:00",
+		12:   "*-*-* 00/12:00:00",
+		23:   "*-*-* 00/23:00:00",
+		24:   "*-*-* 00:00:00",
+		36:   "*-*-* 00:00:00",
+		48:   "*-*-01/2 00:00:00",
+		168:  "*-*-01/7 00:00:00",
+		9999: "*-*-01/31 00:00:00",
+	}
+	for hours, want := range cases {
+		if got := onCalendarFor(hours); got != want {
+			t.Errorf("onCalendarFor(%d) = %q, want %q", hours, got, want)
+		}
+	}
+}
+
+// TestTimerTemplate_Golden locks the generated timer: realtime OnCalendar
+// (Persistent=true is a no-op on monotonic timers) and no monotonic triggers.
+func TestTimerTemplate_Golden(t *testing.T) {
+	tmpl := template.Must(template.New("unit").Parse(timerTmpl))
+	var sb strings.Builder
+	if err := tmpl.Execute(&sb, unitTemplateData{OnCalendar: onCalendarFor(4)}); err != nil {
+		t.Fatal(err)
+	}
+	want := `[Unit]
+Description=StepSecurity Dev Machine Guard periodic scan
+
+[Timer]
+OnBootSec=5min
+OnCalendar=*-*-* 00/4:00:00
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+`
+	if got := sb.String(); got != want {
+		t.Errorf("timer unit mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }

@@ -1,6 +1,7 @@
 package detector
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -209,8 +210,19 @@ func TestScanProject_LockfileDispatch(t *testing.T) {
 	    "node_modules/dep": {"version":"1.0.0"}
 	  }
 	}`)
-	got := newDistDetector().ScanProject(dir, "npm")
+	got := newDistDetector().ScanProject(context.Background(), dir, "npm")
 	assertPkgs(t, got, "lodash@4.17.21+direct", "dep@1.0.0")
+}
+
+// A cancelled scan must not start reading the project's lockfiles.
+func TestScanProject_CancelledSkipsParsing(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "package-lock.json"), `{"lockfileVersion":3,"packages":{"node_modules/dep":{"version":"1.0.0"}}}`)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := newDistDetector().ScanProject(ctx, dir, "npm"); len(got) != 0 {
+		t.Errorf("ScanProject(cancelled) = %v, want none", got)
+	}
 }
 
 // With no parseable lockfile, ScanProject falls back to node_modules.
@@ -223,7 +235,7 @@ func TestScanProject_NodeModulesFallback(t *testing.T) {
 	// A nested fixture package.json that is NOT an installed package root:
 	mustWrite(t, filepath.Join(dir, "node_modules", "lodash", "src", "package.json"), `{"name":"evil","version":"9.9.9"}`)
 
-	got := newDistDetector().ScanProject(dir, "npm")
+	got := newDistDetector().ScanProject(context.Background(), dir, "npm")
 	assertPkgs(t, got, "lodash@4.17.21+direct", "@scope/util@2.0.0", "tdep@1.0.0")
 }
 

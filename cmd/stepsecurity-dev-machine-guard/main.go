@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -202,6 +203,9 @@ func main() {
 		// Non-fatal: a read-only $HOME shouldn't block the run.
 		log.Warn("file logging disabled: %v", captureErr)
 	}
+	if err := config.LoadError(); err != nil {
+		log.Error("ignoring config: %v — re-run configure to repair it", err)
+	}
 
 	// Migration heads-up: if the operator has moved the install dir but
 	// the legacy ~/.stepsecurity still has agent state, surface that so
@@ -306,7 +310,7 @@ func main() {
 		}
 		switch runtime.GOOS {
 		case model.PlatformWindows:
-			if err := schtasks.Install(exec, log); err != nil {
+			if err := schtasks.Install(exec, log, telemetry.ExecutionDeadline(config.MaxExecutionDuration)); err != nil {
 				log.Error("%v", err)
 				os.Exit(1)
 			}
@@ -330,7 +334,9 @@ func main() {
 		// binary directly and never inherit the loader's exported env var — arm
 		// the watchdog with the same value. Best-effort: a write failure just
 		// means scheduled runs fall back to the binary's built-in default.
-		if err := config.PersistMaxExecutionDuration(os.Getenv(telemetry.EnvMaxExecutionDuration)); err != nil {
+		if err := config.PersistMaxExecutionDuration(os.Getenv(telemetry.EnvMaxExecutionDuration)); errors.Is(err, config.ErrConfigInvalid) {
+			log.Error("not persisting max execution duration, config left untouched: %v", err)
+		} else if err != nil {
 			log.Warn("failed to persist max execution duration to config (%v) — scheduled runs will use the built-in default", err)
 		}
 

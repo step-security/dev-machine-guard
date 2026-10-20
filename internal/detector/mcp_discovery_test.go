@@ -1,6 +1,7 @@
 package detector
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -41,7 +42,7 @@ func TestDiscoverWalkedMCPConfigs(t *testing.T) {
 	writeFile(t, root, "proj/readme.txt")                // not a config
 
 	d := &MCPDetector{} // no skipper
-	got := gotPathSet(d.discoverWalkedMCPConfigs([]string{root}, ""))
+	got := gotPathSet(d.discoverWalkedMCPConfigs(context.Background(), []string{root}, ""))
 
 	if !got[want1] {
 		t.Errorf("did not find %s", want1)
@@ -121,7 +122,7 @@ func TestDiscoverWalkedMCPConfigs_Codex(t *testing.T) {
 	writeFile(t, root, "widgets/config.toml")
 	writeFile(t, root, "widgets/node_modules/tool/.codex/config.toml")
 	d := &MCPDetector{}
-	specs := d.discoverWalkedMCPConfigs([]string{root}, "")
+	specs := d.discoverWalkedMCPConfigs(context.Background(), []string{root}, "")
 	if len(specs) != 1 || specs[0].ConfigPath != want || specs[0].SourceName != "codex" || specs[0].Vendor != "OpenAI" {
 		t.Fatalf("configs = %+v", specs)
 	}
@@ -135,7 +136,7 @@ func TestDiscoverWalkedMCPConfigs_OpenCode(t *testing.T) {
 	writeFile(t, root, "proj-d/opencode.json.bak")              // not a config
 
 	d := &MCPDetector{} // no skipper
-	specs := d.discoverWalkedMCPConfigs([]string{root}, "")
+	specs := d.discoverWalkedMCPConfigs(context.Background(), []string{root}, "")
 	got := gotPathSet(specs)
 
 	if !got[wantJSON] {
@@ -169,7 +170,7 @@ func TestDiscoverWalkedMCPConfigs_TCCSkip(t *testing.T) {
 	allowed := writeFile(t, home, "proj/.mcp.json")
 
 	d := &MCPDetector{skipper: tcc.New(home)}
-	got := gotPathSet(d.discoverWalkedMCPConfigs([]string{home}, ""))
+	got := gotPathSet(d.discoverWalkedMCPConfigs(context.Background(), []string{home}, ""))
 
 	if got[protected] {
 		t.Errorf("TCC-protected config should have been skipped: %s", protected)

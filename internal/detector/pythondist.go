@@ -12,6 +12,7 @@ package detector
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -68,8 +69,8 @@ func (d *PythonDistDetector) WithLogger(log *progress.Logger) *PythonDistDetecto
 // reading the dist-info/egg-info metadata under it (typically
 // lib/python*/site-packages or Lib/site-packages). Replaces the per-venv
 // `pip list` call.
-func (d *PythonDistDetector) ScanVenv(venvPath string) []model.PackageDetail {
-	return d.ScanRoots(venvSitePackages(venvPath))
+func (d *PythonDistDetector) ScanVenv(ctx context.Context, venvPath string) []model.PackageDetail {
+	return d.ScanRoots(ctx, venvSitePackages(venvPath))
 }
 
 // venvSitePackages returns the site-packages directories inside a venv —
@@ -100,7 +101,7 @@ func venvSitePackages(venvPath string) []string {
 //
 // A successful empty walk returns a non-nil slice. A walk failure returns nil
 // so delta cannot replace previously uploaded inventory with a partial result.
-func (d *PythonDistDetector) ScanRoots(roots []string) []model.PackageDetail {
+func (d *PythonDistDetector) ScanRoots(ctx context.Context, roots []string) []model.PackageDetail {
 	if len(roots) == 0 {
 		return nil
 	}
@@ -110,6 +111,10 @@ func (d *PythonDistDetector) ScanRoots(roots []string) []model.PackageDetail {
 
 	for _, root := range roots {
 		_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+			if ctx.Err() != nil {
+				walkFailed = true
+				return filepath.SkipAll
+			}
 			if err != nil {
 				walkFailed = true
 				return nil
@@ -152,8 +157,8 @@ func (d *PythonDistDetector) ScanRoots(roots []string) []model.PackageDetail {
 
 // ScanGlobalPackages walks the host's global / user site-packages roots and
 // returns the installed packages, replacing the `pip3 list` global scan.
-func (d *PythonDistDetector) ScanGlobalPackages() []model.PythonPackage {
-	details := d.ScanRoots(GlobalPythonRoots(d.exec, d.log))
+func (d *PythonDistDetector) ScanGlobalPackages(ctx context.Context) []model.PythonPackage {
+	details := d.ScanRoots(ctx, GlobalPythonRoots(d.exec, d.log))
 	out := make([]model.PythonPackage, len(details))
 	for i, p := range details {
 		out[i] = model.PythonPackage(p)

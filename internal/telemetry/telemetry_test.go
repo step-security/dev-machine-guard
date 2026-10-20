@@ -592,3 +592,95 @@ func TestRequestUploadURL_StopsOnCanceledContext(t *testing.T) {
 		t.Errorf("calls = %d, want 0", n)
 	}
 }
+
+func TestNotifyUploaded_RetriesOnce(t *testing.T) {
+	ok := func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"status":"processing"}`)) }
+	status := func(code int) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(code) }
+	}
+	dropConn := func(w http.ResponseWriter, _ *http.Request) {
+		if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+			_ = conn.Close()
+		}
+	}
+	tests := []struct {
+		name      string
+		responses []http.HandlerFunc
+		wantErr   bool
+		wantCalls int32
+	}{
+		{"success first try", []http.HandlerFunc{ok}, false, 1},
+		{"5xx then success", []http.HandlerFunc{status(503), ok}, false, 2},
+		{"dropped connection then success", []http.HandlerFunc{dropConn, ok}, false, 2},
+		{"retries only once", []http.HandlerFunc{status(502), status(502), ok}, true, 2},
+		{"4xx is terminal", []http.HandlerFunc{status(400), ok}, true, 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			withFastBackoff(t)
+			var calls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				tc.responses[calls.Add(1)-1](w, r)
+			}))
+			defer srv.Close()
+
+			_, _, err := notifyUploaded(context.Background(), progress.NewNoop(), srv.Client(), srv.URL, []byte(`{}`))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
+			}
+			if n := calls.Load(); n != tc.wantCalls {
+				t.Errorf("calls = %d, want %d", n, tc.wantCalls)
+			}
+		})
+	}
+}
+
+// A stalled PUT must time out per attempt, leaving the phase budget room to
+// retry instead of burning it all on the first attempt.
+func TestUploadToS3_StalledPutIsRetried(t *testing.T) {
+	withFastBackoff(t)
+	orig := s3PutAttemptTimeout
+	s3PutAttemptTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { s3PutAttemptTimeout = orig })
+
+	var putAttempt atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if putAttempt.Add(1) == 1 {
+			// Drain first: the server only watches for client disconnect once
+			// the body is consumed.
+			_, _ = io.Copy(io.Discard, r.Body)
+			select {
+			case <-r.Context().Done():
+			case <-time.After(5 * time.Second):
+			}
+			return
+		}
+		w.Header().Set("x-amz-request-id", "TESTREQID000000")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/telemetry/upload-url"):
+			_ = json.NewEncoder(w).Encode(map[string]string{"upload_url": upstream.URL + "/put", "s3_key": "k.json.gz"})
+		case strings.HasSuffix(r.URL.Path, "/telemetry/process-uploaded"):
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer backendServer.Close()
+	withTestConfig(t, backendServer.URL)
+
+	// Stands in for the 10m telemetry_upload phase budget.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := uploadToS3(ctx, progress.NewNoop(), &Payload{CustomerID: "test-customer", DeviceID: "dev-1"},
+		"11111111-2222-4333-8444-555555555555", nil, nil); err != nil {
+		t.Fatalf("uploadToS3: %v", err)
+	}
+	if n := putAttempt.Load(); n != 2 {
+		t.Errorf("PUT attempts = %d, want 2", n)
+	}
+}

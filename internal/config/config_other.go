@@ -2,7 +2,10 @@
 
 package config
 
-import "os"
+import (
+	"os"
+	"syscall"
+)
 
 // machineConfigDir has no equivalent on non-Windows hosts — community/dev
 // flows use per-user paths everywhere. Returning "" signals "no machine
@@ -19,3 +22,11 @@ func isElevated() bool { return os.Geteuid() == 0 }
 // equivalent ACL step. machineConfigDir() returns "" off-Windows, so the
 // caller in save() only invokes this from the Windows code path in practice.
 func hardenMachineConfigACL(path string) error { return nil }
+
+// preserveOwner restores the replaced file's owner: a root run rewriting a
+// user's config.json must not leave it root-owned and unreadable to the user.
+func preserveOwner(path string, prev os.FileInfo) {
+	if st, ok := prev.Sys().(*syscall.Stat_t); ok && os.Geteuid() == 0 {
+		_ = os.Lchown(path, int(st.Uid), int(st.Gid))
+	}
+}

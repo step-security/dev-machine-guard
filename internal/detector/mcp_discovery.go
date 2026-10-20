@@ -1,6 +1,7 @@
 package detector
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -79,7 +80,7 @@ func mcpDotfileRoots(homeDir string) []string {
 //     under ~/Library which the walk deliberately never enters;
 //  2. project .mcp.json files registered in ~/.claude.json;
 //  3. the bounded basename-recognizing walk (search dirs + IDE dotfile roots).
-func (d *MCPDetector) allConfigLocations(homeDir string, searchDirs []string) []mcpConfigSpec {
+func (d *MCPDetector) allConfigLocations(ctx context.Context, homeDir string, searchDirs []string) []mcpConfigSpec {
 	seen := make(map[string]bool)
 	var out []mcpConfigSpec
 	add := func(source, path, vendor string) {
@@ -123,7 +124,7 @@ func (d *MCPDetector) allConfigLocations(homeDir string, searchDirs []string) []
 		add(s.SourceName, s.ConfigPath, s.Vendor)
 	}
 	// (3) Bounded walk of search dirs + IDE dotfile roots.
-	for _, s := range d.discoverWalkedMCPConfigs(searchDirs, homeDir) {
+	for _, s := range d.discoverWalkedMCPConfigs(ctx, searchDirs, homeDir) {
 		add(s.SourceName, s.ConfigPath, s.Vendor)
 	}
 
@@ -158,7 +159,7 @@ func (d *MCPDetector) copilotMCPReader(root string) executor.Executor {
 // ~/Library (TCC skipper), skips dependency/cache/build dirs and directory
 // symlinks, and is bounded by maxMCPWalkFiles. Hits inside an agent plugin
 // package go through classifyWalkedMCPConfig, which drops catalog templates.
-func (d *MCPDetector) discoverWalkedMCPConfigs(searchDirs []string, homeDir string) []mcpConfigSpec {
+func (d *MCPDetector) discoverWalkedMCPConfigs(ctx context.Context, searchDirs []string, homeDir string) []mcpConfigSpec {
 	roots := make([]string, 0, len(searchDirs)+6)
 	roots = append(roots, searchDirs...)
 	roots = append(roots, mcpDotfileRoots(homeDir)...)
@@ -172,6 +173,9 @@ func (d *MCPDetector) discoverWalkedMCPConfigs(searchDirs []string, homeDir stri
 			continue
 		}
 		_ = filepath.WalkDir(root, func(path string, ent fs.DirEntry, err error) error {
+			if ctx.Err() != nil {
+				return fs.SkipAll
+			}
 			if err != nil {
 				// Unreadable dir: skip its subtree, continue elsewhere.
 				if ent != nil && ent.IsDir() {

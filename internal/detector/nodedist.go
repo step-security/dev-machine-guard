@@ -28,6 +28,7 @@
 package detector
 
 import (
+	"context"
 	"path/filepath"
 	"sort"
 
@@ -79,7 +80,10 @@ func (d *NodeDistDetector) WithLogger(log *progress.Logger) *NodeDistDetector {
 // lockfile is absent or unparseable, ScanProject falls back to walking
 // node_modules. The result is de-duplicated by (name, version) and sorted by
 // name then version for stable output.
-func (d *NodeDistDetector) ScanProject(projectDir, pm string) []model.NodePackage {
+func (d *NodeDistDetector) ScanProject(ctx context.Context, projectDir, pm string) []model.NodePackage {
+	if ctx.Err() != nil {
+		return nil
+	}
 	var pkgs []model.NodePackage
 
 	switch pm {
@@ -97,7 +101,7 @@ func (d *NodeDistDetector) ScanProject(projectDir, pm string) []model.NodePackag
 	// PnP project whose yarn.lock we couldn't read, or a tree installed
 	// without a lockfile). Read whatever is actually on disk in node_modules.
 	if len(pkgs) == 0 {
-		pkgs = d.walkNodeModules(projectDir)
+		pkgs = d.walkNodeModules(ctx, projectDir)
 	}
 
 	return dedupSortPackages(pkgs)

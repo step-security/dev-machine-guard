@@ -1,6 +1,7 @@
 package detector
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 )
@@ -37,7 +38,7 @@ func TestDiscoverWalkedMCPConfigs_PluginPackages(t *testing.T) {
 	project := writeFile(t, root, "proj/.mcp.json")
 
 	d := &MCPDetector{}
-	got := gotSpecMap(d.discoverWalkedMCPConfigs([]string{root}, ""))
+	got := gotSpecMap(d.discoverWalkedMCPConfigs(context.Background(), []string{root}, ""))
 
 	for _, p := range []string{catalogClaude, catalogCodex, vendored} {
 		if _, ok := got[p]; ok {
@@ -67,7 +68,7 @@ func TestDiscoverWalkedMCPConfigs_CodexInstalledPlugin(t *testing.T) {
 	installed := writeFile(t, root, ".codex/plugins/cache/openai-curated-remote/github/.mcp.json")
 
 	d := &MCPDetector{}
-	got := gotSpecMap(d.discoverWalkedMCPConfigs([]string{root}, ""))
+	got := gotSpecMap(d.discoverWalkedMCPConfigs(context.Background(), []string{root}, ""))
 
 	s, ok := got[installed]
 	if !ok {
@@ -90,7 +91,7 @@ func TestDiscoverWalkedMCPConfigs_CopilotCatalogPayload(t *testing.T) {
 			project := writeFile(t, root, "project/.mcp.json")
 
 			d := &MCPDetector{}
-			got := gotSpecMap(d.discoverWalkedMCPConfigs([]string{root}, ""))
+			got := gotSpecMap(d.discoverWalkedMCPConfigs(context.Background(), []string{root}, ""))
 			for _, path := range []string{leftover, vendored} {
 				if _, ok := got[path]; ok {
 					t.Errorf("reported uninstalled Copilot payload config %s", path)

@@ -3,6 +3,12 @@ name: Fuzz
 on:
   pull_request:
     branches: [main]
+  # Merge queue: GitHub builds a temporary gh-readonly-queue/main/* branch with
+  # the PR merged onto current main and runs checks there. Without this trigger
+  # nothing is reported on that commit and the queue entry fails.
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
@@ -31,7 +37,9 @@ jobs:
           - ./internal/detector/credentials
     env:
       CGO_ENABLED: '0'
-      FUZZ_TIME: ${{ github.event_name == 'pull_request' && '15s' || '2m' }}
+      # Short campaigns on the PR and merge-queue paths so they don't hold up a
+      # merge; the nightly schedule and manual runs get the long campaign.
+      FUZZ_TIME: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && '15s' || '2m' }}
       FUZZ_WORKERS: '2'
       FUZZ_TIMEOUT: '5m'
     steps:

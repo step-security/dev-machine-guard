@@ -85,6 +85,19 @@ func buildDeltaSnapshot(
 	return snap
 }
 
+// withKnownPaths unions discovered with every path state already tracks. Used
+// when discovery was cut short by cancellation, so a partial walk can't be
+// reported as removals.
+func withKnownPaths[V any](discovered []string, known map[string]V) []string {
+	seen := setFromStrings(discovered)
+	for p := range known {
+		if _, ok := seen[p]; !ok {
+			discovered = append(discovered, p)
+		}
+	}
+	return discovered
+}
+
 // isDiskScanResult reports whether a NodeScanResult came from the disk-parse
 // path rather than the legacy command path. Disk scans leave the raw body
 // empty AND omit PMVersion (resolving it would mean running the binary we

@@ -199,7 +199,8 @@ func TestForRun_DefaultsMatchPreToggleBehavior(t *testing.T) {
 	if after == nil {
 		t.Fatal("default run must still produce a Skipper")
 	}
-	if after.NetworkVolumes() != nil {
+	// Off darwin remote mounts are skipped by default (see remote_*.go).
+	if !skipRemoteByDefault && after.NetworkVolumes() != nil {
 		t.Error("default run must not skip any network volume")
 	}
 	if !reflect.DeepEqual(before.Candidates(), after.Candidates()) {
@@ -225,7 +226,7 @@ func TestForRun_DefaultsMatchPreToggleBehavior(t *testing.T) {
 	// The other pre-existing shape: --include-tcc-protected produced a nil
 	// skipper, and still must.
 	optedIn := true
-	if s := ForRun(home, &optedIn, nil); s != nil {
+	if s := ForRun(home, &optedIn, nil); !skipRemoteByDefault && s != nil {
 		t.Error("--include-tcc-protected must still yield a nil Skipper by default")
 	}
 }
@@ -236,7 +237,7 @@ func TestForRun_TogglePolarity(t *testing.T) {
 
 	// Default run: protected dirs skipped (darwin) or nothing to skip
 	// (elsewhere), network volumes always walked.
-	if s := ForRun("/Users/alice", nil, nil); s.NetworkVolumes() != nil {
+	if s := ForRun("/Users/alice", nil, nil); !skipRemoteByDefault && s.NetworkVolumes() != nil {
 		t.Error("default run must walk network volumes")
 	}
 	// Both classes opted in → nothing to skip at all.

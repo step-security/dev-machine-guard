@@ -59,3 +59,7 @@ func hardenMachineConfigACL(path string) error {
 	}
 	return err
 }
+
+// preserveOwner is a no-op on Windows: access is ACL-based (see
+// hardenMachineConfigACL), not owner-based.
+func preserveOwner(path string, prev os.FileInfo) {}

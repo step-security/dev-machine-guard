@@ -23,15 +23,26 @@ import (
 // forever — the deadline is effectively ignored. Seen in production as
 // node_scan hangs averaging 3.6 min per project under a 30s per-call ceiling.
 //
-// Setpgid: true makes cmd its own process group leader, so kill(-pid, SIGKILL)
-// reaches the whole subtree. cmd.Cancel runs on ctx cancel/deadline.
-// WaitDelay bounds the pipe-copy wait independently of the kill — if a child
-// somehow survives the group kill (e.g. PID reused), Wait still returns.
+// Setsid: true makes cmd the leader of a new session with no controlling
+// terminal, which covers two failure classes at once:
+//   - it is its own process group leader, so kill(-pid, SIGKILL) reaches the
+//     whole subtree;
+//   - children can never read the agent's controlling TTY. Login shells that
+//     source user rc files can hit prompts that read /dev/tty directly — zsh
+//     compinit's "insecure directories ... continue [y] or abort [n]?" blocked
+//     a `which claude` probe forever when send-telemetry ran from a terminal.
+//     With no controlling terminal the open fails and zsh takes the
+//     non-interactive default. (Under launchd there is no TTY, which is why
+//     the hang only reproduced on manual runs.)
+//
+// cmd.Cancel runs on ctx cancel/deadline. WaitDelay bounds the pipe-copy wait
+// independently of the kill — if a child somehow survives the group kill
+// (e.g. PID reused), Wait still returns.
 func setupKillgroupOnCancel(cmd *exec.Cmd) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
-	cmd.SysProcAttr.Setpgid = true
+	cmd.SysProcAttr.Setsid = true
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
 			return nil
@@ -41,6 +52,9 @@ func setupKillgroupOnCancel(cmd *exec.Cmd) {
 	}
 	cmd.WaitDelay = 2 * time.Second
 }
+
+// runCommand runs cmd; the process-group kill is set up before Start.
+func runCommand(cmd *exec.Cmd) error { return cmd.Run() }
 
 func (r *Real) IsRoot() bool {
 	return os.Getuid() == 0

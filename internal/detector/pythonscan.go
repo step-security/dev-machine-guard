@@ -99,7 +99,7 @@ func (s *PythonScanner) ScanGlobalPackages(ctx context.Context) []model.PythonSc
 // package list is JSON-encoded ([{"name","version"},...]) into RawStdoutBase64
 // so the existing backend decoder needs no change. Returns nil when no global
 // site-packages roots exist on the host.
-func (s *PythonScanner) ScanGlobalPackagesFromDisk(skipper *tcc.Skipper) []model.PythonScanResult {
+func (s *PythonScanner) ScanGlobalPackagesFromDisk(ctx context.Context, skipper *tcc.Skipper) []model.PythonScanResult {
 	roots := GlobalPythonRoots(s.exec, s.log)
 	if len(roots) == 0 {
 		s.log.Debug("python global disk scan: no site-packages roots found")
@@ -111,7 +111,7 @@ func (s *PythonScanner) ScanGlobalPackagesFromDisk(skipper *tcc.Skipper) []model
 
 	start := time.Now()
 	dist := NewPythonDistDetector(s.exec).WithLogger(s.log).WithSkipper(skipper)
-	pkgs := dist.ScanRoots(roots)
+	pkgs := dist.ScanRoots(ctx, roots)
 	duration := time.Since(start).Milliseconds()
 	if pkgs == nil {
 		return []model.PythonScanResult{{

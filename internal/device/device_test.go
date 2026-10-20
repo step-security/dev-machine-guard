@@ -14,8 +14,9 @@ import (
 
 func TestGather_BasicFields(t *testing.T) {
 	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
 	mock.SetHostname("test-mac.local")
-	mock.SetCommand("SERIAL123\n    \"IOPlatformSerialNumber\" = \"SERIAL123\"\n", "", 0, "ioreg", "-l")
+	mock.SetCommand("SERIAL123\n    \"IOPlatformSerialNumber\" = \"SERIAL123\"\n", "", 0, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
 	mock.SetCommand("15.1\n", "", 0, "sw_vers", "-productVersion")
 	mock.SetUsername("devuser")
 
@@ -37,9 +38,10 @@ func TestGather_BasicFields(t *testing.T) {
 
 func TestGather_FallbackSerial(t *testing.T) {
 	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
 	mock.SetHostname("test")
 	// ioreg fails, system_profiler returns serial
-	mock.SetCommand("", "", 1, "ioreg", "-l")
+	mock.SetCommand("", "", 1, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
 	mock.SetCommand("Hardware:\n    Serial Number (system): FB123\n", "", 0, "system_profiler", "SPHardwareDataType")
 	mock.SetCommand("14.0\n", "", 0, "sw_vers", "-productVersion")
 
@@ -51,8 +53,9 @@ func TestGather_FallbackSerial(t *testing.T) {
 
 func TestGather_EmailIdentity(t *testing.T) {
 	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
 	mock.SetHostname("test")
-	mock.SetCommand("", "", 1, "ioreg", "-l")
+	mock.SetCommand("", "", 1, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
 	mock.SetCommand("", "", 1, "system_profiler", "SPHardwareDataType")
 	mock.SetCommand("", "", 1, "sw_vers", "-productVersion")
 	mock.SetEnv("USER_EMAIL", "dev@example.com")
@@ -65,6 +68,7 @@ func TestGather_EmailIdentity(t *testing.T) {
 
 func TestGather_Linux(t *testing.T) {
 	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
 	mock.SetGOOS("linux")
 	mock.SetHostname("ubuntu-dev")
 	mock.SetHomeDir("/home/testuser")
@@ -100,6 +104,7 @@ func TestGather_Linux(t *testing.T) {
 
 func TestGather_LinuxFallbackDmidecode(t *testing.T) {
 	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
 	mock.SetGOOS("linux")
 	mock.SetHostname("linux-vm")
 	mock.SetUsername("user")
@@ -125,6 +130,7 @@ func TestGather_LinuxFallbackDmidecode(t *testing.T) {
 
 func TestGather_LinuxFallbackMachineID(t *testing.T) {
 	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
 	mock.SetGOOS("linux")
 	mock.SetHostname("container")
 	mock.SetUsername("root")
@@ -151,6 +157,7 @@ func TestGather_LinuxFallbackMachineID(t *testing.T) {
 
 func TestGather_LinuxDistroOnly(t *testing.T) {
 	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
 	mock.SetGOOS("linux")
 	mock.SetHostname("minimal")
 	mock.SetUsername("user")
@@ -173,11 +180,12 @@ func TestGather_LinuxDistroOnly(t *testing.T) {
 // to "unknown" so the telemetry payload's no_user_logged_in flag fires.
 func TestGather_NoConsoleUser_DoesNotLeakRoot(t *testing.T) {
 	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
 	mock.SetGOOS("darwin")
 	mock.SetIsRoot(true)
 	mock.SetUsername("root") // process-owner identity, the trap
 	mock.SetHostname("mac")
-	mock.SetCommand("SERIAL\n    \"IOPlatformSerialNumber\" = \"SERIAL\"\n", "", 0, "ioreg", "-l")
+	mock.SetCommand("SERIAL\n    \"IOPlatformSerialNumber\" = \"SERIAL\"\n", "", 0, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
 	mock.SetCommand("15.1\n", "", 0, "sw_vers", "-productVersion")
 	mock.SetLoggedInUserError(errors.New("no GUI console user (owner=\"_windowserver\")"))
 
@@ -194,11 +202,12 @@ func TestGather_NoConsoleUser_DoesNotLeakRoot(t *testing.T) {
 // get correct identity attribution even on no-console-user hosts.
 func TestGather_NoConsoleUser_EnvVarRescues(t *testing.T) {
 	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
 	mock.SetGOOS("darwin")
 	mock.SetIsRoot(true)
 	mock.SetUsername("root")
 	mock.SetHostname("mac")
-	mock.SetCommand("SERIAL\n    \"IOPlatformSerialNumber\" = \"SERIAL\"\n", "", 0, "ioreg", "-l")
+	mock.SetCommand("SERIAL\n    \"IOPlatformSerialNumber\" = \"SERIAL\"\n", "", 0, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
 	mock.SetCommand("15.1\n", "", 0, "sw_vers", "-productVersion")
 	mock.SetLoggedInUserError(errors.New("no console user"))
 	mock.SetEnv("USER_EMAIL", "operator@example.com")
@@ -212,6 +221,7 @@ func TestGather_NoConsoleUser_EnvVarRescues(t *testing.T) {
 
 func TestGather_Windows(t *testing.T) {
 	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
 	mock.SetGOOS("windows")
 	mock.SetHostname("WIN-DESKTOP")
 	mock.SetHomeDir(`C:\Users\testuser`)
@@ -262,6 +272,7 @@ func TestGetHostname(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			mock := executor.NewMock()
+			t.Cleanup(ResetIDCache)
 			mock.SetGOOS(tc.goos)
 			mock.SetHostname("ip-10-0-1-5.ec2.internal")
 			for key, val := range map[string]*string{"HostName": tc.hostName, "LocalHostName": tc.localName} {
@@ -305,6 +316,7 @@ func TestGetHostname_SCPrefsPlist(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			mock := executor.NewMock()
+			t.Cleanup(ResetIDCache)
 			mock.SetHostname("ip-10-0-1-5.ec2.internal")
 			if tc.file != nil {
 				mock.SetFile(darwinSCPrefsPath, tc.file)
@@ -324,8 +336,9 @@ func TestID(t *testing.T) {
 	old := config.DeviceID
 	t.Cleanup(func() { config.DeviceID = old })
 	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
 	mock.SetGOOS("darwin")
-	mock.SetCommand(`"IOPlatformSerialNumber" = "SERIAL123"`, "", 0, "ioreg", "-l")
+	mock.SetCommand(`"IOPlatformSerialNumber" = "SERIAL123"`, "", 0, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
 	for _, tc := range []struct{ override, want string }{
 		{"custom-123", "custom-123"},
 		{" custom-123 ", "custom-123"},

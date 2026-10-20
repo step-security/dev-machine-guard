@@ -1,6 +1,7 @@
 package detector
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -19,9 +20,9 @@ import (
 // the "last node_modules segment" rule in isNodeModulesPackagePath matches all
 // of them. yarn-berry PnP installs have no node_modules and rely on the
 // yarn.lock parser instead.
-func (d *NodeDistDetector) walkNodeModules(projectDir string) []model.NodePackage {
+func (d *NodeDistDetector) walkNodeModules(ctx context.Context, projectDir string) []model.NodePackage {
 	directNames := d.directDepNames(projectDir)
-	return d.scanModulesTree(filepath.Join(projectDir, "node_modules"),
+	return d.scanModulesTree(ctx, filepath.Join(projectDir, "node_modules"),
 		func(name, _ string) bool { _, ok := directNames[name]; return ok })
 }
 
@@ -32,12 +33,15 @@ func (d *NodeDistDetector) walkNodeModules(projectDir string) []model.NodePackag
 // never follows directory symlinks (filepath.WalkDir does not), so pnpm's
 // symlink farm is read via the real .pnpm store dirs, not by chasing links out
 // of the tree.
-func (d *NodeDistDetector) scanModulesTree(root string, isDirect func(name, path string) bool) []model.NodePackage {
+func (d *NodeDistDetector) scanModulesTree(ctx context.Context, root string, isDirect func(name, path string) bool) []model.NodePackage {
 	if !d.exec.DirExists(root) {
 		return nil
 	}
 	var pkgs []model.NodePackage
 	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return filepath.SkipAll
+		}
 		if err != nil {
 			return nil
 		}
@@ -74,9 +78,9 @@ func (d *NodeDistDetector) scanModulesTree(root string, isDirect func(name, path
 // package is direct when it sits immediately under the global root (a package
 // the user installed with `-g`); anything below a further node_modules is a
 // transitive dependency of one of those.
-func (d *NodeDistDetector) ScanGlobalModules(nmRoot string) []model.NodePackage {
+func (d *NodeDistDetector) ScanGlobalModules(ctx context.Context, nmRoot string) []model.NodePackage {
 	clean := filepath.Clean(nmRoot)
-	return d.scanModulesTree(clean, func(_, path string) bool {
+	return d.scanModulesTree(ctx, clean, func(_, path string) bool {
 		rel := strings.TrimPrefix(filepath.ToSlash(path), filepath.ToSlash(clean))
 		return !strings.Contains(rel, "node_modules/")
 	})

@@ -65,6 +65,7 @@ See **[AGENTS.md](AGENTS.md)** for the full coding guidelines — the convention
 4. Test locally: `./stepsecurity-dev-machine-guard --verbose`
 5. Ensure lint and tests pass: `make lint && make test && make smoke`
 6. Submit a PR using our [PR template](.github/pull_request_template.md)
+7. Once approved, merge through the merge queue (**Merge when ready**). The queue re-runs CI on your PR merged onto the current `main`, so there is no need to rebase or update the branch by hand first
 
 ## Reporting Issues
 

@@ -165,6 +165,7 @@ func TestParseCIMProcessorList_LegacyWmic(t *testing.T) {
 
 func TestGather_LinuxResources(t *testing.T) {
 	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
 	mock.SetGOOS("linux")
 	mock.SetHostname("linux-dev")
 	mock.SetUsername("dev")
@@ -223,12 +224,13 @@ cpu cores	: 4
 
 func TestGather_DarwinResources(t *testing.T) {
 	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
 	mock.SetGOOS("darwin")
 	mock.SetHostname("mbp")
 	mock.SetUsername("dev")
 	// device.Gather() also calls ioreg/system_profiler/sw_vers — stub them out
 	// minimally so the existing path completes without error.
-	mock.SetCommand(`    "IOPlatformSerialNumber" = "ABCD1234"`+"\n", "", 0, "ioreg", "-l")
+	mock.SetCommand(`    "IOPlatformSerialNumber" = "ABCD1234"`+"\n", "", 0, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
 	mock.SetCommand("15.1\n", "", 0, "sw_vers", "-productVersion")
 
 	// Resource sysctls
@@ -259,6 +261,7 @@ func TestGather_DarwinResources(t *testing.T) {
 
 func TestGather_WindowsResources(t *testing.T) {
 	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
 	mock.SetGOOS("windows")
 	mock.SetHostname("WIN-DESKTOP")
 	mock.SetUsername("dev")
@@ -307,6 +310,7 @@ func TestGather_LinuxResourcesMissingFiles(t *testing.T) {
 	// fail — Resources just degrades to zero/empty fields except runtime-derived
 	// ones (LogicalCores, CPUArchitecture).
 	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
 	mock.SetGOOS("linux")
 	mock.SetHostname("minimal")
 	mock.SetUsername("user")

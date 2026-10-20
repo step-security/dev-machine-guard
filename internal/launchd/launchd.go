@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -189,13 +190,8 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	// bootstrap/bootout over the deprecated load/unload verbs; root daemons live
 	// in the `system` domain, user LaunchAgents in `gui/<uid>` — see DomainTarget.
 	domain, _ := DomainTarget(exec)
-	_, stderr, exitCode, err := exec.Run(ctx, "launchctl", "bootstrap", domain, plistPath)
-	log.Debug("launchctl bootstrap %q %q: exit_code=%d err=%v stderr=%q", domain, plistPath, exitCode, err, stderr)
-	if err != nil {
-		return fmt.Errorf("launchctl bootstrap failed: %w", err)
-	}
-	if exitCode != 0 {
-		return fmt.Errorf("launchctl bootstrap failed (exit code %d): %s", exitCode, strings.TrimSpace(stderr))
+	if err := bootstrap(ctx, exec, log, domain, plistPath); err != nil {
+		return err
 	}
 
 	log.Progress("launchd configuration completed successfully")
@@ -229,11 +225,7 @@ func doUninstall(ctx context.Context, exec executor.Executor, log *progress.Logg
 	// `launchctl load`-ed by older agent versions during upgrade.
 	stdout, _, _, _ := exec.Run(ctx, "launchctl", "list")
 	if strings.Contains(stdout, label) {
-		domain := "system"
-		if !exec.IsRoot() {
-			domain = fmt.Sprintf("gui/%d", os.Getuid())
-		}
-		target := domain + "/" + label
+		_, target := DomainTarget(exec)
 		_, stderr, exitCode, err := exec.Run(ctx, "launchctl", "bootout", target)
 		log.Debug("launchctl bootout %q: exit_code=%d err=%v stderr=%q", target, exitCode, err, stderr)
 		switch {
@@ -243,6 +235,7 @@ func doUninstall(ctx context.Context, exec executor.Executor, log *progress.Logg
 			log.Warn("launchctl bootout failed (exit code %d): %s — the running service may persist until reboot; plist will still be removed", exitCode, strings.TrimSpace(stderr))
 		default:
 			log.Progress("Unloaded launchd agent")
+			waitForBootout(ctx, exec, log, target)
 		}
 	}
 
@@ -254,6 +247,55 @@ func doUninstall(ctx context.Context, exec executor.Executor, log *progress.Logg
 
 	log.Progress("launchd configuration removed successfully")
 	return nil
+}
+
+// sleep is swapped out by tests.
+var sleep = time.Sleep
+
+const (
+	bootoutPollInterval = 250 * time.Millisecond
+	bootoutPollAttempts = 40 // ~10s
+)
+
+// bootoutPollTimeout bounds the whole polling phase, including a hung
+// `launchctl print`. Swapped out by tests.
+var bootoutPollTimeout = 15 * time.Second
+
+// bootstrapBackoff is the wait before each bootstrap retry.
+var bootstrapBackoff = []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second}
+
+// waitForBootout polls until launchd no longer knows the service. bootout
+// returns before teardown finishes; bootstrapping during teardown fails.
+func waitForBootout(ctx context.Context, exec executor.Executor, log *progress.Logger, target string) {
+	ctx, cancel := context.WithTimeout(ctx, bootoutPollTimeout)
+	defer cancel()
+	for i := 0; i < bootoutPollAttempts && ctx.Err() == nil; i++ {
+		_, _, exitCode, err := exec.Run(ctx, "launchctl", "print", target)
+		if err == nil && exitCode != 0 && ctx.Err() == nil {
+			return
+		}
+		sleep(bootoutPollInterval)
+	}
+	log.Warn("launchd service %s still present after bootout; continuing", target)
+}
+
+// bootstrap loads the plist, retrying on exit 5 (EIO) and 37 (EALREADY),
+// which launchd returns while a previous instance is still tearing down.
+func bootstrap(ctx context.Context, exec executor.Executor, log *progress.Logger, domain, plistPath string) error {
+	for attempt := 0; ; attempt++ {
+		_, stderr, exitCode, err := exec.Run(ctx, "launchctl", "bootstrap", domain, plistPath)
+		log.Debug("launchctl bootstrap %q %q: attempt=%d exit_code=%d err=%v stderr=%q", domain, plistPath, attempt+1, exitCode, err, stderr)
+		if err != nil {
+			return fmt.Errorf("launchctl bootstrap failed, launchd job is NOT loaded: %w", err)
+		}
+		if exitCode == 0 {
+			return nil
+		}
+		if (exitCode != 5 && exitCode != 37) || attempt >= len(bootstrapBackoff) {
+			return fmt.Errorf("launchctl bootstrap failed (exit code %d after %d attempts), launchd job is NOT loaded: %s", exitCode, attempt+1, strings.TrimSpace(stderr))
+		}
+		sleep(bootstrapBackoff[attempt])
+	}
 }
 
 func isConfigured(ctx context.Context, exec executor.Executor) bool {

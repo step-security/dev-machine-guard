@@ -123,7 +123,7 @@ func (d *BunDetector) Detect(ctx context.Context, searchDirs []string, loggedInU
 	}
 
 	for _, dir := range searchDirs {
-		for _, p := range d.findProjectBunfigs(dir) {
+		for _, p := range d.findProjectBunfigs(ctx, dir) {
 			if len(files) >= maxBunfigFiles {
 				break
 			}
@@ -162,12 +162,15 @@ func (d *BunDetector) discoverAuthSideChannel(ctx context.Context, searchDirs []
 
 // findProjectBunfigs walks dir for `bunfig.toml` files, applying the same
 // skip rules as the npmrc walker. Returns absolute paths.
-func (d *BunDetector) findProjectBunfigs(dir string) []string {
+func (d *BunDetector) findProjectBunfigs(ctx context.Context, dir string) []string {
 	if dir == "" {
 		return nil
 	}
 	var results []string
 	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return filepath.SkipAll
+		}
 		if err != nil {
 			return nil
 		}

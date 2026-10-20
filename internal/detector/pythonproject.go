@@ -58,8 +58,8 @@ func (d *PythonProjectDetector) WithDiskScan(dist *PythonDistDetector) *PythonPr
 }
 
 // CountProjects counts Python projects with virtual environments.
-func (d *PythonProjectDetector) CountProjects(_ context.Context, searchDirs []string) int {
-	projects, _ := d.ListProjects(searchDirs, nil)
+func (d *PythonProjectDetector) CountProjects(ctx context.Context, searchDirs []string) int {
+	projects, _ := d.ListProjects(ctx, searchDirs, nil)
 	return len(projects)
 }
 
@@ -86,11 +86,11 @@ type venvCandidate struct {
 // The second return is every venv path discovered on disk (before the cap),
 // so callers can distinguish "missing from disk" from "dropped by the cap"
 // when comparing against prior state.
-func (d *PythonProjectDetector) ListProjects(searchDirs []string, knownLastVerified map[string]time.Time) (projects []model.ProjectInfo, discovered []string) {
+func (d *PythonProjectDetector) ListProjects(ctx context.Context, searchDirs []string, knownLastVerified map[string]time.Time) (projects []model.ProjectInfo, discovered []string) {
 	var candidates []venvCandidate
 	for _, dir := range searchDirs {
 		d.log.Progress("  Searching in: %s", dir)
-		candidates = append(candidates, d.discoverInDir(dir)...)
+		candidates = append(candidates, d.discoverInDir(ctx, dir)...)
 	}
 
 	d.log.Debug("python venv discovery: found %d venv(s) across %d search dir(s)", len(candidates), len(searchDirs))
@@ -107,7 +107,6 @@ func (d *PythonProjectDetector) ListProjects(searchDirs []string, knownLastVerif
 		candidates = candidates[:maxPythonProjects]
 	}
 
-	ctx := context.Background()
 	projects = make([]model.ProjectInfo, 0, len(candidates))
 	for _, c := range candidates {
 		var pkgs []model.PackageDetail
@@ -116,7 +115,7 @@ func (d *PythonProjectDetector) ListProjects(searchDirs []string, knownLastVerif
 			// Disk mode: read install metadata from the venv's
 			// site-packages — works even for --without-pip venvs.
 			d.log.Progress("  Scanning: %s (%s)", c.path, c.pm)
-			pkgs = d.dist.ScanVenv(c.path)
+			pkgs = d.dist.ScanVenv(ctx, c.path)
 		case c.pipPath != "":
 			d.log.Progress("  Scanning: %s (%s)", c.path, c.pm)
 			pkgs = d.listVenvPackages(ctx, c.path, c.pipPath)
@@ -244,9 +243,12 @@ var pythonPMFromMarker = map[string]string{
 // discoverInDir walks `dir` and returns every venv it finds, without running
 // pip list. The two-phase split (discover → order → scan) lets the caller
 // reorder via state before any pip list is run.
-func (d *PythonProjectDetector) discoverInDir(dir string) []venvCandidate {
+func (d *PythonProjectDetector) discoverInDir(ctx context.Context, dir string) []venvCandidate {
 	var found []venvCandidate
 	_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return filepath.SkipAll
+		}
 		if err != nil {
 			return nil
 		}

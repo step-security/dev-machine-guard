@@ -3,6 +3,8 @@ package schtasks
 import (
 	"context"
 	"errors"
+	"io"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -70,7 +72,7 @@ func TestInstall_CreateFails(t *testing.T) {
 
 	// Note: Install calls os.Executable() and os.MkdirAll() which we can't mock,
 	// but the schtasks /create will fail because we haven't stubbed it.
-	err := Install(mock, newTestLogger())
+	err := Install(mock, newTestLogger(), 4*time.Hour)
 	if err == nil {
 		t.Fatal("expected error when schtasks /create is not stubbed")
 	}
@@ -284,7 +286,7 @@ func TestPatchBatterySettings_FlipsPresentValues(t *testing.T) {
 		"<StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>" +
 		"<StartWhenAvailable>false</StartWhenAvailable>" +
 		"<Enabled>true</Enabled></Settings></Task>"
-	out, changed := patchBatterySettings(xml)
+	out, changed := patchBatterySettings(xml, "PT4H30M")
 	if !changed {
 		t.Fatal("expected changed=true")
 	}
@@ -304,7 +306,7 @@ func TestPatchBatterySettings_FlipsPresentValues(t *testing.T) {
 
 func TestPatchBatterySettings_InjectsMissing(t *testing.T) {
 	xml := "<Task><Settings><Enabled>true</Enabled></Settings></Task>"
-	out, changed := patchBatterySettings(xml)
+	out, changed := patchBatterySettings(xml, "PT4H30M")
 	if !changed {
 		t.Fatal("expected changed=true (settings injected)")
 	}
@@ -325,9 +327,10 @@ func TestPatchBatterySettings_NoopWhenAlreadyDesired(t *testing.T) {
 		"<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>" +
 		"<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>" +
 		"<StartWhenAvailable>true</StartWhenAvailable>" +
+		"<ExecutionTimeLimit>PT4H30M</ExecutionTimeLimit>" +
 		"<RestartOnFailure><Interval>PT15M</Interval><Count>3</Count></RestartOnFailure>" +
 		"</Settings></Task>"
-	if _, changed := patchBatterySettings(xml); changed {
+	if _, changed := patchBatterySettings(xml, "PT4H30M"); changed {
 		t.Error("expected changed=false when settings already desired")
 	}
 }
@@ -338,7 +341,7 @@ func TestPatchBatterySettings_AddsRetryOnFailure(t *testing.T) {
 		"<StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>" +
 		"<StartWhenAvailable>false</StartWhenAvailable>" +
 		"</Settings></Task>"
-	out, changed := patchBatterySettings(xml)
+	out, changed := patchBatterySettings(xml, "PT4H30M")
 	if !changed {
 		t.Fatal("expected changed=true")
 	}
@@ -388,6 +391,7 @@ func TestDecodeTaskXML_Paths(t *testing.T) {
 		// BOM 0xEF 0xBB 0xBF stripped; remainder already UTF-8.
 		{"utf8 BOM", []byte{0xEF, 0xBB, 0xBF, 'A', 'B'}, "AB"},
 		{"no BOM (plain UTF-8/ASCII)", []byte("<Task/>"), "<Task/>"},
+		{"utf16le no BOM", []byte{'<', 0x00, 'T', 0x00, '/', 0x00, '>', 0x00}, "<T/>"},
 		{"empty", []byte{}, ""},
 		// Stray trailing byte after the BOM (odd-length body) must not panic;
 		// the orphan byte is dropped, "A" survives.
@@ -508,5 +512,150 @@ func TestIsTaskRegistered(t *testing.T) {
 				t.Errorf("IsTaskRegistered() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// defaultTaskXML mirrors what schtasks /create generates: battery-restricted
+// and the 72h ExecutionTimeLimit default.
+const defaultTaskXML = `<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT72H</ExecutionTimeLimit>
+    <Enabled>true</Enabled>
+  </Settings>
+</Task>`
+
+func TestExecutionTimeLimit(t *testing.T) {
+	cases := map[time.Duration]string{
+		0:                         "PT6H",
+		-time.Hour:                "PT6H",
+		4 * time.Hour:             "PT4H30M",
+		30 * time.Minute:          "PT1H0M",
+		2*time.Hour + time.Second: "PT2H31M",
+	}
+	for d, want := range cases {
+		if got := executionTimeLimit(d); got != want {
+			t.Errorf("executionTimeLimit(%v) = %q, want %q", d, got, want)
+		}
+	}
+}
+
+func TestPatchBatterySettings_ReplacesExecutionTimeLimit(t *testing.T) {
+	for name, raw := range map[string]string{
+		"utf8":     defaultTaskXML,
+		"utf16le":  string(encodeTaskXMLUTF16(defaultTaskXML)),
+		"utf8 bom": "\xEF\xBB\xBF" + defaultTaskXML,
+	} {
+		t.Run(name, func(t *testing.T) {
+			xml := decodeTaskXML(raw)
+			if bad := settingsMismatches(xml, "PT4H30M"); len(bad) != 3 {
+				t.Errorf("default XML mismatches = %v, want 3", bad)
+			}
+			out, changed := patchBatterySettings(xml, "PT4H30M")
+			if !changed {
+				t.Fatal("expected changed=true")
+			}
+			if bad := settingsMismatches(out, "PT4H30M"); len(bad) != 0 {
+				t.Errorf("patched XML still mismatched: %v\n%s", bad, out)
+			}
+			if strings.Contains(out, "PT72H") {
+				t.Error("72h default should be replaced")
+			}
+		})
+	}
+}
+
+func TestSettingsMismatches_UnrecognizedXML(t *testing.T) {
+	// No </Settings>: the patcher can't inject, so verification must flag it.
+	xml := "<Task><Settings/></Task>"
+	out, changed := patchBatterySettings(xml, "PT4H30M")
+	if changed {
+		t.Fatal("expected no-op patch on XML without </Settings>")
+	}
+	if bad := settingsMismatches(out, "PT4H30M"); len(bad) != 3 {
+		t.Errorf("mismatches = %v, want all 3 flagged", bad)
+	}
+}
+
+// scriptedExec answers schtasks calls via fn; the re-import path is a temp
+// file so it can't be stubbed by exact key on executor.Mock.
+type scriptedExec struct {
+	*executor.Mock
+	fn func(args []string) (string, int)
+}
+
+func (s *scriptedExec) Run(_ context.Context, _ string, args ...string) (string, string, int, error) {
+	out, code := s.fn(args)
+	return out, "", code, nil
+}
+
+func captureStderr(t *testing.T, f func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	f()
+	os.Stderr = orig
+	_ = w.Close()
+	b, _ := io.ReadAll(r)
+	return string(b)
+}
+
+func TestApplyBatterySettings_VerifiesAfterImport(t *testing.T) {
+	patched, _ := patchBatterySettings(defaultTaskXML, "PT4H30M")
+	for name, tc := range map[string]struct {
+		afterImport string
+		wantWarn    bool
+	}{
+		"applied":     {string(encodeTaskXMLUTF16(patched)), false},
+		"import noop": {string(encodeTaskXMLUTF16(defaultTaskXML)), true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			imported, queries := false, 0
+			ex := &scriptedExec{Mock: executor.NewMock(), fn: func(args []string) (string, int) {
+				switch {
+				case args[0] == "/query":
+					queries++
+					if imported {
+						return tc.afterImport, 0
+					}
+					return string(encodeTaskXMLUTF16(defaultTaskXML)), 0
+				case args[0] == "/create":
+					imported = true
+					return "", 0
+				}
+				return "", 1
+			}}
+			out := captureStderr(t, func() {
+				applyBatterySettings(context.Background(), ex, newTestLogger(), taskName, "PT4H30M")
+			})
+			if !imported || queries != 2 {
+				t.Fatalf("imported=%v queries=%d, want re-import and re-query", imported, queries)
+			}
+			if got := strings.Contains(out, "[warning]") && strings.Contains(out, "not applied"); got != tc.wantWarn {
+				t.Errorf("warn=%v, want %v; stderr:\n%s", got, tc.wantWarn, out)
+			}
+		})
+	}
+}
+
+func TestApplyBatterySettings_WarnsOnUnpatchableXML(t *testing.T) {
+	ex := &scriptedExec{Mock: executor.NewMock(), fn: func(args []string) (string, int) {
+		if args[0] == "/create" {
+			t.Error("must not re-import unpatchable XML")
+		}
+		return "<Task><Settings/></Task>", 0
+	}}
+	out := captureStderr(t, func() {
+		applyBatterySettings(context.Background(), ex, newTestLogger(), taskName, "PT4H30M")
+	})
+	if !strings.Contains(out, "[warning]") {
+		t.Errorf("expected Warn, got:\n%s", out)
 	}
 }

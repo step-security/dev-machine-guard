@@ -1,6 +1,7 @@
 package atomicfile
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -358,5 +359,27 @@ func TestTakeBackup_NoOpUnderCap(t *testing.T) {
 	}
 	if !survSet[got] {
 		t.Errorf("freshly-taken backup missing: %q", got)
+	}
+}
+
+// Callers fall back to an in-place write only on ErrRename; earlier failures
+// must not carry it.
+func TestReplace_OnlyRenameFailuresAreErrRename(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "cfg")
+	if err := os.MkdirAll(filepath.Join(target, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := Replace(target, []byte("x"), 0o600); !errors.Is(err, ErrRename) {
+		t.Errorf("rename onto non-empty dir: err = %v, want ErrRename", err)
+	}
+	notDir := filepath.Join(dir, "file")
+	if err := os.WriteFile(notDir, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Parent is a regular file, so the write never reaches the rename.
+	err := Replace(filepath.Join(notDir, "cfg"), []byte("x"), 0o600)
+	if err == nil || errors.Is(err, ErrRename) {
+		t.Errorf("pre-rename failure: err = %v, want non-ErrRename error", err)
 	}
 }

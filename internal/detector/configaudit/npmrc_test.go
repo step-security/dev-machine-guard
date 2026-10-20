@@ -289,7 +289,7 @@ func TestNPMRCDetector_ProjectWalkSkipsExcludedDirs(t *testing.T) {
 
 	mock := executor.NewMock()
 	d := NewNPMRCDetector(mock)
-	results := d.findProjectNPMRCs(tmp)
+	results := d.findProjectNPMRCs(context.Background(), tmp)
 
 	if len(results) != 1 {
 		t.Fatalf("expected exactly 1 .npmrc, got %d: %v", len(results), results)
@@ -352,5 +352,28 @@ func mustWriteFile(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
+	}
+}
+
+func TestFindProjectConfigs_CancelledContext(t *testing.T) {
+	tmp := t.TempDir()
+	mustWriteFile(t, filepath.Join(tmp, "real", ".npmrc"), "registry=https://x/\n")
+	mustWriteFile(t, filepath.Join(tmp, "real", ".yarnrc"), "registry x\n")
+	mustWriteFile(t, filepath.Join(tmp, "real", "bunfig.toml"), "\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	mock := executor.NewMock()
+	if got := NewNPMRCDetector(mock).findProjectNPMRCs(ctx, tmp); len(got) != 0 {
+		t.Errorf("npmrc: got %v, want none", got)
+	}
+	if got := NewPnpmDetector(mock).findProjectNPMRCs(ctx, tmp); len(got) != 0 {
+		t.Errorf("pnpm: got %v, want none", got)
+	}
+	if got := NewYarnDetector(mock).findProjectYarnConfigs(ctx, tmp); len(got) != 0 {
+		t.Errorf("yarn: got %v, want none", got)
+	}
+	if got := NewBunDetector(mock).findProjectBunfigs(ctx, tmp); len(got) != 0 {
+		t.Errorf("bun: got %v, want none", got)
 	}
 }

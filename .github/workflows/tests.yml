@@ -5,9 +5,22 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Merge queue: GitHub builds a temporary gh-readonly-queue/main/* branch with
+  # the PR merged onto current main and runs checks there. Without this trigger
+  # nothing is reported on that commit and the queue entry fails.
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
 
 permissions:
   contents: read
+
+concurrency:
+  # One run per PR: a new push supersedes the in-flight run. Merge-queue and
+  # main runs key on their unique ref and are never cancelled, since cancelling
+  # a queue run fails the queue entry.
+  group: tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:

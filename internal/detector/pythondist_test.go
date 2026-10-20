@@ -1,6 +1,7 @@
 package detector
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -40,7 +41,7 @@ func TestPythonDistDetector_ScanVenv_DistInfo(t *testing.T) {
 		"Name: click\nVersion: 8.1.7\n\nbody")
 
 	det := NewPythonDistDetector(mock)
-	pkgs := det.ScanVenv(filepath.Join(dir, ".venv"))
+	pkgs := det.ScanVenv(context.Background(), filepath.Join(dir, ".venv"))
 
 	if len(pkgs) != 2 {
 		t.Fatalf("expected 2 packages, got %d: %+v", len(pkgs), pkgs)
@@ -67,7 +68,7 @@ func TestPythonDistDetector_ScanVenv_ScopedToSitePackages(t *testing.T) {
 	mustWriteMeta(t, mock, filepath.Join(venv, "bin", "stray-1.0.0.dist-info", "METADATA"),
 		"Name: stray\nVersion: 1.0.0\n\nbody")
 
-	pkgs := NewPythonDistDetector(mock).ScanVenv(venv)
+	pkgs := NewPythonDistDetector(mock).ScanVenv(context.Background(), venv)
 	if len(pkgs) != 1 || pkgs[0].Name != "requests" {
 		t.Fatalf("expected only requests from site-packages, got %+v", pkgs)
 	}
@@ -81,7 +82,7 @@ func TestPythonDistDetector_EggInfoFallback(t *testing.T) {
 	mustWriteMeta(t, mock, filepath.Join(sp, "legacy.egg-info", "PKG-INFO"),
 		"Metadata-Version: 1.0\nName: legacy\nVersion: 0.1.0\n\nbody")
 
-	pkgs := NewPythonDistDetector(mock).ScanRoots([]string{dir})
+	pkgs := NewPythonDistDetector(mock).ScanRoots(context.Background(), []string{dir})
 	if len(pkgs) != 1 || pkgs[0].Name != "legacy" || pkgs[0].Version != "0.1.0" {
 		t.Fatalf("expected legacy 0.1.0, got %+v", pkgs)
 	}
@@ -102,7 +103,7 @@ func TestPythonDistDetector_SkipsCachesAndNonDistInfo(t *testing.T) {
 	mustWriteMeta(t, mock, filepath.Join(sp, "good-2.0.dist-info", "METADATA"),
 		"Name: good\nVersion: 2.0\n\nx")
 
-	pkgs := NewPythonDistDetector(mock).ScanRoots([]string{dir})
+	pkgs := NewPythonDistDetector(mock).ScanRoots(context.Background(), []string{dir})
 	if len(pkgs) != 1 || pkgs[0].Name != "good" {
 		t.Fatalf("expected only good, got %+v", pkgs)
 	}
@@ -122,7 +123,7 @@ func TestPythonDistDetector_MalformedAndDedup(t *testing.T) {
 	mustWriteMeta(t, mock, filepath.Join(sp, "dup-1.0-py3.dist-info", "METADATA"),
 		"Name: dup\nVersion: 1.0\n\nx")
 
-	pkgs := NewPythonDistDetector(mock).ScanRoots([]string{dir})
+	pkgs := NewPythonDistDetector(mock).ScanRoots(context.Background(), []string{dir})
 	if len(pkgs) != 1 || pkgs[0].Name != "dup" {
 		t.Fatalf("expected single dup, got %+v", pkgs)
 	}
@@ -137,7 +138,7 @@ func TestPythonDistDetector_SizeCap(t *testing.T) {
 
 	det := NewPythonDistDetector(mock)
 	det.maxFileSize = 5 // smaller than the header → rejected
-	if pkgs := det.ScanRoots([]string{dir}); len(pkgs) != 0 {
+	if pkgs := det.ScanRoots(context.Background(), []string{dir}); len(pkgs) != 0 {
 		t.Fatalf("expected size-cap to drop the package, got %+v", pkgs)
 	}
 }
@@ -179,7 +180,7 @@ func TestPythonProjectDetector_DiskScan(t *testing.T) {
 
 	dist := NewPythonDistDetector(mock)
 	det := NewPythonProjectDetector(mock).WithDiskScan(dist)
-	projects, _ := det.ListProjects([]string{dir}, nil)
+	projects, _ := det.ListProjects(context.Background(), []string{dir}, nil)
 
 	if len(projects) != 1 {
 		t.Fatalf("expected 1 project, got %d: %+v", len(projects), projects)
@@ -207,7 +208,7 @@ func TestPythonDistDetector_EmptyAndFailedWalks(t *testing.T) {
 		{"no roots", nil, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := NewPythonDistDetector(mock).ScanRoots(tc.roots)
+			got := NewPythonDistDetector(mock).ScanRoots(context.Background(), tc.roots)
 			if (got == nil) != tc.failed || len(got) != 0 {
 				t.Fatalf("packages=%v nil=%v, want failure=%v", got, got == nil, tc.failed)
 			}
@@ -242,7 +243,7 @@ func TestPythonProjectDetector_NoPipIsUnscannedUnlessDiskInspected(t *testing.T)
 			if tc.disk {
 				d.WithDiskScan(NewPythonDistDetector(mock))
 			}
-			projects, discovered := d.ListProjects([]string{root}, nil)
+			projects, discovered := d.ListProjects(context.Background(), []string{root}, nil)
 			if len(projects) != 1 || len(discovered) != 1 || discovered[0] != venv {
 				t.Fatalf("projects=%v discovered=%v", projects, discovered)
 			}
@@ -274,7 +275,7 @@ func TestPythonDistDetector_UnreadableWalkIsNotEmpty(t *testing.T) {
 		t.Skip("filesystem permits reading mode-000 directories")
 	}
 	for _, path := range []string{blocked, root} {
-		if got := NewPythonDistDetector(executor.NewMock()).ScanRoots([]string{path}); got != nil {
+		if got := NewPythonDistDetector(executor.NewMock()).ScanRoots(context.Background(), []string{path}); got != nil {
 			t.Fatalf("unreadable walk %s returned successful inventory: %v", path, got)
 		}
 	}

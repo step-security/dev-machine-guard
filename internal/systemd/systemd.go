@@ -83,7 +83,7 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	data := unitTemplateData{
 		BinaryPath:       systemdEscape(binaryPath),
 		LogDir:           systemdEscape(logDir),
-		Hours:            hours,
+		OnCalendar:       onCalendarFor(hours),
 		StepSecurityHome: systemdEnvEscape(logDir),
 	}
 
@@ -111,9 +111,8 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 	// Enable (without --now) so the unit is loaded across reboots. Activating
 	// the timer in this session is deferred to StartTimer, which the install
 	// command calls only after its inline post-install telemetry has released
-	// the singleton lock. If we used --now here, the timer's Persistent=true +
-	// already-elapsed OnBootSec would fire the service immediately and race
-	// with that inline run on the lockfile (issue #62).
+	// the singleton lock, so a Persistent=true catch-up cannot race that
+	// inline run on the lockfile (issue #62).
 	_, stderr, exitCode, err := exec.Run(ctx, "systemctl", "--user", "enable", unitName+".timer")
 	if err != nil {
 		return fmt.Errorf("failed to enable timer: %w", err)
@@ -136,7 +135,7 @@ func Install(exec executor.Executor, log *progress.Logger) error {
 // so the install command can run its inline post-install telemetry first
 // (and release the singleton lock) before the timer is allowed to fire its
 // own first invocation. With Persistent=true on the timer unit, this start
-// will trigger one immediate catch-up scan via the service unit — that's
+// may trigger one immediate catch-up scan via the service unit — that's
 // fine because the inline scan has already completed.
 func StartTimer(exec executor.Executor, log *progress.Logger) error {
 	ctx := context.Background()
@@ -212,7 +211,7 @@ func writeTemplate(path, tmplStr string, data unitTemplateData) error {
 type unitTemplateData struct {
 	BinaryPath       string // systemd-escaped (spaces replaced with \x20)
 	LogDir           string
-	Hours            int
+	OnCalendar       string
 	StepSecurityHome string // baked into Environment= so paths.Home() resolves under timer-invoked runs
 }
 
@@ -265,12 +264,40 @@ StandardOutput=append:{{.LogDir}}/agent.log
 StandardError=append:{{.LogDir}}/agent.error.log
 `
 
+// onCalendarFor maps the scan interval to a wall-clock OnCalendar=
+// expression. Unlike monotonic OnUnitActiveSec, realtime timers honour
+// Persistent=true and catch up after suspend/power-off. Mirrors
+// schtasks.scheduleFor: under 24h is hourly steps from midnight (a
+// non-divisor of 24 leaves a shorter final gap), 24h+ is whole days
+// (day-of-month steps reset each month).
+func onCalendarFor(hours int) string {
+	if hours >= 24 {
+		days := min(hours/24, 31)
+		if days == 1 {
+			return "*-*-* 00:00:00"
+		}
+		return fmt.Sprintf("*-*-01/%d 00:00:00", days)
+	}
+	if hours <= 1 {
+		return "*-*-* *:00:00"
+	}
+	return fmt.Sprintf("*-*-* 00/%d:00:00", hours)
+}
+
+// The user manager (and so this timer) stops when the user's last session
+// ends unless lingering is enabled (loginctl enable-linger). Not enabled
+// here: it is a per-user login policy change, and Persistent=true already
+// catches up missed runs at next login.
+//
+// OnBootSec keeps the scan shortly after boot. RandomizedDelaySec spreads
+// the fleet off the shared wall-clock boundary.
 const timerTmpl = `[Unit]
 Description=StepSecurity Dev Machine Guard periodic scan
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec={{.Hours}}h
+OnCalendar={{.OnCalendar}}
+RandomizedDelaySec=15min
 Persistent=true
 
 [Install]

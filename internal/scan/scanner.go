@@ -239,7 +239,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		if config.UseLegacyPythonScan {
 			pythonPackages = pyDetector.ListPackages(ctx)
 		} else {
-			pythonPackages = detector.NewPythonDistDetector(exec).WithSkipper(tccSkipper).WithLogger(log).ScanGlobalPackages()
+			pythonPackages = detector.NewPythonDistDetector(exec).WithSkipper(tccSkipper).WithLogger(log).ScanGlobalPackages(ctx)
 		}
 		log.StepDone(time.Since(start))
 
@@ -250,7 +250,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 			pyProjectDetector = pyProjectDetector.WithDiskScan(
 				detector.NewPythonDistDetector(exec).WithSkipper(tccSkipper).WithLogger(log))
 		}
-		pythonProjects, _ = pyProjectDetector.ListProjects(searchDirs, nil)
+		pythonProjects, _ = pyProjectDetector.ListProjects(ctx, searchDirs, nil)
 		log.StepDone(time.Since(start))
 	} else {
 		log.StepStart("Python package scanning")

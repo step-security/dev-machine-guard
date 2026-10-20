@@ -15,6 +15,7 @@
 package atomicfile
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -43,6 +44,10 @@ const BackupStampLayout = "20060102T150405"
 // form count toward the same cap so the rotation gradually cleans up
 // files left from before the rename.
 const MaxBackups = 3
+
+// ErrRename marks a failure of the final rename: the target is untouched and
+// the new bytes were written successfully to the temp file.
+var ErrRename = errors.New("atomicfile: rename")
 
 // WriteResult reports every path WriteAtomic touched. The install handler
 // uses CreatedDirs + Path + BackupPath to chown new files under root.
@@ -137,16 +142,28 @@ func WriteAtomic(path string, data []byte, mode os.FileMode) (WriteResult, error
 	}
 	result.BackupPath = backup
 
+	created, err := replace(path, data, mode)
+	result.CreatedDirs = created
+	return result, err
+}
+
+// Replace writes data to path atomically like WriteAtomic, but without
+// taking a backup of the existing file.
+func Replace(path string, data []byte, mode os.FileMode) error {
+	_, err := replace(path, data, mode)
+	return err
+}
+
+func replace(path string, data []byte, mode os.FileMode) ([]string, error) {
 	parent := filepath.Dir(path)
 	created, err := mkdirAllTracking(parent, 0o755)
 	if err != nil {
-		return result, fmt.Errorf("atomicfile: mkdir parents: %w", err)
+		return nil, fmt.Errorf("atomicfile: mkdir parents: %w", err)
 	}
-	result.CreatedDirs = created
 
 	tmp, err := os.CreateTemp(parent, "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
-		return result, fmt.Errorf("atomicfile: create temp: %w", err)
+		return created, fmt.Errorf("atomicfile: create temp: %w", err)
 	}
 	tmpPath := tmp.Name()
 
@@ -160,23 +177,23 @@ func WriteAtomic(path string, data []byte, mode os.FileMode) (WriteResult, error
 
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
-		return result, fmt.Errorf("atomicfile: write temp: %w", err)
+		return created, fmt.Errorf("atomicfile: write temp: %w", err)
 	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
-		return result, fmt.Errorf("atomicfile: fsync temp: %w", err)
+		return created, fmt.Errorf("atomicfile: fsync temp: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return result, fmt.Errorf("atomicfile: close temp: %w", err)
+		return created, fmt.Errorf("atomicfile: close temp: %w", err)
 	}
 	if err := os.Chmod(tmpPath, mode.Perm()); err != nil {
-		return result, fmt.Errorf("atomicfile: chmod temp: %w", err)
+		return created, fmt.Errorf("atomicfile: chmod temp: %w", err)
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		return result, fmt.Errorf("atomicfile: rename: %w", err)
+		return created, fmt.Errorf("%w: %w", ErrRename, err)
 	}
 
-	return result, nil
+	return created, nil
 }
 
 // InstallBytes is a thin alias used at install sites to make intent clear:

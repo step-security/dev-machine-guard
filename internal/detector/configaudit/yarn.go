@@ -126,7 +126,7 @@ func (d *YarnDetector) Detect(ctx context.Context, searchDirs []string, loggedIn
 	}
 
 	for _, dir := range searchDirs {
-		for _, p := range d.findProjectYarnConfigs(dir) {
+		for _, p := range d.findProjectYarnConfigs(ctx, dir) {
 			if len(files) >= maxYarnFiles {
 				break
 			}
@@ -163,12 +163,15 @@ func (d *YarnDetector) discoverAuthSideChannel(ctx context.Context, searchDirs [
 
 // findProjectYarnConfigs walks dir for both `.yarnrc` and `.yarnrc.yml`,
 // applying the same skip rules as the npmrc walker.
-func (d *YarnDetector) findProjectYarnConfigs(dir string) []string {
+func (d *YarnDetector) findProjectYarnConfigs(ctx context.Context, dir string) []string {
 	if dir == "" {
 		return nil
 	}
 	var results []string
 	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return filepath.SkipAll
+		}
 		if err != nil {
 			return nil
 		}

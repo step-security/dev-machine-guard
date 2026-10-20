@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
+	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/heartbeat"
 )
 
@@ -17,6 +18,8 @@ func withTempState(t *testing.T) string {
 	path := filepath.Join(t.TempDir(), "last-run.json")
 	restore := SetStatePathForTest(path)
 	t.Cleanup(restore)
+	device.ResetIDCache()
+	t.Cleanup(device.ResetIDCache)
 	return path
 }
 

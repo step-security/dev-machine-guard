@@ -136,7 +136,7 @@ func (d *NPMRCDetector) Detect(ctx context.Context, searchDirs []string, loggedI
 	}
 
 	for _, dir := range searchDirs {
-		for _, p := range d.findProjectNPMRCs(dir) {
+		for _, p := range d.findProjectNPMRCs(ctx, dir) {
 			if len(files) >= maxNPMRCFiles {
 				break
 			}
@@ -165,12 +165,15 @@ func (d *NPMRCDetector) Detect(ctx context.Context, searchDirs []string, loggedI
 // well-known cache locations (Go module cache, vendor dirs) — random .npmrc
 // files inside cached/vendored dependencies aren't config the user authored
 // and would only add noise to the audit. Returns absolute paths.
-func (d *NPMRCDetector) findProjectNPMRCs(dir string) []string {
+func (d *NPMRCDetector) findProjectNPMRCs(ctx context.Context, dir string) []string {
 	if dir == "" {
 		return nil
 	}
 	var results []string
 	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return filepath.SkipAll
+		}
 		if err != nil {
 			return nil
 		}

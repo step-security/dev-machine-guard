@@ -14,12 +14,16 @@
 //
 // ForRun resolves both toggles and builds the one Skipper the scan uses.
 //
-// On non-darwin builds the Skipper is a no-op: ShouldSkip always returns
-// false and Candidates returns nil, so callers can wire it unconditionally.
+// On non-darwin builds there are no protected directories. Linux and Windows
+// instead skip remote mounts (and Windows cloud placeholders) by default,
+// since walking them can block on an unreachable server; an explicit
+// include_network_volumes: true walks them.
 package tcc
 
 import (
+	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -72,6 +76,8 @@ type Skipper struct {
 	paths    map[string]struct{}
 	prefixes []string
 	volumes  []string
+	// placeholders skips cloud-sync placeholder dirs (Windows only).
+	placeholders bool
 
 	mu   sync.Mutex
 	hits map[string]int
@@ -96,11 +102,20 @@ func New(home string) *Skipper {
 // Enumerating the mount table is a metadata read, not a volume access, so
 // it never fires the prompt it exists to avoid.
 func ForRun(home string, includeTCCProtected, includeNetworkVolumes *bool) *Skipper {
+	skipRemote := SkipNetworkVolumes(includeNetworkVolumes) ||
+		(includeNetworkVolumes == nil && skipRemoteByDefault)
 	var mounts []string
-	if SkipNetworkVolumes(includeNetworkVolumes) {
+	if skipRemote {
 		mounts = networkVolumeMounts()
 	}
-	return build(home, Enabled(includeTCCProtected), mounts)
+	s := build(home, Enabled(includeTCCProtected), mounts)
+	if skipRemote && runtime.GOOS == "windows" {
+		if s == nil {
+			s = &Skipper{}
+		}
+		s.placeholders = true
+	}
+	return s
 }
 
 // build is ForRun without the mount-table syscall, so the matching rules
@@ -154,7 +169,14 @@ func (s *Skipper) ShouldSkip(path, walkRoot string) bool {
 	if s.rootWithinVolume(cleanRoot) {
 		return false
 	}
-	return s.withinNetworkVolume(cleaned)
+	if s.withinNetworkVolume(cleaned) {
+		return true
+	}
+	if s.placeholders && cloudPlaceholder(cleaned) {
+		s.recordHit(cleaned)
+		return true
+	}
+	return false
 }
 
 // WithinProtected reports whether path is a TCC-protected directory OR lies
@@ -234,8 +256,8 @@ func hasPathPrefix(s, prefix string) bool {
 	return c == '/' || c == '.'
 }
 
-// hasDirPrefix reports whether s equals dir or is nested under it at a "/"
-// boundary. Unlike hasPathPrefix it does NOT treat "." as a boundary: a
+// hasDirPrefix reports whether s equals dir or is nested under it at a path
+// separator boundary (dir may itself end in one, e.g. a Windows drive root). Unlike hasPathPrefix it does NOT treat "." as a boundary: a
 // protected directory such as ~/Documents must match ~/Documents/x but never a
 // distinct sibling like ~/Documents.backup. (hasPathPrefix's "." boundary
 // exists only for the Time Machine prefix form
@@ -244,7 +266,8 @@ func hasDirPrefix(s, dir string) bool {
 	if !strings.HasPrefix(s, dir) {
 		return false
 	}
-	return len(s) == len(dir) || s[len(dir)] == '/'
+	return len(s) == len(dir) || os.IsPathSeparator(s[len(dir)]) ||
+		(len(dir) > 0 && os.IsPathSeparator(dir[len(dir)-1]))
 }
 
 func (s *Skipper) recordHit(path string) {

@@ -33,11 +33,12 @@ package filelog
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"syscall"
 
 	"github.com/step-security/dev-machine-guard/internal/paths"
 )
@@ -170,6 +171,13 @@ func Start(path string, maxBytes int64) (*Capture, error) {
 		return nil, fmt.Errorf("filelog: pipe: %w", err)
 	}
 
+	ignoreSIGPIPEOnce.Do(func() {
+		// Go kills the process on a broken-pipe write to fd 1/2 unless SIGPIPE
+		// is Notify'd; then the write just returns EPIPE. Notify (not Ignore,
+		// whose SIG_IGN would be inherited by every child we exec).
+		signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
+	})
+
 	c := &Capture{
 		origErr:   os.Stderr,
 		pipeRead:  r,
@@ -219,16 +227,24 @@ func (c *Capture) Stop() error {
 	return c.file.Close()
 }
 
+var ignoreSIGPIPEOnce sync.Once
+
 func (c *Capture) teeLoop() {
 	defer close(c.done)
-	dst := io.MultiWriter(c.origErr, c.file)
+	stderrOK := true
 	buf := make([]byte, 4096)
 	for {
 		n, err := c.pipeRead.Read(buf)
 		if n > 0 {
-			// Best-effort: a failed write to dst (file full, disk
-			// removed) must not stall the agent.
-			_, _ = dst.Write(buf[:n])
+			// Best-effort and independent: a dead stderr (EPIPE, closed)
+			// stops the console copy but not the file copy, and a failed
+			// file write must not stall the agent.
+			if stderrOK {
+				if _, werr := c.origErr.Write(buf[:n]); werr != nil {
+					stderrOK = false
+				}
+			}
+			_, _ = c.file.Write(buf[:n])
 		}
 		if err != nil {
 			return

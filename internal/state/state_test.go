@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"testing"
 	"time"
@@ -516,5 +517,70 @@ func TestInvalidate(t *testing.T) {
 	}
 	if err := Invalidate(dir); err == nil {
 		t.Fatal("invalidation failures must not be ignored")
+	}
+}
+
+// An undeletable state file (read-only parent, e.g. left root-owned by an
+// earlier run) must still be neutralized so the legacy upload can proceed.
+func TestInvalidate_UndeletableFileIsNeutralized(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a non-root POSIX read-only dir")
+	}
+	path := tempStatePath(t)
+	s := New(runningAgentVersion)
+	s.NPMProjects["/p"] = ProjectEntry{}
+	if err := s.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Dir(path)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	if err := Invalidate(path); err != nil {
+		t.Fatalf("Invalidate = %v, want nil", err)
+	}
+	got, _ := Load(path, runningAgentVersion)
+	if len(got.NPMProjects) != 0 {
+		t.Errorf("stale state still loads: %+v", got.NPMProjects)
+	}
+
+	// Neither removable nor writable: report it so the caller can warn.
+	if err := os.Chmod(path, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := Invalidate(path); err == nil {
+		t.Error("Invalidate on an unwritable, undeletable file = nil, want error")
+	}
+	got, err := Load(path, runningAgentVersion)
+	if err == nil || len(got.NPMProjects) != 0 {
+		t.Errorf("unwritable stale state loads: err=%v projects=%+v", err, got.NPMProjects)
+	}
+}
+
+// Windows sharing violations can leave the file in place with only the
+// marker written; Load must ignore the baseline until the next Save.
+func TestLoad_InvalidMarkerForcesFreshState(t *testing.T) {
+	path := tempStatePath(t)
+	s := New(runningAgentVersion)
+	s.NPMProjects["/p"] = ProjectEntry{}
+	if err := s.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(invalidMarker(path), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Load(path, runningAgentVersion); len(got.NPMProjects) != 0 {
+		t.Fatalf("flagged state still loads: %+v", got.NPMProjects)
+	}
+	if err := s.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(invalidMarker(path)); !os.IsNotExist(err) {
+		t.Fatalf("marker survives Save: %v", err)
+	}
+	if got, err := Load(path, runningAgentVersion); err != nil || len(got.NPMProjects) != 1 {
+		t.Fatalf("Load after Save = %+v, %v", got.NPMProjects, err)
 	}
 }
