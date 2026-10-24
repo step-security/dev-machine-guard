@@ -111,6 +111,9 @@ func main() {
 	if cfg.EnablePythonScan == nil && config.EnablePythonScan != nil {
 		cfg.EnablePythonScan = config.EnablePythonScan
 	}
+	if cfg.EnableRuntimeScan == nil && config.EnableRuntimeScan != nil {
+		cfg.EnableRuntimeScan = config.EnableRuntimeScan
+	}
 	// --legacy-python-scan / --disk-python-scan override the config-file value
 	// (which config.Load already applied to config.UseLegacyPythonScan).
 	if cfg.UseLegacyPythonScan != nil {

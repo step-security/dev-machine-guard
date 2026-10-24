@@ -41,6 +41,7 @@ var phaseBudgets = map[string]time.Duration{
 	"brew_scan":               5 * time.Minute,
 	"python_scan":             10 * time.Minute,
 	"syspkg_scan":             5 * time.Minute,
+	"runtime_scan":            3 * time.Minute, // walk is entry-budgeted; deadline marks it truncated
 	"node_scan":               15 * time.Minute,
 	// Spawns only — it never waits for a distro scan to finish — so this
 	// bounds a wedged wsl.exe, not the work. Also bounds the download of

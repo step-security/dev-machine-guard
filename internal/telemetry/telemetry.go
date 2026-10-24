@@ -26,6 +26,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
 	"github.com/step-security/dev-machine-guard/internal/detector/credentials"
 	"github.com/step-security/dev-machine-guard/internal/detector/rules"
+	"github.com/step-security/dev-machine-guard/internal/detector/runtimeinv"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/featuregate"
@@ -111,6 +112,7 @@ type Payload struct {
 	PythonProjectsRemoved   []model.RemovedProjectRef       `json:"python_projects_removed,omitempty"`
 	PythonGlobalsUnchanged  []model.UnchangedGlobalRef      `json:"python_globals_unchanged,omitempty"`
 	SystemPackageScans      []model.SystemPackageScanResult `json:"system_package_scans"`
+	RuntimeScan             *model.RuntimeScanResult        `json:"runtime_scan,omitempty"` // nil = runtime inventory disabled
 	AIAgents                []model.AITool                  `json:"ai_agents"`
 	MCPConfigs              []model.MCPConfigEnterprise     `json:"mcp_configs"`
 	NPMRCAudit              *model.NPMRCAudit               `json:"npmrc_audit,omitempty"`
@@ -159,6 +161,7 @@ type PerformanceMetrics struct {
 	PythonGlobalPkgsCount int   `json:"python_global_packages_count"`
 	PythonProjectsCount   int   `json:"python_projects_count"`
 	SystemPackagesCount   int   `json:"system_packages_count"`
+	RuntimesCount         int   `json:"runtimes_count"`
 	AgentSkillsCount      int   `json:"agent_skills_count"`
 	AgentPluginsCount     int   `json:"agent_plugins_count"`
 }
@@ -897,7 +900,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		fmt.Fprintln(os.Stderr)
 	}
 
-	// System package scanning (Linux only — rpm, dpkg, pacman, apk, snap, flatpak)
+	// System package scanning: Linux (rpm, dpkg, pacman, apk, snap, flatpak)
+	// and Windows (ARP registry, choco, scoop, winget portable).
 	var systemPackageScans []model.SystemPackageScanResult
 
 	if exec.GOOS() == model.PlatformLinux {
@@ -956,8 +960,37 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		fmt.Fprintln(os.Stderr)
 		endPhase(phaseCtx, phaseCancel, tracker, log, "syspkg_scan")
 		postPhase()
+	} else if exec.GOOS() == model.PlatformWindows {
+		phaseCtx, phaseCancel = startPhase(ctx, tracker, "syspkg_scan")
+		log.Progress("Detecting system packages...")
+		systemPackageScans = detector.NewWindowsPkgDetector(exec).Scan(phaseCtx)
+		for _, s := range systemPackageScans {
+			log.Progress("  %s: %d packages in %dms", s.ScanType, s.PackagesCount, s.ScanDurationMs)
+		}
+		fmt.Fprintln(os.Stderr)
+		endPhase(phaseCtx, phaseCancel, tracker, log, "syspkg_scan")
+		postPhase()
 	} else {
-		log.Progress("System package scanning: skipped (non-Linux)")
+		log.Progress("System package scanning: skipped (macOS uses Homebrew)")
+		fmt.Fprintln(os.Stderr)
+	}
+
+	// Language runtime inventory (all platforms): every node/python/php/java/
+	// go/ruby/deno/bun/dotnet install on disk, however it was installed.
+	var runtimeScan *model.RuntimeScanResult
+	if cfg.EnableRuntimeScan == nil || *cfg.EnableRuntimeScan {
+		phaseCtx, phaseCancel = startPhase(ctx, tracker, "runtime_scan")
+		log.Progress("Inventorying language runtimes...")
+		runtimeScan = runtimeinv.ScanResult(phaseCtx, exec)
+		log.Progress("  Found %d runtime installs in %dms", runtimeScan.RuntimesCount, runtimeScan.ScanDurationMs)
+		if runtimeScan.Truncated {
+			log.Progress("  Runtime walk stopped early (entry budget or deadline); results are partial")
+		}
+		fmt.Fprintln(os.Stderr)
+		endPhase(phaseCtx, phaseCancel, tracker, log, "runtime_scan")
+		postPhase()
+	} else {
+		log.Progress("Runtime inventory is DISABLED")
 		fmt.Fprintln(os.Stderr)
 	}
 
@@ -1304,6 +1337,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		PythonProjectsRemoved:   pyRemovedRefs,
 		PythonGlobalsUnchanged:  pyGlobalsUnchangedRefs,
 		SystemPackageScans:      systemPackageScans,
+		RuntimeScan:             runtimeScan,
 		AIAgents:                allAI,
 		MCPConfigs:              mcpConfigs,
 		NPMRCAudit:              &npmrcAudit,
@@ -1344,6 +1378,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 			PythonGlobalPkgsCount: len(pythonGlobalPkgs),
 			PythonProjectsCount:   len(pythonProjects),
 			SystemPackagesCount:   totalSystemPackagesCount(systemPackageScans),
+			RuntimesCount:         runtimeScanCount(runtimeScan),
 			AgentSkillsCount:      len(agentSkills),
 			AgentPluginsCount:     skillsResult.Plugins.PluginCount(),
 		},
@@ -1485,6 +1520,13 @@ func brewCasksCount(scans []model.BrewScanResult) int {
 		}
 	}
 	return 0
+}
+
+func runtimeScanCount(r *model.RuntimeScanResult) int {
+	if r == nil {
+		return 0
+	}
+	return r.RuntimesCount
 }
 
 func totalSystemPackagesCount(scans []model.SystemPackageScanResult) int {

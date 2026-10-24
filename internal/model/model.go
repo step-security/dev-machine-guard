@@ -26,11 +26,18 @@ type ScanResult struct {
 	SnapPackages      []SystemPackage `json:"snap_packages"`
 	FlatpakPkgManager *PkgManager     `json:"flatpak_package_manager,omitempty"`
 	FlatpakPackages   []SystemPackage `json:"flatpak_packages"`
-	NPMRCAudit        *NPMRCAudit     `json:"npmrc_audit,omitempty"`
-	PipAudit          *PipAudit       `json:"pip_audit,omitempty"`
-	PnpmAudit         *PnpmAudit      `json:"pnpm_audit,omitempty"`
-	BunAudit          *BunAudit       `json:"bun_audit,omitempty"`
-	YarnAudit         *YarnAudit      `json:"yarn_audit,omitempty"`
+
+	// WindowsPackageScans holds the Windows system package sources (arp,
+	// choco, scoop, winget); Windows only.
+	WindowsPackageScans []SystemPackageScanResult `json:"windows_package_scans,omitempty"`
+	// RuntimeScan is the language runtime inventory; nil when disabled.
+	RuntimeScan *RuntimeScanResult `json:"runtime_scan,omitempty"`
+
+	NPMRCAudit *NPMRCAudit `json:"npmrc_audit,omitempty"`
+	PipAudit   *PipAudit   `json:"pip_audit,omitempty"`
+	PnpmAudit  *PnpmAudit  `json:"pnpm_audit,omitempty"`
+	BunAudit   *BunAudit   `json:"bun_audit,omitempty"`
+	YarnAudit  *YarnAudit  `json:"yarn_audit,omitempty"`
 
 	// AgentSkills is the flat list of discovered AI agent skills. AgentSkillScan
 	// is the phase summary; its non-nil presence is the "scan ran" sentinel (a
@@ -208,6 +215,7 @@ type Summary struct {
 	SystemPackagesCount   int `json:"system_packages_count"`
 	SnapPackagesCount     int `json:"snap_packages_count"`
 	FlatpakPackagesCount  int `json:"flatpak_packages_count"`
+	RuntimesCount         int `json:"runtimes_count"`
 	AgentSkillsCount      int `json:"agent_skills_count"`
 	AgentPluginsCount     int `json:"agent_plugins_count"`
 }
@@ -296,7 +304,7 @@ type ProjectInfo struct {
 }
 
 // SystemPackage represents a package installed via the system package manager
-// (rpm, dpkg, pacman, apk, snap, flatpak).
+// (rpm, dpkg, pacman, apk, snap, flatpak; on Windows: ARP, choco, scoop, winget).
 type SystemPackage struct {
 	Name            string `json:"name"`
 	Version         string `json:"version"`
@@ -304,6 +312,7 @@ type SystemPackage struct {
 	Source          string `json:"source,omitempty"`            // Origin: source RPM, dpkg source, snap publisher, flatpak remote
 	InstallPath     string `json:"install_path,omitempty"`      // On-disk install root. Populated for snap (/snap/<name>/current) and flatpak (~/.local/share/flatpak/app/<id> or /var/lib/flatpak/app/<id>). Not applicable for rpm/dpkg/pacman/apk (file collections).
 	InstallTimeUnix int64  `json:"install_time_unix,omitempty"` // Unix epoch seconds when installed (rpm, dpkg, pacman)
+	Scope           string `json:"scope,omitempty"`             // Windows: "machine" (HKLM, ProgramData) or "user" (HKCU, user profile)
 
 	// Provenance & trust signals
 	Vendor        string `json:"vendor,omitempty"`          // Distributor: rpm VENDOR, dpkg Origin
@@ -324,6 +333,32 @@ type SystemPackage struct {
 
 	// Source control
 	CommitHash string `json:"commit_hash,omitempty"` // apk commit, flatpak active commit
+}
+
+// RuntimeInstall is one language runtime install found on disk (node, python,
+// java, …), independent of how it was installed.
+type RuntimeInstall struct {
+	Runtime         string `json:"runtime"`                     // node, python, php, java, go, ruby, deno, bun, dotnet
+	Version         string `json:"version"`                     // "unknown" when no strategy yielded one
+	VersionSource   string `json:"version_source"`              // file, pe, path, unknown
+	ExecutablePath  string `json:"executable_path"`             // symlink-resolved path of the binary
+	InstallRoot     string `json:"install_root,omitempty"`      // runtime home (parent of bin/, or the exe dir)
+	Source          string `json:"source"`                      // nvm, fnm, volta, brew, scoop, pyenv, sdkman, system, installer, manual, …
+	Scope           string `json:"scope"`                       // user (under the user's home) or machine
+	Vendor          string `json:"vendor,omitempty"`            // distribution vendor where known (java IMPLEMENTOR)
+	BundledBy       string `json:"bundled_by,omitempty"`        // app that ships this runtime privately; empty for standalone installs
+	Arch            string `json:"arch,omitempty"`              // from the binary header: amd64, arm64, 386, universal
+	InstallTimeUnix int64  `json:"install_time_unix,omitempty"` // executable mtime
+}
+
+// RuntimeScanResult holds the runtime inventory for enterprise telemetry.
+type RuntimeScanResult struct {
+	Runtimes       []RuntimeInstall `json:"runtimes"`
+	RuntimesCount  int              `json:"runtimes_count"`
+	Truncated      bool             `json:"truncated,omitempty"`       // walk stopped early (entry cap or deadline)
+	TruncatedRoots []string         `json:"truncated_roots,omitempty"` // set only when every truncation was a per-root budget hit: installs outside these roots are complete
+	Error          string           `json:"error,omitempty"`
+	ScanDurationMs int64            `json:"scan_duration_ms"`
 }
 
 // BrewPackage represents a single installed Homebrew formula or cask.
@@ -354,7 +389,7 @@ type PythonPackage struct {
 // Unlike BrewScanResult (which sends raw base64), this sends pre-parsed packages
 // since syspkg.go already handles the format-specific parsing edge cases.
 type SystemPackageScanResult struct {
-	ScanType       string          `json:"scan_type"` // "rpm", "dpkg", "pacman", "apk", "snap", "flatpak"
+	ScanType       string          `json:"scan_type"` // "rpm", "dpkg", "pacman", "apk", "snap", "flatpak"; Windows: "arp", "choco", "scoop", "winget"
 	PackageManager *PkgManager     `json:"package_manager,omitempty"`
 	Packages       []SystemPackage `json:"packages"`
 	PackagesCount  int             `json:"packages_count"`

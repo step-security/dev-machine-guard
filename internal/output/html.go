@@ -32,6 +32,8 @@ type htmlData struct {
 	// Nil means the phase did not run, which the template shows differently from a
 	// scan that ran and found nothing.
 	BrowserExtensionScan *model.BrowserExtensionScanInfo
+	WindowsPackageScans  []model.SystemPackageScanResult
+	RuntimeScan          *model.RuntimeScanResult
 	Summary              model.Summary
 }
 
@@ -80,6 +82,8 @@ func HTML(outputFile string, result *model.ScanResult) error {
 		AgentPlugins:      result.AgentPlugins,
 
 		BrowserExtensionScan: result.BrowserExtensionScan,
+		WindowsPackageScans:  result.WindowsPackageScans,
+		RuntimeScan:          result.RuntimeScan,
 		Summary:              result.Summary,
 	}
 
@@ -389,6 +393,38 @@ const htmlTemplate = `<!DOCTYPE html>
     {{end}}
   </table>
   {{end}}
+  </div>
+</div>
+{{end}}
+
+{{if .RuntimeScan}}
+<div class="section">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>Language Runtimes <span class="count">{{.Summary.RuntimesCount}} installs</span></h2>
+    <span class="toggle">&#9660;</span>
+  </div>
+  <div class="section-body">
+  <table>
+    <tr><th>Runtime</th><th>Version</th><th>Source</th><th>Path</th></tr>
+    {{range .RuntimeScan.Runtimes}}<tr><td>{{.Runtime}}</td><td>{{.Version}}</td><td>{{if .BundledBy}}bundled by {{.BundledBy}}{{else}}{{.Source}}{{end}}</td><td>{{.ExecutablePath}}</td></tr>
+    {{end}}
+  </table>
+  </div>
+</div>
+{{end}}
+
+{{range .WindowsPackageScans}}
+<div class="section">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>System Packages ({{.ScanType}}) <span class="count">{{.PackagesCount}} packages</span></h2>
+    <span class="toggle collapsed">&#9660;</span>
+  </div>
+  <div class="section-body collapsed">
+  <table>
+    <tr><th>Name</th><th>Version</th><th>Publisher</th></tr>
+    {{range .Packages}}<tr><td>{{.Name}}</td><td>{{.Version}}</td><td>{{.Vendor}}</td></tr>
+    {{end}}
+  </table>
   </div>
 </div>
 {{end}}

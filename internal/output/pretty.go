@@ -83,6 +83,12 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 	if result.FlatpakPkgManager != nil {
 		fmt.Fprintf(w, "    %-24s %s%d%s\n", "Flatpak Apps", c.green, result.Summary.FlatpakPackagesCount, c.reset)
 	}
+	if len(result.WindowsPackageScans) > 0 {
+		fmt.Fprintf(w, "    %-24s %s%d%s\n", "System Packages", c.green, result.Summary.SystemPackagesCount, c.reset)
+	}
+	if result.RuntimeScan != nil {
+		fmt.Fprintf(w, "    %-24s %s%d%s\n", "Language Runtimes", c.green, result.Summary.RuntimesCount, c.reset)
+	}
 	fmt.Fprintln(w)
 
 	// AI AGENTS AND TOOLS
@@ -304,6 +310,37 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 			}
 		} else {
 			fmt.Fprintf(w, "    %sNo flatpak apps found%s\n", c.dim, c.reset)
+		}
+		fmt.Fprintln(w)
+	}
+
+	// SYSTEM PACKAGES (Windows: one block per source)
+	for _, scan := range result.WindowsPackageScans {
+		fmt.Fprintf(w, "  %s%sSYSTEM PACKAGES (%s)%s\n", c.purple, c.bold, strings.ToUpper(scan.ScanType), c.reset)
+		fmt.Fprintln(w)
+		if len(scan.Packages) > 0 {
+			printSectionHeader(w, c, "Installed Packages", len(scan.Packages))
+			for _, pkg := range scan.Packages {
+				fmt.Fprintf(w, "      %-36s %s%s%s\n", pkg.Name, c.dim, pkg.Version, c.reset)
+			}
+		} else {
+			fmt.Fprintf(w, "    %sNo packages found%s\n", c.dim, c.reset)
+		}
+		fmt.Fprintln(w)
+	}
+
+	// LANGUAGE RUNTIMES
+	if result.RuntimeScan != nil {
+		printSectionHeader(w, c, "LANGUAGE RUNTIMES", result.RuntimeScan.RuntimesCount)
+		for _, r := range result.RuntimeScan.Runtimes {
+			origin := r.Source
+			if r.BundledBy != "" {
+				origin = "bundled by " + r.BundledBy
+			}
+			fmt.Fprintf(w, "      %-8s %-14s %s%-22s %s%s\n", r.Runtime, r.Version, c.dim, origin, r.ExecutablePath, c.reset)
+		}
+		if result.RuntimeScan.Truncated {
+			fmt.Fprintf(w, "    %sWalk stopped early; list may be partial%s\n", c.dim, c.reset)
 		}
 		fmt.Fprintln(w)
 	}

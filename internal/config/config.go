@@ -26,6 +26,7 @@ var (
 	EnableNPMScan       *bool // nil=auto
 	EnableBrewScan      *bool // nil=auto
 	EnablePythonScan    *bool // nil=auto
+	EnableRuntimeScan   *bool // nil=auto (on)
 	IncludeTCCProtected *bool // nil or false = skip macOS TCC-protected dirs (default); true = walk them. The scan as a whole runs in both cases; only reads inside the TCC-protected subtrees themselves (Documents, Mail, etc.) need the agent to have Full Disk Access (PPPC or manual grant) — without that, those walks return EACCES per entry while the rest of the scan completes normally. See docs/macos-tcc-permissions.md.
 	// IncludeNetworkVolumes defaults the OTHER way from IncludeTCCProtected:
 	// nil or true = walk macOS network volumes (default); false = skip them.
@@ -84,6 +85,7 @@ type ConfigFile struct {
 	EnableNPMScan         *bool    `json:"enable_npm_scan,omitempty"`
 	EnableBrewScan        *bool    `json:"enable_brew_scan,omitempty"`
 	EnablePythonScan      *bool    `json:"enable_python_scan,omitempty"`
+	EnableRuntimeScan     *bool    `json:"enable_runtime_scan,omitempty"`
 	IncludeTCCProtected   *bool    `json:"include_tcc_protected,omitempty"`
 	IncludeNetworkVolumes *bool    `json:"include_network_volumes,omitempty"`
 	ColorMode             string   `json:"color_mode,omitempty"`
@@ -240,6 +242,9 @@ func Load() {
 	}
 	if cfg.EnablePythonScan != nil && EnablePythonScan == nil {
 		EnablePythonScan = cfg.EnablePythonScan
+	}
+	if cfg.EnableRuntimeScan != nil && EnableRuntimeScan == nil {
+		EnableRuntimeScan = cfg.EnableRuntimeScan
 	}
 	if cfg.IncludeTCCProtected != nil && IncludeTCCProtected == nil {
 		IncludeTCCProtected = cfg.IncludeTCCProtected
@@ -648,6 +653,7 @@ func ShowConfigure() {
 	fmt.Printf("  %-24s %s\n", "Legacy Node Scan:", displayBoolScan(cfg.UseLegacyNodeScan))
 	fmt.Printf("  %-24s %s\n", "Enable Brew Scan:", displayBoolScan(cfg.EnableBrewScan))
 	fmt.Printf("  %-24s %s\n", "Enable Python Scan:", displayBoolScan(cfg.EnablePythonScan))
+	fmt.Printf("  %-24s %s\n", "Enable Runtime Scan:", displayBoolScan(cfg.EnableRuntimeScan))
 	fmt.Printf("  %-24s %s\n", "Legacy Python Scan:", displayBoolScan(cfg.UseLegacyPythonScan))
 	fmt.Printf("  %-24s %s\n", "Scan TCC-Protected Dirs:", displayTCC(cfg.IncludeTCCProtected))
 	fmt.Printf("  %-24s %s\n", "Scan Network Volumes:", displayNetworkVolumes(cfg.IncludeNetworkVolumes))
