@@ -312,6 +312,18 @@ var cliToolDefinitions = []cliToolSpec{
 		ResolveFunc:       resolveOMP,
 		StaticVersionOnly: true,
 	},
+	{
+		Name:   "crush",
+		Vendor: "Charm",
+		Binaries: []string{
+			"crush",
+			"~/go/bin/crush",
+			"/usr/local/bin/crush",
+			"/usr/bin/crush",
+			"/opt/homebrew/bin/crush",
+		},
+		ConfigDirs: []string{"~/.config/crush"},
+	},
 }
 
 // AICLIDetector detects AI CLI tools.
@@ -860,7 +872,8 @@ func aiCLIBinaryCandidateDirs(exec executor.Executor, homeDir string) []string {
 	home := func(parts ...string) string { return joinPath(homeDir, parts...) }
 	switch goos {
 	case model.PlatformDarwin, model.PlatformLinux:
-		dirs = append(dirs,
+		dirs = append(
+			dirs,
 			home(".local", "bin"), // Factory's AND Amp's installer target
 			home(".yarn", "bin"),  // yarn global
 			home("n", "bin"),      // n: n-install's default N_PREFIX
@@ -886,7 +899,8 @@ func aiCLIBinaryCandidateDirs(exec executor.Executor, homeDir string) []string {
 			dirs = append(dirs, globDirs(exec, home("Library", "Application Support", "fnm", "node-versions", "*", "installation", "bin"))...)
 		}
 	case model.PlatformWindows:
-		dirs = append(dirs,
+		dirs = append(
+			dirs,
 			home("bin"), // Factory's Windows installer target
 			home("AppData", "Local", "Microsoft", "WinGet", "Links"), // winget portable
 		)

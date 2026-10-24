@@ -13,6 +13,7 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
 - Passive PHP/Composer package inventory and configuration audit for developer machines. Collects project and global declarations, lockfiles and installed receipts, with redacted settings and configuration findings. PHP, Composer, plugins and scripts are never executed.
 - GitHub Copilot plugin inventory for the CLI, standalone app and VS Code. Collects recorded installations and live directory-marketplace selections, supplied skills, custom agents, command/rule/hook/LSP declarations, and sanitized plugin/user/project MCP definitions. Collection is file-only; uncertain formats report incomplete coverage. Runtime activation is not inferred. No Copilot usage or credential collection is added.
+- **Crush (Charm) in the AI CLI inventory**: the TUI coding agent, detected at its Homebrew, `go install`, manual, npm and Windows install paths with `~/.config/crush` as config evidence. Versions come from the Homebrew `Cellar/crush/<v>` layout or the `@charmland/crush` npm manifest, with `crush --version` as the guarded last fallback. Identified passively like the other non-colliding CLI specs — the unscoped npm `crush` package (an unrelated MediaCrush CLI) is the only same-name binary, so no identity ladder is used.
 
 ### Fixed
 

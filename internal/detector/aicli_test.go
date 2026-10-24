@@ -219,6 +219,91 @@ func TestAICLIDetector_FindsCursorAgent(t *testing.T) {
 	}
 }
 
+func TestAICLIDetector_FindsCrush(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetPath("crush", "/usr/local/bin/crush")
+	mock.SetCommand("crush version v0.98.1\n", "", 0, "/usr/local/bin/crush", "--version")
+	mock.SetDir("/Users/testuser/.config/crush")
+
+	det := NewAICLIDetector(mock)
+	results := det.Detect(context.Background())
+
+	found := false
+	for _, r := range results {
+		if r.Name == "crush" {
+			found = true
+			if r.Vendor != "Charm" {
+				t.Errorf("expected vendor Charm, got %s", r.Vendor)
+			}
+			if r.Type != "cli_tool" {
+				t.Errorf("expected type cli_tool, got %s", r.Type)
+			}
+			if r.Version != "v0.98.1" {
+				t.Errorf("expected version v0.98.1, got %s", r.Version)
+			}
+			if r.BinaryPath != "/usr/local/bin/crush" {
+				t.Errorf("expected binary /usr/local/bin/crush, got %s", r.BinaryPath)
+			}
+			if r.ConfigDir != "/Users/testuser/.config/crush" {
+				t.Errorf("expected config dir /Users/testuser/.config/crush, got %s", r.ConfigDir)
+			}
+		}
+	}
+	if !found {
+		t.Error("crush not found in results")
+	}
+}
+
+func TestAICLIDetector_CrushCellarLayout(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetPath("/opt/homebrew/bin/crush", "/opt/homebrew/bin/crush")
+	mock.SetSymlink("/opt/homebrew/bin/crush", "/opt/homebrew/Cellar/crush/0.98.1/bin/crush")
+	mock.SetCommand("crush version 9.9.9\n", "", 0, "/opt/homebrew/bin/crush", "--version")
+
+	det := NewAICLIDetector(mock)
+	results := det.Detect(context.Background())
+
+	for _, r := range results {
+		if r.Name == "crush" {
+			if r.Version != "0.98.1" {
+				t.Errorf("expected version 0.98.1 from the Cellar layout, got %s", r.Version)
+			}
+			if r.BinaryPath != "/opt/homebrew/bin/crush" {
+				t.Errorf("expected binary /opt/homebrew/bin/crush, got %s", r.BinaryPath)
+			}
+			if r.ConfigDir != "" {
+				t.Errorf("expected no config dir without ~/.config/crush, got %s", r.ConfigDir)
+			}
+			return
+		}
+	}
+	t.Fatal("crush not found — the Homebrew candidate path must resolve like PATH does")
+}
+
+func TestAICLIDetector_CrushWindowsWinget(t *testing.T) {
+	binary := `C:\Users\u\AppData\Local\Microsoft\WinGet\Links\crush.exe`
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	mock.SetPath("crush", binary)
+	mock.SetCommand("crush version v0.98.1\n", "", 0, binary, "--version")
+
+	det := NewAICLIDetector(mock)
+	results := det.Detect(context.Background())
+
+	for _, r := range results {
+		if r.Name == "crush" {
+			if r.BinaryPath != binary {
+				t.Errorf("expected binary %s, got %s", binary, r.BinaryPath)
+			}
+			if r.Version != "v0.98.1" {
+				t.Errorf("expected version v0.98.1, got %s", r.Version)
+			}
+			return
+		}
+	}
+	t.Fatal("crush not found — the bare-name candidate must resolve on GOOS=windows")
+}
+
 // TestAICLIDetector_ResolvesNpmInstallPath asserts that when the binary on
 // PATH is a symlink to a node_modules package (the standard layout for
 // claude-code, codex, opencode, etc.), the detector surfaces both the shim
