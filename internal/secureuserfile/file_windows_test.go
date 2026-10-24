@@ -3,6 +3,7 @@
 package secureuserfile
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"os/user"
@@ -273,9 +274,155 @@ func TestSecureUserFile_PreexistingWrongOwnerRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer h.Close()
+	before := windowsSecurityDescriptor(t, path)
 	file := openSecureTestFile(t, h, "config")
 	if _, _, _, err := file.Read(); !errors.Is(err, ErrTargetUnusable) {
 		t.Fatalf("Read error = %v, want ErrTargetUnusable", err)
 	}
+	if err := file.RepairMetadata(FileMode); !errors.Is(err, ErrTargetUnusable) {
+		t.Fatalf("RepairMetadata error = %v, want ErrTargetUnusable", err)
+	}
+	if after := windowsSecurityDescriptor(t, path); after != before {
+		t.Fatalf("wrong-owner descriptor changed: %s -> %s", before, after)
+	}
 	assertWindowsOwner(t, path, originalOwner)
+}
+
+// setModifyOnlyACL gives path the shape a legacy object can have: the target
+// user holds Modify (0x1301bf: no WRITE_DAC or WRITE_OWNER), not Full Control,
+// so only the owner's implicit READ_CONTROL|WRITE_DAC can change its permissions.
+func setModifyOnlyACL(t *testing.T, h *Home, path string, directory bool) {
+	t.Helper()
+	flags := ""
+	if directory {
+		flags = "OICI"
+	}
+	sd, err := windows.SecurityDescriptorFromString("D:P(A;" + flags + ";0x1301bf;;;" + h.targetUser.Uid + ")(A;" + flags + ";FA;;;SY)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	acl, _, err := sd.DACL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, acl, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func windowsSecurityDescriptor(t *testing.T, path string) string {
+	t.Helper()
+	descriptor, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		t.Fatalf("GetNamedSecurityInfo(%q): %v", path, err)
+	}
+	return descriptor.String()
+}
+
+func requireOwnerAssignmentDenied(t *testing.T, h *Home, path string, directory bool) {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := applySecureMetadata(h, f, FileMode, directory); !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		t.Fatalf("owner-assigning metadata on Modify-only %q = %v, want access denied", path, err)
+	}
+}
+
+func requireSecurePath(t *testing.T, h *Home, path string, mode os.FileMode) {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if secure, err := h.MetadataSecure(f, mode); err != nil || !secure {
+		t.Fatalf("metadata %q = %v, %v, want secure", path, secure, err)
+	}
+}
+
+func TestSecureUserFile_RepairWithoutOwnershipRights(t *testing.T) {
+	home := t.TempDir()
+	h := newSecureTestHome(t, home)
+	probe := filepath.Join(t.TempDir(), "probe")
+	if err := os.WriteFile(probe, nil, FileMode); err != nil {
+		t.Fatal(err)
+	}
+	setModifyOnlyACL(t, h, probe, false)
+	if f, err := os.Open(probe); err != nil {
+		t.Fatal(err)
+	} else {
+		err = applySecureMetadata(h, f, FileMode, false)
+		_ = f.Close()
+		if err == nil {
+			t.Skip("this token can assign ownership without WRITE_OWNER; run as a standard user")
+		}
+	}
+	targetSID, err := windows.StringToSid(h.targetUser.Uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, ".stepsecurity")
+	if err := os.Mkdir(dir, ParentMode); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(dir, "state.json")
+	lockPath := statePath + ".lock"
+	original := []byte(`{"schema_version":1}` + "\n")
+	for _, path := range []string{statePath, lockPath} {
+		if err := os.WriteFile(path, original, FileMode); err != nil {
+			t.Fatal(err)
+		}
+		setModifyOnlyACL(t, h, path, false)
+		requireOwnerAssignmentDenied(t, h, path, false)
+	}
+	setModifyOnlyACL(t, h, dir, true)
+	requireOwnerAssignmentDenied(t, h, dir, true)
+
+	if err := h.EnsureParent(filepath.Join(".stepsecurity", "state.json")); err != nil {
+		t.Fatalf("EnsureParent on Modify-only parent: %v", err)
+	}
+	requireSecurePath(t, h, dir, ParentMode)
+
+	state := openSecureTestFile(t, h, filepath.Join(".stepsecurity", "state.json"))
+	if err := state.RepairMetadata(FileMode); err != nil {
+		t.Fatalf("RepairMetadata on Modify-only file: %v", err)
+	}
+	requireSecurePath(t, h, statePath, FileMode)
+
+	lockFile := openSecureTestFile(t, h, filepath.Join(".stepsecurity", "state.json.lock"))
+	lock, err := lockFile.OpenLock()
+	if err != nil {
+		t.Fatalf("OpenLock on Modify-only lock: %v", err)
+	}
+	_ = lock.Close()
+	requireSecurePath(t, h, lockPath, FileMode)
+
+	for _, path := range []string{dir, statePath, lockPath} {
+		assertWindowsOwner(t, path, targetSID)
+	}
+	for _, path := range []string{statePath, lockPath} {
+		got, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(got, original) {
+			t.Fatalf("%q bytes = %q, %v, want unchanged", path, got, err)
+		}
+	}
+
+	before := windowsSecurityDescriptor(t, statePath)
+	if err := state.RepairMetadata(FileMode); err != nil {
+		t.Fatalf("RepairMetadata on secure file: %v", err)
+	}
+	if after := windowsSecurityDescriptor(t, statePath); after != before {
+		t.Fatalf("secure file descriptor changed: %s -> %s", before, after)
+	}
+
+	absent := openSecureTestFile(t, h, filepath.Join(".stepsecurity", "absent.json"))
+	if err := absent.RepairMetadata(FileMode); err != nil {
+		t.Fatalf("RepairMetadata on absent file: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "absent.json")); !os.IsNotExist(err) {
+		t.Fatalf("absent file created: %v", err)
+	}
 }

@@ -2,6 +2,7 @@ package devicepolicy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -31,7 +32,7 @@ func TestConfigureCacheTargetWithoutWindowsUserPreservesState(t *testing.T) {
 	mock := executor.NewMock()
 	mock.SetGOOS(model.PlatformWindows)
 	mock.SetLoggedInUserError(errors.New("session 0"))
-	if target, restore, err := ConfigureCacheTarget(mock); err == nil || restore != nil || target != nil {
+	if target, restore, err := ConfigureCacheTarget(mock, nil); err == nil || restore != nil || target != nil {
 		t.Fatalf("ConfigureCacheTarget returned target=%t, restore=%t, err=%v; want no target error", target != nil, restore != nil, err)
 	}
 	after, err := os.ReadFile(path)
@@ -57,7 +58,7 @@ func TestConfiguredCacheRejectsRedirectedStateParent(t *testing.T) {
 	normalizeSecureTestUser(t, u)
 	mock := executor.NewMock()
 	mock.SetGOOS(model.PlatformWindows)
-	target, restore, err := ConfigureCacheTarget(secureTestExecutor{Executor: mock, user: u})
+	target, restore, err := ConfigureCacheTarget(secureTestExecutor{Executor: mock, user: u}, nil)
 	if err == nil || target != nil || restore != nil {
 		t.Fatalf("ConfigureCacheTarget returned target=%t restore=%t err=%v, want redirected-parent refusal", target != nil, restore != nil, err)
 	}
@@ -840,6 +841,23 @@ func TestClearRefusesUnreadableFile(t *testing.T) {
 	}
 	if _, statErr := os.Stat(path); statErr != nil {
 		t.Fatalf("the state file must still exist, stat err = %v", statErr)
+	}
+	assertStateFileUnchanged(t, path, before)
+}
+
+// TestMarkerClearStillRemovesBlockWithUnreadableState pins the non-Windows side
+// of the Windows-only clear gate: the token-bearing block is still removed, and
+// only the record drop reports the unreadable store.
+func TestMarkerClearStillRemovesBlockWithUnreadableState(t *testing.T) {
+	path, before := seedUnreadableState(t)
+	w := &fakeWriter{value: "block", present: true}
+	r, _ := newNPMRec(t, EffectivePolicy{Category: CategoryPackageConfig, Target: TargetNPM, Clear: true}, w, &npmStore{path: path})
+
+	if err := r.Reconcile(context.Background()); err == nil {
+		t.Fatal("clear with an unreadable state file must report the failed record drop")
+	}
+	if w.clears != 1 || w.present {
+		t.Fatalf("managed block clears=%d present=%v, want removed once", w.clears, w.present)
 	}
 	assertStateFileUnchanged(t, path, before)
 }
