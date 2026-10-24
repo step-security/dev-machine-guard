@@ -20,6 +20,8 @@ var pnpmSecurityRelevantKeys = map[string]string{
 	"package-import-method":           "how pkgs are linked from the store",
 	"min-release-age":                 "skip versions newer than N days (defense vs just-published worms)",
 	"min-release-age-exclude":         "package names exempt from min-release-age",
+	"minimumReleaseAge":               "skip versions newer than N minutes (defense vs just-published worms)",
+	"minimum-release-age":             "skip versions newer than N minutes (defense vs just-published worms)",
 	"verify-store-integrity":          "verify store contents on each install",
 	"side-effects-cache":              "cache build artifacts of native deps",
 	"shamefully-hoist":                "flatten node_modules (compatibility shim; loosens isolation)",
