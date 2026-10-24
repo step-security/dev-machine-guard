@@ -14,5 +14,5 @@ if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
 REM msiexec resolves the ProductCode from the MSI file metadata, so the
 REM uninstall targets the exact product/version of the shipped MSI.
-msiexec /x "%MSI%" /qn /l*v "%LOG%"
+msiexec /x "%MSI%" /qn /norestart /l*v "%LOG%"
 exit /b %ERRORLEVEL%

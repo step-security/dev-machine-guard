@@ -10,7 +10,7 @@ mkdir -p "$FUZZ_LOG_DIR"
 
 if [ "$#" -eq 0 ]; then
     set -- ./internal/detector/rules ./internal/detector ./internal/detector/configaudit \
-        ./internal/state ./internal/detector/credentials
+        ./internal/state ./internal/detector/credentials ./internal/updatestate
 fi
 
 status=0

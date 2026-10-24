@@ -395,7 +395,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		close(sigHandlerDone)
 
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic in telemetry.Run: %v", r)
+			err = fmt.Errorf("%w: %v", ErrPanic, r)
 			reportFailedOnce(err.Error())
 			return
 		}
@@ -569,8 +569,15 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		log.Debug("scan-state: using legacy full-snapshot uploads")
 	}
 
-	// Report "started" now that we have a device_id. Fire-and-forget.
-	reportRunStatus(ctx, log, executionID, deviceID, runStatusStarted, "", invocationMethod)
+	// Report "started" now that we have a device_id. Once the backend has
+	// it, mark the bootstrap's run record (self-update health, spec §4).
+	scanCheckpoint(log, "scan.before-started")
+	if reportRunStatus(ctx, log, executionID, deviceID, runStatusStarted, "", invocationMethod) {
+		if err := markRunStarted(); err != nil {
+			log.Debug("run record: %v", err)
+		}
+	}
+	scanCheckpoint(log, "scan.after-started")
 
 	// First progress upsert: surfaces device_info completion immediately
 	// without waiting for the 5-minute heartbeat, and FORCE-attaches the log

@@ -1,7 +1,8 @@
 name: MSI Smoke Test
 
-# Runs the full Windows MSI flow (build → install → verify → uninstall)
-# on a fresh windows-latest runner. Catches breakage in the WiX manifest,
+# Runs the full Windows MSI flow (build → install → verify → bootstrap run +
+# SYSTEM update tick → repair → N→N+1 upgrade → uninstall) on a fresh
+# windows-latest runner. Catches breakage in the WiX manifest,
 # the deferred-CA wiring, the configure --non-interactive path, or the
 # icacls hardening — all of which only surface on a real install.
 #
@@ -44,9 +45,9 @@ concurrency:
 
 jobs:
   msi-smoke:
-    name: Build, install, verify, uninstall
+    name: Build, install, verify, repair, upgrade, uninstall
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -78,7 +79,9 @@ jobs:
           go build -trimpath -ldflags "-s -w" `
             -o "$PWD\dmg-smoke.exe" `
             ./cmd/stepsecurity-dev-machine-guard
-          go build -trimpath -ldflags "-s -w -H windowsgui" `
+          # The launcher (= the bootstrap) carries the fault checkpoints, inert
+          # unless DMG_FAULT is set, so a step can hang a bootstrap on purpose.
+          go build -trimpath -tags selfupdate_faults -ldflags "-s -w -H windowsgui" `
             -o "$PWD\dmg-smoke-task.exe" `
             ./cmd/stepsecurity-dev-machine-guard-task
           # The MSI's third component: the Linux build of the same agent, which
@@ -115,6 +118,35 @@ jobs:
             -out "dist\dmg-smoke.msi"
           Get-Item "dist\dmg-smoke.msi" | Select-Object Name, Length
 
+          # N+1: the same payload under the next patch version, for the
+          # major-upgrade path (seed\<N+1>, no downgrade of a newer current).
+          $p = $version.Split('.')
+          $next = "$($p[0]).$($p[1]).$([int]$p[2] + 1)"
+          wix build packaging/windows/Product.wxs `
+            -arch x64 `
+            -ext WixToolset.Util.wixext `
+            -d Arch=x64 `
+            -d "Version=$next" `
+            -d "BinaryPath=$PWD\dmg-smoke.exe" `
+            -d "LauncherPath=$PWD\dmg-smoke-task.exe" `
+            -d "LinuxBinaryPath=$PWD\dmg-smoke-linux" `
+            -out "dist\dmg-smoke-next.msi"
+          # N+1 with the test-only late-failure hook (WIXFAILWHENDEFERRED=1
+          # makes the transaction fail after adopt-seed), for the rollback path.
+          wix build packaging/windows/Product.wxs `
+            -arch x64 `
+            -ext WixToolset.Util.wixext `
+            -d Arch=x64 `
+            -d "Version=$next" `
+            -d "TestFailUpgrade=1" `
+            -d "BinaryPath=$PWD\dmg-smoke.exe" `
+            -d "LauncherPath=$PWD\dmg-smoke-task.exe" `
+            -d "LinuxBinaryPath=$PWD\dmg-smoke-linux" `
+            -out "dist\dmg-smoke-next-fail.msi"
+          "MSI_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "MSI_NEXT_VERSION=$next" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "INSTALLED_MSI=dist\dmg-smoke.msi" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Install MSI with synthetic tenant config
         shell: pwsh
         run: |
@@ -123,11 +155,12 @@ jobs:
           # --ignore-telemetry-error so initial telemetry POST failure
           # doesn't roll back the install. Exit 0 expected.
           $p = Start-Process -FilePath "msiexec.exe" -ArgumentList @(
-            "/i", "dist\dmg-smoke.msi", "/qn",
+            "/i", "dist\dmg-smoke.msi", "/qn", "/norestart",
             "CUSTOMERID=ci-smoke",
             "APIENDPOINT=https://api.invalid.example",
             "APIKEY=ci-test-fake-api-key",
             "SCANFREQUENCY=4",
+            "AUTOUPDATE=0",
             "/l*v", "dist\dmg-install.log"
           ) -Wait -PassThru
           Write-Host "msiexec exit: $($p.ExitCode)"
@@ -138,182 +171,397 @@ jobs:
             exit 1
           }
 
+      - name: Write assertion helpers
+        shell: pwsh
+        run: |
+          # Shared by the verify steps below (dot-sourced).
+          @'
+          $script:fail = $false
+          $root   = "C:\Program Files\StepSecurity"
+          $boot   = "$root\stepsecurity-dev-machine-guard-bootstrap.exe"
+          $data   = "C:\ProgramData\StepSecurity"
+          $tasks  = @("StepSecurity Dev Machine Guard", "StepSecurity Dev Machine Guard (Logon)", "StepSecurity Dev Machine Guard (Update)")
+          function Check($ok, $msg) {
+            if ($ok) { Write-Host "[OK] $msg" } else { Write-Host "::error::$msg"; $script:fail = $true }
+          }
+          function Done { if ($script:fail) { exit 1 }; exit 0 }
+          function State { Get-Content "$root\state\state.json" -Raw | ConvertFrom-Json }
+          # auto_update in the machine config: 'true', 'false' or '' (missing).
+          function AutoUpdate {
+            $c = Get-Content "$data\config.json" -Raw | ConvertFrom-Json
+            if ($null -eq $c.auto_update) { return '' }
+            return "$($c.auto_update)".ToLower()
+          }
+          function TaskXml($name) { [xml](schtasks /query /tn $name /xml | Out-String) }
+          function UsableDir($d) { (Test-Path "$d\stepsecurity-dev-machine-guard.exe") -and (Test-Path "$d\stepsecurity-dev-machine-guard-task.exe") -and (Test-Path "$d\dmg-linux") }
+          function Msi($argList, $log) {
+            # Wait for msiexec itself only (not descendants), bounded, and dump
+            # the log tail plus any DMG processes when it doesn't finish.
+            # /norestart: a reboot-required result must fail the step, not
+            # restart the runner (which wedges the job with no logs).
+            $p = Start-Process -FilePath "msiexec.exe" -ArgumentList ($argList + @("/norestart", "/l*v", $log)) -PassThru
+            if (-not $p.WaitForExit(300000)) {
+              Write-Host "::error::msiexec $($argList -join ' ') still running after 5 min"
+              Get-Process | Where-Object { $_.Path -and ($_.Path -like "$root\*" -or $_.Name -like 'msiexec*') } | Format-Table Id, Name, Path -AutoSize | Out-String | Write-Host
+              Get-Content $log -Tail 120 -ErrorAction SilentlyContinue | Out-Host
+              $p.Kill(); return -1
+            }
+            if ($p.ExitCode -ne 0) { Get-Content $log -Tail 80 -ErrorAction SilentlyContinue | Out-Host }
+            return $p.ExitCode
+          }
+          function DmgProcesses { Get-Process | Where-Object { $_.Path -and $_.Path -like "$root\*" } | Format-Table Id, Name, Path -AutoSize | Out-String | Write-Host }
+          function AssertTasks {
+            foreach ($t in $tasks) {
+              schtasks /query /tn $t 2>&1 | Out-Null
+              Check ($LASTEXITCODE -eq 0) "task registered: $t"
+            }
+            foreach ($t in $tasks[0..1]) {
+              $x = TaskXml $t
+              $exec = $x.Task.Actions.Exec
+              Check ($exec.Command.Trim('"') -eq $boot) "$t action runs the bootstrap ($($exec.Command))"
+              Check ($exec.Arguments -match '^run send-telemetry --install-dir=') "$t arguments: $($exec.Arguments)"
+              Check ($x.Task.Principals.Principal.GroupId -eq 'S-1-5-4' -or $x.Task.Principals.Principal.UserId -eq 'S-1-5-4') "$t principal is INTERACTIVE"
+            }
+            $u = TaskXml $tasks[2]
+            $exec = $u.Task.Actions.Exec
+            Check ($exec.Command.Trim('"') -eq $boot -and $exec.Arguments -eq 'update') "update task action: $($exec.Command) $($exec.Arguments)"
+            $uid = $u.Task.Principals.Principal.UserId
+            Check ($uid -eq 'S-1-5-18' -or $uid -match 'SYSTEM') "update task principal SYSTEM ($uid)"
+            $st = $u.Task.Settings
+            Check ($st.MultipleInstancesPolicy -eq 'IgnoreNew') "update task IgnoreNew"
+            Check ($st.ExecutionTimeLimit -eq 'PT30M') "update task ExecutionTimeLimit PT30M"
+            Check ($st.StartWhenAvailable -eq 'true') "update task StartWhenAvailable"
+            Check ($st.DisallowStartIfOnBatteries -eq 'false' -and $st.StopIfGoingOnBatteries -eq 'false') "update task runs on battery"
+            Check ($u.Task.Triggers.TimeTrigger.Repetition.Interval -eq 'PT1H' -and $u.Task.Triggers.TimeTrigger.RandomDelay -eq 'PT10M') "update task hourly + 10 min random delay"
+            Check ($u.Task.Triggers.BootTrigger.Delay -eq 'PT15M') "update task at boot + 15 min"
+          }
+          function AssertProtected($dir) {
+            # Exact: protected DACL, owner SYSTEM, and exactly these three
+            # explicit ACEs. Any extra ACE (e.g. Users:Modify) fails (R-B-3).
+            $acl = Get-Acl $dir
+            Check ($acl.Owner -eq 'NT AUTHORITY\SYSTEM') "$dir owner SYSTEM ($($acl.Owner))"
+            Check $acl.AreAccessRulesProtected "$dir DACL protected (inheritance off)"
+            $got = @($acl.Access | ForEach-Object {
+              "$($_.AccessControlType)|$($_.IdentityReference)|$($_.FileSystemRights)|$($_.InheritanceFlags)|$($_.IsInherited)"
+            } | Sort-Object)
+            $want = @(
+              'Allow|BUILTIN\Administrators|FullControl|ContainerInherit, ObjectInherit|False',
+              'Allow|BUILTIN\Users|ReadAndExecute, Synchronize|ContainerInherit, ObjectInherit|False',
+              'Allow|NT AUTHORITY\SYSTEM|FullControl|ContainerInherit, ObjectInherit|False'
+            ) | Sort-Object
+            Check (($got -join "`n") -eq ($want -join "`n")) "$dir DACL is exactly SYSTEM F, Administrators F, Users RX:`n  got: $($got -join '; ')"
+          }
+          '@ | Set-Content -Path "$env:RUNNER_TEMP\dmg-assert.ps1"
+
       - name: Verify install artifacts
         shell: pwsh
         run: |
-          $bin      = "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard.exe"
-          $launcher = "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard-task.exe"
-          $cfg      = "C:\ProgramData\StepSecurity\config.json"
-          $task     = "StepSecurity Dev Machine Guard"
+          . "$env:RUNNER_TEMP\dmg-assert.ps1"
+          $ver  = $env:MSI_VERSION
+          $seed = "$root\seed\$ver"
+          $cfg  = "$data\config.json"
 
-          $checks = @()
+          # 1. Layout: bootstrap + seed; the legacy top-level agent/launcher are gone.
+          Check (Test-Path $boot) "bootstrap present"
+          Check (UsableDir $seed) "seed\$ver has the agent, launcher and dmg-linux"
+          Check (-not (Test-Path "$root\stepsecurity-dev-machine-guard.exe")) "no top-level agent"
+          Check (-not (Test-Path "$root\stepsecurity-dev-machine-guard-task.exe")) "no top-level launcher"
 
-          # 1a. Agent binary on disk
-          if (Test-Path $bin) {
-            Write-Host "[OK] Agent present at $bin"
-            $checks += $true
-          } else {
-            Write-Host "::error::Agent missing: $bin"
-            $checks += $false
-          }
+          # 1b. dmg-linux must sit beside agent.exe (the WSL scan phase looks next
+          # to its own executable) and be a 64-bit x86-64 ELF.
+          $hdr = [byte[]]::new(20)
+          $fs = [System.IO.File]::OpenRead("$seed\dmg-linux")
+          try { $null = $fs.Read($hdr, 0, 20) } finally { $fs.Dispose() }
+          $machine = $hdr[18] + ($hdr[19] -shl 8)
+          Check ($hdr[0] -eq 0x7F -and $hdr[1] -eq 0x45 -and $hdr[2] -eq 0x4C -and $hdr[3] -eq 0x46 -and $hdr[4] -eq 2 -and $machine -eq 0x3E) "dmg-linux is a 64-bit x86-64 ELF"
 
-          # 1b. Launcher binary on disk
-          if (Test-Path $launcher) {
-            Write-Host "[OK] Launcher present at $launcher"
-            $checks += $true
-          } else {
-            Write-Host "::error::Launcher missing: $launcher"
-            $checks += $false
-          }
+          # 2. adopt-seed: versions\<ver> copied, state.json current = seed,
+          # versions\ and state\ protected.
+          Check ((UsableDir "$root\versions\$ver") -and (Test-Path "$root\versions\$ver\manifest.json")) "versions\$ver adopted from the seed, with manifest"
+          $state = State
+          Check ($state.schema -eq 1 -and $state.current -eq $ver) "state.json current = $ver (got $($state.current))"
+          AssertProtected "$root\versions"
+          AssertProtected "$root\state"
 
-          # 1c. The Linux agent, beside the Windows one. "Beside" is the whole
-          # requirement: the WSL scan phase resolves this binary relative to
-          # its own executable, so a component that installs anywhere else
-          # ships fine and is silently inert. The ELF header is checked because
-          # Windows never executes this file, so nothing else here would notice
-          # if the wrong architecture were packaged.
-          $linuxAgent = "C:\Program Files\StepSecurity\dmg-linux"
-          if (Test-Path $linuxAgent) {
-            $hdr = [byte[]]::new(20)
-            $fs = [System.IO.File]::OpenRead($linuxAgent)
-            try { $null = $fs.Read($hdr, 0, 20) } finally { $fs.Dispose() }
-            # ELF magic, EI_CLASS=2 (64-bit), e_machine 0x3E (x86-64) at offset 18.
-            $machine = $hdr[18] + ($hdr[19] -shl 8)
-            if ($hdr[0] -eq 0x7F -and $hdr[1] -eq 0x45 -and $hdr[2] -eq 0x4C -and $hdr[3] -eq 0x46 `
-                -and $hdr[4] -eq 2 -and $machine -eq 0x3E) {
-              Write-Host "[OK] dmg-linux present beside the agent, 64-bit x86-64 ELF"
-              $checks += $true
-            } else {
-              Write-Host "::error::dmg-linux is not a 64-bit x86-64 ELF (class=$($hdr[4]) machine=0x$('{0:X2}' -f $machine))"
-              $checks += $false
-            }
-          } else {
-            Write-Host "::error::dmg-linux missing: $linuxAgent"
-            $checks += $false
-          }
+          # 3. AgentVersion (Intune detection) = MSI version; RunningVersion = current.
+          $av = (Get-ItemProperty -Path 'HKLM:\Software\StepSecurity' -Name AgentVersion -ErrorAction SilentlyContinue).AgentVersion
+          Check ($av -eq $ver) "AgentVersion = $ver ($av)"
+          $rv = (Get-ItemProperty -Path 'HKLM:\Software\StepSecurity' -Name RunningVersion -ErrorAction SilentlyContinue).RunningVersion
+          Check ($rv -eq $ver) "RunningVersion = $ver, set by adopt-seed with current ($rv)"
 
-          # 2. Machine-wide config exists and contains our values
-          if (Test-Path $cfg) {
-            $content = Get-Content $cfg -Raw
-            if ($content -match '"customer_id"\s*:\s*"ci-smoke"' -and
-                $content -match '"api_key"\s*:\s*"ci-test-fake-api-key"') {
-              Write-Host "[OK] Config written with expected values"
-              $checks += $true
-            } else {
-              Write-Host "::error::Config content unexpected:"
-              Write-Host $content
-              $checks += $false
-            }
-          } else {
-            Write-Host "::error::Config missing: $cfg"
-            $checks += $false
-          }
+          # 4. Machine-wide config with our values; installed with AUTOUPDATE=0.
+          $content = Get-Content $cfg -Raw
+          Check ($content -match '"customer_id"\s*:\s*"ci-smoke"' -and $content -match '"api_key"\s*:\s*"ci-test-fake-api-key"') "config written with expected values"
+          Check ($content -match '"auto_update"\s*:\s*false') "AUTOUPDATE=0 wrote auto_update false"
 
-          # 3. ACL hardening on config.json — Users should be Read only,
-          # Administrators + SYSTEM should be Full Control, inheritance disabled.
+          # 5. config.json ACL hardening: Users R, Admins + SYSTEM F.
           $acl = & icacls $cfg | Out-String
-          $aclOk = $true
-          if ($acl -notmatch 'BUILTIN\\Users:\(R\)')              { $aclOk = $false; Write-Host "::error::Users(R) ACE missing" }
-          if ($acl -notmatch 'BUILTIN\\Administrators:\(F\)')     { $aclOk = $false; Write-Host "::error::Administrators(F) ACE missing" }
-          if ($acl -notmatch 'NT AUTHORITY\\SYSTEM:\(F\)')        { $aclOk = $false; Write-Host "::error::SYSTEM(F) ACE missing" }
-          if ($aclOk) {
-            Write-Host "[OK] config.json ACL hardened (Users:R, Admins:F, SYSTEM:F)"
-            $checks += $true
-          } else {
-            Write-Host "::error::ACL not as expected:"
-            Write-Host $acl
-            $checks += $false
-          }
+          Check ($acl -match 'BUILTIN\\Users:\(R\)' -and $acl -match 'BUILTIN\\Administrators:\(F\)' -and $acl -match 'NT AUTHORITY\\SYSTEM:\(F\)') "config.json ACL hardened"
 
-          # 4. Scheduled task registered, runs as INTERACTIVE, and its
-          # action points at the launcher (not the agent directly).
-          $taskInfo = schtasks /query /tn $task /v /fo LIST 2>&1
-          if ($LASTEXITCODE -eq 0) {
-            $runAs = ($taskInfo | Select-String -Pattern '^\s*Run As User:').ToString()
-            if ($runAs -match 'INTERACTIVE') {
-              Write-Host "[OK] Scheduled task registered, Run As User: INTERACTIVE"
-              $checks += $true
-            } else {
-              Write-Host "::error::Run As User wrong: $runAs"
-              $checks += $false
-            }
+          # 6. All three tasks, actions through the bootstrap.
+          AssertTasks
+          Done
 
-            $action = ($taskInfo | Select-String -Pattern '^\s*Task To Run:').ToString()
-            if ($action -match 'stepsecurity-dev-machine-guard-task\.exe') {
-              Write-Host "[OK] Task action points at GUI launcher"
-              $checks += $true
-            } else {
-              Write-Host "::error::Task action does not point at launcher: $action"
-              $checks += $false
-            }
-          } else {
-            Write-Host "::error::schtasks /query failed: $taskInfo"
-            $checks += $false
-          }
+      - name: Bootstrap run and SYSTEM update tick
+        shell: pwsh
+        run: |
+          . "$env:RUNNER_TEMP\dmg-assert.ps1"
+          $ver = $env:MSI_VERSION
 
-          if ($checks -contains $false) {
-            Write-Host "::error::One or more install verifications failed"
-            exit 1
+          # run: the bootstrap resolves current and launches versions\<v>\task.exe
+          # (GUI subsystem, hence Start-Process -Wait) and records the run.
+          $p = Start-Process -FilePath $boot -ArgumentList @("run", "version", "--install-dir=$data") -Wait -PassThru
+          Check ($p.ExitCode -eq 0) "bootstrap run exit 0 ($($p.ExitCode))"
+          $runs = Get-Content "$data\runs\$ver.json" -Raw | ConvertFrom-Json
+          $last = $runs.records[-1]
+          Check ($last.version -eq $ver -and $last.exit_code -eq 0) "run record finalized: $($runs | ConvertTo-Json -Compress)"
+
+          # update: fire the real SYSTEM task and wait for it to finish. Until the
+          # agent ships self-update the agent exits non-zero; either way the
+          # bootstrap records the updater result in state.json as SYSTEM.
+          schtasks /run /tn $tasks[2] | Out-Null
+          $deadline = (Get-Date).AddMinutes(4)
+          do {
+            Start-Sleep -Seconds 3
+            $info = Get-ScheduledTask -TaskName $tasks[2] | Get-ScheduledTaskInfo
+            $state = (Get-ScheduledTask -TaskName $tasks[2]).State
+          } while (($state -eq 'Running' -or $info.LastRunTime -lt (Get-Date).AddYears(-1)) -and (Get-Date) -lt $deadline)
+          Write-Host "update task: state=$state LastTaskResult=$($info.LastTaskResult)"
+          Check ($state -ne 'Running') "update task finished"
+          $s = State
+          Check ($s.updater.version -eq $ver) "state.updater recorded by the bootstrap: $($s.updater | ConvertTo-Json -Compress)"
+          Get-Content "$root\state\update.log" -ErrorAction SilentlyContinue | Select-Object -Last 20
+          DmgProcesses
+          Done
+
+      - name: Failed major upgrade rolls adopt-seed back (DMG-I5-2)
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          . "$env:RUNNER_TEMP\dmg-assert.ps1"
+          $ver = $env:MSI_VERSION
+          $next = $env:MSI_NEXT_VERSION
+          Check ((State).current -eq $ver) "baseline current = $ver"
+          Check (-not (Test-Path "$root\versions\$next")) "baseline: no versions\$next"
+          $props = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager'
+          $pfr0 = @((Get-ItemProperty -Path $props -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations | Where-Object { $_ })
+          # SCCM e2e B1: the upgrade ships a BOOTSTRAPFILE without auto_update.
+          $bf = "$env:RUNNER_TEMP\dmg-bootstrap.json"
+          '{"customer_id":"ci-smoke","api_endpoint":"https://api.invalid.example","api_key":"ci-test-rotated-key"}' | Set-Content -Path $bf -Encoding ascii
+          $code = Msi @("/i", "dist\dmg-smoke-next-fail.msi", "/qn", "WIXFAILWHENDEFERRED=1", "BOOTSTRAPFILE=$bf") "dist\dmg-upgrade-fail.log"
+          Check ($code -eq 1603) "forced-failure upgrade exits 1603 ($code)"
+          Check ((AutoUpdate) -eq 'false') "failed upgrade with BOOTSTRAPFILE left auto_update false (got $(AutoUpdate))"
+          # SCCM e2e B2: the rollback put back the previous install's MSI helper.
+          $helper = "$root\state\msi\stepsecurity-dev-machine-guard-bootstrap.exe"
+          Check ((Get-FileHash $helper).Hash -eq (Get-FileHash $boot).Hash) "state\msi helper restored to the installed bootstrap"
+          Check (-not (Test-Path "$helper.prev")) "no previous-helper copy left after the rollback"
+          $ranRollback = Select-String -Path "dist\dmg-upgrade-fail.log" -Pattern 'adopt-seed --rollback' -SimpleMatch -Quiet
+          Check $ranRollback "adopt-seed rollback action ran"
+          $s = State
+          Check ($s.current -eq $ver) "current restored to $ver (got $($s.current))"
+          Check (-not (Test-Path "$root\versions\$next")) "versions\$next created by the failed upgrade removed"
+          Check (-not (Test-Path "$root\state\adopt-snapshot.json")) "rollback snapshot removed"
+          # DMG-I5-7: the rollback restored no file over a running bootstrap.
+          $pfr = @((Get-ItemProperty -Path $props -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations | Where-Object { $_ })
+          $new = @($pfr | Where-Object { $_ -match 'StepSecurity' -and $pfr0 -notcontains $_ })
+          Check ($new.Count -eq 0) "the rollback left no pending file renames for our files ($($new -join '; '))"
+          Check (-not (Select-String -Path "dist\dmg-upgrade-fail.log" -Pattern 'is being held in use' -SimpleMatch -Quiet)) "no MSI file held in use during the failed upgrade"
+          Check (UsableDir "$root\seed\$ver") "seed\$ver restored"
+          $av = (Get-ItemProperty -Path 'HKLM:\Software\StepSecurity' -Name AgentVersion).AgentVersion
+          Check ($av -eq $ver) "AgentVersion = $ver ($av)"
+          AssertTasks
+          # The device still scans: the bootstrap launches current and records it.
+          $p = Start-Process -FilePath $boot -ArgumentList @("run", "version", "--install-dir=$data") -Wait -PassThru
+          Check ($p.ExitCode -eq 0) "bootstrap run after the rollback exits 0 ($($p.ExitCode))"
+          $runs = Get-Content "$data\runs\$ver.json" -Raw | ConvertFrom-Json
+          Check ($runs.records[-1].exit_code -eq 0) "run recorded on $ver"
+          Done
+
+      - name: Repairs while a bootstrap holds its image never reboot (D29)
+        timeout-minutes: 12
+        shell: pwsh
+        run: |
+          . "$env:RUNNER_TEMP\dmg-assert.ps1"
+          $ver = $env:MSI_VERSION
+          $boot0 = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+          Check (Test-Path "$root\state\msi\stepsecurity-dev-machine-guard-bootstrap.exe") "stop-for-msi helper present in state\msi"
+          $props = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager'
+          $forms = @(
+            @{ name = "/i REINSTALL=ALL REINSTALLMODE=a"; args = @("/i", $env:INSTALLED_MSI, "REINSTALL=ALL", "REINSTALLMODE=a", "/qn") },
+            @{ name = "/fa (ignores command-line properties)"; args = @("/fa", $env:INSTALLED_MSI, "/qn") }
+          )
+          $i = 0
+          foreach ($form in $forms) {
+            $i++
+            # A bootstrap that hangs (boot.resolved:hang) holds its own image,
+            # an MSI file, for the whole repair: the D29 race, every time.
+            $env:DMG_FAULT = "boot.resolved:hang"
+            $bp = Start-Process -FilePath $boot -ArgumentList @("run", "version", "--install-dir=$data") -PassThru
+            Remove-Item Env:DMG_FAULT
+            Start-Sleep -Seconds 3
+            Check (-not $bp.HasExited) "$($form.name): a hung bootstrap is running"
+            $pfr0 = @((Get-ItemProperty -Path $props -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations | Where-Object { $_ })
+            if ($pfr0 -match 'StepSecurity') { Write-Host "pending renames before this repair (not ours to judge): $($pfr0 -match 'StepSecurity' -join '; ')" }
+            $log = "dist\dmg-repair-busy-$i.log"
+            $code = Msi $form.args $log
+            Check ($code -eq 0) "$($form.name): exit 0, not 3010/1641 ($code)"
+            Check (-not (Select-String -Path $log -Pattern 'is being held in use' -SimpleMatch -Quiet)) "$($form.name): no MSI file held in use"
+            Check (Select-String -Path $log -Pattern 'stop-for-msi' -SimpleMatch -Quiet) "$($form.name): stop-for-msi ran"
+            $pfr = @((Get-ItemProperty -Path $props -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations | Where-Object { $_ })
+            $new = @($pfr | Where-Object { $_ -match 'StepSecurity' -and $pfr0 -notcontains $_ })
+            Check ($new.Count -eq 0) "$($form.name): the repair scheduled no file renames for our files ($($new -join '; '))"
+            Check ((Get-CimInstance Win32_OperatingSystem).LastBootUpTime -eq $boot0) "$($form.name): no reboot (boot time unchanged)"
+            $bp.Refresh()
+            Check $bp.HasExited "$($form.name): the hung bootstrap was stopped"
+            Check ((State).current -eq $ver) "$($form.name): current kept ($((State).current))"
+            AssertTasks
           }
-          Write-Host "All install-time verifications passed."
+          Done
+
+      - name: SCCM-style repair keeps current, restores tasks, leaves AUTOUPDATE alone (M-7)
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          . "$env:RUNNER_TEMP\dmg-assert.ps1"
+          $ver = $env:MSI_VERSION
+
+          # Simulate a self-updated device: a newer versions\ dir as current.
+          Copy-Item -Recurse "$root\versions\$ver" "$root\versions\99.0.0"
+          $s = State
+          $s.current = "99.0.0"; $s.previous = $ver
+          $s | ConvertTo-Json -Depth 10 | Set-Content -Path "$root\state\state.json" -Encoding utf8NoBOM
+          # And a deleted scan task, which the repair must restore.
+          schtasks /delete /tn $tasks[0] /f | Out-Null
+
+          # Exactly what SCCM issues for a repair.
+          $code = Msi @("/fa", $env:INSTALLED_MSI, "/qn") "dist\dmg-repair.log"
+          Check ($code -eq 0) "msiexec /fa exit 0 ($code)"
+          $s = State
+          Check ($s.current -eq "99.0.0" -and $s.previous -eq $ver) "repair kept current 99.0.0 (got $($s.current)/$($s.previous))"
+          Check ((AutoUpdate) -eq 'false') "repair left auto_update false (got $(AutoUpdate))"
+          AssertTasks
+          Done
+
+      - name: Major upgrade N to N+1 keeps tasks, never downgrades, leaves AUTOUPDATE alone
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          . "$env:RUNNER_TEMP\dmg-assert.ps1"
+          $next = $env:MSI_NEXT_VERSION
+          # SCCM e2e B1: an upgrade with a BOOTSTRAPFILE (no auto_update in it)
+          # merges into the machine config: the key rotates, the opt-out stays.
+          $bf = "$env:RUNNER_TEMP\dmg-bootstrap.json"
+          '{"customer_id":"ci-smoke","api_endpoint":"https://api.invalid.example","api_key":"ci-test-rotated-key"}' | Set-Content -Path $bf -Encoding ascii
+          $code = Msi @("/i", "dist\dmg-smoke-next.msi", "/qn", "BOOTSTRAPFILE=$bf") "dist\dmg-upgrade.log"
+          Check ($code -eq 0) "upgrade msiexec exit 0 ($code)"
+          $cfg = Get-Content "$data\config.json" -Raw | ConvertFrom-Json
+          Check ($cfg.api_key -eq 'ci-test-rotated-key') "BOOTSTRAPFILE rotated api_key"
+          if ($code -eq 0) {
+            "INSTALLED_MSI=dist\dmg-smoke-next.msi" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
+          # Unset AUTOUPDATE against a false baseline: must stay false (R-B-8).
+          Check ((AutoUpdate) -eq 'false') "upgrade without AUTOUPDATE left auto_update false (got $(AutoUpdate))"
+          Check (UsableDir "$root\seed\$next") "seed\$next installed"
+          Check (-not (Test-Path "$root\seed\$env:MSI_VERSION")) "old seed removed"
+          Check (UsableDir "$root\versions\$next") "versions\$next adopted"
+          $s = State
+          Check ($s.current -eq "99.0.0") "seed $next < current 99.0.0: no downgrade (got $($s.current))"
+          $av = (Get-ItemProperty -Path 'HKLM:\Software\StepSecurity' -Name AgentVersion).AgentVersion
+          Check ($av -eq $next) "AgentVersion = $next ($av)"
+          # Present before uninstall, so "RunningVersion removed" below can fail.
+          $rv = (Get-ItemProperty -Path 'HKLM:\Software\StepSecurity' -Name RunningVersion -ErrorAction SilentlyContinue).RunningVersion
+          Check ([bool]$rv) "RunningVersion present before uninstall ($rv)"
+          # The old product's uninstall CA is skipped on upgrade (M-6).
+          $ranUninstall = Select-String -Path "dist\dmg-upgrade.log" -Pattern 'Doing action: RunUninstallScheduledTask' -SimpleMatch -Quiet
+          Check (-not $ranUninstall) "old uninstall CA not run during the upgrade"
+          AssertTasks
+          Done
+
+      - name: Re-enable self-update with AUTOUPDATE=1 (README command); bad values only warn
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          . "$env:RUNNER_TEMP\dmg-assert.ps1"
+          # The in-place repair the README documents: msiexec /f ignores
+          # properties, so it is /i with REINSTALL=ALL REINSTALLMODE=omus.
+          $code = Msi @("/i", $env:INSTALLED_MSI, "/qn", "REINSTALL=ALL", "REINSTALLMODE=omus", "AUTOUPDATE=1") "dist\dmg-reenable.log"
+          Check ($code -eq 0) "reinstall with AUTOUPDATE=1 exit 0 ($code)"
+          Check ((AutoUpdate) -eq 'true') "AUTOUPDATE=1 re-enabled auto_update (got $(AutoUpdate))"
+          Check ((State).current -eq "99.0.0") "reinstall kept current 99.0.0"
+
+          # Any other value: logged as a warning in the MSI log, no failure,
+          # setting unchanged.
+          $code = Msi @("/i", $env:INSTALLED_MSI, "/qn", "REINSTALL=ALL", "REINSTALLMODE=omus", "AUTOUPDATE=maybe") "dist\dmg-badvalue.log"
+          Check ($code -eq 0) "reinstall with AUTOUPDATE=maybe exit 0 ($code)"
+          Check ((AutoUpdate) -eq 'true') "AUTOUPDATE=maybe left auto_update true (got $(AutoUpdate))"
+          $warned = Select-String -Path "dist\dmg-badvalue.log" -Pattern 'auto-update must be true or false' -SimpleMatch -Quiet
+          Check $warned "AUTOUPDATE=maybe: configure's rejection is in the MSI log"
+          Done
 
       - name: Uninstall MSI
         if: always()
+        timeout-minutes: 8
         shell: pwsh
         run: |
-          if (Test-Path "dist\dmg-smoke.msi") {
-            $p = Start-Process -FilePath "msiexec.exe" -ArgumentList @(
-              "/x", "dist\dmg-smoke.msi", "/qn",
-              "/l*v", "dist\dmg-uninstall.log"
-            ) -Wait -PassThru
-            Write-Host "msiexec /x exit: $($p.ExitCode)"
+          . "$env:RUNNER_TEMP\dmg-assert.ps1"
+          $msi = $env:INSTALLED_MSI
+          if ($msi -and (Test-Path $msi)) {
+            $code = Msi @("/x", $msi, "/qn") "dist\dmg-uninstall.log"
+            Write-Host "msiexec /x $msi exit: $code"
+            if ($code -ne 0) { exit 1 }
           }
 
       - name: Verify uninstall cleanup
         shell: pwsh
         run: |
-          $task = "StepSecurity Dev Machine Guard"
-
-          # All three shipped binaries should be gone. dmg-linux is 11-12 MB, so
-          # an uninstall that leaves it behind is the largest single piece of
-          # litter this package can produce.
-          foreach ($leftover in @(
-            "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard.exe",
-            "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard-task.exe",
-            "C:\Program Files\StepSecurity\dmg-linux"
-          )) {
-            if (Test-Path $leftover) {
-              Write-Host "::error::File still present after uninstall: $leftover"
-              exit 1
-            }
+          . "$env:RUNNER_TEMP\dmg-assert.ps1"
+          foreach ($leftover in @($boot, "$root\seed", "$root\versions", "$root\state")) {
+            Check (-not (Test-Path $leftover)) "removed: $leftover"
           }
-          Write-Host "[OK] Agent + launcher + linux agent removed"
-
-          # Scheduled task should be gone. Capture the exit code into a
-          # local — PowerShell uses $LASTEXITCODE from the last native call
-          # as the script's exit code, so we MUST clear it (via 'exit 0'
-          # below) once we've made our decision, otherwise the step is
-          # marked failed despite all checks passing.
-          schtasks /query /tn $task 2>&1 | Out-Null
-          $schtasksExit = $LASTEXITCODE
-          if ($schtasksExit -eq 0) {
-            Write-Host "::error::Scheduled task still registered after uninstall"
-            exit 1
+          foreach ($t in $tasks) {
+            schtasks /query /tn $t 2>&1 | Out-Null
+            Check ($LASTEXITCODE -ne 0) "task removed: $t"
           }
-          Write-Host "[OK] Scheduled task removed"
+          $reg = Get-ItemProperty -Path 'HKLM:\Software\StepSecurity' -ErrorAction SilentlyContinue
+          Check (-not $reg.RunningVersion) "RunningVersion removed"
+          Check (-not $reg.AgentVersion) "AgentVersion removed"
+          $procs = Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith("$root\", [StringComparison]::OrdinalIgnoreCase) }
+          Check (-not $procs) "no DMG processes left running"
 
           # Note: C:\ProgramData\StepSecurity\config.json intentionally persists
-          # across uninstall — it's tenant config, not MSI-managed payload. This
-          # mirrors the documented behavior in docs/deploying-via-sccm.md.
+          # across uninstall — it's tenant config, not MSI-managed payload (M-8
+          # is out of scope). This mirrors docs/deploying-via-sccm.md.
+          Done
 
-          exit 0
+      - name: Fresh install with AUTOUPDATE unset defaults to on
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          . "$env:RUNNER_TEMP\dmg-assert.ps1"
+          # ProgramData survives uninstall; start from no machine config.
+          Remove-Item "$data\config.json" -Force -ErrorAction SilentlyContinue
+          $code = Msi @("/i", "dist\dmg-smoke.msi", "/qn", "CUSTOMERID=ci-smoke", "APIENDPOINT=https://api.invalid.example", "APIKEY=ci-test-fake-api-key") "dist\dmg-fresh.log"
+          Check ($code -eq 0) "fresh install exit 0 ($code)"
+          Check (Test-Path "$data\config.json") "config written"
+          Check ((AutoUpdate) -ne 'false') "unset AUTOUPDATE: auto_update not written false (got '$(AutoUpdate)', missing = on)"
+          $code = Msi @("/x", "dist\dmg-smoke.msi", "/qn") "dist\dmg-fresh-uninstall.log"
+          Check ($code -eq 0) "uninstall exit 0 ($code)"
+          Done
 
       - name: Upload install logs on failure
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: msi-smoke-logs
           path: |
             dist/dmg-install.log
+            C:/Program Files/StepSecurity/state/update.log
+            dist/dmg-repair.log
+            dist/dmg-reenable.log
+            dist/dmg-badvalue.log
+            dist/dmg-fresh.log
+            dist/dmg-upgrade.log
+            dist/dmg-upgrade-fail.log
+            dist/dmg-repair-busy-*.log
             dist/dmg-uninstall.log
           if-no-files-found: ignore

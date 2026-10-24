@@ -112,6 +112,28 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make test
+      - name: Test self-update fault injection (selfupdate_faults tag)
+        run: go test -race -count=1 -tags selfupdate_faults,selfupdate_testkeys ./internal/faultinject/ ./internal/updatestate/ ./internal/selfupdate/ ./internal/authenticode/ ./internal/telemetry/
+      - name: Test bootstrap fault checkpoints (selfupdate_faults tag)
+        run: go test -race -count=1 -tags selfupdate_faults ./internal/launcher/
+
+  # Self-update U0 harness on Linux: the trace-driven kill matrix and the
+  # state corruption matrix (portable parts; Windows runs them natively in
+  # test-windows-native).
+  test-selfupdate-linux:
+    name: Test (self-update kill matrix, linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+      - run: go test -race -count=1 -tags selfupdate_faults,selfupdate_testkeys ./internal/faultinject/ ./internal/updatestate/ ./internal/selfupdate/
 
   # These packages have Windows-only code and Windows-specific behavior whose
   # tests the macOS test job can only cross-compile, not run:
@@ -126,6 +148,9 @@ jobs:
   #   - executor: Readlink on a real directory junction (ModeIrregular entry,
   #     NT-namespace target), which the skills detector's junction folding
   #     depends on
+  #   - updatestate: MoveFileEx state replace, LockFileEx, protected DACLs
+  #   - selfupdate: native arch (IsWow64Process2), WinHTTP machine proxy
+  #   - authenticode: WinVerifyTrust against a test-signed copy (elevated runner)
   #   - detector TestReal_*: the Kiro CLI registry reader against a scratch
   #     HKCU key, and skills junction folding over real junctions (the rest of
   #     the detector suite assumes a POSIX host, hence the -run filter)
@@ -144,10 +169,25 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
-      - run: go test -race -count=1 ./internal/devicepolicy/ ./internal/secureuserfile/ ./internal/detector/credentials/ ./internal/safepath/ ./internal/executor/
+      - run: go test -race -count=1 ./internal/devicepolicy/ ./internal/secureuserfile/ ./internal/detector/credentials/ ./internal/safepath/ ./internal/executor/ ./internal/updatestate/ ./internal/selfupdate/ ./internal/authenticode/ ./internal/awakeclock/
       - run: go test -race -count=1 -run '^TestReal_' ./internal/detector/
       - name: Test scheduled scan console suppression
-        run: go test -race -count=1 -run 'Test(IsTaskRegistered|DetectInvocationMethod_Windows|HideWindow)' ./internal/schtasks/ ./internal/telemetry/ ./internal/winproc/
+        run: go test -race -count=1 -run 'Test(IsTaskRegistered|DetectInvocationMethod_Windows|HideWindow|StopUnderThenWaitReleased)' ./internal/schtasks/ ./internal/telemetry/ ./internal/winproc/
+      # One command per step: the default pwsh shell only fails a step on the
+      # LAST native command's exit code, so a multi-line run would mask an
+      # earlier failure.
+      - name: Test self-update fault injection + U0 kill matrix (selfupdate_faults tag)
+        run: go test -race -count=1 -tags selfupdate_faults,selfupdate_testkeys ./internal/faultinject/ ./internal/updatestate/ ./internal/selfupdate/ ./internal/authenticode/
+      - name: Test scan panic/hang run classification (selfupdate_faults tag)
+        run: go test -race -count=1 -tags selfupdate_faults,selfupdate_testkeys -run 'Test(ScanPanicIsABadRun|ScanHangAfterStartedIsABadRun)' ./internal/telemetry/
+      - name: Authenticode against test-signed binaries (verbose, shows skips)
+        run: go test -count=1 -v -run 'TestVerify|TestForgedBag|TestTrustData|TestSameSeedPublisher' ./internal/authenticode/
+      - name: Test launcher bootstrap mode
+        run: go test -race -count=1 ./internal/launcher/
+      - name: Test launcher bootstrap fault checkpoints (selfupdate_faults tag)
+        run: go test -race -count=1 -tags selfupdate_faults ./internal/launcher/
+      - name: Test self-update scheduled tasks
+        run: go test -race -count=1 -run 'Test(UpdateTask|ResolveBootstrapRoot|BuildCreateArgs_Bootstrap|InstallUpdateTask|Uninstall_|TerminateUnder|WaitForInstanceMutex|StopProcess)' ./internal/schtasks/
 
   smoke:
     name: Smoke Tests
