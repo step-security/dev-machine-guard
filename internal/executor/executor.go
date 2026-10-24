@@ -64,6 +64,8 @@ type Executor interface {
 	Getenv(key string) string
 	// HasEnvPrefix checks process environment names without exposing their values.
 	HasEnvPrefix(prefix string) bool
+	// EnvNames lists process environment names with prefix, never their values.
+	EnvNames(prefix string) []string
 	// IsRoot returns true if the process is running as root.
 	IsRoot() bool
 	// CurrentUser returns the current OS user.
@@ -474,4 +476,17 @@ func (r *Real) HasEnvPrefix(prefix string) bool {
 		}
 	}
 	return false
+}
+
+func (r *Real) EnvNames(prefix string) []string {
+	names := []string{}
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		// Windows names are case-insensitive, as Getenv already treats them.
+		if strings.HasPrefix(key, prefix) || runtime.GOOS == "windows" && len(key) >= len(prefix) && strings.EqualFold(key[:len(prefix)], prefix) {
+			names = append(names, key)
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
 }

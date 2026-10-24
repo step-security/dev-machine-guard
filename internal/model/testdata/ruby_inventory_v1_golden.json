@@ -1,0 +1,1394 @@
+{
+  "ruby_inventory": {
+    "schema_version": 1,
+    "status": "partial",
+    "reasons": [
+      "checksum_invalid",
+      "unsupported_format"
+    ],
+    "sources": [
+      {
+        "source_id": "fdace5b2e2a8330191af4d8ba7f0777e0ba2513599e8d5ce94ebf54fe6a6721b",
+        "kind": "cache_root",
+        "path": "/home/ruby-fixture/.bundle/cache/gems",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "281e4f83876f875780942af41a00d015796cacb888d691f4be083fb3d9fd9013"
+        ]
+      },
+      {
+        "source_id": "281e4f83876f875780942af41a00d015796cacb888d691f4be083fb3d9fd9013",
+        "kind": "cache_archive",
+        "path": "/home/ruby-fixture/.bundle/cache/gems/rubygems.org.443.0123456789abcdef/rack-3.0.8.gem",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "fdace5b2e2a8330191af4d8ba7f0777e0ba2513599e8d5ce94ebf54fe6a6721b",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "afc494d7b20e3d720192815ff7ea03a28c3b2872751794ec8099f9cc0f8a8ebc",
+        "kind": "gem_home",
+        "path": "/home/ruby-fixture/.gem/ruby/3.3.0",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "e10054d2539eaad162809c6346a8e53c4e3686619987d3f781d13c9a0ac847f7"
+        ]
+      },
+      {
+        "source_id": "e10054d2539eaad162809c6346a8e53c4e3686619987d3f781d13c9a0ac847f7",
+        "kind": "installed_metadata",
+        "path": "/home/ruby-fixture/.gem/ruby/3.3.0/specifications/bundler-2.5.3.gemspec",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "afc494d7b20e3d720192815ff7ea03a28c3b2872751794ec8099f9cc0f8a8ebc",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "e24d284f41ebe75301324c9579a820a35e1ec9e2d4dc97754ae90285f3d50924",
+        "kind": "gem_home",
+        "path": "/home/ruby-fixture/.rbenv/versions/3.3.0/lib/ruby/gems/3.3.0",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "08e8056603aa48df66c580c30985b122e1a2ee53af43e6fa2efa04493db31eb8",
+          "2559efb51cb4b0a335585c1f78527a846d0b409d86f78b6cf21f10bdb5c1060a",
+          "33933041718781b9b82f4fc89be9041b6bd61994401bd95c5c8a18c0d75c5211"
+        ]
+      },
+      {
+        "source_id": "33933041718781b9b82f4fc89be9041b6bd61994401bd95c5c8a18c0d75c5211",
+        "kind": "cache_root",
+        "path": "/home/ruby-fixture/.rbenv/versions/3.3.0/lib/ruby/gems/3.3.0/cache",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "e24d284f41ebe75301324c9579a820a35e1ec9e2d4dc97754ae90285f3d50924",
+        "discovered_sources": [
+          "549184df50cfb161faa9081a784ee5762eeef878a4b197eae3325fd66de1a027"
+        ]
+      },
+      {
+        "source_id": "549184df50cfb161faa9081a784ee5762eeef878a4b197eae3325fd66de1a027",
+        "kind": "cache_archive",
+        "path": "/home/ruby-fixture/.rbenv/versions/3.3.0/lib/ruby/gems/3.3.0/cache/json-2.7.1.gem",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "33933041718781b9b82f4fc89be9041b6bd61994401bd95c5c8a18c0d75c5211",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "2559efb51cb4b0a335585c1f78527a846d0b409d86f78b6cf21f10bdb5c1060a",
+        "kind": "installed_metadata",
+        "path": "/home/ruby-fixture/.rbenv/versions/3.3.0/lib/ruby/gems/3.3.0/specifications/default/forwardable-1.2.0.gemspec",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "e24d284f41ebe75301324c9579a820a35e1ec9e2d4dc97754ae90285f3d50924",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "08e8056603aa48df66c580c30985b122e1a2ee53af43e6fa2efa04493db31eb8",
+        "kind": "installed_metadata",
+        "path": "/home/ruby-fixture/.rbenv/versions/3.3.0/lib/ruby/gems/3.3.0/specifications/json-2.7.1.gemspec",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "e24d284f41ebe75301324c9579a820a35e1ec9e2d4dc97754ae90285f3d50924",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "2f46d96614a8746d006af5ec8dc13f6f01028dd9f3c5f94279d8c008d88c849a",
+        "kind": "project_search_root",
+        "path": "/home/ruby-fixture/code",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "checksum_invalid",
+          "unsupported_format"
+        ],
+        "discovered_sources": [
+          "1ffd3e534c038a09ffad098fe1240eb0cfeb973937600dda19de0debe6ae8542",
+          "3ecc9061ff2e5d7b328e8370e22e1e19caa0b148de2f9eb007f776b599351c03",
+          "67036fbba85d717bd8bbe6b3e610be9ed4a1be41755e6b2fe89dea71458f3d99",
+          "7b42d29cbf0da4b94864586c287c344dc31a4e8686b0336152a3dd6ca019ad3e",
+          "84e44db1a030aeb46d6aa5f583b212eff6641f30291901224ad11fe43432d295",
+          "c170c2671ff41c7a405d300739eade5847dda5adbaf407e9886ce236feab2ed6",
+          "d1531ce5ba91a3245c7b70c1e565d62eccd8319d8cdbad5b70eca3f174ad0fa6"
+        ]
+      },
+      {
+        "source_id": "26ebb8807880d57c275e2965a8f3dafc949ac022ceef935a1049bf9ba7d00a72",
+        "kind": "gemspec",
+        "path": "/home/ruby-fixture/code/app/app.gemspec",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "unsupported_format"
+        ],
+        "parent_source_id": "c170c2671ff41c7a405d300739eade5847dda5adbaf407e9886ce236feab2ed6",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "b29c835b4d0f58fe8084d4726274aca3ae20eecc772e4831c1cebb5af36da8c0",
+        "kind": "lockfile",
+        "path": "/home/ruby-fixture/code/app/gems.locked",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "checksum_invalid"
+        ],
+        "parent_source_id": "c170c2671ff41c7a405d300739eade5847dda5adbaf407e9886ce236feab2ed6",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "c170c2671ff41c7a405d300739eade5847dda5adbaf407e9886ce236feab2ed6",
+        "kind": "manifest",
+        "path": "/home/ruby-fixture/code/app/gems.rb",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "checksum_invalid",
+          "unsupported_format"
+        ],
+        "parent_source_id": "2f46d96614a8746d006af5ec8dc13f6f01028dd9f3c5f94279d8c008d88c849a",
+        "discovered_sources": [
+          "26ebb8807880d57c275e2965a8f3dafc949ac022ceef935a1049bf9ba7d00a72",
+          "5b3083edef05f45e06af7c9469a1b4a78baae9873e99c1ff0d5ef1d5cce05307",
+          "b29c835b4d0f58fe8084d4726274aca3ae20eecc772e4831c1cebb5af36da8c0",
+          "b3bc5a17f3e24edca8912c7c54497e13cc6bc5a456b8f1b225b8a61526ac285a",
+          "c717bb38dc547bebb40891c93238818c3ad88c90992549eb3a4c95da81ed6de5"
+        ]
+      },
+      {
+        "source_id": "c717bb38dc547bebb40891c93238818c3ad88c90992549eb3a4c95da81ed6de5",
+        "kind": "gem_home",
+        "path": "/home/ruby-fixture/code/app/vendor/bundle/ruby/3.3.0",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "c170c2671ff41c7a405d300739eade5847dda5adbaf407e9886ce236feab2ed6",
+        "discovered_sources": [
+          "6a06548ed11de74601c3023192027fdf2c096a81728afc30606e656797221a89",
+          "7886d19981e796cd0bde407da27344752e2badfe3cb53da6f7b44980d47e9ce9",
+          "7f8915deab2242b6f92213934166b06d4d22211791bd6ad689017e2e8d570de6"
+        ]
+      },
+      {
+        "source_id": "6a06548ed11de74601c3023192027fdf2c096a81728afc30606e656797221a89",
+        "kind": "bundler_checkout",
+        "path": "/home/ruby-fixture/code/app/vendor/bundle/ruby/3.3.0/bundler/gems/forked-0123456789ab",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "c717bb38dc547bebb40891c93238818c3ad88c90992549eb3a4c95da81ed6de5",
+        "discovered_sources": [
+          "6775490658c59a64edeb3ee423ed8da9919dc7ec378c86a714fe627fd53e6c32",
+          "9aebf61442dafc29f2f99f6d3042d90cefbed9f2cd8040853f496ce5fae80f78"
+        ]
+      },
+      {
+        "source_id": "9aebf61442dafc29f2f99f6d3042d90cefbed9f2cd8040853f496ce5fae80f78",
+        "kind": "installed_metadata",
+        "path": "/home/ruby-fixture/code/app/vendor/bundle/ruby/3.3.0/bundler/gems/forked-0123456789ab/forked.gemspec",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "6a06548ed11de74601c3023192027fdf2c096a81728afc30606e656797221a89",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "6775490658c59a64edeb3ee423ed8da9919dc7ec378c86a714fe627fd53e6c32",
+        "kind": "installed_metadata",
+        "path": "/home/ruby-fixture/code/app/vendor/bundle/ruby/3.3.0/bundler/gems/forked-0123456789ab/lib-a/lib-a.gemspec",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "6a06548ed11de74601c3023192027fdf2c096a81728afc30606e656797221a89",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "7f8915deab2242b6f92213934166b06d4d22211791bd6ad689017e2e8d570de6",
+        "kind": "installed_metadata",
+        "path": "/home/ruby-fixture/code/app/vendor/bundle/ruby/3.3.0/specifications/nokogiri-1.16.0-arm64-darwin.gemspec",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "c717bb38dc547bebb40891c93238818c3ad88c90992549eb3a4c95da81ed6de5",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "7886d19981e796cd0bde407da27344752e2badfe3cb53da6f7b44980d47e9ce9",
+        "kind": "installed_metadata",
+        "path": "/home/ruby-fixture/code/app/vendor/bundle/ruby/3.3.0/specifications/rack-3.0.8.gemspec",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "c717bb38dc547bebb40891c93238818c3ad88c90992549eb3a4c95da81ed6de5",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "b3bc5a17f3e24edca8912c7c54497e13cc6bc5a456b8f1b225b8a61526ac285a",
+        "kind": "cache_root",
+        "path": "/home/ruby-fixture/code/app/vendor/cache",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "c170c2671ff41c7a405d300739eade5847dda5adbaf407e9886ce236feab2ed6",
+        "discovered_sources": [
+          "5c1d783fd1a1a776ac4ebb5123d010a20a6e2523a8c3463adaa50318bd55ae0d",
+          "eda8373c72fe5da17acdaa28350c87b76f8574b055889434cd414d6e8f2bbf49"
+        ]
+      },
+      {
+        "source_id": "5c1d783fd1a1a776ac4ebb5123d010a20a6e2523a8c3463adaa50318bd55ae0d",
+        "kind": "cached_metadata",
+        "path": "/home/ruby-fixture/code/app/vendor/cache/forked-0123456789ab/forked.gemspec",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "b3bc5a17f3e24edca8912c7c54497e13cc6bc5a456b8f1b225b8a61526ac285a",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "eda8373c72fe5da17acdaa28350c87b76f8574b055889434cd414d6e8f2bbf49",
+        "kind": "cache_archive",
+        "path": "/home/ruby-fixture/code/app/vendor/cache/rack-3.0.8.gem",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "b3bc5a17f3e24edca8912c7c54497e13cc6bc5a456b8f1b225b8a61526ac285a",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "d1531ce5ba91a3245c7b70c1e565d62eccd8319d8cdbad5b70eca3f174ad0fa6",
+        "kind": "manifest",
+        "path": "/home/ruby-fixture/code/legacy/Gemfile",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "unsupported_format"
+        ],
+        "parent_source_id": "2f46d96614a8746d006af5ec8dc13f6f01028dd9f3c5f94279d8c008d88c849a",
+        "discovered_sources": [
+          "9eda848e18c6c55942a027414fbf4c00ace4ac11a855e87211a0d1d87529a0d0"
+        ]
+      },
+      {
+        "source_id": "9eda848e18c6c55942a027414fbf4c00ace4ac11a855e87211a0d1d87529a0d0",
+        "kind": "lockfile",
+        "path": "/home/ruby-fixture/code/legacy/Gemfile.lock",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "d1531ce5ba91a3245c7b70c1e565d62eccd8319d8cdbad5b70eca3f174ad0fa6",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "3ecc9061ff2e5d7b328e8370e22e1e19caa0b148de2f9eb007f776b599351c03",
+        "kind": "gemspec",
+        "path": "/home/ruby-fixture/code/local/local.gemspec",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "2f46d96614a8746d006af5ec8dc13f6f01028dd9f3c5f94279d8c008d88c849a",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "67036fbba85d717bd8bbe6b3e610be9ed4a1be41755e6b2fe89dea71458f3d99",
+        "kind": "lockfile",
+        "path": "/home/ruby-fixture/code/lockonly/Gemfile.lock",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "2f46d96614a8746d006af5ec8dc13f6f01028dd9f3c5f94279d8c008d88c849a",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "1ffd3e534c038a09ffad098fe1240eb0cfeb973937600dda19de0debe6ae8542",
+        "kind": "manifest",
+        "path": "/home/ruby-fixture/code/pair/Gemfile",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "2f46d96614a8746d006af5ec8dc13f6f01028dd9f3c5f94279d8c008d88c849a",
+        "discovered_sources": [
+          "adabe7a1550a28fb77fa83bd03cff048e738f3bb71992593b8426f16a71d3ab4"
+        ]
+      },
+      {
+        "source_id": "adabe7a1550a28fb77fa83bd03cff048e738f3bb71992593b8426f16a71d3ab4",
+        "kind": "lockfile",
+        "path": "/home/ruby-fixture/code/pair/Gemfile.lock",
+        "status": "complete",
+        "presence": "absent",
+        "reasons": [],
+        "parent_source_id": "1ffd3e534c038a09ffad098fe1240eb0cfeb973937600dda19de0debe6ae8542",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "7b42d29cbf0da4b94864586c287c344dc31a4e8686b0336152a3dd6ca019ad3e",
+        "kind": "lockfile",
+        "path": "/home/ruby-fixture/code/pair/gems.locked",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "2f46d96614a8746d006af5ec8dc13f6f01028dd9f3c5f94279d8c008d88c849a",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "5b3083edef05f45e06af7c9469a1b4a78baae9873e99c1ff0d5ef1d5cce05307",
+        "kind": "manifest",
+        "path": "/home/ruby-fixture/code/shared/Gemfile.shared",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "unsupported_format"
+        ],
+        "parent_source_id": "c170c2671ff41c7a405d300739eade5847dda5adbaf407e9886ce236feab2ed6",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "84e44db1a030aeb46d6aa5f583b212eff6641f30291901224ad11fe43432d295",
+        "kind": "gem_home",
+        "path": "/home/ruby-fixture/code/tools/vendored",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "2f46d96614a8746d006af5ec8dc13f6f01028dd9f3c5f94279d8c008d88c849a",
+        "discovered_sources": [
+          "ab84442d03c5cee5fc6dd5b131d8f7bfc7b8a6fa044c5ab6c85918e533c25d6c"
+        ]
+      },
+      {
+        "source_id": "ab84442d03c5cee5fc6dd5b131d8f7bfc7b8a6fa044c5ab6c85918e533c25d6c",
+        "kind": "installed_metadata",
+        "path": "/home/ruby-fixture/code/tools/vendored/specifications/thor-1.3.0.gemspec",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "84e44db1a030aeb46d6aa5f583b212eff6641f30291901224ad11fe43432d295",
+        "discovered_sources": []
+      }
+    ],
+    "projects": [
+      {
+        "manifest_source_id": "c170c2671ff41c7a405d300739eade5847dda5adbaf407e9886ce236feab2ed6",
+        "manifest_path": "/home/ruby-fixture/code/app/gems.rb",
+        "project_path": "/home/ruby-fixture/code/app",
+        "selection_status": "observed",
+        "lockfile_paths": [
+          "/home/ruby-fixture/code/app/gems.locked"
+        ],
+        "package_name": "app",
+        "package_version": "1.0.0"
+      },
+      {
+        "manifest_source_id": "d1531ce5ba91a3245c7b70c1e565d62eccd8319d8cdbad5b70eca3f174ad0fa6",
+        "manifest_path": "/home/ruby-fixture/code/legacy/Gemfile",
+        "project_path": "/home/ruby-fixture/code/legacy",
+        "selection_status": "partial",
+        "lockfile_paths": [
+          "/home/ruby-fixture/code/legacy/Gemfile.lock"
+        ]
+      },
+      {
+        "manifest_source_id": "3ecc9061ff2e5d7b328e8370e22e1e19caa0b148de2f9eb007f776b599351c03",
+        "manifest_path": "/home/ruby-fixture/code/local/local.gemspec",
+        "project_path": "/home/ruby-fixture/code/local",
+        "selection_status": "observed",
+        "lockfile_paths": [],
+        "package_name": "local",
+        "package_version": "1.0.0"
+      },
+      {
+        "manifest_source_id": "1ffd3e534c038a09ffad098fe1240eb0cfeb973937600dda19de0debe6ae8542",
+        "manifest_path": "/home/ruby-fixture/code/pair/Gemfile",
+        "project_path": "/home/ruby-fixture/code/pair",
+        "selection_status": "partial",
+        "lockfile_paths": []
+      }
+    ],
+    "packages": [
+      {
+        "source_id": "281e4f83876f875780942af41a00d015796cacb888d691f4be083fb3d9fd9013",
+        "source_path": "/home/ruby-fixture/.bundle/cache/gems/rubygems.org.443.0123456789abcdef/rack-3.0.8.gem",
+        "package_name": "rack",
+        "evidence": "cached_package",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "3.0.8",
+        "platform": "ruby",
+        "dependency_relation": "unknown",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "e10054d2539eaad162809c6346a8e53c4e3686619987d3f781d13c9a0ac847f7",
+        "source_path": "/home/ruby-fixture/.gem/ruby/3.3.0/specifications/bundler-2.5.3.gemspec",
+        "package_name": "bundler",
+        "evidence": "installed_package",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2.5.3",
+        "platform": "ruby",
+        "dependency_relation": "unknown",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/ruby-fixture/.gem/ruby/3.3.0/gems/bundler-2.5.3",
+          "path_status": "resolved",
+          "presence": "absent",
+          "default_gem": false
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "549184df50cfb161faa9081a784ee5762eeef878a4b197eae3325fd66de1a027",
+        "source_path": "/home/ruby-fixture/.rbenv/versions/3.3.0/lib/ruby/gems/3.3.0/cache/json-2.7.1.gem",
+        "package_name": "json",
+        "evidence": "cached_package",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2.7.1",
+        "platform": "ruby",
+        "dependency_relation": "unknown",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "2559efb51cb4b0a335585c1f78527a846d0b409d86f78b6cf21f10bdb5c1060a",
+        "source_path": "/home/ruby-fixture/.rbenv/versions/3.3.0/lib/ruby/gems/3.3.0/specifications/default/forwardable-1.2.0.gemspec",
+        "package_name": "forwardable",
+        "evidence": "installed_package",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.2.0",
+        "platform": "ruby",
+        "dependency_relation": "unknown",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path_status": "not_applicable",
+          "presence": "not_applicable",
+          "default_gem": true
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "08e8056603aa48df66c580c30985b122e1a2ee53af43e6fa2efa04493db31eb8",
+        "source_path": "/home/ruby-fixture/.rbenv/versions/3.3.0/lib/ruby/gems/3.3.0/specifications/json-2.7.1.gemspec",
+        "package_name": "json",
+        "evidence": "installed_package",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2.7.1",
+        "platform": "ruby",
+        "dependency_relation": "unknown",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/ruby-fixture/.rbenv/versions/3.3.0/lib/ruby/gems/3.3.0/gems/json-2.7.1",
+          "path_status": "resolved",
+          "presence": "present",
+          "default_gem": false
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "26ebb8807880d57c275e2965a8f3dafc949ac022ceef935a1049bf9ba7d00a72",
+        "source_path": "/home/ruby-fixture/code/app/app.gemspec",
+        "package_name": "rubocop",
+        "evidence": "declared_requirement",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_versions": [
+          "~\u003e 1.60"
+        ],
+        "dependency_relation": "direct",
+        "dependency_kind": "development",
+        "origin": {
+          "kind": "registry",
+          "url": "https://rubygems.org"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "b29c835b4d0f58fe8084d4726274aca3ae20eecc772e4831c1cebb5af36da8c0",
+        "source_path": "/home/ruby-fixture/code/app/gems.locked",
+        "package_name": "forked",
+        "evidence": "locked_package",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "0.1.0",
+        "platform": "ruby",
+        "dependency_relation": "direct",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/org/forked.git"
+        },
+        "revision": "0123456789abcdef0123456789abcdef01234567",
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "b29c835b4d0f58fe8084d4726274aca3ae20eecc772e4831c1cebb5af36da8c0",
+        "source_path": "/home/ruby-fixture/code/app/gems.locked",
+        "package_name": "local",
+        "evidence": "locked_package",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.0",
+        "platform": "ruby",
+        "dependency_relation": "direct",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "path",
+          "path": "/home/ruby-fixture/code/local"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "b29c835b4d0f58fe8084d4726274aca3ae20eecc772e4831c1cebb5af36da8c0",
+        "source_path": "/home/ruby-fixture/code/app/gems.locked",
+        "package_name": "nokogiri",
+        "evidence": "locked_package",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.16.0",
+        "platform": "arm64-darwin",
+        "dependency_relation": "transitive",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "registry",
+          "url": "https://rubygems.org/"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_id": "b29c835b4d0f58fe8084d4726274aca3ae20eecc772e4831c1cebb5af36da8c0",
+            "source_kind": "lockfile",
+            "source_path": "/home/ruby-fixture/code/app/gems.locked",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "b29c835b4d0f58fe8084d4726274aca3ae20eecc772e4831c1cebb5af36da8c0",
+        "source_path": "/home/ruby-fixture/code/app/gems.locked",
+        "package_name": "nokogiri",
+        "evidence": "locked_package",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.16.0",
+        "platform": "x86_64-linux",
+        "dependency_relation": "transitive",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "registry",
+          "url": "https://rubygems.org/"
+        },
+        "checksum_status": "partial",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "b29c835b4d0f58fe8084d4726274aca3ae20eecc772e4831c1cebb5af36da8c0",
+        "source_path": "/home/ruby-fixture/code/app/gems.locked",
+        "package_name": "rack",
+        "evidence": "locked_package",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "3.0.8",
+        "platform": "ruby",
+        "dependency_relation": "transitive",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "registry",
+          "url": "https://rubygems.org/"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_id": "b29c835b4d0f58fe8084d4726274aca3ae20eecc772e4831c1cebb5af36da8c0",
+            "source_kind": "lockfile",
+            "source_path": "/home/ruby-fixture/code/app/gems.locked",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "b29c835b4d0f58fe8084d4726274aca3ae20eecc772e4831c1cebb5af36da8c0",
+        "source_path": "/home/ruby-fixture/code/app/gems.locked",
+        "package_name": "rails",
+        "evidence": "locked_package",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "7.1.3",
+        "platform": "ruby",
+        "dependency_relation": "direct",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "registry",
+          "url": "https://rubygems.org/"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "c170c2671ff41c7a405d300739eade5847dda5adbaf407e9886ce236feab2ed6",
+        "source_path": "/home/ruby-fixture/code/app/gems.rb",
+        "package_name": "forked",
+        "evidence": "declared_requirement",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_versions": [],
+        "dependency_relation": "direct",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/org/forked.git"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "c170c2671ff41c7a405d300739eade5847dda5adbaf407e9886ce236feab2ed6",
+        "source_path": "/home/ruby-fixture/code/app/gems.rb",
+        "package_name": "local",
+        "evidence": "declared_requirement",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_versions": [],
+        "dependency_relation": "direct",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "path",
+          "path": "/home/ruby-fixture/code/local"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "c170c2671ff41c7a405d300739eade5847dda5adbaf407e9886ce236feab2ed6",
+        "source_path": "/home/ruby-fixture/code/app/gems.rb",
+        "package_name": "rails",
+        "evidence": "declared_requirement",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_versions": [
+          "~\u003e 7.1"
+        ],
+        "dependency_relation": "direct",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "registry",
+          "url": "https://rubygems.org"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "c170c2671ff41c7a405d300739eade5847dda5adbaf407e9886ce236feab2ed6",
+        "source_path": "/home/ruby-fixture/code/app/gems.rb",
+        "package_name": "rspec",
+        "evidence": "declared_requirement",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_versions": [],
+        "groups": [
+          "test"
+        ],
+        "dependency_relation": "direct",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "registry",
+          "url": "https://rubygems.org"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "9aebf61442dafc29f2f99f6d3042d90cefbed9f2cd8040853f496ce5fae80f78",
+        "source_path": "/home/ruby-fixture/code/app/vendor/bundle/ruby/3.3.0/bundler/gems/forked-0123456789ab/forked.gemspec",
+        "package_name": "forked",
+        "evidence": "installed_package",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "0.1.0",
+        "platform": "ruby",
+        "dependency_relation": "unknown",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/ruby-fixture/code/app/vendor/bundle/ruby/3.3.0/bundler/gems/forked-0123456789ab",
+          "path_status": "resolved",
+          "presence": "present",
+          "default_gem": false
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "6775490658c59a64edeb3ee423ed8da9919dc7ec378c86a714fe627fd53e6c32",
+        "source_path": "/home/ruby-fixture/code/app/vendor/bundle/ruby/3.3.0/bundler/gems/forked-0123456789ab/lib-a/lib-a.gemspec",
+        "package_name": "lib-a",
+        "evidence": "installed_package",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "0.1.0",
+        "platform": "ruby",
+        "dependency_relation": "unknown",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/ruby-fixture/code/app/vendor/bundle/ruby/3.3.0/bundler/gems/forked-0123456789ab/lib-a",
+          "path_status": "resolved",
+          "presence": "present",
+          "default_gem": false
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "7f8915deab2242b6f92213934166b06d4d22211791bd6ad689017e2e8d570de6",
+        "source_path": "/home/ruby-fixture/code/app/vendor/bundle/ruby/3.3.0/specifications/nokogiri-1.16.0-arm64-darwin.gemspec",
+        "package_name": "nokogiri",
+        "evidence": "installed_package",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.16.0",
+        "platform": "arm64-darwin",
+        "dependency_relation": "unknown",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/ruby-fixture/code/app/vendor/bundle/ruby/3.3.0/gems/nokogiri-1.16.0-arm64-darwin",
+          "path_status": "resolved",
+          "presence": "absent",
+          "default_gem": false
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "7886d19981e796cd0bde407da27344752e2badfe3cb53da6f7b44980d47e9ce9",
+        "source_path": "/home/ruby-fixture/code/app/vendor/bundle/ruby/3.3.0/specifications/rack-3.0.8.gemspec",
+        "package_name": "rack",
+        "evidence": "installed_package",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "3.0.8",
+        "platform": "ruby",
+        "dependency_relation": "unknown",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/ruby-fixture/code/app/vendor/bundle/ruby/3.3.0/gems/rack-3.0.8",
+          "path_status": "resolved",
+          "presence": "present",
+          "default_gem": false
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "5c1d783fd1a1a776ac4ebb5123d010a20a6e2523a8c3463adaa50318bd55ae0d",
+        "source_path": "/home/ruby-fixture/code/app/vendor/cache/forked-0123456789ab/forked.gemspec",
+        "package_name": "forked",
+        "evidence": "cached_package",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "0.1.0",
+        "platform": "ruby",
+        "dependency_relation": "unknown",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "eda8373c72fe5da17acdaa28350c87b76f8574b055889434cd414d6e8f2bbf49",
+        "source_path": "/home/ruby-fixture/code/app/vendor/cache/rack-3.0.8.gem",
+        "package_name": "rack",
+        "evidence": "cached_package",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "3.0.8",
+        "platform": "ruby",
+        "dependency_relation": "unknown",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "9eda848e18c6c55942a027414fbf4c00ace4ac11a855e87211a0d1d87529a0d0",
+        "source_path": "/home/ruby-fixture/code/legacy/Gemfile.lock",
+        "package_name": "rack",
+        "evidence": "locked_package",
+        "project_path": "/home/ruby-fixture/code/legacy",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2.2.8",
+        "platform": "ruby",
+        "dependency_relation": "direct",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "registry",
+          "url": "https://rubygems.org/"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "3ecc9061ff2e5d7b328e8370e22e1e19caa0b148de2f9eb007f776b599351c03",
+        "source_path": "/home/ruby-fixture/code/local/local.gemspec",
+        "package_name": "thor",
+        "evidence": "declared_requirement",
+        "project_path": "/home/ruby-fixture/code/local",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_versions": [],
+        "dependency_relation": "direct",
+        "dependency_kind": "runtime",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "67036fbba85d717bd8bbe6b3e610be9ed4a1be41755e6b2fe89dea71458f3d99",
+        "source_path": "/home/ruby-fixture/code/lockonly/Gemfile.lock",
+        "package_name": "json",
+        "evidence": "locked_package",
+        "project_path": "/home/ruby-fixture/code/lockonly",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2.7.1",
+        "platform": "ruby",
+        "dependency_relation": "direct",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "registry",
+          "url": "https://rubygems.org/"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "1ffd3e534c038a09ffad098fe1240eb0cfeb973937600dda19de0debe6ae8542",
+        "source_path": "/home/ruby-fixture/code/pair/Gemfile",
+        "package_name": "rake",
+        "evidence": "declared_requirement",
+        "project_path": "/home/ruby-fixture/code/pair",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_versions": [],
+        "dependency_relation": "direct",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "registry",
+          "url": "https://rubygems.org"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "7b42d29cbf0da4b94864586c287c344dc31a4e8686b0336152a3dd6ca019ad3e",
+        "source_path": "/home/ruby-fixture/code/pair/gems.locked",
+        "package_name": "rake",
+        "evidence": "locked_package",
+        "project_path": "/home/ruby-fixture/code/pair",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "13.1.0",
+        "platform": "ruby",
+        "dependency_relation": "direct",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "registry",
+          "url": "https://rubygems.org/"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "5b3083edef05f45e06af7c9469a1b4a78baae9873e99c1ff0d5ef1d5cce05307",
+        "source_path": "/home/ruby-fixture/code/shared/Gemfile.shared",
+        "package_name": "shared-dep",
+        "evidence": "declared_requirement",
+        "project_path": "/home/ruby-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_versions": [],
+        "dependency_relation": "direct",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "registry",
+          "url": "https://rubygems.org"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "ab84442d03c5cee5fc6dd5b131d8f7bfc7b8a6fa044c5ab6c85918e533c25d6c",
+        "source_path": "/home/ruby-fixture/code/tools/vendored/specifications/thor-1.3.0.gemspec",
+        "package_name": "thor",
+        "evidence": "installed_package",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.3.0",
+        "platform": "ruby",
+        "dependency_relation": "unknown",
+        "dependency_kind": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/ruby-fixture/code/tools/vendored/gems/thor-1.3.0",
+          "path_status": "resolved",
+          "presence": "present",
+          "default_gem": false
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      }
+    ]
+  },
+  "ruby_config_audit": {
+    "schema_version": 1,
+    "status": "partial",
+    "reasons": [
+      "unsupported_format"
+    ],
+    "files": [
+      {
+        "source_id": "4a753d3ec9d6c1d5439098d0386d6244422a71920606998211f8366f447618b9",
+        "manager": "bundler",
+        "scope": "process",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "auth_configured",
+            "display": "true",
+            "source_id": "4a753d3ec9d6c1d5439098d0386d6244422a71920606998211f8366f447618b9",
+            "redacted": true
+          }
+        ]
+      },
+      {
+        "source_id": "efbf5762921325f5fdee1243e53b80dd06441b7badb7f5164b0a0f13b8ed2861",
+        "manager": "bundler",
+        "scope": "project",
+        "path": "/home/ruby-fixture/code/app/.bundle/config",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "path",
+            "display": "vendor/bundle",
+            "source_id": "efbf5762921325f5fdee1243e53b80dd06441b7badb7f5164b0a0f13b8ed2861",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "e5846614cecb732a2eac6e329e02b590bb39554b031d743db7846c7b7c814443",
+        "manager": "bundler",
+        "scope": "project",
+        "path": "/home/ruby-fixture/code/app/gems.rb",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "sources.0.type",
+            "display": "registry",
+            "source_id": "e5846614cecb732a2eac6e329e02b590bb39554b031d743db7846c7b7c814443",
+            "redacted": false
+          },
+          {
+            "key": "sources.0.url",
+            "display": "https://rubygems.org",
+            "source_id": "e5846614cecb732a2eac6e329e02b590bb39554b031d743db7846c7b7c814443",
+            "redacted": false
+          },
+          {
+            "key": "sources.1.type",
+            "display": "git",
+            "source_id": "e5846614cecb732a2eac6e329e02b590bb39554b031d743db7846c7b7c814443",
+            "redacted": false
+          },
+          {
+            "key": "sources.1.url",
+            "display": "https://github.com/org/forked.git",
+            "source_id": "e5846614cecb732a2eac6e329e02b590bb39554b031d743db7846c7b7c814443",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "fe3c8ddecbf27a8452ead134027cdb4b4154360227432c4994ef2dac5be259b5",
+        "manager": "bundler",
+        "scope": "project",
+        "path": "/home/ruby-fixture/code/legacy/.bundle/config",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "8a5f8bb9302ed11c52da78ae51c2e95f412ed64039ff8a635e021e2bd6a0eb16",
+        "manager": "bundler",
+        "scope": "project",
+        "path": "/home/ruby-fixture/code/legacy/Gemfile",
+        "status": "unsupported",
+        "reasons": [
+          "unsupported_format"
+        ],
+        "settings": []
+      },
+      {
+        "source_id": "3e2fe9fb5c5cec7d488e0d98efb7fd51b99615ced228d9839fac84d130531e0c",
+        "manager": "bundler",
+        "scope": "project",
+        "path": "/home/ruby-fixture/code/pair/.bundle/config",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "49a32fe503d3d2b558f3f8c9fc8c5ce3347f169377c496819fe61cf5ae2fdbc8",
+        "manager": "bundler",
+        "scope": "project",
+        "path": "/home/ruby-fixture/code/pair/Gemfile",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "sources.0.type",
+            "display": "registry",
+            "source_id": "49a32fe503d3d2b558f3f8c9fc8c5ce3347f169377c496819fe61cf5ae2fdbc8",
+            "redacted": false
+          },
+          {
+            "key": "sources.0.url",
+            "display": "https://rubygems.org",
+            "source_id": "49a32fe503d3d2b558f3f8c9fc8c5ce3347f169377c496819fe61cf5ae2fdbc8",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "dc4e7ebcce5d7668f1ff0f360fbcac0a61b884292ac86898813f40ffc1c69697",
+        "manager": "bundler",
+        "scope": "project",
+        "path": "/home/ruby-fixture/code/shared/Gemfile.shared",
+        "status": "present",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "ef12eb3cc57dac326c695eb8c320d48c4eb5cfaf39d6d8db80eb9a98f96d3259",
+        "manager": "bundler",
+        "scope": "user",
+        "path": "/home/ruby-fixture/.bundle/config",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "auth_configured",
+            "display": "true",
+            "source_id": "ef12eb3cc57dac326c695eb8c320d48c4eb5cfaf39d6d8db80eb9a98f96d3259",
+            "redacted": true
+          },
+          {
+            "key": "disable_checksum_validation",
+            "display": "true",
+            "source_id": "ef12eb3cc57dac326c695eb8c320d48c4eb5cfaf39d6d8db80eb9a98f96d3259",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "fa4f3ce7db42bced2d95c56d41f775e0176bfd58e65d89177e3f4a1b9e75e180",
+        "manager": "rubygems",
+        "scope": "process",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "auth_configured",
+            "display": "true",
+            "source_id": "fa4f3ce7db42bced2d95c56d41f775e0176bfd58e65d89177e3f4a1b9e75e180",
+            "redacted": true
+          },
+          {
+            "key": "https_proxy",
+            "display": "https://proxy.example.invalid:8443/",
+            "source_id": "fa4f3ce7db42bced2d95c56d41f775e0176bfd58e65d89177e3f4a1b9e75e180",
+            "redacted": true
+          }
+        ]
+      },
+      {
+        "source_id": "52a4c9e8f9601e3d6d2dbfc021a40106b87199f58c3c7a8299551a722dbef1b1",
+        "manager": "rubygems",
+        "scope": "system",
+        "path": "/etc/gemrc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "b7f6e70a857bd062ef707b6abe86a1d814afc336583a89dd1577762c131f77a9",
+        "manager": "rubygems",
+        "scope": "system",
+        "path": "/home/ruby-fixture/.rbenv/versions/3.3.0/etc/gemrc",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "ssl_verify_mode",
+            "display": "0",
+            "source_id": "b7f6e70a857bd062ef707b6abe86a1d814afc336583a89dd1577762c131f77a9",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "57096c35a99d18fbe47c1be5e18a30b8e66c1d772ba83939648790664ec9d695",
+        "manager": "rubygems",
+        "scope": "user",
+        "path": "/home/ruby-fixture/.gemrc",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "auth_configured",
+            "display": "true",
+            "source_id": "57096c35a99d18fbe47c1be5e18a30b8e66c1d772ba83939648790664ec9d695",
+            "redacted": true
+          },
+          {
+            "key": "http_proxy",
+            "display": "http://proxy.example.invalid:8080",
+            "source_id": "57096c35a99d18fbe47c1be5e18a30b8e66c1d772ba83939648790664ec9d695",
+            "redacted": true
+          },
+          {
+            "key": "sources.0.type",
+            "display": "registry",
+            "source_id": "57096c35a99d18fbe47c1be5e18a30b8e66c1d772ba83939648790664ec9d695",
+            "redacted": false
+          },
+          {
+            "key": "sources.0.url",
+            "display": "http://gems.example.invalid/",
+            "source_id": "57096c35a99d18fbe47c1be5e18a30b8e66c1d772ba83939648790664ec9d695",
+            "redacted": false
+          },
+          {
+            "key": "sources.1.type",
+            "display": "registry",
+            "source_id": "57096c35a99d18fbe47c1be5e18a30b8e66c1d772ba83939648790664ec9d695",
+            "redacted": false
+          },
+          {
+            "key": "sources.1.url",
+            "display": "https://rubygems.org/",
+            "source_id": "57096c35a99d18fbe47c1be5e18a30b8e66c1d772ba83939648790664ec9d695",
+            "redacted": false
+          }
+        ]
+      }
+    ],
+    "contexts": [
+      {
+        "manager": "bundler",
+        "config_source_ids": [
+          "4a753d3ec9d6c1d5439098d0386d6244422a71920606998211f8366f447618b9",
+          "ef12eb3cc57dac326c695eb8c320d48c4eb5cfaf39d6d8db80eb9a98f96d3259"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "bundler",
+        "project_path": "/home/ruby-fixture/code/app",
+        "config_source_ids": [
+          "e5846614cecb732a2eac6e329e02b590bb39554b031d743db7846c7b7c814443",
+          "dc4e7ebcce5d7668f1ff0f360fbcac0a61b884292ac86898813f40ffc1c69697",
+          "efbf5762921325f5fdee1243e53b80dd06441b7badb7f5164b0a0f13b8ed2861",
+          "4a753d3ec9d6c1d5439098d0386d6244422a71920606998211f8366f447618b9",
+          "ef12eb3cc57dac326c695eb8c320d48c4eb5cfaf39d6d8db80eb9a98f96d3259"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "bundler",
+        "project_path": "/home/ruby-fixture/code/legacy",
+        "config_source_ids": [
+          "8a5f8bb9302ed11c52da78ae51c2e95f412ed64039ff8a635e021e2bd6a0eb16",
+          "fe3c8ddecbf27a8452ead134027cdb4b4154360227432c4994ef2dac5be259b5",
+          "4a753d3ec9d6c1d5439098d0386d6244422a71920606998211f8366f447618b9",
+          "ef12eb3cc57dac326c695eb8c320d48c4eb5cfaf39d6d8db80eb9a98f96d3259"
+        ],
+        "selection_status": "partial"
+      },
+      {
+        "manager": "bundler",
+        "project_path": "/home/ruby-fixture/code/pair",
+        "config_source_ids": [
+          "49a32fe503d3d2b558f3f8c9fc8c5ce3347f169377c496819fe61cf5ae2fdbc8",
+          "3e2fe9fb5c5cec7d488e0d98efb7fd51b99615ced228d9839fac84d130531e0c",
+          "4a753d3ec9d6c1d5439098d0386d6244422a71920606998211f8366f447618b9",
+          "ef12eb3cc57dac326c695eb8c320d48c4eb5cfaf39d6d8db80eb9a98f96d3259"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "rubygems",
+        "config_source_ids": [
+          "fa4f3ce7db42bced2d95c56d41f775e0176bfd58e65d89177e3f4a1b9e75e180",
+          "57096c35a99d18fbe47c1be5e18a30b8e66c1d772ba83939648790664ec9d695",
+          "52a4c9e8f9601e3d6d2dbfc021a40106b87199f58c3c7a8299551a722dbef1b1",
+          "b7f6e70a857bd062ef707b6abe86a1d814afc336583a89dd1577762c131f77a9"
+        ],
+        "selection_status": "observed"
+      }
+    ],
+    "credential_files": [
+      {
+        "path": "/home/ruby-fixture/.gem/credentials",
+        "status": "present",
+        "presence": "present"
+      }
+    ],
+    "findings": [
+      {
+        "code": "ruby-001",
+        "severity": "MEDIUM",
+        "source_id": "57096c35a99d18fbe47c1be5e18a30b8e66c1d772ba83939648790664ec9d695",
+        "key": "sources.0.url",
+        "detail": "Ruby package source uses an unencrypted connection."
+      },
+      {
+        "code": "ruby-002",
+        "severity": "MEDIUM",
+        "source_id": "b7f6e70a857bd062ef707b6abe86a1d814afc336583a89dd1577762c131f77a9",
+        "key": "ssl_verify_mode",
+        "detail": "TLS certificate verification is disabled by Ruby package configuration."
+      },
+      {
+        "code": "ruby-003",
+        "severity": "MEDIUM",
+        "source_id": "57096c35a99d18fbe47c1be5e18a30b8e66c1d772ba83939648790664ec9d695",
+        "key": "auth_configured",
+        "detail": "Credentials are embedded in Ruby package configuration."
+      },
+      {
+        "code": "ruby-003",
+        "severity": "MEDIUM",
+        "source_id": "ef12eb3cc57dac326c695eb8c320d48c4eb5cfaf39d6d8db80eb9a98f96d3259",
+        "key": "auth_configured",
+        "detail": "Credentials are embedded in Ruby package configuration."
+      },
+      {
+        "code": "ruby-004",
+        "severity": "MEDIUM",
+        "source_id": "ef12eb3cc57dac326c695eb8c320d48c4eb5cfaf39d6d8db80eb9a98f96d3259",
+        "key": "disable_checksum_validation",
+        "detail": "Bundler checksum validation is disabled."
+      }
+    ]
+  }
+}

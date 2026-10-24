@@ -136,6 +136,8 @@ type Payload struct {
 	ComposerConfigAudit *model.ComposerConfigAudit `json:"composer_config_audit,omitempty"`
 	NuGetInventory      *model.NuGetInventory      `json:"nuget_inventory,omitempty"`
 	NuGetConfigAudit    *model.NuGetConfigAudit    `json:"nuget_config_audit,omitempty"`
+	RubyInventory       *model.RubyInventory       `json:"ruby_inventory,omitempty"`
+	RubyConfigAudit     *model.RubyConfigAudit     `json:"ruby_config_audit,omitempty"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -1158,6 +1160,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	endPhase(phaseCtx, phaseCancel, tracker, log, "nuget_scan")
 	postPhase()
 
+	// Ruby metadata uses the raw executor and the same developer as Go/Cargo.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "ruby_scan")
+	log.Progress("Collecting Ruby packages and RubyGems/Bundler configuration...")
+	rubyInventory, rubyConfigAudit := detector.NewRubyScanner(exec, log).Scan(phaseCtx, browserTarget, searchDirs, cfg.IncludeNetworkVolumes)
+	log.Progress("  Ruby: %d projects, %d package facts (inventory %s, config %s)", len(rubyInventory.Projects), len(rubyInventory.Packages), rubyInventory.Status, rubyConfigAudit.Status)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "ruby_scan")
+	postPhase()
+
 	// npm + pip configuration audits — surface-only inventory of every
 	// .npmrc and pip.conf on the host, plus the merged effective views
 	// each tool would resolve. We use the user-aware executor so npm and
@@ -1325,6 +1335,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		ComposerConfigAudit:     composerConfigAudit,
 		NuGetInventory:          nugetInventory,
 		NuGetConfigAudit:        nugetConfigAudit,
+		RubyInventory:           rubyInventory,
+		RubyConfigAudit:         rubyConfigAudit,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,

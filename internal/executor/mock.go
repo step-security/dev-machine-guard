@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -566,4 +567,16 @@ func (m *Mock) HasEnvPrefix(prefix string) bool {
 		}
 	}
 	return false
+}
+func (m *Mock) EnvNames(prefix string) []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	names := []string{}
+	for key := range m.env {
+		if strings.HasPrefix(key, prefix) {
+			names = append(names, key)
+		}
+	}
+	slices.Sort(names)
+	return names
 }

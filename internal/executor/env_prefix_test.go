@@ -18,4 +18,9 @@ func TestHasEnvPrefix(t *testing.T) {
 	if !NewUserAwareExecutor(m, "developer").HasEnvPrefix(prefix) {
 		t.Fatal("user-aware wrapper did not preserve process-only lookup")
 	}
+	for _, x := range []Executor{NewReal(), m, NewUserAwareExecutor(m, "developer")} {
+		if got := x.EnvNames(prefix); len(got) != 1 || got[0] != prefix+"EMPTY" || len(x.EnvNames(prefix+"ABSENT_")) != 0 {
+			t.Fatalf("EnvNames(%q) = %v", prefix, got)
+		}
+	}
 }

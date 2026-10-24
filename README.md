@@ -330,6 +330,8 @@ Composer auditing reads selected global `config.json`, root manifests and verifi
 
 NuGet auditing reads project, ancestor, user and machine `NuGet.Config` files plus verified process overrides. It reports package sources, source mapping, fallback folders, proxy, TLS and audit settings with credentials redacted, and records which configuration applied to each project and restore. It never executes `dotnet` or `nuget` or reads credential-provider output. See [.NET Packages](SCAN_COVERAGE.md#net-packages) for scope and limits.
 
+Ruby auditing reads RubyGems `gemrc` files and Bundler global, project and process settings for the resolved developer. It reports package sources, mirrors, install and cache paths, proxy, TLS and checksum settings with credentials redacted, and records which configuration applied to each project. It never executes `ruby`, `gem` or `bundle`, and reads `~/.gem/credentials` for existence only. See [Ruby Packages](SCAN_COVERAGE.md#ruby-packages) for scope and limits.
+
 Enterprise Device Policy can also set StepSecurity Secure Registry as the sole user-level Python index for pip and uv. It manages only the resolved developer's user configuration and shared StepSecurity `.netrc` entry, keeps pip and uv results independent, and restores owned settings on an explicit policy clear. Project files, virtual environments, system configuration, environment variables, direct URLs, and Poetry are not modified.
 
 ### Suspicious file detection

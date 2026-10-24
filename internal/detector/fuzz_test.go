@@ -2,10 +2,12 @@ package detector
 
 import (
 	"bytes"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 )
 
@@ -83,6 +85,62 @@ func FuzzPythonMetadata(f *testing.F) {
 		n2, v2 := parseRFC822NameVersion(b)
 		if n != n2 || v != v2 {
 			t.Fatal("body fields changed parsed identity")
+		}
+	})
+}
+
+// FuzzRubyMetadata feeds one input to every Ruby parser: each must be
+// deterministic, leave its input untouched, and admit only valid identities.
+func FuzzRubyMetadata(f *testing.F) {
+	for _, s := range []string{
+		"source \"https://rubygems.org\"\ngem \"rack\", \"~> 3.0\", group: :test\n",
+		"Gem::Specification.new do |s|\n  s.name = \"x\"\n  s.version = \"1.0\"\n  s.add_dependency \"y\"\nend\n",
+		"GEM\n  remote: https://rubygems.org/\n  specs:\n    rack (3.0.8)\n\nDEPENDENCIES\n  rack!\n\nCHECKSUMS\n  rack (3.0.8) sha256=bad\n",
+		rubyStubHeader, "gem \"x\" if ENV[\"X\"]\n", "", "\xff\x00",
+	} {
+		f.Add([]byte(s))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 16*1024 {
+			t.Skip()
+		}
+		before := bytes.Clone(data)
+		for _, parse := range []func([]byte) (*rubyManifest, error){parseRubyGemfile, parseRubyGemspec} {
+			m, err := parse(data)
+			m2, err2 := parse(data)
+			if !reflect.DeepEqual(m, m2) || (err == nil) != (err2 == nil) {
+				t.Fatal("manifest parse is not deterministic")
+			}
+			if err == nil && m != nil {
+				for _, d := range m.declarations {
+					if !configaudit.RubyGemName(d.name) {
+						t.Fatalf("invalid declared name %q", d.name)
+					}
+				}
+			}
+		}
+		entries, reasons, err := parseRubyLock(data)
+		entries2, reasons2, err2 := parseRubyLock(data)
+		if !reflect.DeepEqual(entries, entries2) || !slices.Equal(reasons, reasons2) || (err == nil) != (err2 == nil) {
+			t.Fatal("lock parse is not deterministic")
+		}
+		for _, e := range entries {
+			if !configaudit.RubyGemName(e.pkg.PackageName) || e.pkg.Version == "" {
+				t.Fatalf("invalid locked identity %q %q", e.pkg.PackageName, e.pkg.Version)
+			}
+		}
+		if name, _, _, err := parseRubyStub(data); err == nil && !configaudit.RubyGemName(name) {
+			t.Fatalf("invalid stub name %q", name)
+		}
+		n, v, p, reason := parseRubyArchive(data)
+		if n2, v2, p2, reason2 := parseRubyArchive(data); n != n2 || v != v2 || p != p2 || reason != reason2 {
+			t.Fatal("archive parse is not deterministic")
+		}
+		if reason == "" && !configaudit.RubyGemName(n) {
+			t.Fatalf("invalid archive name %q", n)
+		}
+		if !bytes.Equal(data, before) {
+			t.Fatal("parser mutated input")
 		}
 	})
 }

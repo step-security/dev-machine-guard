@@ -1786,3 +1786,117 @@ type NuGetConfigContext struct {
 	ConfigSourceIDs     []string `json:"config_source_ids"` // highest precedence first
 	RestoreMetadataPath string   `json:"restore_metadata_path,omitempty"`
 }
+
+// RubyInventorySchemaVersion versions ruby_inventory and ruby_config_audit.
+const RubyInventorySchemaVersion = 1
+
+// RubySource reuses the Cargo source shape. Kinds: project_search_root |
+// gem_home | manifest | gemspec | lockfile | installed_metadata |
+// bundler_checkout | cache_root | cache_archive | cached_metadata.
+type RubySource = CargoSource
+
+// RubyRecordedChecksum is a lock-recorded SHA-256, never a verification.
+type RubyRecordedChecksum = ComposerRecordedChecksum
+
+// RubyCredentialFile reports existence only; contents are never read.
+type RubyCredentialFile = CargoCredentialFile
+
+// RubyInventory covers RubyGems and Bundler from passive metadata reads; no
+// Ruby, gem, bundle or Git command runs. Declarations, locks, installed
+// receipts and caches stay separate evidence.
+type RubyInventory struct {
+	SchemaVersion int           `json:"schema_version"`
+	Status        string        `json:"status"` // complete | partial
+	Reasons       []string      `json:"reasons"`
+	Sources       []RubySource  `json:"sources"`
+	Projects      []RubyProject `json:"projects"`
+	Packages      []RubyPackage `json:"packages"`
+}
+
+// RubyProject is a Gemfile, gems.rb or standalone gemspec project. Partial
+// selection means its active lock or declarations are not established.
+type RubyProject struct {
+	ManifestSourceID string   `json:"manifest_source_id"`
+	ManifestPath     string   `json:"manifest_path"`
+	ProjectPath      string   `json:"project_path"`
+	SelectionStatus  string   `json:"selection_status"` // observed | partial
+	LockfilePaths    []string `json:"lockfile_paths"`
+	PackageName      string   `json:"package_name,omitempty"`
+	PackageVersion   string   `json:"package_version,omitempty"`
+}
+
+// RubyPackage is one observation. Names and versions keep their exact
+// spelling; platform is the exact artifact platform, never a Gemfile selector.
+type RubyPackage struct {
+	SourceID      string   `json:"source_id"`
+	SourcePath    string   `json:"source_path"`
+	PackageName   string   `json:"package_name"`
+	Evidence      string   `json:"evidence"` // declared_requirement | locked_package | installed_package | cached_package
+	ProjectPath   string   `json:"project_path,omitempty"`
+	Scope         string   `json:"scope"` // project | user | system | unknown
+	Reasons       []string `json:"reasons"`
+	VersionStatus string   `json:"version_status"` // known | unknown (declarations)
+	Version       string   `json:"version,omitempty"`
+	Platform      string   `json:"platform,omitempty"`
+	// RequestedVersions is present, possibly [], on declarations only.
+	RequestedVersions  *[]string              `json:"requested_versions,omitempty"`
+	Groups             []string               `json:"groups,omitempty"`
+	DeclaredPlatforms  []string               `json:"declared_platforms,omitempty"`
+	DependencyRelation string                 `json:"dependency_relation"` // direct | transitive | unknown
+	DependencyKind     string                 `json:"dependency_kind"`     // runtime | development | unknown
+	Origin             RubyOrigin             `json:"origin"`
+	Revision           string                 `json:"revision,omitempty"`     // recorded Git revision, lock evidence only
+	Installation       *RubyInstallation      `json:"installation,omitempty"` // installed evidence only
+	ChecksumStatus     string                 `json:"checksum_status"`        // absent | recorded | partial
+	RecordedChecksums  []RubyRecordedChecksum `json:"recorded_checksums"`
+}
+
+// RubyOrigin is observed provenance. Receipts and caches are always unknown;
+// a configured default registry is never assumed.
+type RubyOrigin struct {
+	Kind string `json:"kind"` // registry | git | path | unknown
+	URL  string `json:"url,omitempty"`
+	Path string `json:"path,omitempty"`
+}
+
+// RubyInstallation is directory presence, separate from receipt lifecycle.
+// Default gems can live in Ruby's own library and have no package directory.
+type RubyInstallation struct {
+	Path       string `json:"path,omitempty"`
+	PathStatus string `json:"path_status"` // resolved | unresolved | not_applicable
+	Presence   string `json:"presence"`    // present | absent | unknown | not_applicable
+	DefaultGem bool   `json:"default_gem"`
+}
+
+// RubyConfigAudit follows Composer's observed-source model with a manager on
+// each file and context. The backend derives endpoint summaries and counts.
+type RubyConfigAudit struct {
+	SchemaVersion   int                  `json:"schema_version"`
+	Status          string               `json:"status"` // complete | partial
+	Reasons         []string             `json:"reasons"`
+	Files           []RubyConfigFile     `json:"files"`
+	Contexts        []RubyConfigContext  `json:"contexts"`
+	CredentialFiles []RubyCredentialFile `json:"credential_files"`
+	Findings        []CargoConfigFinding `json:"findings"`
+}
+
+// RubyConfigFile is one configuration source. Process sources have no path; a
+// source that is not present carries no current settings.
+type RubyConfigFile struct {
+	SourceID string               `json:"source_id"`
+	Manager  string               `json:"manager"` // rubygems | bundler
+	Scope    string               `json:"scope"`   // system | user | project | process
+	Path     string               `json:"path,omitempty"`
+	Status   string               `json:"status"` // present | absent | skipped_protected | unreadable | invalid | unsupported
+	Reasons  []string             `json:"reasons"`
+	Settings []CargoConfigSetting `json:"settings"`
+}
+
+// RubyConfigContext is one manager's observed precedence chain, not a claim
+// of a single effective configuration. Ambient contexts have no project.
+type RubyConfigContext struct {
+	Manager         string   `json:"manager"`
+	ProjectPath     string   `json:"project_path,omitempty"`
+	ConfigSourceIDs []string `json:"config_source_ids"` // highest precedence first
+	SelectionStatus string   `json:"selection_status"`  // observed | partial
+}

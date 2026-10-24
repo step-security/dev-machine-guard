@@ -344,6 +344,24 @@ Enterprise telemetry emits `nuget_inventory` and `nuget_config_audit` for the re
 
 **Limits and privacy.** Each metadata file is capped at 2 MiB and each `.nupkg` read at 32 MiB; discovery at 100,000 entries per root and depth 128; inventory at 50,000 records; audit at 256 KiB; combined sections at 16 MiB. Failures and limits carry partial coverage. URL credentials, queries and fragments are removed before telemetry; `ClearTextPassword`, `Password`, API keys and credential-provider arguments are never collected, and an environment-variable reference is not reported as a stored password. `project.json`, `.ridpackage.json`, `#i` script sources and `global.json` SDK resolution are outside v1 coverage.
 
+## Ruby Packages
+
+Enterprise telemetry emits `ruby_inventory` and `ruby_config_audit` for the resolved developer. Collection is static: `ruby`, `gem`, `bundle`, Git, plugins, binstubs, Gemfiles and gemspecs are never executed, and no source is contacted.
+
+| Evidence | Source and meaning |
+|---|---|
+| Declared requirements | `gem` statements in `gems.rb` or `Gemfile` (with `eval_gemfile` and `gemspec` references) and dependency calls in project gemspecs, with literal requirements, groups, platforms and `source`/`git`/`path` origins. Only literal Ruby is read: a file with conditionals, interpolation, heredocs or other dynamic code is `unsupported_format`, and its lock is still read. |
+| Locked packages | `Gemfile.lock`/`gems.locked` GEM, GIT and PATH specs with platform, Git revision, direct/transitive relation from `DEPENDENCIES` and recorded `CHECKSUMS` SHA-256 values. A lock no project selects is still reported, and its directory's project selection is `partial`. |
+| Installed packages | `# stub:` headers of `specifications/*.gemspec` in each gem home, with package-directory presence; default gems (`specifications/default`) and Bundler Git checkouts. |
+| Cached packages | Identity from `metadata.gz` (or `metadata`) inside `.gem` archives in gem-home caches, project `vendor/cache` and the Bundler user cache, without extracting files or decompressing `data.tar.gz`; serialized checkout gemspecs in `vendor/cache`. |
+| Configuration | `GEMRC` files, `~/.gemrc` (or its XDG fallback), `/etc/gemrc` and interpreter `etc/gemrc` for RubyGems; process, global, project-local and manifest settings for Bundler, with allowlisted source, mirror, path, cache, lock, proxy, TLS and checksum settings per ambient and project context, and findings `ruby-001`…`ruby-004`. `~/.gem/credentials` is checked for existence only. Credentials are recorded as configured only. |
+
+**Discovery.** Gem homes come from rbenv, RVM, asdf, mise and chruby rubies, macOS system Ruby, Homebrew (macOS and Linux) and distribution prefixes (including multiarch RubyGems integration roots), Windows RubyInstaller paths, `~/.gem`, the XDG data directory, verified `GEM_HOME`/`GEM_PATH` and gemrc `gemhome`/`gempath`. Projects come from the selected search roots with protected-path and network-volume guards, plus a verified `BUNDLE_GEMFILE`, which replaces the default manifest in its directory. A project's Bundler `path` follows Bundler's local, environment, global precedence. Gem homes, caches, `.bundle` and VCS directories are pruned from the walk; directory symlinks are not followed. An interpreter prefix that cannot be fully listed leaves the configuration audit partial, so an `etc/gemrc` it may hide keeps its history.
+
+**Meaning.** Declared, locked, installed and cached evidence stay independent when they disagree. Recorded checksums are never verified. Installed and cached records have `unknown` origin; a lock origin is a single GEM remote, a Git remote or a resolved path, otherwise `unknown`. A missing package directory changes presence only. An evaluated Gemfile or gemspec shared by several projects stays `partial` while any possible consumer is unread, unsupported or outside the walk.
+
+**Limits and privacy.** Each metadata file is capped at 2 MiB and each `.gem` read at 32 MiB; discovery at 100,000 entries per root and depth 128; inventory at 50,000 records; audit at 256 KiB; combined sections at 16 MiB. Failures and limits carry partial coverage. YAML tags and aliases are never instantiated, and a relevant Bundler config line that Bundler's line reader interprets differently from YAML (a comment after a quoted value, escapes, extra spacing) makes the file `unsupported`. URL credentials, queries and fragments are removed before telemetry; API keys, S3 secrets, host credential values and command option strings are never collected, and arbitrary `BUNDLE_*` variables are not read. Plugin sources, Homebrew formula inventory and other users' homes are outside v1 coverage.
+
 ## System Package Scanning (Linux)
 
 System package scanning is **automatic on Linux** — no opt-in flag required. Multiple package managers can coexist.

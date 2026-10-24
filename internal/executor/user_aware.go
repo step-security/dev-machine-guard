@@ -347,3 +347,6 @@ func (e *UserAwareExecutor) DiskCapacityBytes(path string) uint64 {
 
 // HasEnvPrefix observes only this process; it never sources the user's shell.
 func (e *UserAwareExecutor) HasEnvPrefix(prefix string) bool { return e.inner.HasEnvPrefix(prefix) }
+
+// EnvNames observes only this process; it never sources the user's shell.
+func (e *UserAwareExecutor) EnvNames(prefix string) []string { return e.inner.EnvNames(prefix) }

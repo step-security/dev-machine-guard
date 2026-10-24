@@ -88,6 +88,20 @@ func TestReaderDotDotAfterSymlinkPreservesTarget(t *testing.T) {
 }
 
 func TestReaderReadDirLimit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		volume := filepath.VolumeName(t.TempDir()) + string(filepath.Separator)
+		r := NewReader([]string{volume}, nil)
+		if entries, _, err := r.ReadDirLimit(volume, 1); err != nil || len(entries) > 1 {
+			t.Fatalf("volume listing = %d entries, %v", len(entries), err)
+		}
+		if _, err := r.ReadFile(volume, 1); err == nil {
+			t.Fatal("volume root accepted as a file")
+		}
+		guarded := NewReader([]string{volume}, func(string) string { return "guarded" })
+		if _, _, err := guarded.ReadDirLimit(volume, 1); ReasonOf(err) != "guarded" {
+			t.Fatalf("volume guard = %v", err)
+		}
+	}
 	base := tempHome(t)
 	root, outside := filepath.Join(base, "root"), filepath.Join(base, "outside")
 	for _, name := range []string{"c", "a", "b"} {
