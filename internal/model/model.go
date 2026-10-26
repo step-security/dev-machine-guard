@@ -63,17 +63,54 @@ type ScanResult struct {
 }
 
 type Device struct {
-	Hostname     string           `json:"hostname"`
-	SerialNumber string           `json:"serial_number"`
-	OSVersion    string           `json:"os_version"`
-	Platform     string           `json:"platform"`
-	UserIdentity string           `json:"user_identity"`
-	Resources    MachineResources `json:"resources"`
+	Hostname string `json:"hostname"`
+	// SerialNumber is the probed hardware serial. DeviceID is the identity
+	// every backend call uses: the same value unless a device identity template
+	// is configured (STEPSEC_DEVICE_ID / config.json device_id), in which case
+	// it is the expanded, sanitized template and DeviceIDSource says where it
+	// came from ("env" | "config" | "serial"). See internal/device/identity.go.
+	SerialNumber   string `json:"serial_number"`
+	DeviceID       string `json:"device_id,omitempty"`
+	DeviceIDSource string `json:"device_id_source,omitempty"`
+	// IdentityPerUser: the template contained {user}, so this machine's users
+	// are separate devices. IdentityIncomplete: a token expanded empty (e.g.
+	// {user} under SYSTEM); DeviceID is "" and the run must not upload.
+	IdentityPerUser    bool             `json:"-"`
+	IdentityIncomplete bool             `json:"-"`
+	OSVersion          string           `json:"os_version"`
+	Platform           string           `json:"platform"`
+	UserIdentity       string           `json:"user_identity"`
+	Resources          MachineResources `json:"resources"`
 	// WSL reports Windows Subsystem for Linux on a Windows host. Nil on every
 	// other platform, and nil on Windows unless the WSL-detection feature gate
 	// is on — so `omitempty` drops it entirely rather than emitting a zero
 	// value that a reader could mistake for "scanned, no WSL".
 	WSL *WSLInfo `json:"wsl,omitempty"`
+	// Virtualization says whether this machine is a virtual machine and on
+	// which hypervisor or cloud. Nil when detection did not run (community
+	// output before the probe, a Device built by hand).
+	Virtualization *Virtualization `json:"virtualization,omitempty"`
+}
+
+// Virtualization types. A machine can be proven virtual (a hypervisor vendor
+// showed up in SMBIOS/DMI, the cloud metadata service answered, or the OS
+// says so), never proven physical: "physical" means no hypervisor was
+// detected by any source, "unknown" means no source could be read.
+const (
+	VirtualizationVirtual  = "virtual"
+	VirtualizationPhysical = "physical"
+	VirtualizationUnknown  = "unknown"
+)
+
+// Virtualization is the hypervisor classification reported with device info.
+// Vendor is one of azure | aws | gcp | hyperv | vmware | kvm | qemu | xen |
+// parallels | virtualbox | apple | other, empty for a physical machine.
+// Source names the evidence: imds (cloud metadata service) | smbios | dmi |
+// sysctl | cpuinfo | systemd.
+type Virtualization struct {
+	Type   string `json:"type"`
+	Vendor string `json:"vendor,omitempty"`
+	Source string `json:"source,omitempty"`
 }
 
 // WSL presence is tri-state. A probe that cannot read the registry (e.g. a

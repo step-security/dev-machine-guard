@@ -62,7 +62,7 @@ C:\Program Files\StepSecurity\
 | Write tenant config to `C:\ProgramData\StepSecurity\config.json` | `seed\<version>\stepsecurity-dev-machine-guard.exe configure --non-interactive ...` (install / upgrade with credentials) |
 | Create `versions\` + `state\` (SYSTEM-owned, Users read-only), copy the seed into `versions\<version>`, point `current` at it unless a newer self-updated version is already current | `bootstrap.exe adopt-seed` (install, upgrade, repair; never fails the MSI) |
 | (Re)create the 3 scheduled tasks | `seed\<version>\stepsecurity-dev-machine-guard.exe install` (install, upgrade **and repair**) |
-| Real uninstall: delete the tasks, stop running DMG processes, remove `versions\`, `state\`, `RunningVersion` | `seed\<version>\stepsecurity-dev-machine-guard.exe uninstall` (skipped during a major upgrade; failures never block removal) |
+| Real uninstall: delete the tasks, stop running DMG processes, remove `versions\`, `state\`, `RunningVersion` | `seed\<version>\stepsecurity-dev-machine-guard.exe uninstall` (first retires the device in the dashboard when `config.json` has `retire_on_uninstall`; skipped during a major upgrade, which therefore never retires; failures never block removal) |
 
 Scheduled tasks:
 
@@ -75,6 +75,12 @@ Scheduled tasks:
 WiX's `WixQuietExec` (Util extension) → the bootstrap or the seed agent
 → `schtasks.exe`. This matters in environments where EDR blocks
 PowerShell egress — a common enterprise posture.
+
+Optional properties `DEVICEID` (device identity template, e.g.
+`{hostname}-{user}`) and `RETIREONUNINSTALL=1` are forwarded to
+`configure --device-id` / `--retire-on-uninstall`; both are also accepted
+as `device_id` / `retire_on_uninstall` keys in a `BOOTSTRAPFILE`. See
+`docs/deploying-on-virtual-desktops.md`.
 
 ## Self-update and `AUTOUPDATE`
 

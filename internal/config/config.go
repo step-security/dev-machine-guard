@@ -18,7 +18,7 @@ import (
 
 // Default placeholders (replaced by backend for enterprise installation scripts).
 var (
-	DeviceID            string // Optional device identity override; empty uses the machine serial.
+	DeviceID            string // Optional device identity: a literal id or a template over {serial} {hostname} {user}; empty uses the machine serial. STEPSEC_DEVICE_ID overrides it (read by the device package).
 	CustomerID          = "{{CUSTOMER_ID}}"
 	APIEndpoint         = "{{API_ENDPOINT}}"
 	APIKey              = "{{API_KEY}}" //#nosec G101 -- build-time placeholder substituted by the backend installer; the literal is not a real credential.
@@ -75,6 +75,13 @@ var (
 // telemetry.ExecutionDeadline.
 var MaxExecutionDuration string
 
+// RetireOnUninstall makes `uninstall` tell the backend to retire this device
+// before removing the scheduler job (config.json `retire_on_uninstall`).
+// Written once at provisioning time (bootstrap.json / MSI RETIREONUNINSTALL)
+// so a later `msiexec /x` needs no extra arguments. `uninstall --retire` /
+// `--no-retire` override it per invocation.
+var RetireOnUninstall bool
+
 // Windows self-update settings (internal/selfupdate), read from the
 // machine config the SYSTEM updater trusts. AutoUpdate nil means the
 // default (on for MSI installs); `configure --auto-update=false` (the MSI
@@ -109,6 +116,7 @@ type ConfigFile struct {
 	MaxExecutionDuration  string   `json:"max_execution_duration,omitempty"`
 	UseLegacyNodeScan     *bool    `json:"use_legacy_node_scan,omitempty"`
 	UseLegacyPythonScan   *bool    `json:"use_legacy_python_scan,omitempty"`
+	RetireOnUninstall     *bool    `json:"retire_on_uninstall,omitempty"`
 	AutoUpdate            *bool    `json:"auto_update,omitempty"`
 	UpdateMirrorURL       string   `json:"update_mirror_url,omitempty"`
 	UpdateLagBehind       int      `json:"update_lag_behind,omitempty"`
@@ -175,6 +183,14 @@ func (c ConfigFile) MarshalJSON() ([]byte, error) {
 		}
 	}
 	return json.Marshal(m)
+}
+
+// MachineInstallDir returns the machine-wide install directory an elevated
+// Windows install uses (C:\ProgramData\StepSecurity), or "" on other
+// platforms. Exported for callers that must find per-user state written by
+// scheduled runs when they themselves run as SYSTEM (uninstall --retire).
+func MachineInstallDir() string {
+	return machineConfigDir()
 }
 
 // userConfigDir returns ~/.stepsecurity — the per-user config location.
@@ -356,6 +372,9 @@ func Load() {
 	if cfg.UseLegacyPythonScan != nil {
 		UseLegacyPythonScan = *cfg.UseLegacyPythonScan
 	}
+	if cfg.RetireOnUninstall != nil {
+		RetireOnUninstall = *cfg.RetireOnUninstall
+	}
 	if cfg.AutoUpdate != nil && AutoUpdate == nil {
 		AutoUpdate = cfg.AutoUpdate
 	}
@@ -388,7 +407,10 @@ func RunConfigure() error {
 	fmt.Println("To clear a value, enter a single dash (-).")
 	fmt.Println()
 
-	existing.DeviceID = promptValue(reader, "Device ID (optional; default = machine serial)", existing.DeviceID)
+	// A literal id, or a template over {serial} {hostname} {user}: a pooled
+	// virtual desktop fleet typically uses "{hostname}-{user}" so each person
+	// on a shared host is their own device. See docs/deploying-on-virtual-desktops.md.
+	existing.DeviceID = strings.TrimSpace(promptValue(reader, "Device ID (optional; default = machine serial; tokens {serial} {hostname} {user})", existing.DeviceID))
 	existing.CustomerID = promptValue(reader, "Customer ID", existing.CustomerID)
 	existing.APIEndpoint = promptValue(reader, "API Endpoint", existing.APIEndpoint)
 	existing.APIKey = promptSecret(reader, "API Key", existing.APIKey)
@@ -569,6 +591,20 @@ func RunConfigure() error {
 	// for one run, pass --install-dir=PATH or set $STEPSECURITY_HOME.
 	existing.InstallDir = promptValue(reader, "Install Directory (blank = default)", existing.InstallDir)
 
+	// Retire on uninstall: `uninstall` tells the dashboard to retire this
+	// device before removing the scheduler job. Stored only when enabled.
+	currentRetire := "false"
+	if existing.RetireOnUninstall != nil && *existing.RetireOnUninstall {
+		currentRetire = "true"
+	}
+	retireInput := promptValue(reader, "Retire device on uninstall (true/false)", currentRetire)
+	if strings.EqualFold(strings.TrimSpace(retireInput), "true") {
+		v := true
+		existing.RetireOnUninstall = &v
+	} else {
+		existing.RetireOnUninstall = nil
+	}
+
 	// Save
 	if err := save(existing); err != nil {
 		return fmt.Errorf("saving configuration: %w", err)
@@ -725,8 +761,11 @@ func save(cfg *ConfigFile) error {
 	return nil
 }
 
-// ShowConfigure prints the current configuration to stdout.
-func ShowConfigure() {
+// ShowConfigure prints the current configuration to stdout. resolvedIdentity,
+// when non-empty, is printed under the Device ID line ("<id> (source:
+// env|config|serial)"); main supplies it via device.ResolvedDeviceID because
+// the device package depends on this one, not the other way round.
+func ShowConfigure(resolvedIdentity string) {
 	cfg, err := readExisting()
 	if err != nil {
 		fmt.Printf("Warning: %v\n\n", err)
@@ -734,6 +773,9 @@ func ShowConfigure() {
 
 	fmt.Printf("Configuration (%s):\n\n", ConfigFilePath())
 	fmt.Printf("  %-24s %s\n", "Device ID:", displayDeviceID(cfg.DeviceID))
+	if resolvedIdentity != "" {
+		fmt.Printf("  %-24s %s\n", "  resolves now to:", resolvedIdentity)
+	}
 	fmt.Printf("  %-24s %s\n", "Customer ID:", displayValue(cfg.CustomerID))
 	fmt.Printf("  %-24s %s\n", "API Endpoint:", displayValue(cfg.APIEndpoint))
 	fmt.Printf("  %-24s %s\n", "API Key:", maskSecret(cfg.APIKey))
@@ -755,11 +797,19 @@ func ShowConfigure() {
 	}
 	fmt.Printf("  %-24s %s\n", "Log Level:", displayLogLevel(cfg.LogLevel))
 	fmt.Printf("  %-24s %s\n", "Install Directory:", displayInstallDir(cfg.InstallDir))
+	fmt.Printf("  %-24s %s\n", "Retire On Uninstall:", displayRetireOnUninstall(cfg.RetireOnUninstall))
+}
+
+func displayRetireOnUninstall(v *bool) string {
+	if v != nil && *v {
+		return "true (uninstall retires this device in the dashboard)"
+	}
+	return "false (default)"
 }
 
 func displayDeviceID(v string) string {
 	if v = strings.TrimSpace(v); v == "" {
-		return "machine serial (default)"
+		return "auto (per-user on multi-session hosts, hardware serial elsewhere)"
 	}
 	return v
 }
@@ -890,7 +940,13 @@ type NonInteractiveOptions struct {
 	APIKey        string   // --api-key (or DMG_API_KEY env)
 	ScanFrequency string   // --scan-frequency (hours, as string)
 	SearchDirs    []string // --search-dirs (re-used from scan flag; empty = unchanged)
-	AutoUpdate    *bool    // --auto-update=true|false (nil = unchanged)
+	// DeviceID is --device-id: the identity template (literal or tokens).
+	// Empty = unchanged, like every other field; "-" clears it back to the
+	// hardware serial so an MSI property can reset a previously set template.
+	DeviceID string
+	// RetireOnUninstall is --retire-on-uninstall[=true|false]; nil = unchanged.
+	RetireOnUninstall *bool
+	AutoUpdate        *bool // --auto-update=true|false (nil = unchanged)
 }
 
 // HasAny reports whether the caller supplied any inline value. Used by
@@ -904,6 +960,8 @@ func (o NonInteractiveOptions) HasAny() bool {
 		o.APIKey != "" ||
 		o.ScanFrequency != "" ||
 		len(o.SearchDirs) > 0 ||
+		o.DeviceID != "" ||
+		o.RetireOnUninstall != nil ||
 		o.AutoUpdate != nil
 }
 
@@ -949,6 +1007,21 @@ func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
 	}
 	if len(opts.SearchDirs) > 0 {
 		existing.SearchDirs = opts.SearchDirs
+	}
+	switch v := strings.TrimSpace(opts.DeviceID); v {
+	case "":
+		// unchanged
+	case "-":
+		existing.DeviceID = ""
+	default:
+		existing.DeviceID = v
+	}
+	if opts.RetireOnUninstall != nil {
+		if *opts.RetireOnUninstall {
+			existing.RetireOnUninstall = opts.RetireOnUninstall
+		} else {
+			existing.RetireOnUninstall = nil // false is the default; keep the file minimal
+		}
 	}
 	if opts.AutoUpdate != nil {
 		existing.AutoUpdate = opts.AutoUpdate

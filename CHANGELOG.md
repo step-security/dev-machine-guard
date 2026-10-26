@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [Unreleased]
+
+### Added
+
+- **Device identity templates for virtual desktops and shared hosts.** `device_id` (config.json, MSI `DEVICEID`, bootstrap.json, `configure --device-id`) now also accepts a template over `{serial}`, `{hostname}` and `{user}`, and the `STEPSEC_DEVICE_ID` environment variable overrides it at run time: `{hostname}-{user}` gives each person on a pooled Azure Virtual Desktop host their own device and lets a rebuilt host keep its history, `{user}` follows a developer across hosts. Template expansions are sanitized for the backend's key formats; a literal id and the machine-identity path are byte-identical to before. A new `device_id_source` payload field says where the id came from. A `{user}` template under a service account (SYSTEM, LOCAL SERVICE) cannot be completed, so the run is skipped with a log line rather than reporting under a made-up id. `configure show` prints what the template resolves to right now. See `docs/deploying-on-virtual-desktops.md`.
+- **Per-user state on shared hosts.** When the identity template contains `{user}`, the run-gate cache, delta scan state, Node scan cache and run metrics live under `<install dir>/users/<user>/`, the single-instance lock is per user, and the Windows scheduled task is registered with `MultipleInstancesPolicy=Parallel`, so two logged-in users' scans run side by side as two devices instead of overwriting each other.
+- **Automatic per-user identity on shared Windows hosts.** With no `device_id` configured, a host running a multi-session edition (Windows 10/11 Enterprise multi-session, Server RDSH, or the RD Session Host role) or scanned by two or more different developers switches to `{hostname}-{user}` on its own, reported as `device_id_source: auto`. The decision is sticky (`multi-user.json` in `C:\ProgramData\StepSecurity`), so ids never flip back, and the one-time switch retires the host's previous serial-based device through the retire API with reason `identity_changed` so no stale seat remains. Windows-only; configure the template `{serial}` to opt out.
+- **Virtualization detection.** Every scan reports whether the machine is virtual, physical or unknown, the hypervisor or cloud (azure, aws, gcp, hyperv, vmware, kvm, qemu, xen, parallels, virtualbox, apple) and the evidence (cloud metadata service, SMBIOS/DMI, sysctl, systemd-detect-virt, cpuinfo) as `virtualization` in the payload and a line in the pretty output. The cloud metadata service is only asked when the firmware already names that cloud's hypervisor; the CPUID hypervisor bit is not used because Hyper-V and VBS hosts set it too.
+- **Retire on uninstall.** `uninstall --retire`, or `retire_on_uninstall: true` in config (MSI `RETIREONUNINSTALL=1`, bootstrap.json), posts a best-effort retire to the dashboard before the scheduler job is removed, so a torn-down virtual desktop leaves the device list and the license count. For a `{user}` template every per-user device the install has state for is retired, which is how an MSI uninstall running as SYSTEM covers all of a host's users. `--no-retire` suppresses it, a major upgrade skips the uninstall step entirely (so it never retires), and a failure (offline machine, older backend) is a warning that never blocks the uninstall.
+
+### Fixed
+
+- **Scans fired under a Windows service account are flagged `no_user_logged_in`.** Only `root` was recognised before, so a SYSTEM-context run reported `NT AUTHORITY\SYSTEM` as the developer and overwrote the device's real user in the dashboard.
+
 ## [1.18.0] - 2026-10-26
 
 ### Added

@@ -85,6 +85,14 @@
     <Property Id="APIKEY"        Secure="yes" Hidden="yes"/>
     <Property Id="SCANFREQUENCY" Secure="yes" Value="4"/>
     <Property Id="BOOTSTRAPFILE" Secure="yes"/>
+    <!-- DEVICEID: device identity template — a literal id or {serial}
+         {hostname} {user} tokens (e.g. "{hostname}-{user}" for pooled
+         virtual desktops). Empty keeps the hardware serial.
+         RETIREONUNINSTALL=1: `msiexec /x` retires the device in the
+         dashboard before removing the scheduled task. Both also accepted
+         as bootstrap.json keys (device_id / retire_on_uninstall). -->
+    <Property Id="DEVICEID"          Secure="yes"/>
+    <Property Id="RETIREONUNINSTALL" Secure="yes"/>
     <!-- AUTOUPDATE (no default): 0 opts the device out of self-update
          (configure writes auto_update:false into the SYSTEM-owned machine
          config; the update task still runs and reports update_disabled),
@@ -308,7 +316,7 @@
          backslash would escape the closing quote. -->
 
     <SetProperty Id="RunConfigureInline"
-                 Value='"[SEEDFOLDER]stepsecurity-dev-machine-guard.exe" configure --non-interactive --customer-id "[CUSTOMERID]" --api-endpoint "[APIENDPOINT]" --api-key "[APIKEY]" --scan-frequency "[SCANFREQUENCY]"'
+                 Value='"[SEEDFOLDER]stepsecurity-dev-machine-guard.exe" configure --non-interactive --customer-id "[CUSTOMERID]" --api-endpoint "[APIENDPOINT]" --api-key "[APIKEY]" --scan-frequency "[SCANFREQUENCY]" --device-id="[DEVICEID]" --retire-on-uninstall="[RETIREONUNINSTALL]"'
                  Sequence="execute"
                  Before="RunConfigureInline"
                  Condition="APIKEY AND NOT BOOTSTRAPFILE AND NOT Installed"/>
@@ -365,6 +373,10 @@
                  Before="RunInstallScheduledTask"
                  Condition="NOT REMOVE=&quot;ALL&quot;"/>
 
+    <!-- Plain uninstall lets config.json's retire_on_uninstall decide whether
+         the dashboard is told. A MAJOR UPGRADE also removes the old product
+         (REMOVE="ALL" with UPGRADINGPRODUCTCODE set); the condition skips
+         this CA then, so an upgrade never retires the device. -->
     <SetProperty Id="RunUninstallScheduledTask"
                  Value='"[SEEDFOLDER]stepsecurity-dev-machine-guard.exe" uninstall'
                  Sequence="execute"
@@ -384,12 +396,16 @@
         so the first scan the install CA triggers finds state.json.
       On a real uninstall (REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE):
         RunUninstallScheduledTask → RemoveFiles
-        (tasks, running DMG processes, versions\, state\, RunningVersion)
+        (tasks, running DMG processes, versions\, state\, RunningVersion;
+        `uninstall` first retires the device in the dashboard when
+        config.json has retire_on_uninstall, set via RETIREONUNINSTALL=1 or
+        the bootstrap file at install time)
       On a major upgrade:
         The old product is removed first (afterInstallInitialize). Its
         uninstall CA is skipped because UPGRADINGPRODUCTCODE is set, so a
         failed upgrade that rolls back still has its tasks and update state
-        (M-6). The new product's install CA replaces the tasks.
+        (M-6), and an upgrade never retires the device. The new product's
+        install CA replaces the tasks.
     -->
     <InstallExecuteSequence>
       <!-- Right after RemoveExistingProducts (which must follow
