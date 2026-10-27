@@ -12,6 +12,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/detector/browserext"
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
 	"github.com/step-security/dev-machine-guard/internal/detector/credentials"
+	"github.com/step-security/dev-machine-guard/internal/detector/runtimeinv"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/featuregate"
@@ -184,7 +185,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		log.StepSkip("disabled (use --enable-brew-scan to enable)")
 	}
 
-	// System package managers (Linux only — rpm/dpkg/pacman/apk + snap + flatpak)
+	// System package managers: Linux (rpm/dpkg/pacman/apk + snap + flatpak)
+	// and Windows (ARP registry, choco, scoop, winget portable).
 	var systemPkgManager *model.PkgManager
 	var systemPackages []model.SystemPackage
 	var snapPkgManager, flatpakPkgManager *model.PkgManager
@@ -212,6 +214,33 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 			}
 		}
 		log.StepDone(time.Since(start))
+	}
+	var windowsPackageScans []model.SystemPackageScanResult
+	windowsPackagesCount := 0
+	if exec.GOOS() == model.PlatformWindows {
+		log.StepStart("Detecting system packages")
+		start = time.Now()
+		windowsPackageScans = detector.NewWindowsPkgDetector(exec).Scan(ctx)
+		for _, s := range windowsPackageScans {
+			windowsPackagesCount += s.PackagesCount
+		}
+		log.StepDone(time.Since(start))
+	}
+
+	// Language runtime inventory (on unless disabled)
+	var runtimeScan *model.RuntimeScanResult
+	if cfg.EnableRuntimeScan == nil || *cfg.EnableRuntimeScan {
+		log.StepStart("Inventorying language runtimes")
+		start = time.Now()
+		runtimeScan = runtimeinv.ScanResult(ctx, exec, tccSkipper)
+		log.StepDone(time.Since(start))
+	} else {
+		log.StepStart("Language runtime inventory")
+		log.StepSkip("disabled (use --enable-runtime-scan to enable)")
+	}
+	runtimesCount := 0
+	if runtimeScan != nil {
+		runtimesCount = runtimeScan.RuntimesCount
 	}
 
 	// Python scanning (community mode defaults to off, explicit flag overrides)
@@ -429,6 +458,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		AgentPlugins:      skillsResult.Plugins,
 		CredentialScan:    credentialScan,
 
+		WindowsPackageScans: windowsPackageScans,
+		RuntimeScan:         runtimeScan,
+
 		BrowserExtensionScan: browserExtensionScan,
 		Summary: model.Summary{
 			AIAgentsAndToolsCount: len(aiTools),
@@ -439,9 +471,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 			BrewFormulaeCount:     len(brewFormulae),
 			BrewCasksCount:        len(brewCasks),
 			PythonProjectsCount:   len(pythonProjects),
-			SystemPackagesCount:   len(systemPackages),
+			SystemPackagesCount:   len(systemPackages) + windowsPackagesCount,
 			SnapPackagesCount:     len(snapPackages),
 			FlatpakPackagesCount:  len(flatpakPackages),
+			RuntimesCount:         runtimesCount,
 			AgentSkillsCount:      len(agentSkills),
 			AgentPluginsCount:     skillsResult.Plugins.PluginCount(),
 		},

@@ -26,6 +26,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
 	"github.com/step-security/dev-machine-guard/internal/detector/credentials"
 	"github.com/step-security/dev-machine-guard/internal/detector/rules"
+	"github.com/step-security/dev-machine-guard/internal/detector/runtimeinv"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/featuregate"
@@ -111,6 +112,7 @@ type Payload struct {
 	PythonProjectsRemoved   []model.RemovedProjectRef       `json:"python_projects_removed,omitempty"`
 	PythonGlobalsUnchanged  []model.UnchangedGlobalRef      `json:"python_globals_unchanged,omitempty"`
 	SystemPackageScans      []model.SystemPackageScanResult `json:"system_package_scans"`
+	RuntimeScan             *model.RuntimeScanResult        `json:"runtime_scan,omitempty"` // nil = runtime inventory disabled
 	AIAgents                []model.AITool                  `json:"ai_agents"`
 	MCPConfigs              []model.MCPConfigEnterprise     `json:"mcp_configs"`
 	NPMRCAudit              *model.NPMRCAudit               `json:"npmrc_audit,omitempty"`
@@ -134,6 +136,10 @@ type Payload struct {
 	CargoConfigAudit    *model.CargoConfigAudit    `json:"cargo_config_audit,omitempty"`
 	ComposerInventory   *model.ComposerInventory   `json:"composer_inventory,omitempty"`
 	ComposerConfigAudit *model.ComposerConfigAudit `json:"composer_config_audit,omitempty"`
+	NuGetInventory      *model.NuGetInventory      `json:"nuget_inventory,omitempty"`
+	NuGetConfigAudit    *model.NuGetConfigAudit    `json:"nuget_config_audit,omitempty"`
+	RubyInventory       *model.RubyInventory       `json:"ruby_inventory,omitempty"`
+	RubyConfigAudit     *model.RubyConfigAudit     `json:"ruby_config_audit,omitempty"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -157,6 +163,7 @@ type PerformanceMetrics struct {
 	PythonGlobalPkgsCount int   `json:"python_global_packages_count"`
 	PythonProjectsCount   int   `json:"python_projects_count"`
 	SystemPackagesCount   int   `json:"system_packages_count"`
+	RuntimesCount         int   `json:"runtimes_count"`
 	AgentSkillsCount      int   `json:"agent_skills_count"`
 	AgentPluginsCount     int   `json:"agent_plugins_count"`
 }
@@ -393,7 +400,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		close(sigHandlerDone)
 
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic in telemetry.Run: %v", r)
+			err = fmt.Errorf("%w: %v", ErrPanic, r)
 			reportFailedOnce(err.Error())
 			return
 		}
@@ -543,7 +550,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	if cfg != nil && cfg.WSLScanEnabled {
 		wslCtx, wslCancel := startPhase(ctx, tracker, "wsl_scan")
 		log.Progress("Triggering WSL distribution scans (%s)...", cfg.WSLScanReason)
-		triggerWSLScans(exec, log, cfg, &dev)
+		triggerWSLScans(wslCtx, exec, log, cfg, &dev)
 		endPhase(wslCtx, wslCancel, tracker, log, "wsl_scan")
 	}
 
@@ -567,8 +574,15 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		log.Debug("scan-state: using legacy full-snapshot uploads")
 	}
 
-	// Report "started" now that we have a device_id. Fire-and-forget.
-	reportRunStatus(ctx, log, executionID, deviceID, runStatusStarted, "", invocationMethod)
+	// Report "started" now that we have a device_id. Once the backend has
+	// it, mark the bootstrap's run record (self-update health, spec §4).
+	scanCheckpoint(log, "scan.before-started")
+	if reportRunStatus(ctx, log, executionID, deviceID, runStatusStarted, "", invocationMethod) {
+		if err := markRunStarted(); err != nil {
+			log.Debug("run record: %v", err)
+		}
+	}
+	scanCheckpoint(log, "scan.after-started")
 
 	// First progress upsert: surfaces device_info completion immediately
 	// without waiting for the 5-minute heartbeat, and FORCE-attaches the log
@@ -895,7 +909,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		fmt.Fprintln(os.Stderr)
 	}
 
-	// System package scanning (Linux only — rpm, dpkg, pacman, apk, snap, flatpak)
+	// System package scanning: Linux (rpm, dpkg, pacman, apk, snap, flatpak)
+	// and Windows (ARP registry, choco, scoop, winget portable).
 	var systemPackageScans []model.SystemPackageScanResult
 
 	if exec.GOOS() == model.PlatformLinux {
@@ -954,8 +969,37 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		fmt.Fprintln(os.Stderr)
 		endPhase(phaseCtx, phaseCancel, tracker, log, "syspkg_scan")
 		postPhase()
+	} else if exec.GOOS() == model.PlatformWindows {
+		phaseCtx, phaseCancel = startPhase(ctx, tracker, "syspkg_scan")
+		log.Progress("Detecting system packages...")
+		systemPackageScans = detector.NewWindowsPkgDetector(exec).Scan(phaseCtx)
+		for _, s := range systemPackageScans {
+			log.Progress("  %s: %d packages in %dms", s.ScanType, s.PackagesCount, s.ScanDurationMs)
+		}
+		fmt.Fprintln(os.Stderr)
+		endPhase(phaseCtx, phaseCancel, tracker, log, "syspkg_scan")
+		postPhase()
 	} else {
-		log.Progress("System package scanning: skipped (non-Linux)")
+		log.Progress("System package scanning: skipped (macOS uses Homebrew)")
+		fmt.Fprintln(os.Stderr)
+	}
+
+	// Language runtime inventory (all platforms): every node/python/php/java/
+	// go/ruby/deno/bun/dotnet install on disk, however it was installed.
+	var runtimeScan *model.RuntimeScanResult
+	if cfg.EnableRuntimeScan == nil || *cfg.EnableRuntimeScan {
+		phaseCtx, phaseCancel = startPhase(ctx, tracker, "runtime_scan")
+		log.Progress("Inventorying language runtimes...")
+		runtimeScan = runtimeinv.ScanResult(phaseCtx, exec, tccSkipper)
+		log.Progress("  Found %d runtime installs in %dms", runtimeScan.RuntimesCount, runtimeScan.ScanDurationMs)
+		if runtimeScan.Truncated {
+			log.Progress("  Runtime walk stopped early (entry budget or deadline); results are partial")
+		}
+		fmt.Fprintln(os.Stderr)
+		endPhase(phaseCtx, phaseCancel, tracker, log, "runtime_scan")
+		postPhase()
+	} else {
+		log.Progress("Runtime inventory is DISABLED")
 		fmt.Fprintln(os.Stderr)
 	}
 
@@ -1148,6 +1192,22 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	endPhase(phaseCtx, phaseCancel, tracker, log, "composer_scan")
 	postPhase()
 
+	// NuGet metadata uses the raw executor and the same developer as Go/Cargo.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "nuget_scan")
+	log.Progress("Collecting .NET packages and NuGet configuration...")
+	nugetInventory, nugetConfigAudit := detector.NewNuGetScanner(exec, log).Scan(phaseCtx, browserTarget, searchDirs, cfg.IncludeNetworkVolumes)
+	log.Progress("  .NET: %d projects, %d package facts (inventory %s, config %s)", len(nugetInventory.Projects), len(nugetInventory.Packages), nugetInventory.Status, nugetConfigAudit.Status)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "nuget_scan")
+	postPhase()
+
+	// Ruby metadata uses the raw executor and the same developer as Go/Cargo.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "ruby_scan")
+	log.Progress("Collecting Ruby packages and RubyGems/Bundler configuration...")
+	rubyInventory, rubyConfigAudit := detector.NewRubyScanner(exec, log).Scan(phaseCtx, browserTarget, searchDirs, cfg.IncludeNetworkVolumes)
+	log.Progress("  Ruby: %d projects, %d package facts (inventory %s, config %s)", len(rubyInventory.Projects), len(rubyInventory.Packages), rubyInventory.Status, rubyConfigAudit.Status)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "ruby_scan")
+	postPhase()
+
 	// npm + pip configuration audits — surface-only inventory of every
 	// .npmrc and pip.conf on the host, plus the merged effective views
 	// each tool would resolve. We use the user-aware executor so npm and
@@ -1294,6 +1354,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		PythonProjectsRemoved:   pyRemovedRefs,
 		PythonGlobalsUnchanged:  pyGlobalsUnchangedRefs,
 		SystemPackageScans:      systemPackageScans,
+		RuntimeScan:             runtimeScan,
 		AIAgents:                allAI,
 		MCPConfigs:              mcpConfigs,
 		NPMRCAudit:              &npmrcAudit,
@@ -1313,6 +1374,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		CargoConfigAudit:        cargoConfigAudit,
 		ComposerInventory:       composerInventory,
 		ComposerConfigAudit:     composerConfigAudit,
+		NuGetInventory:          nugetInventory,
+		NuGetConfigAudit:        nugetConfigAudit,
+		RubyInventory:           rubyInventory,
+		RubyConfigAudit:         rubyConfigAudit,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,
@@ -1332,6 +1397,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 			PythonGlobalPkgsCount: len(pythonGlobalPkgs),
 			PythonProjectsCount:   len(pythonProjects),
 			SystemPackagesCount:   totalSystemPackagesCount(systemPackageScans),
+			RuntimesCount:         runtimeScanCount(runtimeScan),
 			AgentSkillsCount:      len(agentSkills),
 			AgentPluginsCount:     skillsResult.Plugins.PluginCount(),
 		},
@@ -1473,6 +1539,13 @@ func brewCasksCount(scans []model.BrewScanResult) int {
 		}
 	}
 	return 0
+}
+
+func runtimeScanCount(r *model.RuntimeScanResult) int {
+	if r == nil {
+		return 0
+	}
+	return r.RuntimesCount
 }
 
 func totalSystemPackagesCount(scans []model.SystemPackageScanResult) int {

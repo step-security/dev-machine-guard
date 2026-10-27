@@ -3,11 +3,12 @@ package filelog
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/step-security/dev-machine-guard/internal/proctest"
 )
 
 // A broken stderr (EPIPE) must not stop the file copy.
@@ -44,6 +45,7 @@ func TestTee_BrokenFD2DoesNotKillProcess(t *testing.T) {
 		t.Skip("no SIGPIPE on windows")
 	}
 	if path := os.Getenv("FILELOG_SIGPIPE_CHILD"); path != "" {
+		proctest.Guard()
 		c, err := Start(path, 0)
 		if err != nil {
 			os.Exit(3)
@@ -60,8 +62,8 @@ func TestTee_BrokenFD2DoesNotKillProcess(t *testing.T) {
 	}
 	_ = r.Close()
 	path := filepath.Join(t.TempDir(), "err.log")
-	cmd := exec.Command(os.Args[0], "-test.run=^TestTee_BrokenFD2DoesNotKillProcess$")
-	cmd.Env = append(os.Environ(), "FILELOG_SIGPIPE_CHILD="+path)
+	cmd := proctest.Command(t, os.Args[0], "-test.run=^TestTee_BrokenFD2DoesNotKillProcess$")
+	cmd.Env = append(cmd.Env, "FILELOG_SIGPIPE_CHILD="+path)
 	cmd.Stderr = w
 	err = cmd.Run()
 	_ = w.Close()

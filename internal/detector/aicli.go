@@ -364,7 +364,40 @@ func (d *AICLIDetector) Detect(ctx context.Context) []model.AITool {
 
 		// Verify if needed (e.g., amazon-q-cli)
 		if spec.VerifyFunc != nil && !spec.VerifyFunc(ctx, d.exec, d.log, binaryPath) {
-			continue
+			if spec.Name != "github-copilot-cli" {
+				continue
+			}
+			// A rejected VS Code launcher must not hide a later Copilot install.
+			guard := newCandidateGuard(d.exec, homeDir, d.skipper)
+			seen := map[string]bool{binaryPath: true}
+			found = false
+		candidates:
+			for _, bin := range spec.Binaries {
+				if ctx.Err() != nil {
+					break
+				}
+				// Preserve the existing search scope; do not probe package-manager prefixes.
+				for _, candidate := range candidatePaths(d.exec, d.log, guard, bin, homeDir, nil) {
+					if seen[candidate] {
+						continue
+					}
+					seen[candidate] = true
+					resolved, err := d.exec.EvalSymlinks(candidate)
+					if err != nil || resolved == "" {
+						resolved = candidate
+					}
+					if guard.protected(resolved) {
+						continue
+					}
+					if spec.VerifyFunc(ctx, d.exec, d.log, candidate) {
+						binaryPath, found = candidate, true
+						break candidates
+					}
+				}
+			}
+			if !found {
+				continue
+			}
 		}
 
 		// A ladder that proved identity from a manifest already read that

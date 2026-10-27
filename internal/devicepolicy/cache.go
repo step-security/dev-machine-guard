@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/aiagents/redact"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/secureuserfile"
@@ -110,6 +111,12 @@ var cachePathOverride string
 var cacheStateFile *secureuserfile.File
 var cacheLockFile *secureuserfile.File
 
+// cacheWarnf receives state failures that ReadAppliedState swallows, so a cycle
+// that silently reads "owns nothing" still leaves a trace. cacheLastWarn keeps
+// the several per-cycle readers from repeating one line.
+var cacheWarnf func(format string, args ...any)
+var cacheLastWarn string
+
 type targetUserExecutor struct {
 	executor.Executor
 	user *user.User
@@ -122,7 +129,8 @@ func (e targetUserExecutor) LoggedInUser() (*user.User, error) {
 
 // ConfigureCacheTarget pins Windows state to the same active target user used
 // by package writers. Other platforms retain their existing process-user path.
-func ConfigureCacheTarget(exec executor.Executor) (executor.Executor, func(), error) {
+// warnf receives redacted state failures that reads would otherwise swallow.
+func ConfigureCacheTarget(exec executor.Executor, warnf func(string, ...any)) (executor.Executor, func(), error) {
 	if exec == nil || exec.GOOS() != model.PlatformWindows {
 		return exec, func() {}, nil
 	}
@@ -153,14 +161,17 @@ func ConfigureCacheTarget(exec executor.Executor) (executor.Executor, func(), er
 	target := targetUserExecutor{Executor: exec, user: home.User()}
 	cacheMu.Lock()
 	previousPath, previousStateFile, previousLockFile := cachePathOverride, cacheStateFile, cacheLockFile
+	previousWarnf, previousLastWarn := cacheWarnf, cacheLastWarn
 	cachePathOverride = filepath.Join(home.Path(), ".stepsecurity", CacheFilename)
 	cacheStateFile = stateFile
 	cacheLockFile = lockFile
+	cacheWarnf, cacheLastWarn = warnf, ""
 	cacheMu.Unlock()
 	return target, func() {
 		cacheMu.Lock()
 		cachePathOverride = previousPath
 		cacheStateFile, cacheLockFile = previousStateFile, previousLockFile
+		cacheWarnf, cacheLastWarn = previousWarnf, previousLastWarn
 		cacheMu.Unlock()
 		_ = home.Close()
 	}, nil
@@ -258,7 +269,7 @@ func readStateFile() (AppliedStateFile, readStatus, error) {
 		secure, err := cacheStateFile.MetadataSecure(cacheFileMode)
 		if err != nil || !secure {
 			if err == nil {
-				err = fmt.Errorf("devicepolicy: insecure cache metadata: %w", secureuserfile.ErrTargetUnusable)
+				err = fmt.Errorf("%w: %w", errInsecureStateMetadata, secureuserfile.ErrTargetUnusable)
 			}
 			return AppliedStateFile{}, stateUnreadable, err
 		}
@@ -303,6 +314,35 @@ func readStateFile() (AppliedStateFile, readStatus, error) {
 	return f, stateReadable, nil
 }
 
+// prepareStateFile restores the strict permission boundary on a state file left
+// with a broader DACL by an older agent (1.15/1.16 inherited their parent's), so
+// its records stay readable instead of being refused. Permissions only: bytes,
+// owner and every category's records are preserved, and a wrong owner is still
+// refused before anything changes. Absent state is left absent. UNLOCKED: callers
+// hold cacheMu and the state lock, so no peer can rewrite the file mid-repair.
+func prepareStateFile() error {
+	if cacheStateFile == nil {
+		return nil
+	}
+	present, err := cacheStateFile.ParentPresent()
+	if err != nil || !present {
+		return err
+	}
+	if err := cacheStateFile.RepairMetadata(cacheFileMode); err != nil {
+		return fmt.Errorf("devicepolicy: repair state permissions: %w", err)
+	}
+	return nil
+}
+
+// readPreparedStateFile is readStateFile after prepareStateFile, for callers
+// holding both locks. A failed repair is stateUnreadable, so mutators refuse.
+func readPreparedStateFile() (AppliedStateFile, readStatus, error) {
+	if err := prepareStateFile(); err != nil {
+		return AppliedStateFile{}, stateUnreadable, err
+	}
+	return readStateFile()
+}
+
 // ReadAppliedState returns the agent's recorded ownership for one
 // (category, target): (state, true) when a record exists, else (zero, false).
 // An empty target defaults to vscode. It never surfaces an error — a
@@ -313,26 +353,68 @@ func readStateFile() (AppliedStateFile, readStatus, error) {
 // re-applies the policy. Only the MUTATING accessors distinguish unreadable from
 // absent, because only they can destroy what they could not read.
 //
-// It takes no file lock: a lone read modifies nothing, and every write lands by
+// A plain read takes no file lock: it modifies nothing, and every write lands by
 // atomic rename, so a reader sees one complete generation of the file or another —
-// never a half-written one.
+// never a half-written one. Only state an older agent left with broader
+// permissions takes the cross-process lock, to repair it before reading again;
+// absent state never does, so a read creates nothing. A swallowed unreadable
+// state is reported once per target through cacheWarnf, redacted.
 func ReadAppliedState(category, target string) (AppliedTargetState, bool) {
+	s, ok, err := readAppliedStateChecked(category, target)
+	if err != nil {
+		cacheMu.Lock()
+		warnStateRead(err)
+		cacheMu.Unlock()
+	}
+	return s, ok
+}
+
+// readAppliedStateChecked is ReadAppliedState without the warning, returning the
+// error of an unreadable Windows target store (including a failed legacy
+// permission repair) for a caller that must not treat it as owning nothing.
+// Absent, corrupt and future-schema state return a nil error, as does any read
+// on other platforms, whose behavior is unchanged.
+func readAppliedStateChecked(category, target string) (AppliedTargetState, bool, error) {
 	cacheMu.Lock()
 	defer cacheMu.Unlock()
 
 	if target == "" {
 		target = TargetVSCode
 	}
-	f, status, _ := readStateFile()
+	f, status, err := readStateFile()
+	if errors.Is(err, errInsecureStateMetadata) {
+		// A busy lock leaves the first read's stateUnreadable in place.
+		err = withStateLock(func() error {
+			var rerr error
+			f, status, rerr = readPreparedStateFile()
+			return rerr
+		})
+	}
+	if status == stateUnreadable && cacheStateFile != nil {
+		return AppliedTargetState{}, false, err
+	}
 	if status != stateReadable {
-		return AppliedTargetState{}, false
+		return AppliedTargetState{}, false, nil
 	}
 	cat, ok := f.Categories[category]
 	if !ok {
-		return AppliedTargetState{}, false
+		return AppliedTargetState{}, false, nil
 	}
 	s, ok := cat.Targets[target]
-	return s, ok
+	return s, ok, nil
+}
+
+// warnStateRead reports a swallowed read failure. Callers hold cacheMu.
+func warnStateRead(err error) {
+	if cacheWarnf == nil || err == nil {
+		return
+	}
+	msg := redact.String(err.Error())
+	if msg == cacheLastWarn {
+		return
+	}
+	cacheLastWarn = msg
+	cacheWarnf("devicepolicy: read applied state: %s", msg)
 }
 
 // WriteAppliedState records ownership for one (category, target), PRESERVING
@@ -358,7 +440,7 @@ func WriteAppliedState(category, target string, s AppliedTargetState) error {
 		target = TargetVSCode
 	}
 	return withStateLock(func() error {
-		f, status, rerr := readStateFile()
+		f, status, rerr := readPreparedStateFile()
 		switch status {
 		case stateUnreadable:
 			return rerr
@@ -387,7 +469,7 @@ func ProbeAppliedStateWritable() error {
 	defer cacheMu.Unlock()
 
 	return withStateLock(func() error {
-		_, status, err := readStateFile()
+		_, status, err := readPreparedStateFile()
 		switch status {
 		case stateUnreadable:
 			return err
@@ -451,7 +533,7 @@ func ClearAppliedState(category, target string) error {
 		target = TargetVSCode
 	}
 	return withStateLock(func() error {
-		f, status, rerr := readStateFile()
+		f, status, rerr := readPreparedStateFile()
 		switch status {
 		case stateUnreadable:
 			return rerr
@@ -586,6 +668,9 @@ func (e cacheError) Error() string { return string(e) }
 const (
 	errNoHomeDir    = cacheError("devicepolicy: cannot resolve home directory")
 	errFutureSchema = cacheError("devicepolicy: refusing to overwrite a newer-schema state file")
+	// errInsecureStateMetadata: the state file's permissions are broader than the
+	// strict contract, as an older agent left them; the locked paths repair it.
+	errInsecureStateMetadata = cacheError("devicepolicy: insecure cache metadata")
 	// errStateLockBusy: a peer agent process held the state lock for the whole wait
 	// budget. The read-modify-write is abandoned rather than run unlocked — see
 	// withStateLock for why that trade is deliberate.

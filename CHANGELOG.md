@@ -9,22 +9,54 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
 ## [Unreleased]
 
-### Added
-
-- Passive PHP/Composer package inventory and configuration audit for developer machines. Collects project and global declarations, lockfiles and installed receipts, with redacted settings and configuration findings. PHP, Composer, plugins and scripts are never executed.
-- GitHub Copilot plugin inventory for the CLI, standalone app and VS Code. Collects recorded installations and live directory-marketplace selections, supplied skills, custom agents, command/rule/hook/LSP declarations, and sanitized plugin/user/project MCP definitions. Collection is file-only; uncertain formats report incomplete coverage. Runtime activation is not inferred. No Copilot usage or credential collection is added.
-
 ### Fixed
 
 - **Older Windows loaders can install current releases again.** Windows loaders generated in May 2026 (single-binary) and the pinned 1.11.7 / 1.13.0 loaders download `…-windows_<arch>_signed.exe`, a name releases stopped publishing at 1.11.4, so they failed every run. Each release now also publishes `stepsecurity-dev-machine-guard-VERSION-windows_{amd64,arm64}_signed.exe` as a byte-identical copy of the signed agent, and `verify-release.yml` fails if a copy differs from the signed `.exe`.
 
-- **macOS hostname no longer flips with the network.** The agent reported `kern.hostname`, which macOS rewrites from DHCP or reverse DNS whenever `HostName` is unset, so a Mac on a VPN resolving through AWS showed up as `ip-…ec2.internal` on some scans and its real name on others. It now reports the configured `HostName` when set, else `LocalHostName`, read from the SystemConfiguration preferences plist with `scutil --get` as the fallback, and only then the kernel hostname. Existing Macs will show a new name once.
+## [1.18.1] - 2026-10-26
 
-## [1.18.0] - 2026-10-05
+### Fixed
+
+- **Windows self-update now accepts real releases.** Trusted Signing embeds the signing certificate twice in every signature, and the 1.18.0 updater counted the copy as a second, ambiguous signer. Every release failed verification (`update_verify_failed`, "signer certificate is ambiguous"), and the MSI's own seed was never adopted. Identical copies now count once; two different certificates matching the signer are still rejected (#265).
+
+### Changed
+
+- **1.18.1 is the first self-updating Windows release.** 1.18.0 was published only as a release candidate. Devices on an older MSI need one final push of the 1.18.1 (or newer) MSI, and the self-update floor is now 1.18.1, so a device never takes 1.18.0 as a target.
+
+## [1.18.0] - 2026-10-26
 
 ### Added
 
+- **Language runtime inventory on every platform.** A new `runtime_scan` phase finds every install of node, python, php, java, go, ruby, deno, bun and dotnet — version managers, package managers, zips and runtimes bundled inside other apps (Xcode, JetBrains JBR, VS Code Server, Electron apps, snap bases) — not just the one on `PATH`. Versions come from files the install ships, the Windows PE resource, the Linux package database, the version string embedded in the binary, or the install path, reported as `version_source`; no runtime is executed. Shims and launchers are dropped, each install carries its source, scope and `bundled_by`, and the walk is budgeted per root and reports `truncated_roots`. On by default; `--disable-runtime-scan` / `enable_runtime_scan` turns it off.
+- **Windows system packages.** `system_package_scans` now covers Windows with `scan_type` arp, choco, scoop and winget: Programs and Features uninstall keys (HKLM 64/32-bit and HKCU), Chocolatey nuspecs, Scoop manifests and winget portable dirs, from registry and file reads only. `SystemPackage` gains `scope`.
+- **Windows MSI installs update themselves.** The MSI now installs a stable bootstrap, a seed copy of the agent and a SYSTEM `StepSecurity Dev Machine Guard (Update)` task. The task follows the tenant's `latest-binary` target. It verifies each release's SSH-signed checksums, sha256 and Authenticode publisher (it must match the running agent), stages it as an immutable `versions\<v>` directory, smoke-tests it as SYSTEM and switches only when no scan is running. A new version is on probation until a scan reaches the backend; two crashes roll it back and quarantine it on that device. Every outcome is reported as a `run-status` event with `status: "update"`. The MSI never downgrades a self-updated device, and repairs keep the current version. `AUTOUPDATE=0` opts out (the device still reports `update_disabled`). Devices on older MSIs need one final MSI push. See `docs/windows-self-update.md`, and `docs/windows-self-update-admin.md` for SCCM/Intune admins (network and proxy requirements, the safe repair command, verifying devices and troubleshooting by update event).
 - Optional `device_id` in config.json for a stable custom device identity across telemetry, run cadence, hooks, and managed policies. The hardware serial remains separate, and changing identity resets cached cadence and incremental inventory. WSL guests continue deriving separate IDs from the host and distro.
+- Passive Go module inventory and Go configuration audit (`go_inventory`, `go_config_audit`): projects and workspaces, vendored modules, the module cache, installed tools via `debug/buildinfo` and recorded checksums, plus an allowlist of Go env settings. No Go toolchain is needed or executed.
+- Passive Rust/Cargo package inventory and Cargo configuration audit (`cargo_inventory`, `cargo_config_audit`) in a new `cargo_scan` phase: manifests and workspaces, `Cargo.lock`, the registry cache and installed binaries, with credentials reported as presence only.
+- Passive PHP/Composer package inventory and configuration audit for developer machines. Collects project and global declarations, lockfiles and installed receipts, with redacted settings and configuration findings. PHP, Composer, plugins and scripts are never executed.
+- Passive .NET/NuGet package inventory and NuGet.Config audit (`nuget_inventory`, `nuget_config_audit`): SDK-style and legacy project references, central package versions, restored, locked and cached packages, .NET tools and templates, and NuGet.Config settings across project, user, machine and process scopes. Credentials and proxy secrets are reported as presence only.
+- Passive Ruby package inventory and RubyGems/Bundler configuration audit (`ruby_inventory`, `ruby_config_audit`) in a new `ruby_scan` phase: Gemfiles and gemspecs, lockfiles, installed and cached gems across rbenv, RVM, asdf, mise, chruby, Homebrew, system and RubyInstaller rubies, and allowlisted gemrc/Bundler settings. Credentials are reported as configured only.
+- GitHub Copilot plugin inventory for the CLI, standalone app and VS Code. Collects recorded installations and live directory-marketplace selections, supplied skills, custom agents, command/rule/hook/LSP declarations, and sanitized plugin/user/project MCP definitions. Collection is file-only; uncertain formats report incomplete coverage. Runtime activation is not inferred. No Copilot usage or credential collection is added.
+
+### Changed
+
+- **One run at a time is enforced by an OS lock, not a PID file.** The PID lockfile could block every later run for good: a root run that died left a root-owned file user runs could neither read nor delete, a recycled PID counted as a live holder, and SYSTEM and user runs on Windows never excluded each other. Unix now uses `flock` on `/tmp/stepsecurity-dev-machine-guard.flock` and Windows a `Global\StepSecurityDevMachineGuard` mutex; the kernel releases either on any exit. A refused run reports `lock_held` with its device ID.
+- **Remote mounts are skipped on Linux and Windows**, matching macOS: network filesystems from `/proc/self/mountinfo`, network drives and OneDrive recall-on-access placeholders are not walked. `include_network_volumes: true` opts back in; a configured search root is still walked.
+- **Linux systemd timers use a calendar schedule.** `OnUnitActiveSec` pauses in suspend and ignores `Persistent=true`, so a laptop awake about an hour a day waited days per interval. The timer now uses `OnCalendar` with `Persistent=true` to catch up missed runs and `RandomizedDelaySec=15min` to spread the fleet.
+
+### Fixed
+
+- **WSL distributions are scanned on installs that did not come from the MSI.** The WSL scan runs a Linux agent binary (`dmg-linux`) that must sit next to the Windows agent, and only the MSI put it there, so tenants who enabled WSL scanning got no WSL telemetry from PowerShell-loader or binary-only installs. When a running distribution is about to be scanned and no Linux agent is present, the Windows agent now downloads the `linux_<arch>` release asset for its own version from GitHub (the machine's native arch, so an emulated amd64 agent on Windows on Arm still gets `linux_arm64`) and installs it as `dmg-linux` only if its checksum carries a valid release signature (the same Ed25519 key and namespace the loaders verify). A copy installed by the MSI or a loader is used as is; a copy the agent installed is tracked by a `dmg-linux.fetched` marker and replaced when the agent version changes. The marker is claimed before the binary moves into place, so an interrupted install is finished on the next run instead of being mistaken for an installer's copy. The download is skipped when no distribution is running, is bounded to 90s inside the `wsl_scan` phase, and a failure only skips the WSL scan for that run. This adds `github.com` as an egress destination for the agent itself on WSL hosts.
+- **macOS hostname no longer flips with the network.** The agent reported `kern.hostname`, which macOS rewrites from DHCP or reverse DNS whenever `HostName` is unset, so a Mac on a VPN resolving through AWS showed up as `ip-…ec2.internal` on some scans and its real name on others. It now reports the configured `HostName` when set, else `LocalHostName`, read from the SystemConfiguration preferences plist with `scutil --get` as the fallback, and only then the kernel hostname. Existing Macs will show a new name once.
+- **One stable device ID across root and user runs.** Machine identity is resolved once per process and used for telemetry, cadence, enforcers and WSL. Root/SYSTEM publishes it in a machine-wide file for user runs, placeholder serials shared by unrelated machines are rejected on every OS, and a generated UUID is persisted when every source fails. On Linux, a device keeps whichever of the DMI serial or `/etc/machine-id` it already reported, and new installs use machine-id so root and user runs agree. Devices that were reporting a placeholder serial get a new identity once.
+- **Scans finish within their deadline.** Node, Python, MCP and config-audit directory walks now stop when the run is cancelled, instead of running until the 4h watchdog killed the run before upload. Windows command timeouts kill the whole process tree, a panicking Node project worker no longer crashes the run, and the Windows watchdog reports the failed run before exiting.
+- **A bad or locked file no longer stops a device reporting.** `config.json` is written atomically and is never rewritten from a copy that failed to parse (a truncated config used to be saved back without its `api_key`). A scan-state file that cannot be deleted no longer aborts a full upload, the process-uploaded notify retries once, each S3 PUT attempt is capped at 3m so a stall leaves time to retry, a backwards clock change no longer makes the offline cache skip runs, and file logging survives a broken stderr.
+- **Scheduled scans stay registered.** launchd upgrades wait for the old job to unload and retry bootstrap on errors 5/37 instead of leaving the job unloaded until reboot. Windows tasks get an explicit execution time limit, are re-queried after import with a warning if battery or time-limit settings did not stick, and BOM-less UTF-16 task XML is decoded. Detached WSL guest scans are no longer killed when the host run ends.
+- **Device-policy state written by older agents on Windows is repaired** instead of rejected: a correctly owned state file with inherited permissions has its DACL tightened in place, so reads, writes and clears work again. A marker-based clear stops before changing configuration if the state cannot be prepared.
+- **IDE settings device policy** validates against the supported settings and gallery URL format.
+- **Homebrew installs of Pi, GitHub Copilot CLI and Amp are detected.** The `pi-coding-agent` formula, the `copilot-cli` cask and the `ampcode` formula previously produced no agent row. No binary is launched on the newly accepted paths.
+- **Copilot CLI is found behind a VS Code launcher that cannot find it.** VS Code 1.143.0 can place its Copilot launcher ahead of the real CLI on `PATH`; after rejecting it, detection now tries the remaining known locations.
+- Glob matching in rules handles newlines and Unicode correctly.
 
 ## [1.17.0] - 2026-09-24
 
@@ -397,6 +429,8 @@ First open-source release. The scanning engine was previously an internal enterp
 - Execution log capture and base64 encoding
 - Instance locking to prevent concurrent runs
 
+[1.18.1]: https://github.com/step-security/dev-machine-guard/compare/v1.18.0...v1.18.1
+[1.18.0]: https://github.com/step-security/dev-machine-guard/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/step-security/dev-machine-guard/compare/v1.16.0...v1.17.0
 [1.16.0]: https://github.com/step-security/dev-machine-guard/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/step-security/dev-machine-guard/compare/v1.14.0...v1.15.0

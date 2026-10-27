@@ -8,11 +8,12 @@ This document describes how releases are created, signed, notarized, and verifie
 
 ## Overview
 
-Releases are a three-phase process, where each phase is its own GitHub Actions workflow:
+Releases are built, signed and verified in three phases, each its own GitHub Actions workflow, and then go out as a release candidate before GA:
 
 1. **Build and draft (`release.yml`)**: builds binaries for all platforms, Authenticode-signs the Windows `.exe`s and `.msi`s via Azure Trusted Signing, Sigstore-signs the Linux and Windows artifacts (after Authenticode for Windows, so cosign bundles match the bytes users download), creates a **draft** release with the unsigned macOS binary, and emits SLSA build provenance attestations for every artifact except macOS. The Windows signing job runs in the `release` GitHub Environment, which requires two reviewers and is restricted to `main`.
 2. **Sign and notarize macOS (`release-macos.yml`)**: a dispatch-only workflow that downloads the unsigned macOS binary from the draft release, codesigns it with the Apple Developer ID certificate, notarizes it with Apple, then Sigstore-signs and attests the final notarized bytes and uploads them to the draft release. It runs in the `release` environment as well. Because Apple notarization can hang, this is kept separate from `release.yml` so it can be re-run on its own without repeating the build. A companion workflow, `check-notarization-status.yml`, inspects a notarization submission that did not finish in time.
 3. **Verify and publish (`verify-release.yml` + `publish-release.yml`)**: `verify-release.yml` checks that every distributable binary has a valid out-of-band signed checksum (`.sha256.sig`), that the Windows `.exe`s and `.msi`s are Authenticode-signed and timestamped, and that the macOS binary is codesigned and notarized. It can be dispatched on its own to check that a draft (or published) release is healthy. `publish-release.yml` calls it as a reusable workflow and, only if every check passes, marks the draft release as published and latest.
+4. **Release candidate (`publish-prerelease.yml`), the default path**: the same verification gate, but the draft is published as a GitHub **prerelease** that is not marked latest. agent-api serves a prerelease only to its rc tenants (our own devices), so the release is tested end to end before customers get it. Once it passes, `publish-release.yml` promotes the same release (same tag, same bytes) to latest. The full candidate-to-GA runbook, including the agent-api steps, is in agent-api `docs/developer-mdm/release-candidates-runbook.md`.
 
 macOS signing runs entirely in GitHub Actions; no local Mac is required. The signing credentials are stored as encrypted secrets in the `release` environment (see [Signing credentials](#signing-credentials-one-time-setup)).
 
@@ -87,7 +88,25 @@ A final `gate` job gives a single pass/fail status for the release.
 
 > The signed checksums are produced and uploaded out-of-band; make sure the `.sha256.sig` assets are attached to the draft before running verification, or the run will fail.
 
-### 5. Publish the release
+### 5. Publish as a release candidate (prerelease)
+
+1. Go to [Actions > Publish Prerelease](https://github.com/step-security/dev-machine-guard/actions/workflows/publish-prerelease.yml)
+2. Click **Run workflow** and enter the release tag (e.g. `v1.9.1`)
+
+The workflow re-runs the entire Verify Release suite, and only if every check passes runs the equivalent of:
+
+```bash
+gh release edit "v${VERSION}" --repo step-security/dev-machine-guard \
+  --draft=false --prerelease --latest=false
+```
+
+It refuses a release that is not a draft. The release is now public and immutable, but **Latest** stays on the previous release and agent-api serves it only to rc tenants. Mirror it into agent-api and test it as described in agent-api `docs/developer-mdm/release-candidates-runbook.md`.
+
+If the candidate fails, do not promote it: pull it in agent-api and cut the next patch version. A published release's assets and tag cannot change, so a version is never reused.
+
+### 6. Publish the release
+
+Run this once the release candidate has passed (or directly on a draft, to skip the candidate stage).
 
 1. Go to [Actions > Publish Release](https://github.com/step-security/dev-machine-guard/actions/workflows/publish-release.yml)
 2. Click **Run workflow** and enter the release tag (e.g. `v1.9.1`)
@@ -96,10 +115,12 @@ The workflow re-runs the entire Verify Release suite above (it calls `verify-rel
 
 ```bash
 gh release edit "v${VERSION}" --repo step-security/dev-machine-guard \
-  --draft=false --latest
+  --draft=false --prerelease=false --latest
 ```
 
-so a draft can never be published without passing verification.
+so a draft can never be published, and a candidate never promoted, without passing verification. `--prerelease=false` is what promotes a candidate: GitHub rejects marking a prerelease as latest (`Latest release cannot be draft or prerelease`).
+
+Never flip a published release back to prerelease. GitHub allows it even for an immutable release and moves **Latest** back to the previous version, but agent-api keeps the version GA.
 
 ---
 

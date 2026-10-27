@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -54,7 +55,18 @@ func resolveID(ctx context.Context, exec executor.Executor) string {
 		return generatedID(ctx, exec, root, path)
 	}
 	if root {
-		switch stored := readIDFile(exec, path); {
+		stored := readIDFile(exec, path)
+		if hardware && exec.GOOS() == model.PlatformLinux {
+			switch mid := linuxMachineID(exec); {
+			case stored == "":
+				id = keepReportedLinuxID(exec, id, mid)
+			case stored == mid, mid == "":
+				// Persisted by a root run, or machine-id is unreadable so a
+				// stale file can't be told apart: keep the stored identity.
+				id = stored
+			}
+		}
+		switch {
 		case stored == id:
 		case hardware || stored == "":
 			if w, ok := exec.(idWriter); ok {
@@ -65,6 +77,64 @@ func resolveID(ctx context.Context, exec executor.Executor) string {
 		}
 	}
 	return id
+}
+
+// keepReportedLinuxID picks the ID the first privileged run persists on
+// Linux. Only root can read the DMI serial, so the serial can only be this
+// machine's identity if root reported it before (its own run-gate cache).
+// Otherwise use /etc/machine-id, which user-context runs have been reporting
+// all along: persisting the serial would give the device a second identity.
+func keepReportedLinuxID(exec executor.Executor, serial, machineID string) string {
+	for _, f := range rootRunGateCaches() {
+		if reportedDeviceID(exec, f) == serial {
+			return serial
+		}
+	}
+	if machineID != "" {
+		return machineID
+	}
+	return serial
+}
+
+// linuxMachineID returns /etc/machine-id when usable, else "".
+func linuxMachineID(exec executor.Executor) string {
+	data, err := exec.ReadFile("/etc/machine-id")
+	if err != nil {
+		return ""
+	}
+	if id := strings.TrimSpace(string(data)); usableSerial(id) {
+		return id
+	}
+	return ""
+}
+
+// rootRunGateCaches lists the last-run.json files a root run would have
+// written: under root's default home and this process's install home.
+func rootRunGateCaches() []string {
+	files := []string{"/root/.stepsecurity/last-run.json"}
+	if own := paths.HeartbeatFile(); own != "" && own != files[0] {
+		files = append(files, own)
+	}
+	return files
+}
+
+// reportedDeviceID returns the device_id a run-gate cache recorded, or ""
+// when absent or when it came from a configured device ID override.
+func reportedDeviceID(exec executor.Executor, path string) string {
+	data, err := exec.ReadFile(path)
+	if err != nil || len(data) > 1<<20 {
+		return ""
+	}
+	var cache struct {
+		RunGate *struct {
+			ConfiguredDeviceID string `json:"configured_device_id"`
+			DeviceID           string `json:"device_id"`
+		} `json:"run_gate"`
+	}
+	if json.Unmarshal(data, &cache) != nil || cache.RunGate == nil || cache.RunGate.ConfiguredDeviceID != "" {
+		return ""
+	}
+	return strings.TrimSpace(cache.RunGate.DeviceID)
 }
 
 // generatedID is the last resort when no source yields an ID: a random UUID,

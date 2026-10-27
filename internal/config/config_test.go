@@ -268,3 +268,17 @@ func TestDeviceIDConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestAutoUpdateConfigRoundTrip(t *testing.T) {
+	var cf ConfigFile
+	if err := json.Unmarshal([]byte(`{"auto_update":false,"update_mirror_url":"https://m","update_lag_behind":1,"update_cooldown_hours":2}`), &cf); err != nil {
+		t.Fatal(err)
+	}
+	if cf.AutoUpdate == nil || *cf.AutoUpdate || cf.UpdateMirrorURL != "https://m" || cf.UpdateLagBehind != 1 || cf.UpdateCooldownHours != 2 {
+		t.Fatalf("decoded %+v", cf)
+	}
+	off := false
+	if !(NonInteractiveOptions{AutoUpdate: &off}).HasAny() {
+		t.Fatal("--auto-update alone is not a non-interactive configure")
+	}
+}

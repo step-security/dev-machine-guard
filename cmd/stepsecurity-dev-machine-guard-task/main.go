@@ -25,6 +25,16 @@
 //     `powershell.exe -File loader.ps1 send-telemetry` in the same
 //     no-console envelope the MSI flow uses for the agent.
 //
+//   - Bootstrap mode. Invoked under the file name
+//     stepsecurity-dev-machine-guard-bootstrap.exe (the MSI installs a
+//     second copy of this launcher under that name), the verbs run /
+//     update / adopt-seed resolve the self-update state.json pointer and
+//     launch the versioned binaries. See internal/launcher/bootstrap.go.
+//
+// When launched by the bootstrap (STEPSEC_BOOTSTRAP_VERSION set), failing to
+// resolve or start the agent exits 70 so the run counts as bad (D5); other
+// invocations keep their legacy exit codes.
+//
 // The agent (and any --exec target) stays console-subsystem so
 // interactive CLI use continues to work normally.
 //
@@ -40,13 +50,12 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
-	"unsafe"
 
+	"github.com/step-security/dev-machine-guard/internal/faultinject"
 	"github.com/step-security/dev-machine-guard/internal/launcher"
+	"github.com/step-security/dev-machine-guard/internal/winproc"
 	"golang.org/x/sys/windows"
 )
-
-const createNoWindow uint32 = 0x08000000
 
 func main() {
 	os.Exit(run(os.Args[1:]))
@@ -56,6 +65,11 @@ func main() {
 // after the program name (os.Args[1:] in main); accepting it explicitly
 // keeps the windows-only test path open if we add one later.
 func run(argv []string) int {
+	if me, err := os.Executable(); err == nil && launcher.IsBootstrapBinary(me) {
+		return launcher.NewBootstrap(me, winproc.IsLocalSystem).Main(argv)
+	}
+	underBootstrap := os.Getenv(launcher.EnvBootstrapVersion) != ""
+
 	target, childArgs, err := launcher.ResolveTarget(argv)
 	if err != nil {
 		// Two distinct failure shapes, matched to the legacy contract:
@@ -76,16 +90,22 @@ func run(argv []string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
+		if underBootstrap {
+			return launcher.ExitCannotStart
+		}
 		return 1
 	}
 
 	cmd := exec.Command(target, childArgs...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,
-		CreationFlags: createNoWindow,
+		CreationFlags: launcher.CreateNoWindow,
 	}
 
 	if err := cmd.Start(); err != nil {
+		if underBootstrap {
+			return launcher.ExitCannotStart
+		}
 		return 1
 	}
 
@@ -94,15 +114,16 @@ func run(argv []string) int {
 	// exit, which fires the kill. Failure here only weakens lifecycle
 	// (orphan possible on forced termination), not the work the child
 	// was started to do.
-	if job, jerr := newKillOnCloseJob(); jerr == nil {
-		if h, oerr := windows.OpenProcess(
-			windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
-			false,
-			uint32(cmd.Process.Pid),
-		); oerr == nil {
-			_ = windows.AssignProcessToJobObject(job, h)
-			_ = windows.CloseHandle(h)
+	if job, jerr := launcher.NewKillOnCloseJob(); jerr == nil {
+		if aerr := launcher.AssignToJob(job, cmd.Process.Pid); aerr != nil {
+			_ = windows.CloseHandle(job)
 		}
+	}
+
+	// Lets a test build crash a version's scans after launch (harness
+	// baked fault boot.launched@user:exit2); a no-op in release builds.
+	if underBootstrap {
+		_ = faultinject.Point("boot.launched")
 	}
 
 	if err := cmd.Wait(); err != nil {
@@ -113,28 +134,4 @@ func run(argv []string) int {
 		return 1
 	}
 	return 0
-}
-
-func newKillOnCloseJob() (windows.Handle, error) {
-	job, err := windows.CreateJobObject(nil, nil)
-	if err != nil {
-		return 0, err
-	}
-	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
-		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
-			// BREAKAWAY_OK lets the agent's CREATE_BREAKAWAY_FROM_JOB spawns
-			// (WSL guest scans) outlive this run instead of being killed.
-			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK,
-		},
-	}
-	if _, err := windows.SetInformationJobObject(
-		job,
-		windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&info)),
-		uint32(unsafe.Sizeof(info)),
-	); err != nil {
-		_ = windows.CloseHandle(job)
-		return 0, err
-	}
-	return job, nil
 }

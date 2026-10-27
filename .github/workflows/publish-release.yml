@@ -1,13 +1,14 @@
 name: Publish Release
-# Publishes a draft release, but only after the full Verify Release suite
+# Publishes a draft release, or promotes a prerelease published by
+# publish-prerelease.yml, but only after the full Verify Release suite
 # (signed checksums, Windows Authenticode, macOS notarization) passes. This
 # replaces the manual:
-#   gh release edit vX.Y.Z --repo <repo> --draft=false --latest
+#   gh release edit vX.Y.Z --repo <repo> --draft=false --prerelease=false --latest
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Draft release tag to verify and publish, e.g. v1.12.0.'
+        description: 'Draft or prerelease tag to verify and publish as latest, e.g. v1.12.0.'
         required: true
         type: string
 
@@ -39,11 +40,13 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: Make draft release public and mark as latest
+      - name: Make release public, clear prerelease, and mark as latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          # --prerelease=false promotes a release candidate; GitHub never marks
+          # a prerelease as latest. It is a no-op for a draft.
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest
           echo "Release ${TAG} is now public and marked as latest."
           echo "✅ Release \`${TAG}\` verified and published as latest." >> "$GITHUB_STEP_SUMMARY"

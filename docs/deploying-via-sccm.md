@@ -22,7 +22,7 @@ network calls via EDR. Our MSI install/upgrade/uninstall flows **never
 spawn PowerShell**. The chain is:
 
 ```
-SCCM → msiexec.exe → stepsecurity-dev-machine-guard.exe → schtasks.exe
+SCCM → msiexec.exe → stepsecurity-dev-machine-guard[-bootstrap].exe → schtasks.exe
 ```
 
 Custom actions run inside `msiexec`'s process tree as **deferred** actions
@@ -47,7 +47,7 @@ install path touches `powershell.exe`.
 Use this in the SCCM Application's **Installation program** field:
 
 ```cmd
-msiexec /i "stepsecurity-dev-machine-guard-<version>-x64.msi" /qn ^
+msiexec /i "stepsecurity-dev-machine-guard-<version>-x64.msi" /qn /norestart ^
   CUSTOMERID="acme-corp" ^
   APIENDPOINT="https://agent.api.stepsecurity.io" ^
   APIKEY="sk_live_xxxxxxxxxxxxxxxx" ^
@@ -87,7 +87,7 @@ Contents:
 that path:
 
 ```cmd
-msiexec /i "stepsecurity-dev-machine-guard-<version>-x64.msi" /qn ^
+msiexec /i "stepsecurity-dev-machine-guard-<version>-x64.msi" /qn /norestart ^
   BOOTSTRAPFILE="C:\ProgramData\StepSecurity\bootstrap.json" ^
   /l*v "C:\Windows\Temp\dmg-install.log"
 ```
@@ -96,6 +96,12 @@ The API key never appears on the msiexec command line, so it stays out
 of `AppEnforce.log` even with verbose logging enabled. The bootstrap
 file can be ACL-restricted to SYSTEM + Administrators if you want
 defense-in-depth.
+
+Keep the bootstrap file in place after the install: every later MSI
+upgrade that passes `BOOTSTRAPFILE` reads it again, and fails (1603,
+rolled back) if it's missing. Keys in the file override the device's
+existing settings; settings not in the file (such as the self-update
+opt-out) are kept.
 
 ### A note on the persisted `config.json` and multi-user machines
 
@@ -132,16 +138,21 @@ tenant API key. If that's not acceptable for your environment:
 2. **Manually specify the application information**:
    - Name: `StepSecurity Dev Machine Guard`
    - Publisher: `StepSecurity`
-   - Software version: matches the MSI you're deploying (e.g. `1.11.2`)
+   - Software version: matches the MSI you're deploying (e.g. `1.18.1`)
 3. **Add Deployment Type** → **Windows Installer (`*.msi`)**
 4. **Content**: point at the `.msi` file on a share that the
    Distribution Points can pull from
 5. **Programs** tab:
    - **Installation program**: see Option A or B above
-   - **Uninstall program**: SCCM auto-fills from the MSI `ProductCode`,
-     usually `msiexec /x {PRODUCT-CODE} /qn`
+   - **Uninstall program**: SCCM auto-fills from the MSI `ProductCode`;
+     use `msiexec /x {PRODUCT-CODE} /qn /norestart`
+   - **Repair program**: `msiexec /i "stepsecurity-dev-machine-guard-<version>-x64.msi" REINSTALL=ALL REINSTALLMODE=omus /qn /norestart`
+     (see [Repairs](#repairs))
 6. **Detection method**: SCCM offers to use the MSI's product code by
-   default — **accept it**. No custom script needed.
+   default — **accept it**. No custom script needed. A registry rule on
+   `HKLM\SOFTWARE\StepSecurity`, `AgentVersion` equals the MSI version,
+   works too. Never detect on `RunningVersion` or a file version: both
+   change when the device updates itself.
 7. **User Experience** tab:
    - **Installation behavior**: Install for system
    - **Logon requirement**: Whether or not a user is logged on
@@ -157,54 +168,97 @@ tenant API key. If that's not acceptable for your environment:
 After SCCM reports the install as complete, on a target endpoint:
 
 ```cmd
-:: 1. The binary is on disk
-dir "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard.exe"
+:: 1. The bootstrap is on disk
+dir "C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard-bootstrap.exe"
 
-:: 2. The scheduled task is registered
+:: 2. The scheduled tasks are registered (scan, logon scan, updater)
 schtasks /query /tn "StepSecurity Dev Machine Guard"
+schtasks /query /tn "StepSecurity Dev Machine Guard (Logon)"
+schtasks /query /tn "StepSecurity Dev Machine Guard (Update)"
 
 :: 3. The config landed where the scanner can read it
 type "C:\ProgramData\StepSecurity\config.json"
 
 :: 4. (Optional) trigger an immediate scan to confirm end-to-end
-"C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard.exe" send-telemetry
+schtasks /run /tn "StepSecurity Dev Machine Guard"
 ```
 
 The configured tenant should see the endpoint in the StepSecurity
 dashboard within a few minutes.
 
+## Self-update
+
+From 1.18.1, MSI installs **update themselves**: a SYSTEM scheduled task
+downloads, verifies and switches to the version StepSecurity releases for
+your tenant, without user prompts or reboots, and rolls back a version
+that fails. Devices on an older MSI need one final push of the 1.18.1 (or
+newer) MSI; after that you don't need a new Application per release.
+
+Network and proxy requirements, the `AUTOUPDATE=0` opt-out, how to verify
+a device and what each update event in the console means are covered in
+the [Windows self-update guide for IT admins](windows-self-update-admin.md).
+
+## Repairs
+
+Use this repair command (it's also what Software Center's **Repair**
+runs when you set it as the deployment type's repair program):
+
+```cmd
+msiexec /i "stepsecurity-dev-machine-guard-<version>-x64.msi" REINSTALL=ALL REINSTALLMODE=omus /qn /norestart
+```
+
+Don't use `msiexec /f...`: it ignores every command-line property,
+including `/norestart` and `AUTOUPDATE`. MSIs up to 1.17.0 could restart
+the machine without a prompt when a `/f` repair ran during a scan; from
+1.18.0 the MSI suppresses restarts itself and stops Dev Machine Guard
+before replacing files. A repair re-creates the scheduled tasks and never
+moves a self-updated device back to the MSI's version.
+
 ## Upgrades
 
-When a new version ships, **create a new Application** in SCCM with the
-new MSI and mark it as **superseding** the previous Application:
+With self-update you only need a new MSI when you want one (for example
+so that new devices start on a recent version). To roll one out,
+**create a new Application** in SCCM with the new MSI and mark it as
+**superseding** the previous Application:
 
 1. New Application → **Supersedence** tab → **Add** → pick the old
-   Application
-2. Choose **Uninstall** for the old app (the new MSI's MajorUpgrade will
-   do it atomically — but SCCM needs the supersedence link to track
-   which endpoints to push the upgrade to)
-3. Deploy the new Application to the same collection
+   Application. Leave **Uninstall** cleared: the new MSI's major upgrade
+   replaces the old version itself and keeps the device's self-update
+   state.
+2. Deploy the new Application to the same collection, with **Automatically
+   upgrade any superseded versions of this application** selected.
 
 On each endpoint:
 - SCCM pushes the new MSI on its next policy cycle (default 60 min)
 - Windows Installer recognizes the upgrade (same `UpgradeCode`, higher
-  `Version`) → atomically uninstalls the old version (removes the
-  scheduled task via our `uninstall` custom action), installs the new
-  one (re-registers the task with the new binary)
+  `Version`) and replaces the old version in one transaction. The old
+  version's uninstall action is skipped during an upgrade, and the new
+  version re-registers the scheduled tasks
+- If the device already runs a newer self-updated version than the new
+  MSI, it keeps it; the MSI's version becomes the fallback
 - The per-tenant config at `C:\ProgramData\StepSecurity\config.json`
   is **preserved across upgrades** — tenant stays configured
+- Once the new Application is deployed, SCCM reports the superseded
+  Application's deployment as **Not Applicable** on those devices
+
+An MSI never downgrades a device: an MSI older than the installed one,
+deployed outside the supersedence chain, fails with 1603 ("A newer
+version of StepSecurity Dev Machine Guard is already installed").
 
 ## Uninstall
 
 SCCM uninstall fires the `msiexec /x {ProductCode}` command. Our custom
-action runs **before** file removal and calls
-`stepsecurity-dev-machine-guard.exe uninstall`, which removes the
-scheduled task via `schtasks /delete`. Then MSI removes the .exe and
-empties `C:\Program Files\StepSecurity\`.
+action runs **before** file removal and calls the agent's `uninstall`,
+which removes the three scheduled tasks via `schtasks /delete`, stops
+running Dev Machine Guard processes, and deletes the self-update
+`versions\` and `state\` folders and the `RunningVersion` registry value.
+Then MSI removes the remaining files and empties
+`C:\Program Files\StepSecurity\`.
 
 The config at `C:\ProgramData\StepSecurity\config.json` is **not
-removed** by MSI (it lives outside the install scope). If you want a
-clean uninstall:
+removed** by MSI (it lives outside the install scope), so a reinstall
+keeps the tenant configuration, the device identity and the self-update
+opt-out. If you want a clean uninstall:
 
 ```cmd
 rmdir /s /q "C:\ProgramData\StepSecurity"
@@ -216,7 +270,10 @@ rmdir /s /q "C:\ProgramData\StepSecurity"
 
 | Symptom | Likely cause | Where to look |
 |---------|-------------|---------------|
-| MSI exit code 1603 | Custom action failed (bad creds, schtasks denied) | `C:\Windows\Temp\dmg-install.log` (msiexec verbose log) |
+| MSI exit code 1603 | Custom action failed (bad creds, missing bootstrap file, schtasks denied) | `C:\Windows\Temp\dmg-install.log` (msiexec verbose log) |
+| 1603 "A newer version … is already installed" | A newer DMG MSI is installed, or a failed SCCM install left a phantom "advertised" registration | [Phantom MSI registrations](windows-self-update-admin.md#1603-a-newer-version--is-already-installed-and-phantom-msi-registrations) |
+| Exit code 3010 | A file was in use; replaced at the next restart (the MSI never restarts by itself) | Nothing to do; SCCM follows your client restart settings |
+| Device not updating / update errors in the console | Network, proxy, opt-out | [Windows self-update guide](windows-self-update-admin.md#troubleshooting-by-console-event) |
 | Scheduled task missing | `install` custom action skipped or failed | Same log; search for `RunInstallScheduledTask` |
 | Endpoint not reporting to dashboard | Wrong API key / endpoint | `type C:\ProgramData\StepSecurity\config.json` |
 | Endpoint config still under `%USERPROFILE%\.stepsecurity\` | MSI ran without elevation (shouldn't happen via SCCM) | Verify SCCM Application is set to "Install for system" |
@@ -225,8 +282,10 @@ When opening a support case, attach:
 
 ```
 C:\Windows\Temp\dmg-install.log         (msiexec verbose log)
+C:\Windows\CCM\Logs\AppEnforce.log      (SCCM command line and exit code)
 C:\ProgramData\StepSecurity\agent.log   (scanner output)
 C:\ProgramData\StepSecurity\agent.error.log
+C:\Program Files\StepSecurity\state\update.log   (self-update log)
 ```
 
 ## Signature verification
@@ -245,9 +304,9 @@ cosign verify-blob \
   stepsecurity-dev-machine-guard-<version>-x64.msi
 ```
 
-> **Authenticode (Windows publisher signature)**: not yet applied. The
-> Sigstore bundle above is build-provenance signing, which is a different
-> system from Authenticode (the certificate-based signature Windows checks
-> in UAC / SmartScreen / WDAC). If your environment requires
-> Authenticode-signed installers as a deployment precondition, please open
-> an issue — it's a tracked roadmap item.
+> **Authenticode (Windows publisher signature)**: the MSIs and the Windows
+> `.exe`s are Authenticode-signed with an RFC 3161 timestamp, in addition
+> to the Sigstore bundle above (build provenance, a separate system). The
+> self-updater also requires every version it installs to carry a valid,
+> timestamped Authenticode signature from the same publisher as the
+> version already installed.

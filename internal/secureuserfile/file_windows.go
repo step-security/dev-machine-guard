@@ -40,6 +40,17 @@ func (windowsOwnerReader) ownerUIDGID(*os.File) (uint32, uint32, bool, error) {
 }
 
 func applySecureMetadata(h *Home, f *os.File, _ os.FileMode, directory bool) error {
+	return setSecureDACL(h, f, directory, true)
+}
+
+// repairSecureMetadata rewrites only the DACL of an object whose owner is
+// already verified. The owner's implicit READ_CONTROL|WRITE_DAC suffices, so a
+// legacy object granting the user only Modify (no WRITE_OWNER) stays repairable.
+func repairSecureMetadata(h *Home, f *os.File, _ os.FileMode, directory bool) error {
+	return setSecureDACL(h, f, directory, false)
+}
+
+func setSecureDACL(h *Home, f *os.File, directory, assignOwner bool) error {
 	targetSID, err := windows.StringToSid(h.targetUser.Uid)
 	if err != nil {
 		return fmt.Errorf("secure user file: target SID: %w", err)
@@ -60,7 +71,15 @@ func applySecureMetadata(h *Home, f *os.File, _ os.FileMode, directory bool) err
 	if err != nil {
 		return fmt.Errorf("secure user file: build ACL: %w", err)
 	}
-	handle, err := reopenSecurityHandle(f, windows.READ_CONTROL|windows.WRITE_DAC|windows.WRITE_OWNER)
+	access := uint32(windows.READ_CONTROL | windows.WRITE_DAC)
+	info := windows.SECURITY_INFORMATION(windows.DACL_SECURITY_INFORMATION | windows.PROTECTED_DACL_SECURITY_INFORMATION)
+	var owner *windows.SID
+	if assignOwner {
+		access |= windows.WRITE_OWNER
+		info |= windows.OWNER_SECURITY_INFORMATION
+		owner = targetSID
+	}
+	handle, err := reopenSecurityHandle(f, access)
 	if err != nil {
 		return fmt.Errorf("secure user file: reopen for metadata: %w", err)
 	}
@@ -68,8 +87,8 @@ func applySecureMetadata(h *Home, f *os.File, _ os.FileMode, directory bool) err
 	if err := windows.SetSecurityInfo(
 		handle,
 		windows.SE_FILE_OBJECT,
-		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
-		targetSID,
+		info,
+		owner,
 		nil,
 		acl,
 		nil,

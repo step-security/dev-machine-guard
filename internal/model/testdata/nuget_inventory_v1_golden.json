@@ -1,0 +1,1949 @@
+{
+  "nuget_inventory": {
+    "schema_version": 1,
+    "status": "partial",
+    "reasons": [
+      "extraction_incomplete",
+      "identity_mismatch",
+      "parse_error",
+      "unsupported_format"
+    ],
+    "sources": [
+      {
+        "source_id": "0d258940b9b972749b5096ac27f95c918caa3add68148acb498367c7f79d5459",
+        "kind": "tool_resolver_cache",
+        "path": "/home/nuget-fixture/.dotnet/toolResolverCache/1/dotnet-format",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "86c941b94b7ab177ccf1f71efa6a7a053136a703a88f54a2eee236d383857a38",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "43584ade62cc60751c07b96b9c611936a2fbe96ae612c24ce267acbda82cf43b",
+        "kind": "tool_store",
+        "path": "/home/nuget-fixture/.dotnet/tools/.store",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": []
+      },
+      {
+        "source_id": "bcea6f7bf5a2fb5c94003c1bd5c6f2a82f02734fdec38b70ea61a8215e54928e",
+        "kind": "package_cache",
+        "path": "/home/nuget-fixture/.nuget/packages",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "identity_mismatch"
+        ],
+        "discovered_sources": []
+      },
+      {
+        "source_id": "5a3ded00d027b9122c9179fa1f6f78fea867dd9d35e0685cf81184f1c78f1446",
+        "kind": "template_receipt",
+        "path": "/home/nuget-fixture/.templateengine/packages.json",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "identity_mismatch",
+          "parse_error"
+        ],
+        "discovered_sources": []
+      },
+      {
+        "source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "kind": "project_search_root",
+        "path": "/home/nuget-fixture/code",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "extraction_incomplete",
+          "parse_error",
+          "unsupported_format"
+        ],
+        "discovered_sources": [
+          "05064db026ced43d8448f34e3663e237dbc0fd5d86cd37d8c8ab3b6942f9cb98",
+          "0839d33369a3fc0557731ae42b1eeac316b2fb7cca6e12a51545cae2a21e96a9",
+          "0cc348bd4757a43d2e06484fb268483a82e2b48378e88f7363c1025c71f947e9",
+          "225d26cce13d3498f29cc3d33e5d2c2c5fff4e8f354d81a574e013bd082116fc",
+          "3f8136d1da57f27422120bd65b638f81004778b83d769b60a5d56b83f259044b",
+          "435d1b01466c277cd0040a6668f4326530bb200145dc5983609c378afb59d45c",
+          "4e0f306320e361cb23cd72be4885cb355682774d7d4b81bd7b74521898204afa",
+          "501e6958c4d6c2b4b1591c6627c0e0cce7d7e0749a1ef5d97cd8cb2ca303072d",
+          "6714d919342a424550302dc38f6f849ad9149fdfaa4e0a4dfd6b2b232d0f30b2",
+          "6992712c7cdd4cda764068bcc84dd166bd7013c8290ba1a814b10749f300271b",
+          "69f96068a256c169c9892b8223b32c79143c6b305978faf0b808f2d088085bcd",
+          "86c941b94b7ab177ccf1f71efa6a7a053136a703a88f54a2eee236d383857a38",
+          "a02f746bfb84ed3e568054de46fa5f411adee8c8979a58bdf119511af451609d",
+          "c154d48d919a0d1572a65749164ebdacd71899753012f1fbeeb0f80c1289e32e",
+          "ea86ac8fc5aa844f25c405f3443bd7b1eb682f2b423aad01dcc129e2eced3b61"
+        ]
+      },
+      {
+        "source_id": "0cc348bd4757a43d2e06484fb268483a82e2b48378e88f7363c1025c71f947e9",
+        "kind": "project_manifest",
+        "path": "/home/nuget-fixture/code/Directory.Build.props",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "parse_error"
+        ],
+        "parent_source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "6992712c7cdd4cda764068bcc84dd166bd7013c8290ba1a814b10749f300271b",
+        "kind": "central_versions",
+        "path": "/home/nuget-fixture/code/Directory.Packages.props",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "parse_error"
+        ],
+        "parent_source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "501e6958c4d6c2b4b1591c6627c0e0cce7d7e0749a1ef5d97cd8cb2ca303072d",
+        "kind": "project_manifest",
+        "path": "/home/nuget-fixture/code/app/App.csproj",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "discovered_sources": [
+          "3fed0cf398dee169ed6f0894d5ac3d5b51ee2a7df065024b30117a62cf1030ab"
+        ]
+      },
+      {
+        "source_id": "69f96068a256c169c9892b8223b32c79143c6b305978faf0b808f2d088085bcd",
+        "kind": "binary_metadata",
+        "path": "/home/nuget-fixture/code/app/bin/Debug/net8.0/App.deps.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "3f8136d1da57f27422120bd65b638f81004778b83d769b60a5d56b83f259044b",
+        "kind": "project_assets",
+        "path": "/home/nuget-fixture/code/app/obj/project.assets.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "3fed0cf398dee169ed6f0894d5ac3d5b51ee2a7df065024b30117a62cf1030ab",
+        "kind": "lockfile",
+        "path": "/home/nuget-fixture/code/app/packages.lock.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "501e6958c4d6c2b4b1591c6627c0e0cce7d7e0749a1ef5d97cd8cb2ca303072d",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "ea86ac8fc5aa844f25c405f3443bd7b1eb682f2b423aad01dcc129e2eced3b61",
+        "kind": "project_manifest",
+        "path": "/home/nuget-fixture/code/corrupt/Corrupt.csproj",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "parse_error"
+        ],
+        "parent_source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "225d26cce13d3498f29cc3d33e5d2c2c5fff4e8f354d81a574e013bd082116fc",
+        "kind": "legacy_manifest",
+        "path": "/home/nuget-fixture/code/legacy/packages.config",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "extraction_incomplete"
+        ],
+        "parent_source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "435d1b01466c277cd0040a6668f4326530bb200145dc5983609c378afb59d45c",
+        "kind": "project_assets",
+        "path": "/home/nuget-fixture/code/orphan/obj/project.assets.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "0839d33369a3fc0557731ae42b1eeac316b2fb7cca6e12a51545cae2a21e96a9",
+        "kind": "project_manifest",
+        "path": "/home/nuget-fixture/code/packed/Directory.Build.targets",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "4e0f306320e361cb23cd72be4885cb355682774d7d4b81bd7b74521898204afa",
+        "kind": "project_manifest",
+        "path": "/home/nuget-fixture/code/packed/Packed.csproj",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "556704753954a077bcf021179bb3965fa0865891939d36f233121a36ae2337b1",
+        "kind": "package_cache",
+        "path": "/home/nuget-fixture/code/packed/pkgs",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": []
+      },
+      {
+        "source_id": "6714d919342a424550302dc38f6f849ad9149fdfaa4e0a4dfd6b2b232d0f30b2",
+        "kind": "script_manifest",
+        "path": "/home/nuget-fixture/code/scripts/app.cs",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "a02f746bfb84ed3e568054de46fa5f411adee8c8979a58bdf119511af451609d",
+        "kind": "script_manifest",
+        "path": "/home/nuget-fixture/code/scripts/script.fsx",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "05064db026ced43d8448f34e3663e237dbc0fd5d86cd37d8c8ab3b6942f9cb98",
+        "kind": "project_manifest",
+        "path": "/home/nuget-fixture/code/shared/Directory.Build.props",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "unsupported_format"
+        ],
+        "parent_source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "c154d48d919a0d1572a65749164ebdacd71899753012f1fbeeb0f80c1289e32e",
+        "kind": "project_manifest",
+        "path": "/home/nuget-fixture/code/shared/lib/Lib.csproj",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "unsupported_format"
+        ],
+        "parent_source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "4530334636471c1b1caec6ed8b46010084d40b1fdd268fe329cbf8a2cfdf1ab3",
+        "kind": "package_cache",
+        "path": "/home/nuget-fixture/code/shared/lib/packages",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": []
+      },
+      {
+        "source_id": "86c941b94b7ab177ccf1f71efa6a7a053136a703a88f54a2eee236d383857a38",
+        "kind": "tool_manifest",
+        "path": "/home/nuget-fixture/code/tools/.config/dotnet-tools.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "a31a72f421f8475524be51da5aac31dd9b8b2f02674100148b7668f670a55e62",
+        "discovered_sources": [
+          "0d258940b9b972749b5096ac27f95c918caa3add68148acb498367c7f79d5459"
+        ]
+      },
+      {
+        "source_id": "05e66b0272c94dcca8cba7b28ef0107ddd2c3d0f3f51c9fe3e6cdb9618b87298",
+        "kind": "package_cache",
+        "path": "/home/nuget-fixture/scriptcache",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": []
+      }
+    ],
+    "projects": [
+      {
+        "manifest_source_id": "501e6958c4d6c2b4b1591c6627c0e0cce7d7e0749a1ef5d97cd8cb2ca303072d",
+        "manifest_path": "/home/nuget-fixture/code/app/App.csproj",
+        "project_path": "/home/nuget-fixture/code/app",
+        "project_kind": "msbuild",
+        "target_frameworks": [
+          "net8.0",
+          "net9.0"
+        ],
+        "selection_status": "resolved",
+        "assets_path": "/home/nuget-fixture/code/app/obj/project.assets.json",
+        "lockfile_path": "/home/nuget-fixture/code/app/packages.lock.json"
+      },
+      {
+        "manifest_source_id": "ea86ac8fc5aa844f25c405f3443bd7b1eb682f2b423aad01dcc129e2eced3b61",
+        "manifest_path": "/home/nuget-fixture/code/corrupt/Corrupt.csproj",
+        "project_path": "/home/nuget-fixture/code/corrupt",
+        "project_kind": "msbuild",
+        "target_frameworks": [],
+        "selection_status": "unresolved"
+      },
+      {
+        "manifest_source_id": "225d26cce13d3498f29cc3d33e5d2c2c5fff4e8f354d81a574e013bd082116fc",
+        "manifest_path": "/home/nuget-fixture/code/legacy/packages.config",
+        "project_path": "/home/nuget-fixture/code/legacy",
+        "project_kind": "legacy",
+        "target_frameworks": [],
+        "selection_status": "resolved",
+        "packages_path": "/home/nuget-fixture/code/legacy/packages"
+      },
+      {
+        "manifest_source_id": "4e0f306320e361cb23cd72be4885cb355682774d7d4b81bd7b74521898204afa",
+        "manifest_path": "/home/nuget-fixture/code/packed/Packed.csproj",
+        "project_path": "/home/nuget-fixture/code/packed",
+        "project_kind": "msbuild",
+        "target_frameworks": [
+          "net8.0"
+        ],
+        "selection_status": "resolved"
+      },
+      {
+        "manifest_source_id": "6714d919342a424550302dc38f6f849ad9149fdfaa4e0a4dfd6b2b232d0f30b2",
+        "manifest_path": "/home/nuget-fixture/code/scripts/app.cs",
+        "project_path": "/home/nuget-fixture/code/scripts",
+        "project_kind": "file_based",
+        "target_frameworks": [],
+        "selection_status": "resolved"
+      },
+      {
+        "manifest_source_id": "a02f746bfb84ed3e568054de46fa5f411adee8c8979a58bdf119511af451609d",
+        "manifest_path": "/home/nuget-fixture/code/scripts/script.fsx",
+        "project_path": "/home/nuget-fixture/code/scripts",
+        "project_kind": "fsharp_script",
+        "target_frameworks": [],
+        "selection_status": "resolved"
+      },
+      {
+        "manifest_source_id": "c154d48d919a0d1572a65749164ebdacd71899753012f1fbeeb0f80c1289e32e",
+        "manifest_path": "/home/nuget-fixture/code/shared/lib/Lib.csproj",
+        "project_path": "/home/nuget-fixture/code/shared/lib",
+        "project_kind": "msbuild",
+        "target_frameworks": [
+          "net8.0"
+        ],
+        "selection_status": "partial"
+      },
+      {
+        "manifest_source_id": "86c941b94b7ab177ccf1f71efa6a7a053136a703a88f54a2eee236d383857a38",
+        "manifest_path": "/home/nuget-fixture/code/tools/.config/dotnet-tools.json",
+        "project_path": "/home/nuget-fixture/code/tools",
+        "project_kind": "tool_manifest",
+        "target_frameworks": [],
+        "selection_status": "resolved"
+      }
+    ],
+    "packages": [
+      {
+        "source_id": "43584ade62cc60751c07b96b9c611936a2fbe96ae612c24ce267acbda82cf43b",
+        "evidence": "installed_tool",
+        "package_name": "dotnet-format",
+        "display_name": "dotnet-format",
+        "source_path": "/home/nuget-fixture/.dotnet/tools/.store",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "8.0.0",
+        "version_normalized": "8.0.0",
+        "dependency_relation": "direct",
+        "framework_alias": ".NETCoreApp,Version=v8.0",
+        "target_framework": ".NETCoreApp,Version=v8.0",
+        "runtime_identifier": "any",
+        "tool_commands": [
+          "dotnet-format"
+        ],
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/.dotnet/tools/dotnet-format",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "content",
+            "algorithm": "sha512",
+            "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+            "source_id": "43584ade62cc60751c07b96b9c611936a2fbe96ae612c24ce267acbda82cf43b",
+            "source_kind": "tool_store",
+            "source_path": "/home/nuget-fixture/.dotnet/tools/.store",
+            "verification": "recorded"
+          }
+        ]
+      },
+      {
+        "source_id": "43584ade62cc60751c07b96b9c611936a2fbe96ae612c24ce267acbda82cf43b",
+        "evidence": "installed_tool",
+        "package_name": "example.ridcli",
+        "display_name": "Example.RidCli",
+        "source_path": "/home/nuget-fixture/.dotnet/tools/.store",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.0",
+        "version_normalized": "1.0.0",
+        "dependency_relation": "direct",
+        "framework_alias": "net10.0",
+        "target_framework": "net10.0",
+        "runtime_identifier": "osx-arm64",
+        "tool_commands": [
+          "ridcli"
+        ],
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/.dotnet/tools/ridcli",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "43584ade62cc60751c07b96b9c611936a2fbe96ae612c24ce267acbda82cf43b",
+        "evidence": "installed_tool",
+        "package_name": "example.ridcli.osx-arm64",
+        "display_name": "Example.RidCli.osx-arm64",
+        "source_path": "/home/nuget-fixture/.dotnet/tools/.store",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.0",
+        "version_normalized": "1.0.0",
+        "dependency_relation": "direct",
+        "framework_alias": "net10.0",
+        "target_framework": "net10.0",
+        "runtime_identifier": "osx-arm64",
+        "tool_commands": [
+          "ridcli"
+        ],
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/.dotnet/tools/ridcli",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "43584ade62cc60751c07b96b9c611936a2fbe96ae612c24ce267acbda82cf43b",
+        "evidence": "installed_tool",
+        "package_name": "humanizer",
+        "display_name": "Humanizer",
+        "source_path": "/home/nuget-fixture/.dotnet/tools/.store",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2.14.1",
+        "version_normalized": "2.14.1",
+        "dependency_relation": "transitive",
+        "framework_alias": ".NETCoreApp,Version=v8.0",
+        "target_framework": ".NETCoreApp,Version=v8.0",
+        "runtime_identifier": "any",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "content",
+            "algorithm": "sha512",
+            "value": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
+            "source_id": "43584ade62cc60751c07b96b9c611936a2fbe96ae612c24ce267acbda82cf43b",
+            "source_kind": "tool_store",
+            "source_path": "/home/nuget-fixture/.dotnet/tools/.store",
+            "verification": "recorded"
+          }
+        ]
+      },
+      {
+        "source_id": "bcea6f7bf5a2fb5c94003c1bd5c6f2a82f02734fdec38b70ea61a8215e54928e",
+        "evidence": "cached_package",
+        "package_name": "archived",
+        "display_name": "Archived",
+        "source_path": "/home/nuget-fixture/.nuget/packages",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2.0.0",
+        "version_normalized": "2.0.0",
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/.nuget/packages/archived/2.0.0",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "content",
+            "algorithm": "sha512",
+            "value": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
+            "source_id": "bcea6f7bf5a2fb5c94003c1bd5c6f2a82f02734fdec38b70ea61a8215e54928e",
+            "source_kind": "package_cache",
+            "source_path": "/home/nuget-fixture/.nuget/packages",
+            "verification": "recorded"
+          }
+        ]
+      },
+      {
+        "source_id": "bcea6f7bf5a2fb5c94003c1bd5c6f2a82f02734fdec38b70ea61a8215e54928e",
+        "evidence": "cached_package",
+        "package_name": "bare",
+        "display_name": "Bare",
+        "source_path": "/home/nuget-fixture/.nuget/packages",
+        "scope": "user",
+        "reasons": [
+          "extraction_incomplete"
+        ],
+        "version_status": "known",
+        "version": "1.0.0",
+        "version_normalized": "1.0.0",
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/.nuget/packages/bare/1.0.0",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "bcea6f7bf5a2fb5c94003c1bd5c6f2a82f02734fdec38b70ea61a8215e54928e",
+        "evidence": "cached_package",
+        "package_name": "newtonsoft.json",
+        "display_name": "Newtonsoft.Json",
+        "source_path": "/home/nuget-fixture/.nuget/packages",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "13.0.1",
+        "version_normalized": "13.0.1",
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "feed",
+          "url": "https://api.nuget.org/v3/index.json"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/.nuget/packages/newtonsoft.json/13.0.1",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "content",
+            "algorithm": "sha512",
+            "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+            "source_id": "bcea6f7bf5a2fb5c94003c1bd5c6f2a82f02734fdec38b70ea61a8215e54928e",
+            "source_kind": "package_cache",
+            "source_path": "/home/nuget-fixture/.nuget/packages",
+            "verification": "recorded"
+          },
+          {
+            "kind": "archive",
+            "algorithm": "sha512",
+            "value": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
+            "source_id": "bcea6f7bf5a2fb5c94003c1bd5c6f2a82f02734fdec38b70ea61a8215e54928e",
+            "source_kind": "package_cache",
+            "source_path": "/home/nuget-fixture/.nuget/packages",
+            "verification": "recorded"
+          }
+        ]
+      },
+      {
+        "source_id": "bcea6f7bf5a2fb5c94003c1bd5c6f2a82f02734fdec38b70ea61a8215e54928e",
+        "evidence": "cached_package",
+        "package_name": "transitive.dep",
+        "display_name": "Transitive.Dep",
+        "source_path": "/home/nuget-fixture/.nuget/packages",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2.0.0",
+        "version_normalized": "2.0.0",
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "local",
+          "path": "/home/nuget-fixture/feed"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/.nuget/packages/transitive.dep/2.0.0",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "content",
+            "algorithm": "sha512",
+            "value": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
+            "source_id": "bcea6f7bf5a2fb5c94003c1bd5c6f2a82f02734fdec38b70ea61a8215e54928e",
+            "source_kind": "package_cache",
+            "source_path": "/home/nuget-fixture/.nuget/packages",
+            "verification": "recorded"
+          }
+        ]
+      },
+      {
+        "source_id": "5a3ded00d027b9122c9179fa1f6f78fea867dd9d35e0685cf81184f1c78f1446",
+        "evidence": "installed_template",
+        "package_name": "example.templates",
+        "display_name": "Example.Templates",
+        "source_path": "/home/nuget-fixture/.templateengine/packages.json",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.0",
+        "version_normalized": "1.0.0",
+        "dependency_relation": "direct",
+        "origin": {
+          "kind": "feed",
+          "url": "https://api.nuget.org/v3/index.json"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/.templateengine/packages/Example.Templates.1.0.0.nupkg",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "6992712c7cdd4cda764068bcc84dd166bd7013c8290ba1a814b10749f300271b",
+        "evidence": "declared_requirement",
+        "package_name": "analyzer",
+        "display_name": "Analyzer",
+        "source_path": "/home/nuget-fixture/code/Directory.Packages.props",
+        "project_path": "/home/nuget-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_version": "2.0.0",
+        "dependency_relation": "direct",
+        "declaration_kind": "global_package_reference",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "6992712c7cdd4cda764068bcc84dd166bd7013c8290ba1a814b10749f300271b",
+        "evidence": "declared_requirement",
+        "package_name": "analyzer",
+        "display_name": "Analyzer",
+        "source_path": "/home/nuget-fixture/code/Directory.Packages.props",
+        "project_path": "/home/nuget-fixture/code/packed",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_version": "2.0.0",
+        "dependency_relation": "direct",
+        "declaration_kind": "global_package_reference",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "6992712c7cdd4cda764068bcc84dd166bd7013c8290ba1a814b10749f300271b",
+        "evidence": "declared_requirement",
+        "package_name": "analyzer",
+        "display_name": "Analyzer",
+        "source_path": "/home/nuget-fixture/code/Directory.Packages.props",
+        "project_path": "/home/nuget-fixture/code/shared/lib",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_version": "2.0.0",
+        "dependency_relation": "direct",
+        "declaration_kind": "global_package_reference",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "501e6958c4d6c2b4b1591c6627c0e0cce7d7e0749a1ef5d97cd8cb2ca303072d",
+        "evidence": "declared_requirement",
+        "package_name": "central",
+        "display_name": "Central",
+        "source_path": "/home/nuget-fixture/code/app/App.csproj",
+        "project_path": "/home/nuget-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_version": "1.0.0",
+        "dependency_relation": "direct",
+        "declaration_kind": "package_reference",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "501e6958c4d6c2b4b1591c6627c0e0cce7d7e0749a1ef5d97cd8cb2ca303072d",
+        "evidence": "declared_requirement",
+        "package_name": "conditional",
+        "display_name": "Conditional",
+        "source_path": "/home/nuget-fixture/code/app/App.csproj",
+        "project_path": "/home/nuget-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_version": "1.0.0-Beta",
+        "dependency_relation": "direct",
+        "conditional": true,
+        "declaration_kind": "package_reference",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "501e6958c4d6c2b4b1591c6627c0e0cce7d7e0749a1ef5d97cd8cb2ca303072d",
+        "evidence": "declared_requirement",
+        "package_name": "downloaded",
+        "display_name": "Downloaded",
+        "source_path": "/home/nuget-fixture/code/app/App.csproj",
+        "project_path": "/home/nuget-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_version": "[1.0.0]",
+        "dependency_relation": "direct",
+        "declaration_kind": "package_download",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "501e6958c4d6c2b4b1591c6627c0e0cce7d7e0749a1ef5d97cd8cb2ca303072d",
+        "evidence": "declared_requirement",
+        "package_name": "expr",
+        "display_name": "Expr",
+        "source_path": "/home/nuget-fixture/code/app/App.csproj",
+        "project_path": "/home/nuget-fixture/code/app",
+        "scope": "project",
+        "reasons": [
+          "context_unresolved"
+        ],
+        "version_status": "unknown",
+        "dependency_relation": "direct",
+        "declaration_kind": "package_reference",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "501e6958c4d6c2b4b1591c6627c0e0cce7d7e0749a1ef5d97cd8cb2ca303072d",
+        "evidence": "declared_requirement",
+        "package_name": "missing",
+        "display_name": "Missing",
+        "source_path": "/home/nuget-fixture/code/app/App.csproj",
+        "project_path": "/home/nuget-fixture/code/app",
+        "scope": "project",
+        "reasons": [
+          "context_unresolved"
+        ],
+        "version_status": "unknown",
+        "dependency_relation": "direct",
+        "declaration_kind": "package_reference",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "501e6958c4d6c2b4b1591c6627c0e0cce7d7e0749a1ef5d97cd8cb2ca303072d",
+        "evidence": "declared_requirement",
+        "package_name": "newtonsoft.json",
+        "display_name": "Newtonsoft.Json",
+        "source_path": "/home/nuget-fixture/code/app/App.csproj",
+        "project_path": "/home/nuget-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_version": "13.0.1",
+        "dependency_relation": "direct",
+        "private_assets": "all",
+        "declaration_kind": "package_reference",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "69f96068a256c169c9892b8223b32c79143c6b305978faf0b808f2d088085bcd",
+        "evidence": "binary_dependency",
+        "package_name": "newtonsoft.json",
+        "display_name": "Newtonsoft.Json",
+        "source_path": "/home/nuget-fixture/code/app/bin/Debug/net8.0/App.deps.json",
+        "project_path": "/home/nuget-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "13.0.1",
+        "version_normalized": "13.0.1",
+        "dependency_relation": "unknown",
+        "target_framework": ".NETCoreApp,Version=v8.0",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "content",
+            "algorithm": "sha512",
+            "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+            "source_id": "69f96068a256c169c9892b8223b32c79143c6b305978faf0b808f2d088085bcd",
+            "source_kind": "binary_metadata",
+            "source_path": "/home/nuget-fixture/code/app/bin/Debug/net8.0/App.deps.json",
+            "verification": "recorded"
+          }
+        ]
+      },
+      {
+        "source_id": "3f8136d1da57f27422120bd65b638f81004778b83d769b60a5d56b83f259044b",
+        "evidence": "restored_package",
+        "package_name": "newtonsoft.json",
+        "display_name": "Newtonsoft.Json",
+        "source_path": "/home/nuget-fixture/code/app/obj/project.assets.json",
+        "project_path": "/home/nuget-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "13.0.1",
+        "version_normalized": "13.0.1",
+        "dependency_relation": "direct",
+        "framework_alias": "net8.0",
+        "target_framework": ".NETCoreApp,Version=v8.0",
+        "origin": {
+          "kind": "feed",
+          "url": "https://api.nuget.org/v3/index.json"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/.nuget/packages/newtonsoft.json/13.0.1",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "content",
+            "algorithm": "sha512",
+            "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+            "source_id": "3f8136d1da57f27422120bd65b638f81004778b83d769b60a5d56b83f259044b",
+            "source_kind": "project_assets",
+            "source_path": "/home/nuget-fixture/code/app/obj/project.assets.json",
+            "verification": "recorded"
+          }
+        ]
+      },
+      {
+        "source_id": "3f8136d1da57f27422120bd65b638f81004778b83d769b60a5d56b83f259044b",
+        "evidence": "restored_package",
+        "package_name": "newtonsoft.json",
+        "display_name": "Newtonsoft.Json",
+        "source_path": "/home/nuget-fixture/code/app/obj/project.assets.json",
+        "project_path": "/home/nuget-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "13.0.1",
+        "version_normalized": "13.0.1",
+        "dependency_relation": "direct",
+        "framework_alias": "net8.0",
+        "target_framework": ".NETCoreApp,Version=v8.0",
+        "runtime_identifier": "linux-x64",
+        "origin": {
+          "kind": "feed",
+          "url": "https://api.nuget.org/v3/index.json"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/.nuget/packages/newtonsoft.json/13.0.1",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "content",
+            "algorithm": "sha512",
+            "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+            "source_id": "3f8136d1da57f27422120bd65b638f81004778b83d769b60a5d56b83f259044b",
+            "source_kind": "project_assets",
+            "source_path": "/home/nuget-fixture/code/app/obj/project.assets.json",
+            "verification": "recorded"
+          }
+        ]
+      },
+      {
+        "source_id": "3f8136d1da57f27422120bd65b638f81004778b83d769b60a5d56b83f259044b",
+        "evidence": "restored_package",
+        "package_name": "transitive.dep",
+        "display_name": "Transitive.Dep",
+        "source_path": "/home/nuget-fixture/code/app/obj/project.assets.json",
+        "project_path": "/home/nuget-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2.0.0",
+        "version_normalized": "2.0.0",
+        "dependency_relation": "transitive",
+        "framework_alias": "net8.0",
+        "target_framework": ".NETCoreApp,Version=v8.0",
+        "origin": {
+          "kind": "local",
+          "path": "/home/nuget-fixture/feed"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/.nuget/packages/transitive.dep/2.0.0",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "content",
+            "algorithm": "sha512",
+            "value": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
+            "source_id": "3f8136d1da57f27422120bd65b638f81004778b83d769b60a5d56b83f259044b",
+            "source_kind": "project_assets",
+            "source_path": "/home/nuget-fixture/code/app/obj/project.assets.json",
+            "verification": "recorded"
+          }
+        ]
+      },
+      {
+        "source_id": "3fed0cf398dee169ed6f0894d5ac3d5b51ee2a7df065024b30117a62cf1030ab",
+        "evidence": "locked_package",
+        "package_name": "newtonsoft.json",
+        "display_name": "Newtonsoft.Json",
+        "source_path": "/home/nuget-fixture/code/app/packages.lock.json",
+        "project_path": "/home/nuget-fixture/code/app",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "13.0.1",
+        "version_normalized": "13.0.1",
+        "requested_version": "[13.0.1, )",
+        "dependency_relation": "direct",
+        "framework_alias": "net8.0",
+        "target_framework": ".NETCoreApp,Version=v8.0",
+        "lock_dependency_type": "Direct",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "content",
+            "algorithm": "sha512",
+            "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+            "source_id": "3fed0cf398dee169ed6f0894d5ac3d5b51ee2a7df065024b30117a62cf1030ab",
+            "source_kind": "lockfile",
+            "source_path": "/home/nuget-fixture/code/app/packages.lock.json",
+            "verification": "recorded"
+          }
+        ]
+      },
+      {
+        "source_id": "3fed0cf398dee169ed6f0894d5ac3d5b51ee2a7df065024b30117a62cf1030ab",
+        "evidence": "locked_package",
+        "package_name": "transitive.dep",
+        "display_name": "Transitive.Dep",
+        "source_path": "/home/nuget-fixture/code/app/packages.lock.json",
+        "project_path": "/home/nuget-fixture/code/app",
+        "scope": "project",
+        "reasons": [
+          "checksum_invalid"
+        ],
+        "version_status": "known",
+        "version": "2.0.0",
+        "version_normalized": "2.0.0",
+        "dependency_relation": "transitive",
+        "framework_alias": "net8.0",
+        "target_framework": ".NETCoreApp,Version=v8.0",
+        "lock_dependency_type": "Transitive",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "partial",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "225d26cce13d3498f29cc3d33e5d2c2c5fff4e8f354d81a574e013bd082116fc",
+        "evidence": "declared_requirement",
+        "package_name": "absent.legacy",
+        "display_name": "Absent.Legacy",
+        "source_path": "/home/nuget-fixture/code/legacy/packages.config",
+        "project_path": "/home/nuget-fixture/code/legacy",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.0",
+        "version_normalized": "1.0.0",
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "225d26cce13d3498f29cc3d33e5d2c2c5fff4e8f354d81a574e013bd082116fc",
+        "evidence": "declared_requirement",
+        "package_name": "empty.legacy",
+        "display_name": "Empty.Legacy",
+        "source_path": "/home/nuget-fixture/code/legacy/packages.config",
+        "project_path": "/home/nuget-fixture/code/legacy",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.0",
+        "version_normalized": "1.0.0",
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "225d26cce13d3498f29cc3d33e5d2c2c5fff4e8f354d81a574e013bd082116fc",
+        "evidence": "declared_requirement",
+        "package_name": "newtonsoft.json",
+        "display_name": "Newtonsoft.Json",
+        "source_path": "/home/nuget-fixture/code/legacy/packages.config",
+        "project_path": "/home/nuget-fixture/code/legacy",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "13.0.1",
+        "version_normalized": "13.0.1",
+        "dependency_relation": "unknown",
+        "development_dependency": true,
+        "target_framework": "net472",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "225d26cce13d3498f29cc3d33e5d2c2c5fff4e8f354d81a574e013bd082116fc",
+        "evidence": "restored_package",
+        "package_name": "newtonsoft.json",
+        "display_name": "Newtonsoft.Json",
+        "source_path": "/home/nuget-fixture/code/legacy/packages.config",
+        "project_path": "/home/nuget-fixture/code/legacy",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "13.0.1",
+        "version_normalized": "13.0.1",
+        "dependency_relation": "unknown",
+        "development_dependency": true,
+        "target_framework": "net472",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/code/legacy/packages/Newtonsoft.Json.13.0.1",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "435d1b01466c277cd0040a6668f4326530bb200145dc5983609c378afb59d45c",
+        "evidence": "restored_package",
+        "package_name": "orphaned",
+        "display_name": "Orphaned",
+        "source_path": "/home/nuget-fixture/code/orphan/obj/project.assets.json",
+        "project_path": "/home/nuget-fixture/code/gone",
+        "scope": "unknown",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.0",
+        "version_normalized": "1.0.0",
+        "dependency_relation": "unknown",
+        "target_framework": "net8.0",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/.nuget/packages/orphaned/1.0.0",
+          "path_status": "resolved",
+          "presence": "unknown"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "content",
+            "algorithm": "sha512",
+            "value": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
+            "source_id": "435d1b01466c277cd0040a6668f4326530bb200145dc5983609c378afb59d45c",
+            "source_kind": "project_assets",
+            "source_path": "/home/nuget-fixture/code/orphan/obj/project.assets.json",
+            "verification": "recorded"
+          }
+        ]
+      },
+      {
+        "source_id": "556704753954a077bcf021179bb3965fa0865891939d36f233121a36ae2337b1",
+        "evidence": "cached_package",
+        "package_name": "custom.pkg",
+        "display_name": "Custom.Pkg",
+        "source_path": "/home/nuget-fixture/code/packed/pkgs",
+        "scope": "custom",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.0",
+        "version_normalized": "1.0.0",
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/code/packed/pkgs/custom.pkg/1.0.0",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "content",
+            "algorithm": "sha512",
+            "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+            "source_id": "556704753954a077bcf021179bb3965fa0865891939d36f233121a36ae2337b1",
+            "source_kind": "package_cache",
+            "source_path": "/home/nuget-fixture/code/packed/pkgs",
+            "verification": "recorded"
+          }
+        ]
+      },
+      {
+        "source_id": "6714d919342a424550302dc38f6f849ad9149fdfaa4e0a4dfd6b2b232d0f30b2",
+        "evidence": "declared_requirement",
+        "package_name": "aspire.apphost.sdk",
+        "display_name": "Aspire.AppHost.Sdk",
+        "source_path": "/home/nuget-fixture/code/scripts/app.cs",
+        "project_path": "/home/nuget-fixture/code/scripts",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_version": "9.0.0",
+        "dependency_relation": "direct",
+        "declaration_kind": "msbuild_sdk",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "6714d919342a424550302dc38f6f849ad9149fdfaa4e0a4dfd6b2b232d0f30b2",
+        "evidence": "declared_requirement",
+        "package_name": "humanizer",
+        "display_name": "Humanizer",
+        "source_path": "/home/nuget-fixture/code/scripts/app.cs",
+        "project_path": "/home/nuget-fixture/code/scripts",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_version": "2.14.1",
+        "dependency_relation": "direct",
+        "declaration_kind": "package_reference",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "a02f746bfb84ed3e568054de46fa5f411adee8c8979a58bdf119511af451609d",
+        "evidence": "declared_requirement",
+        "package_name": "fsharp.data",
+        "display_name": "FSharp.Data",
+        "source_path": "/home/nuget-fixture/code/scripts/script.fsx",
+        "project_path": "/home/nuget-fixture/code/scripts",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_version": "6.3.0",
+        "dependency_relation": "direct",
+        "declaration_kind": "package_reference",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "4530334636471c1b1caec6ed8b46010084d40b1fdd268fe329cbf8a2cfdf1ab3",
+        "evidence": "cached_package",
+        "package_name": "shared.cached",
+        "display_name": "Shared.Cached",
+        "source_path": "/home/nuget-fixture/code/shared/lib/packages",
+        "scope": "custom",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.0",
+        "version_normalized": "1.0.0",
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/code/shared/lib/packages/shared.cached/1.0.0",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "content",
+            "algorithm": "sha512",
+            "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+            "source_id": "4530334636471c1b1caec6ed8b46010084d40b1fdd268fe329cbf8a2cfdf1ab3",
+            "source_kind": "package_cache",
+            "source_path": "/home/nuget-fixture/code/shared/lib/packages",
+            "verification": "recorded"
+          }
+        ]
+      },
+      {
+        "source_id": "86c941b94b7ab177ccf1f71efa6a7a053136a703a88f54a2eee236d383857a38",
+        "evidence": "declared_requirement",
+        "package_name": "unresolved-tool",
+        "display_name": "unresolved-tool",
+        "source_path": "/home/nuget-fixture/code/tools/.config/dotnet-tools.json",
+        "project_path": "/home/nuget-fixture/code/tools",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.0",
+        "version_normalized": "1.0.0",
+        "dependency_relation": "direct",
+        "tool_commands": [
+          "unresolved"
+        ],
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "86c941b94b7ab177ccf1f71efa6a7a053136a703a88f54a2eee236d383857a38",
+        "evidence": "installed_tool",
+        "package_name": "dotnet-format",
+        "display_name": "dotnet-format",
+        "source_path": "/home/nuget-fixture/code/tools/.config/dotnet-tools.json",
+        "project_path": "/home/nuget-fixture/code/tools",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "8.0.0",
+        "version_normalized": "8.0.0",
+        "dependency_relation": "direct",
+        "target_framework": "net8.0",
+        "runtime_identifier": "any",
+        "tool_commands": [
+          "dotnet-format"
+        ],
+        "origin": {
+          "kind": "unknown"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/.nuget/packages/dotnet-format/8.0.0/tools/net8.0/any/dotnet-format.dll",
+          "path_status": "resolved",
+          "presence": "absent"
+        },
+        "checksum_status": "not_recorded",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "05e66b0272c94dcca8cba7b28ef0107ddd2c3d0f3f51c9fe3e6cdb9618b87298",
+        "evidence": "cached_package",
+        "package_name": "example.cached",
+        "display_name": "Example.Cached",
+        "source_path": "/home/nuget-fixture/scriptcache",
+        "scope": "custom",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.0",
+        "version_normalized": "1.0.0",
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "feed",
+          "url": "https://api.nuget.org/v3/index.json"
+        },
+        "installation": {
+          "path": "/home/nuget-fixture/scriptcache/example.cached/1.0.0",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "kind": "content",
+            "algorithm": "sha512",
+            "value": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
+            "source_id": "05e66b0272c94dcca8cba7b28ef0107ddd2c3d0f3f51c9fe3e6cdb9618b87298",
+            "source_kind": "package_cache",
+            "source_path": "/home/nuget-fixture/scriptcache",
+            "verification": "recorded"
+          }
+        ]
+      }
+    ]
+  },
+  "nuget_config_audit": {
+    "schema_version": 1,
+    "status": "partial",
+    "reasons": [
+      "parse_error",
+      "path_unresolved",
+      "unsupported_format"
+    ],
+    "files": [
+      {
+        "source_id": "c548c514e555ab7ad8184f1a99f0a1dd9f716e0a99c4522b1d30c72575a1c2c7",
+        "scope": "process",
+        "status": "read",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "auth_configured",
+            "display": "true",
+            "source_id": "c548c514e555ab7ad8184f1a99f0a1dd9f716e0a99c4522b1d30c72575a1c2c7",
+            "redacted": true
+          },
+          {
+            "key": "credential_provider_configured",
+            "display": "true",
+            "source_id": "c548c514e555ab7ad8184f1a99f0a1dd9f716e0a99c4522b1d30c72575a1c2c7",
+            "redacted": true
+          },
+          {
+            "key": "environment.HTTPS_PROXY",
+            "display": "https://proxy.example.invalid:8443/",
+            "source_id": "c548c514e555ab7ad8184f1a99f0a1dd9f716e0a99c4522b1d30c72575a1c2c7",
+            "redacted": true
+          },
+          {
+            "key": "environment.NO_PROXY",
+            "display": "localhost,.example.invalid",
+            "source_id": "c548c514e555ab7ad8184f1a99f0a1dd9f716e0a99c4522b1d30c72575a1c2c7",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "f604bd9c0bd21a5d23c165aefc86bcb3aba096e83889328cc9dfd582b87cae37",
+        "scope": "project",
+        "path": "/home/nuget-fixture/code/Directory.Build.props",
+        "status": "read",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "20460fb6f0bcc17ab6f5fe831dfc04ad159a4dc671bcc97a7d15ee6c981a328c",
+        "scope": "project",
+        "path": "/home/nuget-fixture/code/Directory.Packages.props",
+        "status": "read",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "project.NuGetAuditMode",
+            "display": "all",
+            "source_id": "20460fb6f0bcc17ab6f5fe831dfc04ad159a4dc671bcc97a7d15ee6c981a328c",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "94267beb213533a15ab10ddad091180719ffa4a53e0b6f1b2a0fa4cf49ca77e0",
+        "scope": "project",
+        "path": "/home/nuget-fixture/code/NuGet.Config",
+        "status": "not_found",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "82c4627d6e7f65e5f6da17289e3c6e037f024d6d5067af0120c929b31772329c",
+        "scope": "project",
+        "path": "/home/nuget-fixture/code/app/App.csproj",
+        "status": "read",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "project.NuGetAudit",
+            "display": "false",
+            "source_id": "82c4627d6e7f65e5f6da17289e3c6e037f024d6d5067af0120c929b31772329c",
+            "redacted": false
+          },
+          {
+            "key": "project.RestoreLockedMode",
+            "display": "true",
+            "source_id": "82c4627d6e7f65e5f6da17289e3c6e037f024d6d5067af0120c929b31772329c",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+        "scope": "project",
+        "path": "/home/nuget-fixture/code/app/NuGet.Config",
+        "status": "read",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "auth_configured",
+            "display": "true",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": true
+          },
+          {
+            "key": "config.http_proxy",
+            "display": "http://proxy.example.invalid:8080",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": true
+          },
+          {
+            "key": "config.maxHttpRequestsPerSource",
+            "display": "8",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": false
+          },
+          {
+            "key": "config.signatureValidationMode",
+            "display": "require",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": false
+          },
+          {
+            "key": "packageSourceMapping.0.pattern",
+            "display": "Example.*",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": false
+          },
+          {
+            "key": "packageSourceMapping.0.source",
+            "display": "local",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.0.enabled",
+            "display": "true",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.0.name",
+            "display": "[redacted]",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": true
+          },
+          {
+            "key": "packageSources.0.url",
+            "display": "http://feed.example.invalid/v3/index.json",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": true
+          },
+          {
+            "key": "packageSources.1.enabled",
+            "display": "true",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.1.name",
+            "display": "local",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.1.url",
+            "display": "/home/nuget-fixture/code/feed",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.2.enabled",
+            "display": "false",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.2.name",
+            "display": "off",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.2.url",
+            "display": "https://off.example.invalid/v3/index.json",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.3.enabled",
+            "display": "false",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.3.name",
+            "display": "elsewhere",
+            "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "8f2cbcb6c43f5ef71f0d04e71c6f5ef9e6f6627f8902523f435252ac37256a3a",
+        "scope": "project",
+        "path": "/home/nuget-fixture/code/corrupt/Corrupt.csproj",
+        "status": "unreadable",
+        "reasons": [
+          "parse_error"
+        ],
+        "settings": []
+      },
+      {
+        "source_id": "a28a43f5f03a3d1837ae4f36bfd4d52a314a2973614d77444a53cd979b9ffc2d",
+        "scope": "project",
+        "path": "/home/nuget-fixture/code/packed/Directory.Build.targets",
+        "status": "read",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "project.NuGetAudit",
+            "display": "false",
+            "source_id": "a28a43f5f03a3d1837ae4f36bfd4d52a314a2973614d77444a53cd979b9ffc2d",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "74cc57eac33420982dec7005d23d8d94ef125d108df3276c0423aef5065377d1",
+        "scope": "project",
+        "path": "/home/nuget-fixture/code/packed/Packed.csproj",
+        "status": "read",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "project.RestorePackagesPath",
+            "display": "/home/nuget-fixture/code/packed/pkgs",
+            "source_id": "74cc57eac33420982dec7005d23d8d94ef125d108df3276c0423aef5065377d1",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "075e7943ada49731d442ff7c291618e3906bc241408f57c9aec3de5ed4c7e705",
+        "scope": "project",
+        "path": "/home/nuget-fixture/code/scripts/NuGet.Config",
+        "status": "read",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "config.globalPackagesFolder",
+            "display": "/home/nuget-fixture/scriptcache",
+            "source_id": "075e7943ada49731d442ff7c291618e3906bc241408f57c9aec3de5ed4c7e705",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.0.enabled",
+            "display": "true",
+            "source_id": "075e7943ada49731d442ff7c291618e3906bc241408f57c9aec3de5ed4c7e705",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.0.name",
+            "display": "scripts",
+            "source_id": "075e7943ada49731d442ff7c291618e3906bc241408f57c9aec3de5ed4c7e705",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.0.url",
+            "display": "http://scripts.example.invalid/v3/index.json",
+            "source_id": "075e7943ada49731d442ff7c291618e3906bc241408f57c9aec3de5ed4c7e705",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "4e56b435199afe1d9230c899dac29915441744967527e210c74c026de6494be0",
+        "scope": "project",
+        "path": "/home/nuget-fixture/code/shared/Directory.Build.props",
+        "status": "read",
+        "reasons": [
+          "unsupported_format"
+        ],
+        "settings": [
+          {
+            "key": "project.NuGetLockFilePath",
+            "display": "/home/nuget-fixture/code/shared/locks/shared.lock.json",
+            "source_id": "4e56b435199afe1d9230c899dac29915441744967527e210c74c026de6494be0",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "5d1f6faa6be4b08ebed30e6e0694184a479749a4547736e2bce62467c2fa887e",
+        "scope": "project",
+        "path": "/home/nuget-fixture/code/shared/lib/Lib.csproj",
+        "status": "read",
+        "reasons": [
+          "unsupported_format"
+        ],
+        "settings": [
+          {
+            "key": "project.NuGetLockFilePath",
+            "display": "/home/nuget-fixture/code/shared/locks/shared.lock.json",
+            "source_id": "5d1f6faa6be4b08ebed30e6e0694184a479749a4547736e2bce62467c2fa887e",
+            "redacted": false
+          },
+          {
+            "key": "project.RestorePackagesPath",
+            "display": "/home/nuget-fixture/code/shared/lib/packages",
+            "source_id": "5d1f6faa6be4b08ebed30e6e0694184a479749a4547736e2bce62467c2fa887e",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+        "scope": "user",
+        "path": "/home/nuget-fixture/.nuget/NuGet/NuGet.Config",
+        "status": "read",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "auth_configured",
+            "display": "true",
+            "source_id": "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+            "redacted": true
+          },
+          {
+            "key": "packageSources.0.enabled",
+            "display": "true",
+            "source_id": "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.0.name",
+            "display": "nuget.org",
+            "source_id": "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.0.url",
+            "display": "https://api.nuget.org/v3/index.json",
+            "source_id": "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.1.allowInsecureConnections",
+            "display": "false",
+            "source_id": "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.1.disableTLSCertificateValidation",
+            "display": "true",
+            "source_id": "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.1.enabled",
+            "display": "true",
+            "source_id": "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.1.name",
+            "display": "lab",
+            "source_id": "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+            "redacted": false
+          },
+          {
+            "key": "packageSources.1.url",
+            "display": "https://lab.example.invalid/v3/index.json",
+            "source_id": "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "09907e6aa357451e827d9a2ee8bb54314972a215ffcd5b3e526052f8a263ee0d",
+        "scope": "user",
+        "path": "/home/nuget-fixture/.nuget/NuGet/config/signers.config",
+        "status": "read",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "trustedSigners.0.allowUntrustedRoot",
+            "display": "true",
+            "source_id": "09907e6aa357451e827d9a2ee8bb54314972a215ffcd5b3e526052f8a263ee0d",
+            "redacted": false
+          },
+          {
+            "key": "trustedSigners.0.type",
+            "display": "author",
+            "source_id": "09907e6aa357451e827d9a2ee8bb54314972a215ffcd5b3e526052f8a263ee0d",
+            "redacted": false
+          },
+          {
+            "key": "trustedSigners.1.allowUntrustedRoot",
+            "display": "false",
+            "source_id": "09907e6aa357451e827d9a2ee8bb54314972a215ffcd5b3e526052f8a263ee0d",
+            "redacted": false
+          },
+          {
+            "key": "trustedSigners.1.type",
+            "display": "repository",
+            "source_id": "09907e6aa357451e827d9a2ee8bb54314972a215ffcd5b3e526052f8a263ee0d",
+            "redacted": false
+          }
+        ]
+      }
+    ],
+    "contexts": [
+      {
+        "project_path": "/home/nuget-fixture/code/app",
+        "context_kind": "ambient",
+        "status": "complete",
+        "reasons": [],
+        "config_source_ids": [
+          "c548c514e555ab7ad8184f1a99f0a1dd9f716e0a99c4522b1d30c72575a1c2c7",
+          "82c4627d6e7f65e5f6da17289e3c6e037f024d6d5067af0120c929b31772329c",
+          "f604bd9c0bd21a5d23c165aefc86bcb3aba096e83889328cc9dfd582b87cae37",
+          "20460fb6f0bcc17ab6f5fe831dfc04ad159a4dc671bcc97a7d15ee6c981a328c",
+          "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+          "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+          "09907e6aa357451e827d9a2ee8bb54314972a215ffcd5b3e526052f8a263ee0d"
+        ]
+      },
+      {
+        "project_path": "/home/nuget-fixture/code/app",
+        "context_kind": "restore",
+        "status": "complete",
+        "reasons": [],
+        "config_source_ids": [
+          "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+          "94267beb213533a15ab10ddad091180719ffa4a53e0b6f1b2a0fa4cf49ca77e0"
+        ],
+        "restore_metadata_path": "/home/nuget-fixture/code/app/obj/project.assets.json"
+      },
+      {
+        "project_path": "/home/nuget-fixture/code/corrupt",
+        "context_kind": "ambient",
+        "status": "partial",
+        "reasons": [
+          "parse_error"
+        ],
+        "config_source_ids": [
+          "c548c514e555ab7ad8184f1a99f0a1dd9f716e0a99c4522b1d30c72575a1c2c7",
+          "8f2cbcb6c43f5ef71f0d04e71c6f5ef9e6f6627f8902523f435252ac37256a3a",
+          "f604bd9c0bd21a5d23c165aefc86bcb3aba096e83889328cc9dfd582b87cae37",
+          "20460fb6f0bcc17ab6f5fe831dfc04ad159a4dc671bcc97a7d15ee6c981a328c",
+          "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+          "09907e6aa357451e827d9a2ee8bb54314972a215ffcd5b3e526052f8a263ee0d"
+        ]
+      },
+      {
+        "project_path": "/home/nuget-fixture/code/legacy",
+        "context_kind": "ambient",
+        "status": "complete",
+        "reasons": [],
+        "config_source_ids": [
+          "c548c514e555ab7ad8184f1a99f0a1dd9f716e0a99c4522b1d30c72575a1c2c7",
+          "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+          "09907e6aa357451e827d9a2ee8bb54314972a215ffcd5b3e526052f8a263ee0d"
+        ]
+      },
+      {
+        "project_path": "/home/nuget-fixture/code/packed",
+        "context_kind": "ambient",
+        "status": "complete",
+        "reasons": [],
+        "config_source_ids": [
+          "c548c514e555ab7ad8184f1a99f0a1dd9f716e0a99c4522b1d30c72575a1c2c7",
+          "74cc57eac33420982dec7005d23d8d94ef125d108df3276c0423aef5065377d1",
+          "f604bd9c0bd21a5d23c165aefc86bcb3aba096e83889328cc9dfd582b87cae37",
+          "20460fb6f0bcc17ab6f5fe831dfc04ad159a4dc671bcc97a7d15ee6c981a328c",
+          "a28a43f5f03a3d1837ae4f36bfd4d52a314a2973614d77444a53cd979b9ffc2d",
+          "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+          "09907e6aa357451e827d9a2ee8bb54314972a215ffcd5b3e526052f8a263ee0d"
+        ]
+      },
+      {
+        "project_path": "/home/nuget-fixture/code/scripts",
+        "context_kind": "ambient",
+        "status": "complete",
+        "reasons": [],
+        "config_source_ids": [
+          "c548c514e555ab7ad8184f1a99f0a1dd9f716e0a99c4522b1d30c72575a1c2c7",
+          "075e7943ada49731d442ff7c291618e3906bc241408f57c9aec3de5ed4c7e705",
+          "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+          "09907e6aa357451e827d9a2ee8bb54314972a215ffcd5b3e526052f8a263ee0d"
+        ]
+      },
+      {
+        "project_path": "/home/nuget-fixture/code/shared/lib",
+        "context_kind": "ambient",
+        "status": "partial",
+        "reasons": [
+          "unsupported_format"
+        ],
+        "config_source_ids": [
+          "c548c514e555ab7ad8184f1a99f0a1dd9f716e0a99c4522b1d30c72575a1c2c7",
+          "5d1f6faa6be4b08ebed30e6e0694184a479749a4547736e2bce62467c2fa887e",
+          "4e56b435199afe1d9230c899dac29915441744967527e210c74c026de6494be0",
+          "20460fb6f0bcc17ab6f5fe831dfc04ad159a4dc671bcc97a7d15ee6c981a328c",
+          "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+          "09907e6aa357451e827d9a2ee8bb54314972a215ffcd5b3e526052f8a263ee0d"
+        ]
+      },
+      {
+        "project_path": "/home/nuget-fixture/code/tools",
+        "context_kind": "ambient",
+        "status": "complete",
+        "reasons": [],
+        "config_source_ids": [
+          "c548c514e555ab7ad8184f1a99f0a1dd9f716e0a99c4522b1d30c72575a1c2c7",
+          "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+          "09907e6aa357451e827d9a2ee8bb54314972a215ffcd5b3e526052f8a263ee0d"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "code": "nuget-001",
+        "severity": "MEDIUM",
+        "source_id": "075e7943ada49731d442ff7c291618e3906bc241408f57c9aec3de5ed4c7e705",
+        "key": "packageSources.0.url",
+        "detail": "NuGet package source uses plaintext HTTP."
+      },
+      {
+        "code": "nuget-001",
+        "severity": "MEDIUM",
+        "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+        "key": "packageSources.0.url",
+        "detail": "NuGet package source uses plaintext HTTP."
+      },
+      {
+        "code": "nuget-002",
+        "severity": "HIGH",
+        "source_id": "04360056a7b33b2872e0d1619c90c59d48cc07861c4568012e68b03bbdbbda3a",
+        "key": "packageSources.1.disableTLSCertificateValidation",
+        "detail": "NuGet package source disables TLS certificate validation."
+      },
+      {
+        "code": "nuget-003",
+        "severity": "MEDIUM",
+        "source_id": "27606572bce70151c8d35868893281ebe1d15a0612e9380a8f5210555ebb1476",
+        "key": "auth_configured",
+        "detail": "NuGet configuration stores a literal cleartext password."
+      },
+      {
+        "code": "nuget-004",
+        "severity": "MEDIUM",
+        "source_id": "82c4627d6e7f65e5f6da17289e3c6e037f024d6d5067af0120c929b31772329c",
+        "key": "project.NuGetAudit",
+        "detail": "NuGet audit is disabled for the project."
+      },
+      {
+        "code": "nuget-004",
+        "severity": "MEDIUM",
+        "source_id": "a28a43f5f03a3d1837ae4f36bfd4d52a314a2973614d77444a53cd979b9ffc2d",
+        "key": "project.NuGetAudit",
+        "detail": "NuGet audit is disabled for the project."
+      }
+    ],
+    "observed_registries": [
+      "/home/nuget-fixture/code/feed",
+      "http://feed.example.invalid/v3/index.json",
+      "http://scripts.example.invalid/v3/index.json",
+      "https://api.nuget.org/v3/index.json",
+      "https://lab.example.invalid/v3/index.json",
+      "https://off.example.invalid/v3/index.json"
+    ],
+    "observed_proxies": [
+      "http://proxy.example.invalid:8080",
+      "https://proxy.example.invalid:8443/"
+    ],
+    "source_count": 12,
+    "observed_registry_count": 6,
+    "observed_proxy_count": 2,
+    "finding_count": 6,
+    "finding_code_counts": {
+      "nuget-001": 2,
+      "nuget-002": 1,
+      "nuget-003": 1,
+      "nuget-004": 2
+    },
+    "finding_counts": {
+      "HIGH": 1,
+      "MEDIUM": 5
+    }
+  }
+}

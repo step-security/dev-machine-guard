@@ -67,7 +67,7 @@ func RunHook(stdin io.Reader, stdout, stderr io.Writer, args []string) int {
 	rt.Stdin = stdin
 	rt.Stdout = stdout
 	rt.Stderr = stderr
-	rt.Exec = executor.NewReal()
+	rt.Exec = newHookExecutor()
 	rt.LogError = AppendError
 	rt.UploadEvent = uploaderFactory()
 
@@ -81,6 +81,12 @@ func RunHook(stdin io.Reader, stdout, stderr io.Writer, args []string) int {
 	_ = rt.Run(ctx, aieventc.HookEvent(hookEvent))
 	return 0
 }
+
+// newHookExecutor is the executor RunHook's runtime probes the host with.
+// Tests swap in a mock: N concurrent RunHook calls under -race each fork
+// host probes, and on macOS a race-built fork child can spin forever
+// before exec, orphaned once the test binary dies.
+var newHookExecutor = func() executor.Executor { return executor.NewReal() }
 
 // uploaderFactory is the seam RunHook uses to obtain the upload
 // closure. Production points it at newUploader, which reads

@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package launcher
 
 import (
 	"testing"
@@ -10,9 +10,9 @@ import (
 )
 
 func TestNewKillOnCloseJob_AllowsBreakaway(t *testing.T) {
-	job, err := newKillOnCloseJob()
+	job, err := NewKillOnCloseJob()
 	if err != nil {
-		t.Fatalf("newKillOnCloseJob: %v", err)
+		t.Fatalf("NewKillOnCloseJob: %v", err)
 	}
 	defer func() { _ = windows.CloseHandle(job) }()
 

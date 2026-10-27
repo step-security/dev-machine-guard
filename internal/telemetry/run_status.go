@@ -87,17 +87,19 @@ func ReportFatal(reason string, timeout time.Duration) {
 // whether this run was triggered by an installed scheduler or a manual CLI
 // invocation; an empty string is tolerated (the backend treats it as
 // "unknown") so this stays callable from contexts that haven't detected it.
+//
+// It reports whether the backend accepted the post (2xx).
 func reportRunStatus(ctx context.Context, log *progress.Logger,
-	executionID, deviceID, status, errMsg, invocationMethod string) {
+	executionID, deviceID, status, errMsg, invocationMethod string) bool {
 
 	if !config.IsEnterpriseMode() {
-		return
+		return false
 	}
 	if status != runStatusStarted && status != runStatusFailed {
-		return
+		return false
 	}
 	if executionID == "" {
-		return
+		return false
 	}
 
 	body := runStatusBody{
@@ -123,7 +125,7 @@ func reportRunStatus(ctx context.Context, log *progress.Logger,
 	if status == runStatusStarted {
 		attempts = runStatusStartedAttempts
 	}
-	postRunStatusWithRetry(ctx, log, body, attempts)
+	return postRunStatusWithRetry(ctx, log, body, attempts)
 }
 
 // postProgress sends an idempotent in-flight progress snapshot. The backend
@@ -155,12 +157,12 @@ func postProgress(ctx context.Context, log *progress.Logger,
 }
 
 func postRunStatusWithRetry(ctx context.Context, log *progress.Logger,
-	body runStatusBody, attempts int) {
+	body runStatusBody, attempts int) (accepted bool) {
 
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		log.Progress("run-status: marshal error: %v", err)
-		return
+		return false
 	}
 
 	endpoint := fmt.Sprintf("%s/v1/%s/developer-mdm-agent/telemetry/run-status",
@@ -179,18 +181,20 @@ func postRunStatusWithRetry(ctx context.Context, log *progress.Logger,
 				// noise line in the normal "scan finished successfully,
 				// last progress post got cut off by cancelRun()" flow.
 				log.Debug("run-status: parent context done, abandoning retries")
-				return
+				return false
 			}
 		}
-		if postRunStatusOnce(ctx, log, endpoint, encoded, body.Status, i, attempts) {
-			return
+		if done, ok := postRunStatusOnce(ctx, log, endpoint, encoded, body.Status, i, attempts); done {
+			return ok
 		}
 	}
+	return false
 }
 
-// postRunStatusOnce performs a single HTTP attempt. Returns true on a 2xx
-// or 4xx (terminal — retrying a bad request will not help). Returns false
-// on transport errors or 5xx so the caller can retry.
+// postRunStatusOnce performs a single HTTP attempt. done is true on a 2xx
+// or 4xx (terminal — retrying a bad request will not help) and false on
+// transport errors or 5xx so the caller can retry; accepted is true only
+// on a 2xx.
 //
 // Treats parent-ctx cancellation as terminal-and-quiet: the only time we
 // observe ctx.Err() != nil here is shutdown (cancelRun fired). Logging a
@@ -198,13 +202,13 @@ func postRunStatusWithRetry(ctx context.Context, log *progress.Logger,
 // scan — because the final phase-boundary post raced the deferred
 // cancelRun — would mislead operators into thinking the run failed.
 func postRunStatusOnce(ctx context.Context, log *progress.Logger,
-	endpoint string, body []byte, status string, attempt, maxAttempts int) bool {
+	endpoint string, body []byte, status string, attempt, maxAttempts int) (done, accepted bool) {
 
 	// Short-circuit when the scan ctx is already done — no point opening a
 	// connection just to have it cancelled mid-handshake.
 	if ctx.Err() != nil {
 		log.Debug("run-status[%s %d/%d]: skipped (parent context done)", status, attempt, maxAttempts)
-		return true
+		return true, false
 	}
 
 	cctx, cancel := context.WithTimeout(ctx, runStatusHTTPTimeout)
@@ -213,7 +217,7 @@ func postRunStatusOnce(ctx context.Context, log *progress.Logger,
 	req, err := http.NewRequestWithContext(cctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		log.Progress("run-status[%s %d/%d]: request error: %v", status, attempt, maxAttempts, err)
-		return false
+		return false, false
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+config.APIKey)
@@ -228,20 +232,20 @@ func postRunStatusOnce(ctx context.Context, log *progress.Logger,
 		// on an already-cancelled context.
 		if ctx.Err() != nil {
 			log.Debug("run-status[%s %d/%d]: aborted at shutdown: %v", status, attempt, maxAttempts, err)
-			return true
+			return true, false
 		}
 		log.Progress("run-status[%s %d/%d]: POST error: %v", status, attempt, maxAttempts, err)
-		return false
+		return false, false
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 300 {
-		return true
+		return true, true
 	}
 	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 		log.Progress("run-status[%s]: HTTP %d (terminal, no retry)", status, resp.StatusCode)
-		return true
+		return true, false
 	}
 	log.Progress("run-status[%s %d/%d]: HTTP %d from backend", status, attempt, maxAttempts, resp.StatusCode)
-	return false
+	return false, false
 }

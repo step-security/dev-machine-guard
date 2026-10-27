@@ -14,6 +14,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/launcher"
 	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
@@ -61,7 +62,7 @@ func Install(exec executor.Executor, log *progress.Logger, maxExec time.Duration
 		log.Progress("Previous installation removed. Installing new version...")
 	}
 
-	binaryPath, err := os.Executable()
+	binaryPath, err := executablePath()
 	if err != nil {
 		return fmt.Errorf("determining binary path: %w", err)
 	}
@@ -125,6 +126,15 @@ func Install(exec executor.Executor, log *progress.Logger, maxExec time.Duration
 		applyBatterySettings(ctx, exec, log, logonTaskName, timeLimit)
 	}
 
+	// Self-update (MSI bootstrap layout): the SYSTEM update task. Best-effort
+	// like the logon task — scans don't depend on it, and failing here would
+	// roll back the whole MSI. msi-smoke asserts it exists.
+	if root, ok := resolveBootstrapRoot(exec, binaryPath); ok && exec.IsRoot() {
+		if err := installUpdateTask(ctx, exec, log, filepath.Join(root, launcher.BootstrapBinary), time.Now()); err != nil {
+			log.Warn("could not create the self-update task %q: %v — scans are unaffected", updateTaskName, err)
+		}
+	}
+
 	// Turn on Task Scheduler's operational history so every fire / miss /
 	// failure is recorded in Event Viewer — the primary way to debug why a
 	// scheduled scan didn't run. Best-effort (needs admin).
@@ -163,9 +173,17 @@ func RunNow(exec executor.Executor, log *progress.Logger) error {
 	return nil
 }
 
-// Uninstall removes the scheduled task.
+// Uninstall removes the scheduled task. For an MSI bootstrap install it also
+// removes the update task, stops running DMG processes and deletes the
+// self-update state (see uninstallBootstrap).
 func Uninstall(exec executor.Executor, log *progress.Logger) error {
 	ctx := context.Background()
+
+	if self, err := executablePath(); err == nil {
+		if root, ok := resolveBootstrapRoot(exec, self); ok {
+			return uninstallBootstrap(ctx, exec, log, root)
+		}
+	}
 
 	if !isConfigured(ctx, exec) {
 		log.Progress("Agent is not currently configured for periodic execution")
@@ -209,10 +227,17 @@ func isConfigured(ctx context.Context, exec executor.Executor) bool {
 // (ad-hoc deploys of just the agent .exe), we fall back to the agent
 // directly — subprocess flashes are still suppressed via winproc, only
 // the agent's own console-flash mitigation is forfeited.
+//
+// An MSI bootstrap install (stepsecurity-dev-machine-guard-bootstrap.exe in
+// the install root) wins: the action becomes `bootstrap.exe run
+// send-telemetry …`, which resolves the self-update version at each run.
 func resolveTaskBinary(exec executor.Executor, agentPath string) string {
-	launcher := filepath.Join(filepath.Dir(agentPath), launcherName)
-	if exec.FileExists(launcher) {
-		return launcher
+	if root, ok := resolveBootstrapRoot(exec, agentPath); ok {
+		return filepath.Join(root, launcher.BootstrapBinary)
+	}
+	launcherPath := filepath.Join(filepath.Dir(agentPath), launcherName)
+	if exec.FileExists(launcherPath) {
+		return launcherPath
 	}
 	return agentPath
 }
@@ -223,8 +248,15 @@ func resolveTaskBinary(exec executor.Executor, agentPath string) string {
 // wrapper) — env config and log routing both live in the binary now
 // (--install-dir + filelog), and the wrapper was the source of a visible
 // cmd.exe flash on every fire.
+//
+// When binaryPath is the bootstrap, the agent arguments go behind its `run`
+// verb.
 func buildCreateArgs(name, binaryPath, stepHome string, schedule []string, isAdmin bool) []string {
-	taskCmd := fmt.Sprintf(`"%s" send-telemetry --install-dir="%s"`, binaryPath, stepHome)
+	verb := ""
+	if launcher.IsBootstrapBinary(binaryPath) {
+		verb = "run "
+	}
+	taskCmd := fmt.Sprintf(`"%s" %ssend-telemetry --install-dir="%s"`, binaryPath, verb, stepHome)
 	args := []string{"/create", "/tn", name, "/tr", taskCmd}
 	args = append(args, schedule...)
 	args = append(args, "/f")

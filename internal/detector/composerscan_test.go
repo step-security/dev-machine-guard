@@ -49,6 +49,19 @@ func (x *composerTrap) HasEnvPrefix(prefix string) bool {
 	}
 	return false
 }
+func (x *composerTrap) EnvNames(prefix string) []string {
+	if x.current.Uid != "1000" {
+		x.t.Error("read process environment names for a different developer")
+	}
+	names := []string{}
+	for k := range x.env {
+		if strings.HasPrefix(k, prefix) {
+			names = append(names, k)
+		}
+	}
+	slices.Sort(names)
+	return names
+}
 func (x *composerTrap) Stat(path string) (os.FileInfo, error) {
 	if err := x.denied[filepath.Clean(path)]; err != nil {
 		return nil, err

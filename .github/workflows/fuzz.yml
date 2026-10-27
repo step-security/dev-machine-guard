@@ -35,6 +35,7 @@ jobs:
           - ./internal/detector/configaudit
           - ./internal/state
           - ./internal/detector/credentials
+          - ./internal/updatestate
     env:
       CGO_ENABLED: '0'
       # Short campaigns on the PR and merge-queue paths so they don't hold up a

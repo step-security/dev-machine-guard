@@ -5,10 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/step-security/dev-machine-guard/internal/proctest"
 )
 
 // helperEnv makes the test binary act as a lock holder: acquire, print
@@ -16,7 +17,12 @@ import (
 const helperEnv = "DMG_LOCK_TEST_HOLDER"
 
 func TestMain(m *testing.M) {
+	if target := os.Getenv(middleEnv); target != "" {
+		proctest.Guard()
+		runMiddle(target)
+	}
 	if target := os.Getenv(helperEnv); target != "" {
+		proctest.Guard()
 		setLockTarget(target)
 		lk, err := Acquire(nil)
 		if err != nil {
@@ -28,7 +34,7 @@ func TestMain(m *testing.M) {
 		time.Sleep(time.Hour)
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	os.Exit(proctest.Main(m))
 }
 
 func TestAcquireHeldInProcess(t *testing.T) {
@@ -55,8 +61,8 @@ func TestAcquireAfterHolderKilled(t *testing.T) {
 	target := testLockTarget(t)
 	setLockTarget(target)
 
-	cmd := exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Env = append(os.Environ(), helperEnv+"="+target)
+	cmd := proctest.Command(t, os.Args[0], "-test.run=^$")
+	cmd.Env = append(cmd.Env, helperEnv+"="+target)
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)

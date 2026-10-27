@@ -2,10 +2,12 @@ package detector
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 func TestAICLIDetector_FindsClaude(t *testing.T) {
@@ -79,6 +81,118 @@ func TestAICLIDetector_RejectsCopilotNonZeroExit(t *testing.T) {
 	for _, r := range results {
 		if r.Name == "github-copilot-cli" {
 			t.Errorf("github-copilot-cli should not be detected when --version exits non-zero; got %+v", r)
+		}
+	}
+}
+
+func TestAICLIDetector_CopilotFallsBackAfterRejectedLauncher(t *testing.T) {
+	for _, goos := range []string{model.PlatformLinux, model.PlatformDarwin, model.PlatformWindows} {
+		for _, scenario := range []string{"missing CLI", "gh CLI", "legacy prompt", "valid first", "multiple rejects", "duplicate path"} {
+			t.Run(goos+"/"+scenario, func(t *testing.T) {
+				mock, home := newAICLIMock(goos)
+				launcher := "/usr/bin/copilot"
+				rel := "~/.local/share/gh/copilot/copilot"
+				switch goos {
+				case model.PlatformDarwin:
+					launcher = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/copilot-shim/copilot"
+				case model.PlatformWindows:
+					launcher = `C:\Program Files\Microsoft VS Code\bin\copilot-shim\copilot.exe`
+					rel = "~/AppData/Local/GitHub CLI/copilot/copilot.exe"
+				}
+				binary := expandTildePath(rel, home)
+				mock.SetPath("copilot", launcher)
+				mock.SetCommand("", "GitHub Copilot CLI was not found", 127, launcher, "--version")
+				if scenario != "missing CLI" {
+					addBinary(mock, binary, 40<<20)
+					addBinary(mock, expandTilde(rel, home), 40<<20)
+					mock.SetCommand("GitHub Copilot CLI 1.0.103\n", "", 0, binary, "--version")
+					mock.SetCommand("GitHub Copilot CLI 1.0.103\n", "", 0, expandTilde(rel, home), "--version")
+				}
+				wantPath, wantVersion := binary, "1.0.103"
+				switch scenario {
+				case "legacy prompt":
+					mock.SetCommand("GitHub Copilot CLI is not installed. Would you like to install it?", "", 0, launcher, "--version")
+				case "valid first":
+					mock.SetCommand("GitHub Copilot CLI 1.0.102\n", "", 0, launcher, "--version")
+					wantPath, wantVersion = launcher, "1.0.102"
+				case "multiple rejects":
+					mock.SetPath("gh-copilot", launcher+"-other")
+					mock.SetCommand("", "failed", 1, launcher+"-other", "--version")
+				case "duplicate path":
+					mock.SetPath("gh-copilot", launcher)
+				}
+				rec := &recExec{Mock: mock, t: t}
+				got := findAITool(NewAICLIDetector(rec).Detect(t.Context()), "github-copilot-cli")
+				if scenario == "missing CLI" {
+					if got != nil {
+						t.Fatalf("launcher alone detected: %+v", *got)
+					}
+					return
+				}
+				if got == nil || got.BinaryPath != wantPath || got.InstallPath != wantPath || got.Version != wantVersion {
+					t.Fatalf("got %+v, want Copilot %s at %s", got, wantVersion, wantPath)
+				}
+				launcherProbes := 0
+				for _, call := range rec.execs {
+					if call.name == launcher {
+						launcherProbes++
+					}
+					if scenario == "valid first" && call.name == binary {
+						t.Fatal("probed later CLI after accepting the first candidate")
+					}
+				}
+				if scenario != "valid first" && launcherProbes != 1 {
+					t.Fatalf("rejected launcher probed %d times, want once", launcherProbes)
+				}
+			})
+		}
+	}
+}
+
+func TestAICLIDetector_CopilotFallbackWindowsNPM(t *testing.T) {
+	mock, home := newAICLIMock(model.PlatformWindows)
+	launcher := `C:\Program Files\Microsoft VS Code\bin\copilot-shim\copilot.exe`
+	mock.SetPath("copilot", launcher)
+	mock.SetCommand("", "CLI not found", 127, launcher, "--version")
+	bin := joinPath(home, "AppData", "Roaming", "npm", "copilot.cmd")
+	addFile(mock, bin, winNPMShim(`node_modules\@github\copilot\index.js`))
+	root := joinPath(home, "AppData", "Roaming", "npm", "node_modules", "@github", "copilot")
+	addManifest(mock, root, "@github/copilot", "1.0.103")
+	rec := &recExec{Mock: mock, t: t}
+	got := findAITool(NewAICLIDetector(rec).Detect(t.Context()), "github-copilot-cli")
+	if got == nil || got.BinaryPath != bin || got.InstallPath != root || got.Version != "1.0.103" {
+		t.Fatalf("got %+v, want npm Copilot 1.0.103 at %s", got, root)
+	}
+	for _, call := range rec.execs {
+		if call.name == bin {
+			t.Fatal("npm fallback executed instead of using its manifest")
+		}
+	}
+}
+
+func TestAICLIDetector_CopilotFallbackProtectedTarget(t *testing.T) {
+	requireDarwinHost(t)
+	mock, home := newAICLIMock(model.PlatformDarwin)
+	mock.SetPath("copilot", "/usr/local/bin/copilot")
+	mock.SetCommand("", "CLI not found", 127, "/usr/local/bin/copilot", "--version")
+	bin := joinPath(home, ".local", "share", "gh", "copilot", "copilot")
+	target := joinPath(home, "Documents", "copilot")
+	addBinary(mock, bin, 40<<20)
+	mock.SetSymlink(bin, target)
+	mock.SetCommand("GitHub Copilot CLI 1.0.103", "", 0, bin, "--version")
+	rec := &recExec{Mock: mock, t: t}
+	got := findAITool(NewAICLIDetector(rec).WithSkipper(tcc.New(home)).Detect(t.Context()), "github-copilot-cli")
+	if got != nil {
+		t.Fatalf("protected fallback detected: %+v", *got)
+	}
+	for _, read := range rec.reads {
+		if strings.HasPrefix(read, joinPath(home, "Documents")) {
+			t.Fatalf("read protected target: %s", read)
+		}
+	}
+	for _, call := range rec.execs {
+		if call.name == bin || call.name == target {
+			t.Fatal("executed protected fallback")
 		}
 	}
 }

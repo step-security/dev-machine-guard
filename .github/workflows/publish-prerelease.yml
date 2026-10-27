@@ -1,0 +1,60 @@
+name: Publish Prerelease
+# Publishes a draft release as a GitHub PRERELEASE (a release candidate), but
+# only after the full Verify Release suite (signed checksums, Windows
+# Authenticode, macOS notarization) passes. Same gate as publish-release.yml;
+# the only difference is the release is published with the prerelease flag and
+# is NOT marked latest, so github.com/.../releases/latest and every customer
+# keep resolving the previous release.
+#
+# agent-api's release sync mirrors a prerelease as a release-channel candidate
+# that only rc tenants receive. Once the candidate is validated, run
+# publish-release.yml with the same tag to promote these exact bytes to GA.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Draft release tag to verify and publish as a prerelease, e.g. v1.18.0.'
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  verify:
+    name: Verify release
+    uses: ./.github/workflows/verify-release.yml
+    permissions:
+      contents: write # required to see DRAFT releases; verification only downloads assets
+    with:
+      tag: ${{ inputs.tag }}
+
+  publish:
+    name: Publish prerelease
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # gh release edit needs push access to flip draft -> published
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
+      - name: Publish draft release as a prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Only a draft can become a release candidate. A published release is
+          # immutable and may already be GA; flagging it as a prerelease would
+          # not hide it from anyone (agent-api keeps a promoted release GA).
+          is_draft="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+          if [ "$is_draft" != "true" ]; then
+            echo "::error::Release ${TAG} is not a draft. Only a draft release can be published as a prerelease."
+            exit 1
+          fi
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false
+          echo "Release ${TAG} is now public as a prerelease (not latest)."
+          echo "✅ Release \`${TAG}\` verified and published as a prerelease." >> "$GITHUB_STEP_SUMMARY"

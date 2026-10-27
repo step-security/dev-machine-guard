@@ -69,18 +69,19 @@ func TestMachineWideIDSharedBetweenRootAndUser(t *testing.T) {
 	t.Cleanup(ResetIDCache)
 	ctx := context.Background()
 
-	// Root: DMI readable; persists the hardware serial.
+	// Root, no prior root report of the serial: persists machine-id, the ID
+	// user contexts can read too.
 	ResetIDCache()
 	root := executor.NewMock()
 	root.SetGOOS("linux")
 	root.SetIsRoot(true)
 	root.SetFile("/sys/class/dmi/id/product_serial", []byte("HW-SERIAL\n"))
 	root.SetFile("/etc/machine-id", []byte("machine-id-1\n"))
-	if got := SerialNumber(ctx, root); got != "HW-SERIAL" {
+	if got := SerialNumber(ctx, root); got != "machine-id-1" {
 		t.Fatalf("root = %q", got)
 	}
 	persisted, err := root.ReadFile(linuxIDFile)
-	if err != nil || string(persisted) != "HW-SERIAL\n" {
+	if err != nil || string(persisted) != "machine-id-1\n" {
 		t.Fatalf("persisted = %q, %v", persisted, err)
 	}
 
@@ -90,8 +91,8 @@ func TestMachineWideIDSharedBetweenRootAndUser(t *testing.T) {
 	user.SetGOOS("linux")
 	user.SetFile("/etc/machine-id", []byte("machine-id-1\n"))
 	user.SetFile(linuxIDFile, persisted)
-	if got := SerialNumber(ctx, user); got != "HW-SERIAL" {
-		t.Fatalf("user = %q, want root's persisted serial", got)
+	if got := SerialNumber(ctx, user); got != "machine-id-1" {
+		t.Fatalf("user = %q, want root's persisted ID", got)
 	}
 	if _, err := user.ReadFile(linuxIDFile); err != nil {
 		t.Fatal(err)
@@ -104,13 +105,16 @@ func TestMachineWideIDFile(t *testing.T) {
 		root       bool
 		want       string
 		wantFile   string
+		machineID  string
 	}{
-		{"user prefers file over probe", " PERSISTED \n", false, "PERSISTED", " PERSISTED \n"},
-		{"user ignores placeholder file", "Default string\n", false, "PROBED", "Default string\n"},
-		{"user ignores empty file", "\n", false, "PROBED", "\n"},
-		{"user never writes", "", false, "PROBED", ""},
-		{"root refreshes stale file", "OTHER\n", true, "PROBED", "PROBED\n"},
-		{"root writes missing file", "", true, "PROBED", "PROBED\n"},
+		{"user prefers file over probe", " PERSISTED \n", false, "PERSISTED", " PERSISTED \n", ""},
+		{"user ignores placeholder file", "Default string\n", false, "PROBED", "Default string\n", ""},
+		{"user ignores empty file", "\n", false, "PROBED", "\n", ""},
+		{"user never writes", "", false, "PROBED", "", ""},
+		// Healing needs machine-id readable to tell a stale file from a
+		// persisted machine-id.
+		{"root refreshes stale file", "OTHER\n", true, "PROBED", "PROBED\n", "mid-1"},
+		{"root writes missing file", "", true, "PROBED", "PROBED\n", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Cleanup(ResetIDCache)
@@ -119,6 +123,9 @@ func TestMachineWideIDFile(t *testing.T) {
 			mock.SetGOOS("linux")
 			mock.SetIsRoot(tc.root)
 			mock.SetFile("/sys/class/dmi/id/product_serial", []byte("PROBED\n"))
+			if tc.machineID != "" {
+				mock.SetFile("/etc/machine-id", []byte(tc.machineID+"\n"))
+			}
 			if tc.file != "" {
 				mock.SetFile(linuxIDFile, []byte(tc.file))
 			}
@@ -279,5 +286,93 @@ func TestGeneratedIDRaceAndPersistFailure(t *testing.T) {
 				t.Fatalf("id = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// The first root run must not give a machine a second identity: the DMI
+// serial is kept only if root already reported it; otherwise machine-id, which
+// user contexts have been reporting.
+func TestFirstRootRunKeepsReportedLinuxID(t *testing.T) {
+	t.Cleanup(ResetIDCache)
+	ctx := context.Background()
+	const rootCache = "/root/.stepsecurity/last-run.json"
+	cache := func(id, configured string) []byte {
+		return []byte(`{"run_gate":{"device_id":"` + id + `","configured_device_id":"` + configured + `"}}`)
+	}
+	cases := []struct {
+		name      string
+		rootCache []byte
+		machineID string
+		want      string
+	}{
+		{"no history uses machine-id", nil, "mid-1", "mid-1"},
+		{"root reported serial keeps serial", cache("HW-SERIAL", ""), "mid-1", "HW-SERIAL"},
+		{"root reported machine-id keeps machine-id", cache("mid-1", ""), "mid-1", "mid-1"},
+		{"configured override is not history", cache("HW-SERIAL", "custom"), "mid-1", "mid-1"},
+		{"no machine-id falls back to serial", nil, "", "HW-SERIAL"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ResetIDCache()
+			m := executor.NewMock()
+			m.SetGOOS("linux")
+			m.SetIsRoot(true)
+			m.SetFile("/sys/class/dmi/id/product_serial", []byte("HW-SERIAL\n"))
+			if tc.machineID != "" {
+				m.SetFile("/etc/machine-id", []byte(tc.machineID+"\n"))
+			}
+			if tc.rootCache != nil {
+				m.SetFile(rootCache, tc.rootCache)
+			}
+			if got := SerialNumber(ctx, m); got != tc.want {
+				t.Fatalf("root = %q, want %q", got, tc.want)
+			}
+			persisted, _ := m.ReadFile(linuxIDFile)
+			if string(persisted) != tc.want+"\n" {
+				t.Fatalf("persisted = %q, want %q", persisted, tc.want)
+			}
+			// A later user run reads the persisted ID: still one identity.
+			ResetIDCache()
+			u := executor.NewMock()
+			u.SetGOOS("linux")
+			u.SetFile("/etc/machine-id", []byte("mid-1\n"))
+			u.SetFile(linuxIDFile, persisted)
+			if got := SerialNumber(ctx, u); got != tc.want {
+				t.Fatalf("user after root = %q, want %q", got, tc.want)
+			}
+			// The next root run keeps it rather than "healing" it to the serial.
+			ResetIDCache()
+			if got := SerialNumber(ctx, m); got != tc.want {
+				t.Fatalf("second root run = %q, want %q", got, tc.want)
+			}
+			if again, _ := m.ReadFile(linuxIDFile); string(again) != tc.want+"\n" {
+				t.Fatalf("second root run rewrote the file to %q", again)
+			}
+		})
+	}
+}
+
+// A later root run that can't read /etc/machine-id must keep the persisted
+// machine-id rather than replace it with the DMI serial.
+func TestRootKeepsPersistedMachineIDWhenMachineIDUnreadable(t *testing.T) {
+	t.Cleanup(ResetIDCache)
+	ctx := context.Background()
+	ResetIDCache()
+	m := executor.NewMock()
+	m.SetGOOS("linux")
+	m.SetIsRoot(true)
+	m.SetFile("/sys/class/dmi/id/product_serial", []byte("HW-SERIAL\n"))
+	m.SetFile("/etc/machine-id", []byte("mid-1\n"))
+	if got := SerialNumber(ctx, m); got != "mid-1" {
+		t.Fatalf("first root run = %q, want mid-1", got)
+	}
+
+	ResetIDCache()
+	m.SetFile("/etc/machine-id", []byte(""))
+	if got := SerialNumber(ctx, m); got != "mid-1" {
+		t.Fatalf("root run without machine-id = %q, want mid-1", got)
+	}
+	if persisted, _ := m.ReadFile(linuxIDFile); string(persisted) != "mid-1\n" {
+		t.Fatalf("persisted = %q, want mid-1", persisted)
 	}
 }

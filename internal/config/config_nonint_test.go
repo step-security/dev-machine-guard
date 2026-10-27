@@ -154,3 +154,51 @@ func TestNonInteractiveOptions_HasAny(t *testing.T) {
 		t.Error("FromFile alone should be enough")
 	}
 }
+
+// SCCM e2e B1: an MSI upgrade's --from-file must merge into the machine
+// config, not replace it: an AUTOUPDATE=0 opt-out and unknown keys the
+// bootstrap file doesn't mention survive, while keys it does carry
+// (credential rotation) win.
+func TestRunConfigureNonInteractive_FromFileMerges(t *testing.T) {
+	optOut := false
+	withHome(t)
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{
+		CustomerID: "cust", APIEndpoint: "https://old.example.com", APIKey: "sk-old",
+		AutoUpdate: &optOut,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	path := ConfigFilePath()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	m["future_key"] = map[string]any{"x": 1.0}
+	raw, _ = json.Marshal(m)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	srcPath := filepath.Join(t.TempDir(), "bootstrap.json")
+	if err := os.WriteFile(srcPath, []byte(`{"customer_id":"cust","api_endpoint":"https://new.example.com","api_key":"sk-rotated"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{FromFile: srcPath}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := loadExisting()
+	if cfg.AutoUpdate == nil || *cfg.AutoUpdate {
+		t.Fatalf("auto_update opt-out lost: %v", cfg.AutoUpdate)
+	}
+	if cfg.APIKey != "sk-rotated" || cfg.APIEndpoint != "https://new.example.com" {
+		t.Fatalf("bootstrap file keys not applied: %+v", cfg)
+	}
+	raw, _ = os.ReadFile(path)
+	if !strings.Contains(string(raw), `"future_key"`) {
+		t.Fatalf("unknown key dropped:\n%s", raw)
+	}
+}

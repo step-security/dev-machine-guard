@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
@@ -30,6 +31,7 @@ type Config struct {
 	UseLegacyNodeScan     *bool  // nil=auto (disk scan); true=command path, false=disk path
 	EnableBrewScan        *bool  // nil=auto, true/false=explicit
 	EnablePythonScan      *bool  // nil=auto, true/false=explicit
+	EnableRuntimeScan     *bool  // nil=auto (on), true/false=explicit
 	UseLegacyPythonScan   *bool  // nil=auto (disk scan); true=pip path, false=disk path
 	IncludeBundledPlugins bool   // --include-bundled-plugins: include bundled/platform plugins in output
 	// IncludeTCCProtected is tristate: nil or false = skip the macOS
@@ -107,6 +109,7 @@ type Config struct {
 	ConfigAPIEndpoint   string // --api-endpoint
 	ConfigAPIKey        string // --api-key (also accepts env var DMG_API_KEY)
 	ConfigScanFrequency string // --scan-frequency (hours)
+	ConfigAutoUpdate    *bool  // --auto-update=true|false (Windows self-update)
 
 	// IgnoreTelemetryError opts the `install` subcommand into treating an
 	// initial-telemetry POST failure as a warning rather than a fatal exit.
@@ -247,6 +250,12 @@ func Parse(args []string) (*Config, error) {
 		case arg == "--disable-python-scan":
 			v := false
 			cfg.EnablePythonScan = &v
+		case arg == "--enable-runtime-scan":
+			v := true
+			cfg.EnableRuntimeScan = &v
+		case arg == "--disable-runtime-scan":
+			v := false
+			cfg.EnableRuntimeScan = &v
 		case arg == "--legacy-python-scan":
 			v := true
 			cfg.UseLegacyPythonScan = &v
@@ -342,6 +351,12 @@ func Parse(args []string) (*Config, error) {
 			cfg.ConfigScanFrequency = args[i]
 		case strings.HasPrefix(arg, "--scan-frequency="):
 			cfg.ConfigScanFrequency = strings.TrimPrefix(arg, "--scan-frequency=")
+		case strings.HasPrefix(arg, "--auto-update="):
+			v, err := strconv.ParseBool(strings.TrimPrefix(arg, "--auto-update="))
+			if err != nil {
+				return nil, fmt.Errorf("--auto-update must be true or false (also 1 or 0)")
+			}
+			cfg.ConfigAutoUpdate = &v
 		case arg == "--verbose":
 			cfg.Verbose = true
 		case arg == "--override-gate":
@@ -582,6 +597,8 @@ Options:
   --disable-brew-scan    Disable Homebrew package scanning
   --enable-python-scan          Enable Python package scanning
   --disable-python-scan         Disable Python package scanning
+  --enable-runtime-scan         Enable language runtime inventory (default)
+  --disable-runtime-scan        Disable language runtime inventory
   --include-bundled-plugins     Include bundled/platform plugins in output (Windows)
   --include-tcc-protected       Scan macOS TCC-protected dirs (Documents, Downloads,
                                 ~/Library/Mail, etc.). Default: skipped to avoid
@@ -639,6 +656,7 @@ Non-interactive configure (for MSI / SCCM / Intune deployments):
   --api-endpoint URL            StepSecurity backend URL
   --api-key KEY                 Authentication key (or set DMG_API_KEY env var)
   --scan-frequency HOURS        Scheduled scan frequency
+  --auto-update=BOOL            Windows MSI self-update on (default) or off
   --ignore-telemetry-error      On 'install', treat a failed initial telemetry POST
                                 as a warning instead of a fatal exit (use in MSI
                                 custom actions to avoid rollback on transient network)

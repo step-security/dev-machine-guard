@@ -34,6 +34,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/rungate"
 	"github.com/step-security/dev-machine-guard/internal/scan"
 	"github.com/step-security/dev-machine-guard/internal/schtasks"
+	"github.com/step-security/dev-machine-guard/internal/secureuserfile"
 	"github.com/step-security/dev-machine-guard/internal/systemd"
 	"github.com/step-security/dev-machine-guard/internal/tcc"
 	"github.com/step-security/dev-machine-guard/internal/telemetry"
@@ -74,6 +75,10 @@ func main() {
 		os.Exit(aiagentscli.RunHook(os.Stdin, os.Stdout, os.Stderr, os.Args[2:]))
 	}
 
+	// agent.prestart fault checkpoint and the Windows self-update verbs
+	// (self-update --system, self-check); they exit here.
+	runEarlyVerbs(os.Args[1:])
+
 	// Load persisted config (~/.stepsecurity/config.json) before parsing CLI
 	// --config must be honoured before Load(), which runs ahead of flag
 	// parsing and keeps the first values it reads.
@@ -110,6 +115,9 @@ func main() {
 	}
 	if cfg.EnablePythonScan == nil && config.EnablePythonScan != nil {
 		cfg.EnablePythonScan = config.EnablePythonScan
+	}
+	if cfg.EnableRuntimeScan == nil && config.EnableRuntimeScan != nil {
+		cfg.EnableRuntimeScan = config.EnableRuntimeScan
 	}
 	// --legacy-python-scan / --disk-python-scan override the config-file value
 	// (which config.Load already applied to config.UseLegacyPythonScan).
@@ -238,6 +246,7 @@ func main() {
 			APIEndpoint:   cfg.ConfigAPIEndpoint,
 			APIKey:        cfg.ConfigAPIKey,
 			ScanFrequency: cfg.ConfigScanFrequency,
+			AutoUpdate:    cfg.ConfigAutoUpdate,
 		}
 		if opts.APIKey == "" {
 			// Env-var fallback keeps the secret off the msiexec command
@@ -274,6 +283,7 @@ func main() {
 			log.Error("Enterprise configuration not found. Run '%s configure' or download the script from your StepSecurity dashboard.", os.Args[0])
 			os.Exit(1)
 		}
+		reportBootstrapFallback()
 		// Server-driven run gate: exit 0 quietly when the backend says this
 		// invocation isn't due (or another instance is mid-scan). Sits before
 		// the watchdog and telemetry.Run so a skipped wakeup posts no beacon,
@@ -294,7 +304,7 @@ func main() {
 		if telemetryErr != nil {
 			restoreTarget()
 			log.Error("%v", telemetryErr)
-			os.Exit(1)
+			os.Exit(telemetry.ExitCode(telemetryErr))
 		}
 		runHookStateReconcile(exec, log, cfg)
 		if targetOK {
@@ -417,7 +427,7 @@ func main() {
 			} else {
 				restoreTarget()
 				log.Error("%v", telemetryErr)
-				os.Exit(1)
+				os.Exit(telemetry.ExitCode(telemetryErr))
 			}
 		}
 		runHookStateReconcile(exec, log, cfg)
@@ -546,7 +556,7 @@ func main() {
 			restoreTarget()
 			if telemetryErr != nil {
 				log.Error("%v", telemetryErr)
-				os.Exit(1)
+				os.Exit(telemetry.ExitCode(telemetryErr))
 			}
 		default:
 			log.Debug("dispatch: community scan (default)")
@@ -790,9 +800,13 @@ func runHookStateReconcile(exec executor.Executor, log *progress.Logger, runCfg 
 const devicePolicyEnforceTimeout = 30 * time.Second
 
 func resolveDevicePolicyTarget(exec executor.Executor, log *progress.Logger) (executor.Executor, func(), bool) {
-	targetExec, restore, err := devicepolicy.ConfigureCacheTarget(exec)
-	if err != nil {
+	targetExec, restore, err := devicepolicy.ConfigureCacheTarget(exec, log.Warn)
+	if errors.Is(err, secureuserfile.ErrNoTargetUser) {
 		log.Debug("device-policy enforce: no active target user; preserving user-scoped state")
+		return nil, func() {}, false
+	}
+	if err != nil {
+		log.Warn("device-policy enforce: target setup failed: %s", redact.String(err.Error()))
 		return nil, func() {}, false
 	}
 	return targetExec, restore, true
