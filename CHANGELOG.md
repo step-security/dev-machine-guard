@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [Unreleased]
+
+### Fixed
+
+- **Older Windows loaders can install current releases again.** Windows loaders generated in May 2026 (single-binary) and the pinned 1.11.7 / 1.13.0 loaders download `…-windows_<arch>_signed.exe`, a name releases stopped publishing at 1.11.4, so they failed every run. Each release now also publishes `stepsecurity-dev-machine-guard-VERSION-windows_{amd64,arm64}_signed.exe` as a byte-identical copy of the signed agent, and `verify-release.yml` fails if a copy differs from the signed `.exe`.
+
 ## [1.18.1] - 2026-10-26
 
 ### Fixed

@@ -164,6 +164,20 @@ jobs:
             fi
           done
 
+          # The _signed.exe copies older Windows loaders download must be the
+          # exact signed agent bytes (they are checked against the .exe's
+          # checksum). Releases before the copies existed only warn.
+          for arch in amd64 arm64; do
+            copy="assets/stepsecurity-dev-machine-guard-${VERSION}-windows_${arch}_signed.exe"
+            if [ ! -f "$copy" ]; then
+              echo "::warning::No $(basename "$copy"); Windows loaders that download _signed.exe can't install this release"
+            elif ! cmp -s "$copy" "assets/stepsecurity-dev-machine-guard-${VERSION}-windows_${arch}.exe"; then
+              echo "::error::$(basename "$copy") differs from the signed windows_${arch}.exe"
+              echo "| \`$(basename "$copy")\` | n/a | ❌ not identical to the signed .exe |" >> "$GITHUB_STEP_SUMMARY"
+              fail=1
+            fi
+          done
+
           if [ "$fail" -ne 0 ]; then
             echo "::error::One or more signed checksums are missing or invalid."
             exit 1
