@@ -9,6 +9,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
 func FuzzNodeLockfiles(f *testing.F) {
@@ -138,6 +139,102 @@ func FuzzRubyMetadata(f *testing.F) {
 		}
 		if reason == "" && !configaudit.RubyGemName(n) {
 			t.Fatalf("invalid archive name %q", n)
+		}
+		if !bytes.Equal(data, before) {
+			t.Fatal("parser mutated input")
+		}
+	})
+}
+
+// FuzzCondaMetadata feeds one input to every Conda parser: each must be
+// deterministic, leave its input untouched, admit only valid identities and
+// never pass a credential, token or query through to output.
+func FuzzCondaMetadata(f *testing.F) {
+	for _, s := range []string{
+		condaZlibReceipt,
+		`{"name":"x","version":"1","build":"0","channel":"https://u:p@h/t/tok/c/noarch","url":"https://u:p@h/t/tok/c/noarch/x-1-0.conda","requested_specs":["c::x","https://u:p@h/x"]}`,
+		"name: a\nchannels:\n  - conda-forge\ndependencies:\n  - python=3.12\n  - conda-forge::numpy>=1.26\n  - pip:\n    - requests\n  - sel(win): m2\n",
+		`{"channels":["conda-forge"],"dependencies":["python"]}`,
+		"# platform: linux-64\n@EXPLICIT\nhttps://conda.anaconda.org/conda-forge/linux-64/bzip2-1.0.8-h4bc722e_7.conda#" + condaMD5A + "\nfile:///c/noarch/x-1-0.tar.bz2\n",
+		"version: 1\npackage:\n- manager: conda\n  name: x\n  version: '1'\n  platform: linux-64\n  url: https://c/linux-64/x-1-0.conda\n  hash:\n    md5: " + condaMD5A + "\n",
+		"version: 6\nenvironments:\n  default:\n    packages:\n      linux-64:\n        - conda: https://c/linux-64/x-1-0.conda\npackages:\n  - conda: https://c/linux-64/x-1-0.conda\n    sha256: " + condaSHA_A + "\n",
+		"version: 7\nplatforms:\n  - name: linux-64\nenvironments: {}\npackages: []\n",
+		"", "{", "\xff\x00", "a: &x [1]\nb: *x\n",
+	} {
+		f.Add([]byte(s))
+	}
+	leak := func(s string) bool {
+		// A token lives in a URL path; a host named "t" or a local
+		// directory named "t" is not one.
+		path := ""
+		if i := strings.Index(s, "://"); i >= 0 {
+			path = strings.TrimLeft(s[i+3:], "/")
+			if j := strings.IndexByte(path, '/'); j >= 0 {
+				path = path[j:]
+			} else {
+				path = ""
+			}
+		}
+		return strings.ContainsAny(s, "@?#") || strings.Contains(path, "/t/") || strings.Contains(s, "%2F") || strings.Contains(s, "%2f")
+	}
+	check := func(t *testing.T, pkgs []model.CondaPackage) {
+		t.Helper()
+		for _, p := range pkgs {
+			if _, ok := condaName(p.PackageName); !ok || condaVirtual(p.PackageName) {
+				t.Fatalf("invalid package name %q", p.PackageName)
+			}
+			if len(p.RequestedSpecs) > maxCondaRequestedSpecs {
+				t.Fatalf("%d requested specs", len(p.RequestedSpecs))
+			}
+			for _, s := range append([]string{p.ArtifactURL, p.Origin.URL}, p.RequestedSpecs...) {
+				if s != condaRedacted && leak(s) {
+					t.Fatalf("credential text survived: %q", s)
+				}
+			}
+			for _, h := range p.RecordedChecksums {
+				if !condaChecksum(h.Algorithm, h.Value) {
+					t.Fatalf("invalid checksum %+v", h)
+				}
+			}
+		}
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 16*1024 {
+			t.Skip()
+		}
+		before := bytes.Clone(data)
+		r, err := parseCondaRecord(data)
+		if r2, err2 := parseCondaRecord(data); !reflect.DeepEqual(r, r2) || (err == nil) != (err2 == nil) {
+			t.Fatal("record parse is not deterministic")
+		}
+		if err == nil {
+			check(t, []model.CondaPackage{condaFact(r)})
+		}
+		m, err := parseCondaEnvironment(data)
+		if m2, err2 := parseCondaEnvironment(data); !reflect.DeepEqual(m, m2) || (err == nil) != (err2 == nil) {
+			t.Fatal("manifest parse is not deterministic")
+		}
+		if err == nil {
+			for _, d := range m.declarations {
+				if _, ok := condaName(d.name); !ok || condaVirtual(d.name) || d.spec != condaRedacted && leak(d.spec) || d.channel != condaRedacted && leak(d.channel) {
+					t.Fatalf("invalid declaration %+v", d)
+				}
+			}
+		}
+		for _, parse := range []func([]byte) ([]condaLockEntry, []string, error){parseCondaExplicit, parseCondaLockYAML} {
+			entries, reasons, err := parse(data)
+			entries2, reasons2, err2 := parse(data)
+			if !reflect.DeepEqual(entries, entries2) || !slices.Equal(reasons, reasons2) || (err == nil) != (err2 == nil) {
+				t.Fatal("lock parse is not deterministic")
+			}
+			pkgs := []model.CondaPackage{}
+			for _, e := range entries {
+				if e.pkg.VersionStatus != "known" || e.pkg.Version == "" {
+					t.Fatalf("locked row without a version %+v", e.pkg)
+				}
+				pkgs = append(pkgs, e.pkg)
+			}
+			check(t, pkgs)
 		}
 		if !bytes.Equal(data, before) {
 			t.Fatal("parser mutated input")

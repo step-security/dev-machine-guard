@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"name\":\"0\",\"version\":\"0\",\"build\":\"0\",\"channel\":\"A00://000@t/\"}")

@@ -140,6 +140,8 @@ type Payload struct {
 	NuGetConfigAudit    *model.NuGetConfigAudit    `json:"nuget_config_audit,omitempty"`
 	RubyInventory       *model.RubyInventory       `json:"ruby_inventory,omitempty"`
 	RubyConfigAudit     *model.RubyConfigAudit     `json:"ruby_config_audit,omitempty"`
+	CondaInventory      *model.CondaInventory      `json:"conda_inventory,omitempty"`
+	CondaConfigAudit    *model.CondaConfigAudit    `json:"conda_config_audit,omitempty"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -1208,6 +1210,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	endPhase(phaseCtx, phaseCancel, tracker, log, "ruby_scan")
 	postPhase()
 
+	// Conda metadata uses the raw executor and the same developer as Go/Cargo.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "conda_scan")
+	log.Progress("Collecting Conda packages and configuration...")
+	condaInventory, condaConfigAudit := detector.NewCondaScanner(exec, log).Scan(phaseCtx, browserTarget, searchDirs, cfg.IncludeNetworkVolumes)
+	log.Progress("  Conda: %d projects, %d package facts (inventory %s, config %s)", len(condaInventory.Projects), len(condaInventory.Packages), condaInventory.Status, condaConfigAudit.Status)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "conda_scan")
+	postPhase()
+
 	// npm + pip configuration audits — surface-only inventory of every
 	// .npmrc and pip.conf on the host, plus the merged effective views
 	// each tool would resolve. We use the user-aware executor so npm and
@@ -1378,6 +1388,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		NuGetConfigAudit:        nugetConfigAudit,
 		RubyInventory:           rubyInventory,
 		RubyConfigAudit:         rubyConfigAudit,
+		CondaInventory:          condaInventory,
+		CondaConfigAudit:        condaConfigAudit,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,
