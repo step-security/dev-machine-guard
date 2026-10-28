@@ -1,0 +1,104 @@
+StepSecurity Dev Machine Guard vVERSION
+
+Usage: BINARY [COMMAND] [OPTIONS]
+
+Commands:
+  configure            Configure enterprise settings and search directories
+  configure show       Show current configuration
+  install              Install scheduled scanning (enterprise)
+  uninstall            Remove scheduled scanning (enterprise)
+  send-telemetry       Upload scan results to the StepSecurity dashboard (enterprise)
+  hooks                Install/uninstall AI coding agent hooks (run 'BINARY hooks --help')
+
+Output formats (community mode, mutually exclusive):
+  --pretty             Pretty terminal output (default)
+  --json               JSON output to stdout
+  --html FILE          HTML report saved to FILE
+
+Options:
+  --search-dirs DIR [DIR...]  Search DIRs instead of $HOME (replaces default; repeatable)
+  --enable-npm-scan      Enable Node.js package scanning
+  --disable-npm-scan     Disable Node.js package scanning
+  --enable-brew-scan     Enable Homebrew package scanning
+  --disable-brew-scan    Disable Homebrew package scanning
+  --enable-python-scan          Enable Python package scanning
+  --disable-python-scan         Disable Python package scanning
+  --enable-runtime-scan         Enable language runtime inventory (default)
+  --disable-runtime-scan        Disable language runtime inventory
+  --include-bundled-plugins     Include bundled/platform plugins in output (Windows)
+  --include-tcc-protected       Scan macOS TCC-protected dirs (Documents, Downloads,
+                                ~/Library/Mail, etc.). Default: skipped to avoid
+                                permission prompts. Pass after granting the agent
+                                Full Disk Access via PPPC profile or System
+                                Settings — see docs/macos-tcc-permissions.md.
+  --no-include-tcc-protected    Skip macOS TCC-protected dirs even if config has
+                                include_tcc_protected: true.
+  --no-include-network-volumes  Skip macOS network volumes — which is how macOS
+                                classifies container-runtime mounts (OrbStack,
+                                Docker Desktop, Colima). Suppresses the one-time
+                                "access files on a network volume" prompt at the
+                                cost of the package inventory inside dev
+                                containers. Default: walked. Fleets that can
+                                pre-approve the prompt with a PPPC profile
+                                should keep the default — see
+                                docs/macos-tcc-permissions.md.
+  --include-network-volumes     Walk macOS network volumes even if config has
+                                include_network_volumes: false.
+  --npmrc                       Run ONLY the npm config audit (verbose pretty view; --json supported)
+  --pipconfig                   Run ONLY the pip config audit (verbose pretty view; --json supported)
+  --pnpmrc                      Run ONLY the pnpm config audit (verbose pretty view; --json supported)
+  --bunfig                      Run ONLY the bun config audit (verbose pretty view; --json supported)
+  --yarnrc                      Run ONLY the yarn config audit covering both v1 (.yarnrc) and v2+ (.yarnrc.yml) (verbose pretty view; --json supported)
+  --log-level=LEVEL      Log level: error | warn | info | debug (default: info)
+  --install-dir=DIR      Base directory the agent puts ALL its files under
+                         (logs, hook errors, binary placement via loader).
+                         Default: ~/.stepsecurity. The diagnostic log file is
+                         <DIR>/agent.error.log, rotated at 5 MiB to .prev.
+                         Equivalent to STEPSECURITY_HOME env var. Pass
+                         --install-dir= (empty) to disable file logging for
+                         this run. Note: config.json itself always lives at
+                         ~/.stepsecurity/config.json for bootstrap.
+  --verbose                     Shortcut for --log-level=debug
+  --color=WHEN           Color mode: auto | always | never (default: auto)
+  -v, --version          Show version
+  -h, --help             Show this help
+
+Examples:
+  BINARY                                  # Pretty terminal output
+  BINARY --json | python3 -m json.tool    # Formatted JSON
+  BINARY --json > scan.json               # JSON to file
+  BINARY --html report.html               # HTML report
+  BINARY --verbose --enable-npm-scan      # Verbose with npm scan
+  BINARY --search-dirs /Volumes/code                          # Search only /Volumes/code
+  BINARY --search-dirs /tmp /opt                              # Multiple dirs, one flag
+  BINARY --search-dirs "/path/with spaces" --search-dirs /opt # Mixed styles
+  BINARY configure                          # Set up enterprise config and search dirs
+  BINARY send-telemetry                   # Enterprise telemetry
+
+Non-interactive configure (for MSI / SCCM / Intune deployments):
+  --non-interactive             Skip prompts; require values via flags or --from-file
+  --from-file PATH              Read full config JSON from PATH (preferred for MSI)
+  --customer-id ID              Customer identifier
+  --api-endpoint URL            StepSecurity backend URL
+  --api-key KEY                 Authentication key (or set DMG_API_KEY env var)
+  --device-id ID                Custom device identifier (default: machine serial)
+  --scan-frequency HOURS        Scheduled scan frequency
+  --max-execution-duration D    Whole-run watchdog (e.g. 2h, 30m; off to disable)
+  --auto-update=BOOL            Windows MSI self-update on (default) or off
+  --update-mirror-url URL       HTTPS packages mirror for self-update
+  --update-lag-behind N         Stay N releases behind the latest
+  --update-cooldown-hours N     Wait N hours after a release before updating
+  Passed to 'configure', the scan and output flags above (--search-dirs,
+  --enable-*/--disable-*-scan, --legacy-*/--disk-*-scan, --[no-]include-*,
+  --pretty/--json/--html, --color=, --log-level=, --install-dir=) are saved
+  to config.json too.
+  --ignore-telemetry-error      On 'install', treat a failed initial telemetry POST
+                                as a warning instead of a fatal exit (use in MSI
+                                custom actions to avoid rollback on transient network)
+
+Configuration:
+  Per-user config:    ~/.stepsecurity/config.json
+  Machine-wide (Windows, admin): C:\ProgramData\StepSecurity\config.json
+  Run 'BINARY configure' to set credentials and search directories interactively.
+
+AGENT_URL

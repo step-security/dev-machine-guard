@@ -1,0 +1,1163 @@
+[
+  {
+    "args": [],
+    "result": {
+      "BunfigOnly": false,
+      "ColorMode": "auto",
+      "Command": "",
+      "ConfigFile": "",
+      "ConfigFromFile": "",
+      "CredentialScanningDisabled": false,
+      "DeltaScanEnabled": false,
+      "EnableBrewScan": null,
+      "EnableNPMScan": null,
+      "EnablePythonScan": null,
+      "EnableRuntimeScan": null,
+      "ForceScan": false,
+      "GateProceedReason": "",
+      "HTMLOutputFile": "",
+      "HooksAgent": "",
+      "IgnoreTelemetryError": false,
+      "IncludeBundledPlugins": false,
+      "IncludeNetworkVolumes": null,
+      "IncludeTCCProtected": null,
+      "InstallDir": "",
+      "InstallDirSet": false,
+      "LogLevel": "",
+      "NPMRCOnly": false,
+      "NonInteractive": false,
+      "OutputFormat": "pretty",
+      "OutputFormatSet": false,
+      "OverrideGate": false,
+      "PipConfigOnly": false,
+      "PnpmRCOnly": false,
+      "RulesFile": "",
+      "SearchDirs": [
+        "$HOME"
+      ],
+      "TelemetryOutFile": "",
+      "UseLegacyNodeScan": null,
+      "UseLegacyPythonScan": null,
+      "Verbose": false,
+      "WSLDistroID": "",
+      "WSLHostSerial": "",
+      "WSLScanEnabled": false,
+      "WSLScanReason": "",
+      "YarnRCOnly": false
+    }
+  },
+  {
+    "args": [
+      "install"
+    ],
+    "result": {
+      "Command": "install"
+    }
+  },
+  {
+    "args": [
+      "--install"
+    ],
+    "result": {
+      "Command": "install"
+    }
+  },
+  {
+    "args": [
+      "uninstall"
+    ],
+    "result": {
+      "Command": "uninstall"
+    }
+  },
+  {
+    "args": [
+      "--uninstall"
+    ],
+    "result": {
+      "Command": "uninstall"
+    }
+  },
+  {
+    "args": [
+      "send-telemetry"
+    ],
+    "result": {
+      "Command": "send-telemetry"
+    }
+  },
+  {
+    "args": [
+      "--send-telemetry"
+    ],
+    "result": {
+      "Command": "send-telemetry"
+    }
+  },
+  {
+    "args": [
+      "configure"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "show"
+    ],
+    "result": {
+      "Command": "configure show"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--json"
+    ],
+    "result": {
+      "Command": "configure",
+      "OutputFormat": "json",
+      "OutputFormatSet": true
+    }
+  },
+  {
+    "args": [
+      "--pretty"
+    ],
+    "result": {
+      "OutputFormatSet": true
+    }
+  },
+  {
+    "args": [
+      "--json"
+    ],
+    "result": {
+      "OutputFormat": "json",
+      "OutputFormatSet": true
+    }
+  },
+  {
+    "args": [
+      "--html",
+      "r.html"
+    ],
+    "result": {
+      "HTMLOutputFile": "r.html",
+      "OutputFormat": "html",
+      "OutputFormatSet": true
+    }
+  },
+  {
+    "args": [
+      "--html"
+    ],
+    "result": {
+      "error": "--html requires a file path argument"
+    }
+  },
+  {
+    "args": [
+      "--html=r.html"
+    ],
+    "result": {
+      "error": "unknown option: --html=r.html, run 'cli.test --help' for usage information"
+    }
+  },
+  {
+    "args": [
+      "--json",
+      "--pretty"
+    ],
+    "result": {
+      "OutputFormatSet": true
+    }
+  },
+  {
+    "args": [
+      "--enable-npm-scan"
+    ],
+    "result": {
+      "EnableNPMScan": true
+    }
+  },
+  {
+    "args": [
+      "--disable-npm-scan"
+    ],
+    "result": {
+      "EnableNPMScan": false
+    }
+  },
+  {
+    "args": [
+      "--legacy-node-scan"
+    ],
+    "result": {
+      "UseLegacyNodeScan": true
+    }
+  },
+  {
+    "args": [
+      "--disk-node-scan"
+    ],
+    "result": {
+      "UseLegacyNodeScan": false
+    }
+  },
+  {
+    "args": [
+      "--enable-brew-scan"
+    ],
+    "result": {
+      "EnableBrewScan": true
+    }
+  },
+  {
+    "args": [
+      "--disable-brew-scan"
+    ],
+    "result": {
+      "EnableBrewScan": false
+    }
+  },
+  {
+    "args": [
+      "--enable-python-scan"
+    ],
+    "result": {
+      "EnablePythonScan": true
+    }
+  },
+  {
+    "args": [
+      "--disable-python-scan"
+    ],
+    "result": {
+      "EnablePythonScan": false
+    }
+  },
+  {
+    "args": [
+      "--enable-runtime-scan"
+    ],
+    "result": {
+      "EnableRuntimeScan": true
+    }
+  },
+  {
+    "args": [
+      "--disable-runtime-scan"
+    ],
+    "result": {
+      "EnableRuntimeScan": false
+    }
+  },
+  {
+    "args": [
+      "--legacy-python-scan"
+    ],
+    "result": {
+      "UseLegacyPythonScan": true
+    }
+  },
+  {
+    "args": [
+      "--disk-python-scan"
+    ],
+    "result": {
+      "UseLegacyPythonScan": false
+    }
+  },
+  {
+    "args": [
+      "--enable-npm-scan",
+      "--disable-npm-scan"
+    ],
+    "result": {
+      "EnableNPMScan": false
+    }
+  },
+  {
+    "args": [
+      "--include-bundled-plugins"
+    ],
+    "result": {
+      "IncludeBundledPlugins": true
+    }
+  },
+  {
+    "args": [
+      "--include-tcc-protected"
+    ],
+    "result": {
+      "IncludeTCCProtected": true
+    }
+  },
+  {
+    "args": [
+      "--no-include-tcc-protected"
+    ],
+    "result": {
+      "IncludeTCCProtected": false
+    }
+  },
+  {
+    "args": [
+      "--include-network-volumes"
+    ],
+    "result": {
+      "IncludeNetworkVolumes": true
+    }
+  },
+  {
+    "args": [
+      "--no-include-network-volumes"
+    ],
+    "result": {
+      "IncludeNetworkVolumes": false
+    }
+  },
+  {
+    "args": [
+      "--npmrc"
+    ],
+    "result": {
+      "NPMRCOnly": true
+    }
+  },
+  {
+    "args": [
+      "--pipconfig"
+    ],
+    "result": {
+      "PipConfigOnly": true
+    }
+  },
+  {
+    "args": [
+      "--pnpmrc"
+    ],
+    "result": {
+      "PnpmRCOnly": true
+    }
+  },
+  {
+    "args": [
+      "--bunfig"
+    ],
+    "result": {
+      "BunfigOnly": true
+    }
+  },
+  {
+    "args": [
+      "--yarnrc"
+    ],
+    "result": {
+      "YarnRCOnly": true
+    }
+  },
+  {
+    "args": [
+      "--npmrc",
+      "--json"
+    ],
+    "result": {
+      "NPMRCOnly": true,
+      "OutputFormat": "json",
+      "OutputFormatSet": true
+    }
+  },
+  {
+    "args": [
+      "--npmrc",
+      "--yarnrc"
+    ],
+    "result": {
+      "error": "--npmrc, --pipconfig, --pnpmrc, --bunfig, and --yarnrc are mutually exclusive; pick one"
+    }
+  },
+  {
+    "args": [
+      "--color=auto"
+    ],
+    "result": {}
+  },
+  {
+    "args": [
+      "--color=always"
+    ],
+    "result": {
+      "ColorMode": "always"
+    }
+  },
+  {
+    "args": [
+      "--color=never"
+    ],
+    "result": {
+      "ColorMode": "never"
+    }
+  },
+  {
+    "args": [
+      "--color=rainbow"
+    ],
+    "result": {
+      "error": "invalid color mode: rainbow (must be auto, always, or never)"
+    }
+  },
+  {
+    "args": [
+      "--color",
+      "never"
+    ],
+    "result": {
+      "error": "unknown option: --color, run 'cli.test --help' for usage information"
+    }
+  },
+  {
+    "args": [
+      "--search-dirs",
+      "/a"
+    ],
+    "result": {
+      "SearchDirs": [
+        "/a"
+      ]
+    }
+  },
+  {
+    "args": [
+      "--search-dirs",
+      "/a",
+      "/b",
+      "--json"
+    ],
+    "result": {
+      "OutputFormat": "json",
+      "OutputFormatSet": true,
+      "SearchDirs": [
+        "/a",
+        "/b"
+      ]
+    }
+  },
+  {
+    "args": [
+      "--search-dirs",
+      "/a",
+      "--search-dirs",
+      "/b"
+    ],
+    "result": {
+      "SearchDirs": [
+        "/a",
+        "/b"
+      ]
+    }
+  },
+  {
+    "args": [
+      "--search-dirs"
+    ],
+    "result": {
+      "error": "--search-dirs requires at least one directory path argument"
+    }
+  },
+  {
+    "args": [
+      "--search-dirs",
+      "--json"
+    ],
+    "result": {
+      "error": "--search-dirs requires at least one directory path argument"
+    }
+  },
+  {
+    "args": [
+      "--search-dirs",
+      "/a",
+      "send-telemetry"
+    ],
+    "result": {
+      "SearchDirs": [
+        "/a",
+        "send-telemetry"
+      ]
+    }
+  },
+  {
+    "args": [
+      "--non-interactive"
+    ],
+    "result": {
+      "NonInteractive": true
+    }
+  },
+  {
+    "args": [
+      "--ignore-telemetry-error"
+    ],
+    "result": {
+      "IgnoreTelemetryError": true
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--from-file",
+      "c.json"
+    ],
+    "result": {
+      "Command": "configure",
+      "ConfigFromFile": "c.json"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--from-file=c.json"
+    ],
+    "result": {
+      "Command": "configure",
+      "ConfigFromFile": "c.json"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--from-file"
+    ],
+    "result": {
+      "error": "--from-file requires a file path argument"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--device-id",
+      "d1"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--device-id=d1"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--device-id"
+    ],
+    "result": {
+      "error": "--device-id requires a value"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--device-id="
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--customer-id",
+      "c1"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--customer-id=c1"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--customer-id"
+    ],
+    "result": {
+      "error": "--customer-id requires a value"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--api-endpoint",
+      "https://e"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--api-endpoint=https://e"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--api-endpoint"
+    ],
+    "result": {
+      "error": "--api-endpoint requires a value"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--api-key",
+      "k"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--api-key=k"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--api-key"
+    ],
+    "result": {
+      "error": "--api-key requires a value"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--scan-frequency",
+      "4"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--scan-frequency=4"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--scan-frequency"
+    ],
+    "result": {
+      "error": "--scan-frequency requires a value (hours)"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--max-execution-duration",
+      "2h"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--max-execution-duration=off"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--max-execution-duration"
+    ],
+    "result": {
+      "error": "--max-execution-duration requires a value (e.g. 2h, 30m, off)"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--update-mirror-url",
+      "https://m"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--update-mirror-url=https://m"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--update-mirror-url"
+    ],
+    "result": {
+      "error": "--update-mirror-url requires a value"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--update-lag-behind",
+      "2"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--update-lag-behind=0"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--update-lag-behind"
+    ],
+    "result": {
+      "error": "--update-lag-behind requires a value"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--update-lag-behind=-1"
+    ],
+    "result": {
+      "error": "--update-lag-behind must be a non-negative integer, got \"-1\""
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--update-lag-behind",
+      "x"
+    ],
+    "result": {
+      "error": "--update-lag-behind must be a non-negative integer, got \"x\""
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--update-cooldown-hours",
+      "24"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--update-cooldown-hours=24"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--update-cooldown-hours"
+    ],
+    "result": {
+      "error": "--update-cooldown-hours requires a value"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--auto-update=false"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--auto-update=1"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--auto-update=maybe"
+    ],
+    "result": {
+      "error": "--auto-update must be true or false (also 1 or 0)"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--auto-update"
+    ],
+    "result": {
+      "error": "unknown option: --auto-update, run 'cli.test --help' for usage information"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--non-interactive",
+      "--customer-id",
+      "c1",
+      "--api-endpoint",
+      "https://e",
+      "--api-key",
+      "k",
+      "--scan-frequency",
+      "4"
+    ],
+    "result": {
+      "Command": "configure",
+      "NonInteractive": true
+    }
+  },
+  {
+    "args": [
+      "--verbose"
+    ],
+    "result": {
+      "Verbose": true
+    }
+  },
+  {
+    "args": [
+      "--override-gate"
+    ],
+    "result": {
+      "OverrideGate": true
+    }
+  },
+  {
+    "args": [
+      "--config",
+      "c.json"
+    ],
+    "result": {
+      "ConfigFile": "c.json"
+    }
+  },
+  {
+    "args": [
+      "--config=c.json"
+    ],
+    "result": {
+      "ConfigFile": "c.json"
+    }
+  },
+  {
+    "args": [
+      "--config"
+    ],
+    "result": {
+      "error": "--config requires a file path argument"
+    }
+  },
+  {
+    "args": [
+      "--wsl-host-serial",
+      "S"
+    ],
+    "result": {
+      "WSLHostSerial": "S"
+    }
+  },
+  {
+    "args": [
+      "--wsl-host-serial=S"
+    ],
+    "result": {
+      "WSLHostSerial": "S"
+    }
+  },
+  {
+    "args": [
+      "--wsl-host-serial"
+    ],
+    "result": {
+      "error": "--wsl-host-serial requires a value"
+    }
+  },
+  {
+    "args": [
+      "--wsl-distro-id",
+      "D"
+    ],
+    "result": {
+      "WSLDistroID": "D"
+    }
+  },
+  {
+    "args": [
+      "--wsl-distro-id=D"
+    ],
+    "result": {
+      "WSLDistroID": "D"
+    }
+  },
+  {
+    "args": [
+      "--wsl-distro-id"
+    ],
+    "result": {
+      "error": "--wsl-distro-id requires a value"
+    }
+  },
+  {
+    "args": [
+      "--force-scan"
+    ],
+    "result": {
+      "ForceScan": true
+    }
+  },
+  {
+    "args": [
+      "--rules-file",
+      "r.json"
+    ],
+    "result": {
+      "RulesFile": "r.json"
+    }
+  },
+  {
+    "args": [
+      "--rules-file=r.json"
+    ],
+    "result": {
+      "RulesFile": "r.json"
+    }
+  },
+  {
+    "args": [
+      "--rules-file"
+    ],
+    "result": {
+      "error": "--rules-file requires a file path argument"
+    }
+  },
+  {
+    "args": [
+      "--telemetry-out",
+      "t.json"
+    ],
+    "result": {
+      "TelemetryOutFile": "t.json"
+    }
+  },
+  {
+    "args": [
+      "--telemetry-out=t.json"
+    ],
+    "result": {
+      "TelemetryOutFile": "t.json"
+    }
+  },
+  {
+    "args": [
+      "--telemetry-out"
+    ],
+    "result": {
+      "error": "--telemetry-out requires a file path argument"
+    }
+  },
+  {
+    "args": [
+      "--log-level=debug"
+    ],
+    "result": {
+      "LogLevel": "debug"
+    }
+  },
+  {
+    "args": [
+      "--log-level=WARNING"
+    ],
+    "result": {
+      "LogLevel": "warn"
+    }
+  },
+  {
+    "args": [
+      "--log-level=info"
+    ],
+    "result": {
+      "LogLevel": "info"
+    }
+  },
+  {
+    "args": [
+      "--log-level=loud"
+    ],
+    "result": {
+      "error": "invalid log level: loud (must be error, warn, info, or debug)"
+    }
+  },
+  {
+    "args": [
+      "--log-level",
+      "debug"
+    ],
+    "result": {
+      "error": "unknown option: --log-level, run 'cli.test --help' for usage information"
+    }
+  },
+  {
+    "args": [
+      "--install-dir",
+      "/opt/x"
+    ],
+    "result": {
+      "InstallDir": "/opt/x",
+      "InstallDirSet": true
+    }
+  },
+  {
+    "args": [
+      "--install-dir=/opt/x"
+    ],
+    "result": {
+      "InstallDir": "/opt/x",
+      "InstallDirSet": true
+    }
+  },
+  {
+    "args": [
+      "--install-dir="
+    ],
+    "result": {
+      "InstallDirSet": true
+    }
+  },
+  {
+    "args": [
+      "--install-dir"
+    ],
+    "result": {
+      "error": "--install-dir requires a directory argument (use --install-dir= to disable file logging)"
+    }
+  },
+  {
+    "args": [
+      "install",
+      "--install-dir="
+    ],
+    "result": {
+      "error": "--install-dir= (empty) cannot be combined with install — pass a directory or omit the flag"
+    }
+  },
+  {
+    "args": [
+      "uninstall",
+      "--install-dir="
+    ],
+    "result": {
+      "error": "--install-dir= (empty) cannot be combined with uninstall — pass a directory or omit the flag"
+    }
+  },
+  {
+    "args": [
+      "send-telemetry",
+      "--install-dir="
+    ],
+    "result": {
+      "Command": "send-telemetry",
+      "InstallDirSet": true
+    }
+  },
+  {
+    "args": [
+      "--bogus"
+    ],
+    "result": {
+      "error": "unknown option: --bogus, run 'cli.test --help' for usage information"
+    }
+  },
+  {
+    "args": [
+      "stray"
+    ],
+    "result": {
+      "error": "unknown option: stray, run 'cli.test --help' for usage information"
+    }
+  },
+  {
+    "args": [
+      "send-telemetry",
+      "--force-scan",
+      "--log-level=info",
+      "--install-dir",
+      "/opt/x",
+      "--search-dirs",
+      "/a"
+    ],
+    "result": {
+      "Command": "send-telemetry",
+      "ForceScan": true,
+      "InstallDir": "/opt/x",
+      "InstallDirSet": true,
+      "LogLevel": "info",
+      "SearchDirs": [
+        "/a"
+      ]
+    }
+  }
+]
