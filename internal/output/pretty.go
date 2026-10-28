@@ -884,8 +884,11 @@ func communityInventory(result *model.ScanResult) *model.ScanResult {
 }
 
 func pluginAgentDisplayName(agent string) string {
-	if agent == model.AgentCopilot {
+	switch agent {
+	case model.AgentCopilot:
 		return "GitHub Copilot"
+	case model.AgentPi:
+		return "Pi"
 	}
 	return agent
 }

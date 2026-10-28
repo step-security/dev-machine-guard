@@ -1039,3 +1039,69 @@ func (e mcpFixtureExecutor) LoggedInUser() (*user.User, error) {
 	return &user.User{HomeDir: e.home}, nil
 }
 func (e mcpFixtureExecutor) Getenv(string) string { return "" }
+
+func TestPiStandaloneMCP(t *testing.T) {
+	m, fs := newPluginMock()
+	root := "/opt/pi"
+	project := filepath.Join(testHome, "project")
+	scanned := executor.NewMock()
+	scanned.SetEnv("PI_CODING_AGENT_DIR", root)
+	fs.addFile(filepath.Join(root, "mcp.json"), "\xef\xbb\xbf"+`{"mcpServers":{
+		"local":{"command":"node","args":["server.js"],"env":{"TOKEN":"SECRET_SENTINEL"},"enabled":false},
+		"remote":{"type":"streamable-http","url":"https://docs.example/mcp","headers":{"Authorization":"SECRET_SENTINEL"},"oauth":{"clientSecret":"SECRET_SENTINEL"}},
+		"legacy":{"type":"sse","url":"https://old.example/mcp"},
+		"adapter":{"url":"https://adapter.example/mcp","auth":"bearer","bearerToken":"SECRET_SENTINEL","excludeTools":["x"]},
+		"override":{"enabled":true}
+	},"settings":{"apiKey":"SECRET_SENTINEL"}}`)
+	fs.addFile(filepath.Join(project, ".pi", "mcp.json"), `{"mcpServers":{"remote":{"enabled":false},"proj":{"url":"http://localhost:3000/mcp"}}}`)
+	fs.addFile(filepath.Join(testHome, ".claude.json"), `{"projects":{`+jsonQuote(project)+`:{}}}`)
+	fs.commit()
+	results := NewMCPDetector(m).WithPiEnvironment(scanned).DetectEnterprise(context.Background(), nil)
+	bodies := map[string]string{}
+	for _, config := range results {
+		body, err := base64.StdEncoding.DecodeString(config.ConfigContentBase64)
+		if err != nil || strings.Contains(string(body), "SECRET_SENTINEL") {
+			t.Fatalf("unsafe MCP: %s", body)
+		}
+		bodies[config.ConfigSource+" "+config.Vendor+" "+config.ConfigPath] = string(body)
+	}
+	agent := bodies["pi Pi "+filepath.Join(root, "mcp.json")]
+	// Entries Pi rejects stay: extensions such as pi-mcp-adapter read the same file.
+	for _, want := range []string{
+		`"local":{"args":["server.js"],"command":"node","enabled":false}`, `"remote":{"url":"https://docs.example/mcp"}`,
+		`"legacy":{"url":"https://old.example/mcp"}`, `"adapter":{"url":"https://adapter.example/mcp"}`,
+	} {
+		if !strings.Contains(agent, want) {
+			t.Fatalf("agent MCP lacks %s: %v", want, bodies)
+		}
+	}
+	if strings.Contains(agent, "override") || strings.Contains(agent, "settings") {
+		t.Fatalf("agent MCP: %v", bodies)
+	}
+	if proj := bodies["pi_project Pi "+filepath.Join(project, ".pi", "mcp.json")]; proj != `{"mcpServers":{"proj":{"url":"http://localhost:3000/mcp"}}}` {
+		t.Fatalf("project MCP keeps definitions, not overrides: %v", bodies)
+	}
+}
+
+func TestPiMCPFilterIsPathLimited(t *testing.T) {
+	d := &MCPDetector{piDir: "/home/dev/.pi/agent"}
+	raw := []byte(`{"mcpServers":{"local":{"command":"node","enabled":false}}}`)
+	for _, tc := range []struct {
+		source, file string
+		pi           bool
+	}{
+		{"discovered_mcp", "/home/dev/.pi/agent/mcp.json", true},
+		{"discovered_mcp", "/repo/.pi/mcp.json", true},
+		{"pi_project", "/repo/.pi/mcp.json", true},
+		{"discovered_mcp", "/home/dev/.omp/agent/mcp.json", false},
+		{"discovered_mcp", "/home/dev/.pi/agent/git/github.com/acme/kit/mcp.json", false},
+		{"discovered_mcp", "/repo/.mcp.json", false},
+		{"cursor", "/repo/.pi/mcp.json", false},
+	} {
+		// Only the Pi filter keeps the enabled flag.
+		out, ok := d.filterMCPContent(tc.source, tc.file, raw)
+		if got := ok && strings.Contains(string(out), `"enabled":false`); got != tc.pi {
+			t.Errorf("%s %s: Pi filter applied = %v, want %v", tc.source, tc.file, got, tc.pi)
+		}
+	}
+}

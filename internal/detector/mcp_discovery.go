@@ -142,6 +142,21 @@ func (d *MCPDetector) allConfigLocations(ctx context.Context, homeDir string, se
 			}
 		}
 	}
+
+	// Pi's agent and project files, after the walk so walked files keep their labels.
+	d.piDir = d.piRoot(homeDir)
+	piFiles := []mcpConfigSpec{{SourceName: "pi", ConfigPath: filepath.Join(d.piDir, "mcp.json")}}
+	for _, project := range projects {
+		piFiles = append(piFiles, mcpConfigSpec{SourceName: "pi_project", ConfigPath: filepath.Join(project, ".pi", "mcp.json")})
+	}
+	for _, f := range piFiles {
+		if d.skipper.WithinProtected(f.ConfigPath) {
+			continue
+		}
+		if info, err := d.copilotMCPReader(filepath.Dir(f.ConfigPath)).Stat(f.ConfigPath); err == nil && info.Mode().IsRegular() {
+			add(f.SourceName, f.ConfigPath, "Pi")
+		}
+	}
 	return out
 }
 

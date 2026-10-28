@@ -707,6 +707,7 @@ func (d *SkillsDetector) resolveGlobalRoots(info *model.AgentSkillScanInfo) []sk
 	home := getHomeDir(d.exec)
 	win := d.exec.GOOS() == model.PlatformWindows
 	var roots []skillsRoot
+	scanned := len(info.RootsScanned)
 
 	addRoot := func(root skillsRoot) {
 		// WithinProtected before DirExists: DirExists stats, and a stat inside a
@@ -756,8 +757,24 @@ func (d *SkillsDetector) resolveGlobalRoots(info *model.AgentSkillScanInfo) []sk
 	// alias tier is already covered by agents_user above).
 	add(filepath.Join(home, ".gemini", "skills"), "gemini_user", "gemini-cli", "global", "")
 
-	// pi_user: ~/.pi/agent/skills (note the "agent" path segment).
-	add(filepath.Join(home, ".pi", "agent", "skills"), "pi_user", "pi", "global", "")
+	// pi_user: <agent dir>/skills, ~/.pi/agent/skills by default (note the
+	// "agent" path segment). An unresolvable override keeps the default.
+	piRoot, _ := piAgentRoot(d.exec, home)
+	piSkills := filepath.Join(piRoot, "skills")
+	if piRoot != filepath.Join(home, ".pi", "agent") {
+		// A relocated root may link into a protected folder, which the lexical
+		// check in addRoot cannot see; resolve it link by link first.
+		guarded := d.exec.GuardedFiles([]string{home, piSkills}, func(p string) string {
+			if d.skipper.WithinProtected(p) {
+				return "tcc_protected"
+			}
+			return ""
+		}, maxSkillMDReadBytes)
+		if _, err := guarded.Stat(piSkills); err != nil {
+			piSkills = ""
+		}
+	}
+	add(piSkills, "pi_user", "pi", "global", "")
 
 	// factory_user: ~/.factory/skills.
 	add(filepath.Join(home, ".factory", "skills"), "factory_user", "factory", "global", "")
@@ -832,6 +849,15 @@ func (d *SkillsDetector) resolveGlobalRoots(info *model.AgentSkillScanInfo) []sk
 	add(filepath.Join(home, ".omp", "agent", "skills"), "omp_user", "oh-my-pi", "global", "")
 	add(filepath.Join(home, ".omp", "agent", "managed-skills"), "omp_managed_user", "oh-my-pi", "global", "")
 
+	// A custom Pi agent directory can be another agent's root; that root keeps
+	// its own label instead of shadowing itself.
+	for i, root := range roots {
+		if root.source == "pi_user" && slices.ContainsFunc(roots, func(o skillsRoot) bool { return o.source != "pi_user" && o.path == root.path }) {
+			roots = slices.Delete(roots, i, i+1)
+			info.RootsScanned = slices.Delete(info.RootsScanned, scanned+i, scanned+i+1)
+			break
+		}
+	}
 	return roots
 }
 
@@ -879,8 +905,9 @@ func (d *SkillsDetector) resolveProjectRoots(project string, info *model.AgentSk
 // directory name(s) whose presence marks the dot-dir's parent as a project root.
 // Keep in lockstep with resolveProjectRoots: that function is the authority on
 // which per-project skill dirs are probed once a project is known, and this
-// table is how walkForProjectRoots recognizes a project it was never told about.
-// A change to one MUST change the other.
+// table lets walkForProjectRoots recognize unregistered skill projects. Pi also
+// has package configuration and resource markers checked by hasPiProjectMarker.
+// A change to the skill roots in one MUST change the other.
 var projectMarkerDirs = map[string][]string{
 	".claude":    {"skills"},
 	".agents":    {"skills"},
@@ -1016,7 +1043,7 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 
 			if markerChildren, ok := projectMarkerDirs[name]; ok {
 				// A marker dot-dir (e.g. .claude): its parent `dir` is a project root
-				// iff the marker dir itself holds the expected skills child. Probe by
+				// when it holds a skills child or Pi configuration/resource marker. Probe by
 				// listing the marker dir (charged to the budget); never descend past
 				// it — enumerating the skills inside is enumerateRoot's job, reached
 				// via the normal project pipeline once discoverProjects admits `dir`.
@@ -1028,7 +1055,7 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 					d.addError(info, fmt.Sprintf("home walk read marker %s: %v", childDir, err))
 					continue
 				}
-				if hasMarkerChild(mEntries, markerChildren) {
+				if hasMarkerChild(mEntries, markerChildren) || name == ".pi" && hasPiProjectMarker(mEntries) {
 					emit(dir)
 				}
 				continue
@@ -1164,6 +1191,26 @@ func hasMarkerChild(entries []os.DirEntry, want []string) bool {
 		}
 		if slices.Contains(want, e.Name()) {
 			return true
+		}
+	}
+	return false
+}
+
+// Pi projects need no language manifest or skills directory to hold packages.
+func hasPiProjectMarker(entries []os.DirEntry) bool {
+	for _, e := range entries {
+		if e.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		switch e.Name() {
+		case "extensions", "prompts", "themes":
+			if e.IsDir() {
+				return true
+			}
+		case "settings.json", "mcp.json":
+			if e.Type().IsRegular() {
+				return true
+			}
 		}
 	}
 	return false

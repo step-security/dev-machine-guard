@@ -5,6 +5,7 @@ package detector
 import (
 	"context"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -422,5 +423,78 @@ func TestPluginMetadataAndUsageRejectProtectedSymlinks(t *testing.T) {
 	}
 	if len(rec.traversed) != 0 || len(rec.guarded) == 0 {
 		t.Fatalf("protected target reached before guard: traversed=%v guarded=%v", rec.traversed, rec.guarded)
+	}
+}
+
+// piRootRecorder serves a fake home and Pi override over the real filesystem
+// and records unguarded calls that land in the protected tree.
+type piRootRecorder struct {
+	*executor.Real
+	home, piRoot, protected string
+	touched                 []string
+}
+
+func (r *piRootRecorder) LoggedInUser() (*user.User, error) {
+	return &user.User{Username: "dev", HomeDir: r.home}, nil
+}
+
+func (r *piRootRecorder) Getenv(key string) string {
+	if key == "PI_CODING_AGENT_DIR" {
+		return r.piRoot
+	}
+	return ""
+}
+
+func (r *piRootRecorder) note(p string) {
+	if resolved, err := filepath.EvalSymlinks(p); err == nil && (resolved == r.protected || strings.HasPrefix(resolved, r.protected+"/")) {
+		r.touched = append(r.touched, p)
+	}
+}
+
+func (r *piRootRecorder) DirExists(p string) bool { r.note(p); return r.Real.DirExists(p) }
+func (r *piRootRecorder) Stat(p string) (os.FileInfo, error) {
+	r.note(p)
+	return r.Real.Stat(p)
+}
+func (r *piRootRecorder) ReadDir(p string) ([]os.DirEntry, error) {
+	r.note(p)
+	return r.Real.ReadDir(p)
+}
+
+func TestPiCustomRootLinkedIntoProtectedDir(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	protected := filepath.Join(home, "Documents")
+	for _, dir := range []string{filepath.Join(protected, "pi", "skills"), filepath.Join(home, "code", "pi", "skills")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tests := []struct {
+		name, target string
+		scanned      bool
+	}{
+		{"protected target", filepath.Join(protected, "pi"), false},
+		{"ordinary target", filepath.Join(home, "code", "pi"), true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			link := filepath.Join(home, "pi-"+strings.ReplaceAll(tc.name, " ", "-"))
+			if err := os.Symlink(tc.target, link); err != nil {
+				t.Fatal(err)
+			}
+			rec := &piRootRecorder{Real: executor.NewReal(), home: home, piRoot: link, protected: protected}
+			info := &model.AgentSkillScanInfo{}
+			roots := NewSkillsDetector(rec).WithSkipper(tcc.New(home)).resolveGlobalRoots(info)
+			got := false
+			for _, r := range roots {
+				got = got || r.source == "pi_user"
+			}
+			if got != tc.scanned || len(rec.touched) != 0 {
+				t.Fatalf("pi_user scanned = %v, want %v; unguarded protected access: %v", got, tc.scanned, rec.touched)
+			}
+		})
 	}
 }

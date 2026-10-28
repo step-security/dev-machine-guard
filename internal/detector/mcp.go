@@ -55,6 +55,8 @@ var mcpConfigDefinitions = []mcpConfigSpec{
 type MCPDetector struct {
 	exec    executor.Executor
 	skipper *tcc.Skipper
+	piEnv   executor.Executor
+	piDir   string // Pi's agent directory, resolved during discovery
 }
 
 func NewMCPDetector(exec executor.Executor) *MCPDetector {
@@ -67,6 +69,25 @@ func NewMCPDetector(exec executor.Executor) *MCPDetector {
 func (d *MCPDetector) WithSkipper(s *tcc.Skipper) *MCPDetector {
 	d.skipper = s
 	return d
+}
+
+// WithPiEnvironment resolves Pi's agent directory from exec's environment,
+// which can see the scanned user's PI_CODING_AGENT_DIR when this process
+// cannot. Other sources keep the detector's own executor.
+func (d *MCPDetector) WithPiEnvironment(exec executor.Executor) *MCPDetector {
+	d.piEnv = exec
+	return d
+}
+
+// piRoot is Pi's agent directory, or its default when an override cannot be
+// resolved.
+func (d *MCPDetector) piRoot(homeDir string) string {
+	env := d.piEnv
+	if env == nil {
+		env = d.exec
+	}
+	root, _ := piAgentRoot(env, homeDir)
+	return root
 }
 
 // Detect returns the MCP config locations found on the host as community-mode
@@ -93,7 +114,7 @@ func (d *MCPDetector) DetectEnterprise(ctx context.Context, searchDirs []string)
 
 	for _, loc := range d.allConfigLocations(ctx, homeDir, searchDirs) {
 		reader := d.exec
-		if loc.SourceName == "codex" || loc.SourceName == model.AgentCopilot || isCopilotProjectMCP(loc.ConfigPath) {
+		if loc.SourceName == "codex" || loc.SourceName == model.AgentCopilot || loc.SourceName == "pi" || loc.SourceName == "pi_project" || isCopilotProjectMCP(loc.ConfigPath) {
 			roots := []string{filepath.Dir(loc.ConfigPath)}
 			if isCopilotProjectMCP(loc.ConfigPath) {
 				project := filepath.Dir(loc.ConfigPath)
@@ -207,6 +228,12 @@ func (d *MCPDetector) filterMCPContent(sourceName, configPath string, content []
 
 	if sourceName == model.AgentCopilot || sourceName == "copilot_project" {
 		return filterCopilotMCP(content, sourceName != model.AgentCopilot)
+	}
+
+	// Pi's own files may start with a BOM and carry per-server enabled flags;
+	// walked copies keep their label but get the same filter.
+	if (sourceName == "pi" || sourceName == "pi_project" || sourceName == "discovered_mcp") && isPiMCPPath(configPath, d.piDir) {
+		return filterPiMCP(content)
 	}
 
 	jsonInput := content

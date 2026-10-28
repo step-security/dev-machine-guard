@@ -105,7 +105,7 @@ func AgentVersions(tools []model.AITool) map[string]string {
 		if t.Name == "github-copilot-cli" && t.Version != "" {
 			out[model.AgentCopilot] = t.Version
 		}
-		if (t.Name == model.AgentClaudeCode || t.Name == model.AgentCodex) && t.Version != "" {
+		if (t.Name == model.AgentClaudeCode || t.Name == model.AgentCodex || t.Name == model.AgentPi) && t.Version != "" {
 			out[t.Name] = t.Version
 		}
 	}
@@ -163,6 +163,7 @@ func (d *SkillsDetector) DetectPlugins(ctx context.Context, result *SkillsResult
 	var contexts []*model.AgentPluginContext
 	candidates := []*model.AgentPluginContext{s.detectClaude(), s.detectCodex(), s.detectCopilot()}
 	candidates = append(candidates, s.detectCopilotEditors()...)
+	candidates = append(candidates, s.detectPi())
 	for _, c := range candidates {
 		if c != nil {
 			// Missing projects can hide project settings and catalogs.
@@ -1380,7 +1381,7 @@ func (r SkillsResult) replacesMCPConfig(source, p string, represented map[string
 	if r.evidence == nil {
 		return false
 	}
-	if source == "project_mcp" || source == "copilot_project" {
+	if source == "project_mcp" || source == "copilot_project" || source == "pi" || source == "pi_project" {
 		return false
 	}
 	for _, spec := range mcpConfigDefinitions {
