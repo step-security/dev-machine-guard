@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
@@ -100,25 +99,16 @@ type Config struct {
 
 	// Non-interactive `configure` inputs. Used by MSI/SCCM and other
 	// orchestrators that can't drive a stdin prompt loop. NonInteractive
-	// is implied when any config-setting flag is passed to `configure`
-	// (these Config* fields, plus the scan/output flags above, which
-	// `configure` persists), and main.go routes accordingly.
-	NonInteractive             bool
-	ConfigFromFile             string // --from-file: read full config JSON from path
-	ConfigDeviceID             string // --device-id
-	ConfigCustomerID           string // --customer-id
-	ConfigAPIEndpoint          string // --api-endpoint
-	ConfigAPIKey               string // --api-key (also accepts env var DMG_API_KEY)
-	ConfigScanFrequency        string // --scan-frequency (hours)
-	ConfigMaxExecutionDuration string // --max-execution-duration (e.g. 2h, 30m, off)
-	ConfigAutoUpdate           *bool  // --auto-update=true|false (Windows self-update)
-	ConfigUpdateMirrorURL      string // --update-mirror-url
-	ConfigUpdateLagBehind      *int   // --update-lag-behind N (releases)
-	ConfigUpdateCooldownHours  *int   // --update-cooldown-hours N
+	// is implied when any flag saves a config value, and main.go routes
+	// accordingly.
+	NonInteractive bool
+	ConfigFromFile string // --from-file: read full config JSON from path
 
-	// ColorModeSet is true when --color= was passed explicitly, so
-	// `configure` persists it (ColorMode itself defaults to "auto").
-	ColorModeSet bool
+	// ConfigValues holds the config.json keys this invocation's flags set
+	// (flagSpec.saves), for `configure` to persist. Scan runs ignore it.
+	ConfigValues map[string]any
+
+	searchDirsSet bool // a --search-dirs replaced the $HOME default
 
 	// IgnoreTelemetryError opts the `install` subcommand into treating an
 	// initial-telemetry POST failure as a warning rather than a fatal exit.
@@ -201,17 +191,14 @@ func Parse(args []string) (*Config, error) {
 		SearchDirs:   []string{"$HOME"},
 	}
 
-	searchDirsSet := false
-	i := 0
-
-	for i < len(args) {
+	for i := 0; i < len(args); {
 		arg := args[i]
 		switch {
-		case arg == "install" || arg == "--install":
+		case arg == "install":
 			cfg.Command = "install"
-		case arg == "uninstall" || arg == "--uninstall":
+		case arg == "uninstall":
 			cfg.Command = "uninstall"
-		case arg == "send-telemetry" || arg == "--send-telemetry":
+		case arg == "send-telemetry":
 			cfg.Command = "send-telemetry"
 		case arg == "configure":
 			// Check for "configure show" subcommand
@@ -221,255 +208,6 @@ func Parse(args []string) (*Config, error) {
 			} else {
 				cfg.Command = "configure"
 			}
-		case arg == "--pretty":
-			cfg.OutputFormat = "pretty"
-			cfg.OutputFormatSet = true
-		case arg == "--json":
-			cfg.OutputFormat = "json"
-			cfg.OutputFormatSet = true
-		case arg == "--html":
-			cfg.OutputFormat = "html"
-			cfg.OutputFormatSet = true
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--html requires a file path argument")
-			}
-			cfg.HTMLOutputFile = args[i]
-		case arg == "--enable-npm-scan":
-			v := true
-			cfg.EnableNPMScan = &v
-		case arg == "--disable-npm-scan":
-			v := false
-			cfg.EnableNPMScan = &v
-		case arg == "--legacy-node-scan":
-			v := true
-			cfg.UseLegacyNodeScan = &v
-		case arg == "--disk-node-scan":
-			v := false
-			cfg.UseLegacyNodeScan = &v
-		case arg == "--enable-brew-scan":
-			v := true
-			cfg.EnableBrewScan = &v
-		case arg == "--disable-brew-scan":
-			v := false
-			cfg.EnableBrewScan = &v
-		case arg == "--enable-python-scan":
-			v := true
-			cfg.EnablePythonScan = &v
-		case arg == "--disable-python-scan":
-			v := false
-			cfg.EnablePythonScan = &v
-		case arg == "--enable-runtime-scan":
-			v := true
-			cfg.EnableRuntimeScan = &v
-		case arg == "--disable-runtime-scan":
-			v := false
-			cfg.EnableRuntimeScan = &v
-		case arg == "--legacy-python-scan":
-			v := true
-			cfg.UseLegacyPythonScan = &v
-		case arg == "--disk-python-scan":
-			v := false
-			cfg.UseLegacyPythonScan = &v
-		case arg == "--include-bundled-plugins":
-			cfg.IncludeBundledPlugins = true
-		case arg == "--include-tcc-protected":
-			v := true
-			cfg.IncludeTCCProtected = &v
-		case arg == "--no-include-tcc-protected":
-			v := false
-			cfg.IncludeTCCProtected = &v
-		case arg == "--include-network-volumes":
-			v := true
-			cfg.IncludeNetworkVolumes = &v
-		case arg == "--no-include-network-volumes":
-			v := false
-			cfg.IncludeNetworkVolumes = &v
-		case arg == "--npmrc":
-			cfg.NPMRCOnly = true
-		case arg == "--pipconfig":
-			cfg.PipConfigOnly = true
-		case arg == "--pnpmrc":
-			cfg.PnpmRCOnly = true
-		case arg == "--bunfig":
-			cfg.BunfigOnly = true
-		case arg == "--yarnrc":
-			cfg.YarnRCOnly = true
-		case strings.HasPrefix(arg, "--color="):
-			mode := strings.TrimPrefix(arg, "--color=")
-			if mode != "auto" && mode != "always" && mode != "never" {
-				return nil, fmt.Errorf("invalid color mode: %s (must be auto, always, or never)", mode)
-			}
-			cfg.ColorMode = mode
-			cfg.ColorModeSet = true
-		case arg == "--search-dirs":
-			i++
-			if i >= len(args) || strings.HasPrefix(args[i], "--") {
-				return nil, fmt.Errorf("--search-dirs requires at least one directory path argument")
-			}
-			if !searchDirsSet {
-				cfg.SearchDirs = nil
-				searchDirsSet = true
-			}
-			// Greedily consume non-flag arguments
-			for i < len(args) && !strings.HasPrefix(args[i], "--") {
-				cfg.SearchDirs = append(cfg.SearchDirs, args[i])
-				i++
-			}
-			continue // skip the i++ at the bottom
-		case arg == "--non-interactive":
-			cfg.NonInteractive = true
-		case arg == "--ignore-telemetry-error":
-			cfg.IgnoreTelemetryError = true
-		case arg == "--from-file":
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--from-file requires a file path argument")
-			}
-			cfg.ConfigFromFile = args[i]
-		case strings.HasPrefix(arg, "--from-file="):
-			cfg.ConfigFromFile = strings.TrimPrefix(arg, "--from-file=")
-		case arg == "--device-id":
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--device-id requires a value")
-			}
-			cfg.ConfigDeviceID = args[i]
-		case strings.HasPrefix(arg, "--device-id="):
-			cfg.ConfigDeviceID = strings.TrimPrefix(arg, "--device-id=")
-		case arg == "--customer-id":
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--customer-id requires a value")
-			}
-			cfg.ConfigCustomerID = args[i]
-		case strings.HasPrefix(arg, "--customer-id="):
-			cfg.ConfigCustomerID = strings.TrimPrefix(arg, "--customer-id=")
-		case arg == "--api-endpoint":
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--api-endpoint requires a value")
-			}
-			cfg.ConfigAPIEndpoint = args[i]
-		case strings.HasPrefix(arg, "--api-endpoint="):
-			cfg.ConfigAPIEndpoint = strings.TrimPrefix(arg, "--api-endpoint=")
-		case arg == "--api-key":
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--api-key requires a value")
-			}
-			cfg.ConfigAPIKey = args[i]
-		case strings.HasPrefix(arg, "--api-key="):
-			cfg.ConfigAPIKey = strings.TrimPrefix(arg, "--api-key=")
-		case arg == "--scan-frequency":
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--scan-frequency requires a value (hours)")
-			}
-			cfg.ConfigScanFrequency = args[i]
-		case strings.HasPrefix(arg, "--scan-frequency="):
-			cfg.ConfigScanFrequency = strings.TrimPrefix(arg, "--scan-frequency=")
-		case arg == "--max-execution-duration":
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--max-execution-duration requires a value (e.g. 2h, 30m, off)")
-			}
-			cfg.ConfigMaxExecutionDuration = args[i]
-		case strings.HasPrefix(arg, "--max-execution-duration="):
-			cfg.ConfigMaxExecutionDuration = strings.TrimPrefix(arg, "--max-execution-duration=")
-		case arg == "--update-mirror-url":
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--update-mirror-url requires a value")
-			}
-			cfg.ConfigUpdateMirrorURL = args[i]
-		case strings.HasPrefix(arg, "--update-mirror-url="):
-			cfg.ConfigUpdateMirrorURL = strings.TrimPrefix(arg, "--update-mirror-url=")
-		case arg == "--update-lag-behind" || strings.HasPrefix(arg, "--update-lag-behind="):
-			v, err := intFlagValue(args, &i, "--update-lag-behind")
-			if err != nil {
-				return nil, err
-			}
-			cfg.ConfigUpdateLagBehind = &v
-		case arg == "--update-cooldown-hours" || strings.HasPrefix(arg, "--update-cooldown-hours="):
-			v, err := intFlagValue(args, &i, "--update-cooldown-hours")
-			if err != nil {
-				return nil, err
-			}
-			cfg.ConfigUpdateCooldownHours = &v
-		case strings.HasPrefix(arg, "--auto-update="):
-			v, err := strconv.ParseBool(strings.TrimPrefix(arg, "--auto-update="))
-			if err != nil {
-				return nil, fmt.Errorf("--auto-update must be true or false (also 1 or 0)")
-			}
-			cfg.ConfigAutoUpdate = &v
-		case arg == "--verbose":
-			cfg.Verbose = true
-		case arg == "--override-gate":
-			cfg.OverrideGate = true
-		case strings.HasPrefix(arg, "--config="):
-			cfg.ConfigFile = strings.TrimPrefix(arg, "--config=")
-		case arg == "--config":
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--config requires a file path argument")
-			}
-			cfg.ConfigFile = args[i]
-		case strings.HasPrefix(arg, "--wsl-host-serial="):
-			cfg.WSLHostSerial = strings.TrimPrefix(arg, "--wsl-host-serial=")
-		case arg == "--wsl-host-serial":
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--wsl-host-serial requires a value")
-			}
-			cfg.WSLHostSerial = args[i]
-		case strings.HasPrefix(arg, "--wsl-distro-id="):
-			cfg.WSLDistroID = strings.TrimPrefix(arg, "--wsl-distro-id=")
-		case arg == "--wsl-distro-id":
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--wsl-distro-id requires a value")
-			}
-			cfg.WSLDistroID = args[i]
-		case arg == "--force-scan":
-			cfg.ForceScan = true
-		case strings.HasPrefix(arg, "--rules-file="):
-			cfg.RulesFile = strings.TrimPrefix(arg, "--rules-file=")
-		case arg == "--rules-file":
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--rules-file requires a file path argument")
-			}
-			cfg.RulesFile = args[i]
-		case strings.HasPrefix(arg, "--telemetry-out="):
-			cfg.TelemetryOutFile = strings.TrimPrefix(arg, "--telemetry-out=")
-		case arg == "--telemetry-out":
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--telemetry-out requires a file path argument")
-			}
-			cfg.TelemetryOutFile = args[i]
-		case strings.HasPrefix(arg, "--log-level="):
-			level := strings.ToLower(strings.TrimPrefix(arg, "--log-level="))
-			switch level {
-			case "error", "warn", "warning", "info", "debug":
-				if level == "warning" {
-					level = "warn"
-				}
-				cfg.LogLevel = level
-			default:
-				return nil, fmt.Errorf("invalid log level: %s (must be error, warn, info, or debug)", level)
-			}
-		case strings.HasPrefix(arg, "--install-dir="):
-			cfg.InstallDir = strings.TrimPrefix(arg, "--install-dir=")
-			cfg.InstallDirSet = true
-		case arg == "--install-dir":
-			i++
-			if i >= len(args) {
-				return nil, fmt.Errorf("--install-dir requires a directory argument (use --install-dir= to disable file logging)")
-			}
-			cfg.InstallDir = args[i]
-			cfg.InstallDirSet = true
 		case arg == "-v" || arg == "--version" || arg == "version":
 			_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n", buildinfo.VersionString())
 			os.Exit(0)
@@ -477,7 +215,15 @@ func Parse(args []string) (*Config, error) {
 			printHelp()
 			os.Exit(0)
 		default:
-			return nil, fmt.Errorf("unknown option: %s, run '%s --help' for usage information", arg, filepath.Base(os.Args[0]))
+			next, ok, err := parseFlag(cfg, args, i)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				return nil, fmt.Errorf("unknown option: %s, run '%s --help' for usage information", arg, filepath.Base(os.Args[0]))
+			}
+			i = next
+			continue
 		}
 		i++
 	}
@@ -508,24 +254,6 @@ func Parse(args []string) (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-// intFlagValue reads a non-negative integer for name from either
-// `name=N` (args[*i]) or `name N` (advancing *i).
-func intFlagValue(args []string, i *int, name string) (int, error) {
-	raw, ok := strings.CutPrefix(args[*i], name+"=")
-	if !ok {
-		*i++
-		if *i >= len(args) {
-			return 0, fmt.Errorf("%s requires a value", name)
-		}
-		raw = args[*i]
-	}
-	v, err := strconv.Atoi(raw)
-	if err != nil || v < 0 {
-		return 0, fmt.Errorf("%s must be a non-negative integer, got %q", name, raw)
-	}
-	return v, nil
 }
 
 // parseHooks handles `hooks install` and `hooks uninstall`.
@@ -649,56 +377,9 @@ Commands:
   hooks                Install/uninstall AI coding agent hooks (run '%s hooks --help')
 
 Output formats (community mode, mutually exclusive):
-  --pretty             Pretty terminal output (default)
-  --json               JSON output to stdout
-  --html FILE          HTML report saved to FILE
-
+%s
 Options:
-  --search-dirs DIR [DIR...]  Search DIRs instead of $HOME (replaces default; repeatable)
-  --enable-npm-scan      Enable Node.js package scanning
-  --disable-npm-scan     Disable Node.js package scanning
-  --enable-brew-scan     Enable Homebrew package scanning
-  --disable-brew-scan    Disable Homebrew package scanning
-  --enable-python-scan          Enable Python package scanning
-  --disable-python-scan         Disable Python package scanning
-  --enable-runtime-scan         Enable language runtime inventory (default)
-  --disable-runtime-scan        Disable language runtime inventory
-  --include-bundled-plugins     Include bundled/platform plugins in output (Windows)
-  --include-tcc-protected       Scan macOS TCC-protected dirs (Documents, Downloads,
-                                ~/Library/Mail, etc.). Default: skipped to avoid
-                                permission prompts. Pass after granting the agent
-                                Full Disk Access via PPPC profile or System
-                                Settings — see docs/macos-tcc-permissions.md.
-  --no-include-tcc-protected    Skip macOS TCC-protected dirs even if config has
-                                include_tcc_protected: true.
-  --no-include-network-volumes  Skip macOS network volumes — which is how macOS
-                                classifies container-runtime mounts (OrbStack,
-                                Docker Desktop, Colima). Suppresses the one-time
-                                "access files on a network volume" prompt at the
-                                cost of the package inventory inside dev
-                                containers. Default: walked. Fleets that can
-                                pre-approve the prompt with a PPPC profile
-                                should keep the default — see
-                                docs/macos-tcc-permissions.md.
-  --include-network-volumes     Walk macOS network volumes even if config has
-                                include_network_volumes: false.
-  --npmrc                       Run ONLY the npm config audit (verbose pretty view; --json supported)
-  --pipconfig                   Run ONLY the pip config audit (verbose pretty view; --json supported)
-  --pnpmrc                      Run ONLY the pnpm config audit (verbose pretty view; --json supported)
-  --bunfig                      Run ONLY the bun config audit (verbose pretty view; --json supported)
-  --yarnrc                      Run ONLY the yarn config audit covering both v1 (.yarnrc) and v2+ (.yarnrc.yml) (verbose pretty view; --json supported)
-  --log-level=LEVEL      Log level: error | warn | info | debug (default: info)
-  --install-dir=DIR      Base directory the agent puts ALL its files under
-                         (logs, hook errors, binary placement via loader).
-                         Default: ~/.stepsecurity. The diagnostic log file is
-                         <DIR>/agent.error.log, rotated at 5 MiB to .prev.
-                         Equivalent to STEPSECURITY_HOME env var. Pass
-                         --install-dir= (empty) to disable file logging for
-                         this run. Note: config.json itself always lives at
-                         ~/.stepsecurity/config.json for bootstrap.
-  --verbose                     Shortcut for --log-level=debug
-  --color=WHEN           Color mode: auto | always | never (default: auto)
-  -v, --version          Show version
+%s  -v, --version          Show version
   -h, --help             Show this help
 
 Examples:
@@ -714,26 +395,7 @@ Examples:
   %s send-telemetry                   # Enterprise telemetry
 
 Non-interactive configure (for MSI / SCCM / Intune deployments):
-  --non-interactive             Skip prompts; require values via flags or --from-file
-  --from-file PATH              Read full config JSON from PATH (preferred for MSI)
-  --customer-id ID              Customer identifier
-  --api-endpoint URL            StepSecurity backend URL
-  --api-key KEY                 Authentication key (or set DMG_API_KEY env var)
-  --device-id ID                Custom device identifier (default: machine serial)
-  --scan-frequency HOURS        Scheduled scan frequency
-  --max-execution-duration D    Whole-run watchdog (e.g. 2h, 30m; off to disable)
-  --auto-update=BOOL            Windows MSI self-update on (default) or off
-  --update-mirror-url URL       HTTPS packages mirror for self-update
-  --update-lag-behind N         Stay N releases behind the latest
-  --update-cooldown-hours N     Wait N hours after a release before updating
-  Passed to 'configure', the scan and output flags above (--search-dirs,
-  --enable-*/--disable-*-scan, --legacy-*/--disk-*-scan, --[no-]include-*,
-  --pretty/--json/--html, --color=, --log-level=, --install-dir=) are saved
-  to config.json too.
-  --ignore-telemetry-error      On 'install', treat a failed initial telemetry POST
-                                as a warning instead of a fatal exit (use in MSI
-                                custom actions to avoid rollback on transient network)
-
+%s%s
 Configuration:
   Per-user config:    ~/.stepsecurity/config.json
   Machine-wide (Windows, admin): C:\ProgramData\StepSecurity\config.json
@@ -741,8 +403,9 @@ Configuration:
 
 %s
 `, buildinfo.Version, name, name,
+		helpFor(helpOutput), helpFor(helpOptions),
 		name, name, name, name, name, name, name, name,
-		name, name, name,
+		name, name, helpFor(helpConfigure), savedFlagsNote(), name,
 		buildinfo.AgentURL)
 }
 

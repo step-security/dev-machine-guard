@@ -88,13 +88,16 @@ Non-interactive configure (for MSI / SCCM / Intune deployments):
   --update-mirror-url URL       HTTPS packages mirror for self-update
   --update-lag-behind N         Stay N releases behind the latest
   --update-cooldown-hours N     Wait N hours after a release before updating
-  Passed to 'configure', the scan and output flags above (--search-dirs,
-  --enable-*/--disable-*-scan, --legacy-*/--disk-*-scan, --[no-]include-*,
-  --pretty/--json/--html, --color=, --log-level=, --install-dir=) are saved
-  to config.json too.
   --ignore-telemetry-error      On 'install', treat a failed initial telemetry POST
                                 as a warning instead of a fatal exit (use in MSI
                                 custom actions to avoid rollback on transient network)
+  Passed to 'configure', these flags are also saved to config.json:
+  --pretty, --json, --html, --search-dirs, --enable-npm-scan,
+  --disable-npm-scan, --enable-brew-scan, --disable-brew-scan,
+  --enable-python-scan, --disable-python-scan, --enable-runtime-scan,
+  --disable-runtime-scan, --include-tcc-protected, --no-include-tcc-protected,
+  --no-include-network-volumes, --include-network-volumes, --log-level,
+  --install-dir, --color
 
 Configuration:
   Per-user config:    ~/.stepsecurity/config.json

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -453,8 +454,8 @@ func TestParse_ConfigureAutoUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ConfigAutoUpdate == nil || *cfg.ConfigAutoUpdate {
-		t.Fatalf("ConfigAutoUpdate = %v", cfg.ConfigAutoUpdate)
+	if v, ok := cfg.ConfigValues["auto_update"]; !ok || v != false {
+		t.Fatalf("auto_update = %v (set=%v)", v, ok)
 	}
 	if _, err := Parse([]string{"configure", "--auto-update=maybe"}); err == nil {
 		t.Fatal("invalid --auto-update accepted")
@@ -468,36 +469,40 @@ func TestParse_ConfigureSettingFlags(t *testing.T) {
 		"--update-mirror-url", "https://mirror.example.com",
 		"--update-lag-behind=2",
 		"--update-cooldown-hours", "24",
-		"--color=never",
+		"--color=auto",
+		"--html", "r.html",
+		"--search-dirs", "/a", "/b",
+		"--disable-brew-scan",
+		"--log-level=WARNING",
+		"--customer-id=",               // empty leaves the setting unchanged
+		"--api-key", "k", "--api-key=", // the last occurrence wins, even empty
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ConfigDeviceID != "dev-1" {
-		t.Errorf("ConfigDeviceID = %q", cfg.ConfigDeviceID)
+	want := map[string]any{
+		"device_id":              "dev-1",
+		"max_execution_duration": "2h",
+		"update_mirror_url":      "https://mirror.example.com",
+		"update_lag_behind":      2,
+		"update_cooldown_hours":  24,
+		"color_mode":             "",
+		"output_format":          "html",
+		"html_output_file":       "r.html",
+		"search_dirs":            []string{"/a", "/b"},
+		"enable_brew_scan":       false,
+		"log_level":              "warn",
 	}
-	if cfg.ConfigMaxExecutionDuration != "2h" {
-		t.Errorf("ConfigMaxExecutionDuration = %q", cfg.ConfigMaxExecutionDuration)
-	}
-	if cfg.ConfigUpdateMirrorURL != "https://mirror.example.com" {
-		t.Errorf("ConfigUpdateMirrorURL = %q", cfg.ConfigUpdateMirrorURL)
-	}
-	if cfg.ConfigUpdateLagBehind == nil || *cfg.ConfigUpdateLagBehind != 2 {
-		t.Errorf("ConfigUpdateLagBehind = %v", cfg.ConfigUpdateLagBehind)
-	}
-	if cfg.ConfigUpdateCooldownHours == nil || *cfg.ConfigUpdateCooldownHours != 24 {
-		t.Errorf("ConfigUpdateCooldownHours = %v", cfg.ConfigUpdateCooldownHours)
-	}
-	if !cfg.ColorModeSet || cfg.ColorMode != "never" {
-		t.Errorf("ColorMode = %q set=%v", cfg.ColorMode, cfg.ColorModeSet)
+	if !reflect.DeepEqual(cfg.ConfigValues, want) {
+		t.Errorf("ConfigValues =\n%#v\nwant\n%#v", cfg.ConfigValues, want)
 	}
 
-	cfg, err = Parse([]string{"configure", "--device-id=dev-2"})
-	if err != nil || cfg.ConfigDeviceID != "dev-2" {
-		t.Fatalf("--device-id=: cfg=%+v err=%v", cfg, err)
+	cfg, err = Parse([]string{"configure", "--verbose", "--install-dir="})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if cfg.ColorModeSet {
-		t.Error("ColorModeSet true without --color=")
+	if len(cfg.ConfigValues) != 0 {
+		t.Errorf("runtime-only flags saved config values: %v", cfg.ConfigValues)
 	}
 }
 

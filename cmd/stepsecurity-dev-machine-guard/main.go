@@ -241,49 +241,18 @@ func main() {
 		// through the no-prompt code path. This is how MSI/SCCM/Intune
 		// custom actions drive configuration — they can't talk to stdin.
 		opts := config.NonInteractiveOptions{
-			FromFile:              cfg.ConfigFromFile,
-			DeviceID:              cfg.ConfigDeviceID,
-			CustomerID:            cfg.ConfigCustomerID,
-			APIEndpoint:           cfg.ConfigAPIEndpoint,
-			APIKey:                cfg.ConfigAPIKey,
-			ScanFrequency:         cfg.ConfigScanFrequency,
-			MaxExecutionDuration:  cfg.ConfigMaxExecutionDuration,
-			EnableNPMScan:         cfg.EnableNPMScan,
-			EnableBrewScan:        cfg.EnableBrewScan,
-			EnablePythonScan:      cfg.EnablePythonScan,
-			EnableRuntimeScan:     cfg.EnableRuntimeScan,
-			UseLegacyNodeScan:     cfg.UseLegacyNodeScan,
-			UseLegacyPythonScan:   cfg.UseLegacyPythonScan,
-			IncludeTCCProtected:   cfg.IncludeTCCProtected,
-			IncludeNetworkVolumes: cfg.IncludeNetworkVolumes,
-			LogLevel:              cfg.LogLevel,
-			AutoUpdate:            cfg.ConfigAutoUpdate,
-			UpdateMirrorURL:       cfg.ConfigUpdateMirrorURL,
-			UpdateLagBehind:       cfg.ConfigUpdateLagBehind,
-			UpdateCooldownHours:   cfg.ConfigUpdateCooldownHours,
+			FromFile: cfg.ConfigFromFile,
+			Values:   cfg.ConfigValues,
 		}
-		// Output/color/install-dir carry parse-time defaults, so only
-		// forward them when the flag was actually passed.
-		if cfg.ColorModeSet {
-			opts.ColorMode = cfg.ColorMode
-		}
-		if cfg.OutputFormatSet {
-			opts.OutputFormat = cfg.OutputFormat
-			opts.HTMLOutputFile = cfg.HTMLOutputFile
-		}
-		if cfg.InstallDirSet {
-			opts.InstallDir = cfg.InstallDir
-		}
-		if opts.APIKey == "" {
+		if _, ok := opts.Values["api_key"]; !ok {
 			// Env-var fallback keeps the secret off the msiexec command
 			// line (which lands in AppEnforce.log on every endpoint).
-			opts.APIKey = os.Getenv("DMG_API_KEY")
-		}
-		// Only forward --search-dirs to configure when the user actually
-		// passed it on this invocation. (cli.Parse defaults SearchDirs to
-		// ["$HOME"] for the scan path, which we must not persist here.)
-		if len(cfg.SearchDirs) > 0 && !(len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME") {
-			opts.SearchDirs = cfg.SearchDirs
+			if key := os.Getenv("DMG_API_KEY"); key != "" {
+				if opts.Values == nil {
+					opts.Values = map[string]any{}
+				}
+				opts.Values["api_key"] = key
+			}
 		}
 		if cfg.NonInteractive || opts.HasAny() {
 			if err := config.RunConfigureNonInteractive(opts); err != nil {

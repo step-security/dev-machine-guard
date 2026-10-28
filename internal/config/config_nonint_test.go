@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -23,10 +22,10 @@ func withHome(t *testing.T) string {
 
 func TestRunConfigureNonInteractive_RequiresAPIKey(t *testing.T) {
 	withHome(t)
-	err := RunConfigureNonInteractive(NonInteractiveOptions{
-		CustomerID:  "cust-1",
-		APIEndpoint: "https://api.example.com",
-	})
+	err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id":  "cust-1",
+		"api_endpoint": "https://api.example.com",
+	}})
 	if err == nil || !strings.Contains(err.Error(), "api_key is required") {
 		t.Fatalf("expected api_key required error, got %v", err)
 	}
@@ -34,10 +33,10 @@ func TestRunConfigureNonInteractive_RequiresAPIKey(t *testing.T) {
 
 func TestRunConfigureNonInteractive_RequiresCustomerID(t *testing.T) {
 	withHome(t)
-	err := RunConfigureNonInteractive(NonInteractiveOptions{
-		APIKey:      "sk-1",
-		APIEndpoint: "https://api.example.com",
-	})
+	err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"api_key":      "sk-1",
+		"api_endpoint": "https://api.example.com",
+	}})
 	if err == nil || !strings.Contains(err.Error(), "customer_id is required") {
 		t.Fatalf("expected customer_id required error, got %v", err)
 	}
@@ -45,10 +44,10 @@ func TestRunConfigureNonInteractive_RequiresCustomerID(t *testing.T) {
 
 func TestRunConfigureNonInteractive_RequiresAPIEndpoint(t *testing.T) {
 	withHome(t)
-	err := RunConfigureNonInteractive(NonInteractiveOptions{
-		APIKey:     "sk-1",
-		CustomerID: "cust-1",
-	})
+	err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"api_key":     "sk-1",
+		"customer_id": "cust-1",
+	}})
 	if err == nil || !strings.Contains(err.Error(), "api_endpoint is required") {
 		t.Fatalf("expected api_endpoint required error, got %v", err)
 	}
@@ -56,13 +55,13 @@ func TestRunConfigureNonInteractive_RequiresAPIEndpoint(t *testing.T) {
 
 func TestRunConfigureNonInteractive_Inline(t *testing.T) {
 	withHome(t)
-	err := RunConfigureNonInteractive(NonInteractiveOptions{
-		CustomerID:    "cust-1",
-		APIEndpoint:   "https://api.example.com",
-		APIKey:        "sk-abcdef",
-		ScanFrequency: "6",
-		SearchDirs:    []string{"/opt", "/usr/local"},
-	})
+	err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id":          "cust-1",
+		"api_endpoint":         "https://api.example.com",
+		"api_key":              "sk-abcdef",
+		"scan_frequency_hours": "6",
+		"search_dirs":          []string{"/opt", "/usr/local"},
+	}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -129,7 +128,7 @@ func TestRunConfigureNonInteractive_InlineOverridesFromFile(t *testing.T) {
 	// customers inject per-tenant keys without committing them).
 	err := RunConfigureNonInteractive(NonInteractiveOptions{
 		FromFile: srcPath,
-		APIKey:   "sk-inline-wins",
+		Values:   map[string]any{"api_key": "sk-inline-wins"},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -148,8 +147,8 @@ func TestNonInteractiveOptions_HasAny(t *testing.T) {
 	if (NonInteractiveOptions{}).HasAny() {
 		t.Error("empty opts should not report HasAny")
 	}
-	if !(NonInteractiveOptions{APIKey: "x"}).HasAny() {
-		t.Error("APIKey alone should be enough")
+	if !(NonInteractiveOptions{Values: map[string]any{"api_key": "x"}}).HasAny() {
+		t.Error("one value alone should be enough")
 	}
 	if !(NonInteractiveOptions{FromFile: "p"}).HasAny() {
 		t.Error("FromFile alone should be enough")
@@ -163,10 +162,10 @@ func TestNonInteractiveOptions_HasAny(t *testing.T) {
 func TestRunConfigureNonInteractive_FromFileMerges(t *testing.T) {
 	optOut := false
 	withHome(t)
-	if err := RunConfigureNonInteractive(NonInteractiveOptions{
-		CustomerID: "cust", APIEndpoint: "https://old.example.com", APIKey: "sk-old",
-		AutoUpdate: &optOut,
-	}); err != nil {
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id": "cust", "api_endpoint": "https://old.example.com", "api_key": "sk-old",
+		"auto_update": optOut,
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	path := ConfigFilePath()
@@ -204,82 +203,34 @@ func TestRunConfigureNonInteractive_FromFileMerges(t *testing.T) {
 	}
 }
 
-// Every config.json setting must be settable non-interactively. A new
-// ConfigFile field fails here until NonInteractiveOptions grows a matching
-// field (and, per AGENTS.md §13, a `configure` CLI flag).
-func TestNonInteractiveOptions_CoverEveryConfigKey(t *testing.T) {
-	aliases := map[string]string{"ScanFrequencyHours": "ScanFrequency"}
-	opts := reflect.TypeOf(NonInteractiveOptions{})
-	cf := reflect.TypeOf(ConfigFile{})
-	for i := range cf.NumField() {
-		f := cf.Field(i)
-		if !f.IsExported() {
-			continue
-		}
-		name := f.Name
-		if a, ok := aliases[name]; ok {
-			name = a
-		}
-		if _, ok := opts.FieldByName(name); !ok {
-			t.Errorf("config key %s (ConfigFile.%s) has no NonInteractiveOptions.%s", f.Tag.Get("json"), f.Name, name)
-		}
-	}
-}
-
-// Every NonInteractiveOptions field must reach config.json: fill them all
-// and check no ConfigFile key is left empty.
-func TestRunConfigureNonInteractive_AppliesEveryOption(t *testing.T) {
+// Flag values merge key by key: "" clears a string setting (how the CLI
+// stores the "auto"/"pretty" defaults), keys not passed are kept.
+func TestRunConfigureNonInteractive_ValuesMerge(t *testing.T) {
 	withHome(t)
-	var opts NonInteractiveOptions
-	v := reflect.ValueOf(&opts).Elem()
-	for i := range v.NumField() {
-		f := v.Field(i)
-		name := v.Type().Field(i).Name
-		switch f.Kind() {
-		case reflect.String:
-			f.SetString("value-" + name)
-		case reflect.Slice:
-			f.Set(reflect.ValueOf([]string{"/dir-" + name}))
-		case reflect.Pointer:
-			p := reflect.New(f.Type().Elem())
-			switch p.Elem().Kind() {
-			case reflect.Bool:
-				p.Elem().SetBool(true)
-			case reflect.Int:
-				p.Elem().SetInt(7)
-			}
-			f.Set(p)
-		default:
-			t.Fatalf("unhandled option kind %s for %s", f.Kind(), name)
+	creds := map[string]any{"customer_id": "c", "api_endpoint": "https://e", "api_key": "k"}
+	with := func(kv map[string]any) NonInteractiveOptions {
+		m := map[string]any{}
+		for k, v := range creds {
+			m[k] = v
 		}
+		for k, v := range kv {
+			m[k] = v
+		}
+		return NonInteractiveOptions{Values: m}
 	}
-	opts.FromFile = ""
-	if err := RunConfigureNonInteractive(opts); err != nil {
+	if err := RunConfigureNonInteractive(with(map[string]any{
+		"color_mode": "never", "output_format": "json", "update_lag_behind": 3, "enable_brew_scan": false,
+	})); err != nil {
 		t.Fatal(err)
 	}
-
-	got := reflect.ValueOf(*loadExisting())
-	for i := range got.NumField() {
-		f := got.Type().Field(i)
-		if f.IsExported() && got.Field(i).IsZero() {
-			t.Errorf("option for %s was not persisted", f.Tag.Get("json"))
-		}
-	}
-}
-
-func TestRunConfigureNonInteractive_DefaultsStoredAsOmitted(t *testing.T) {
-	withHome(t)
-	base := NonInteractiveOptions{CustomerID: "c", APIEndpoint: "https://e", APIKey: "k"}
-	base.ColorMode, base.OutputFormat = "never", "json"
-	if err := RunConfigureNonInteractive(base); err != nil {
-		t.Fatal(err)
-	}
-	base.ColorMode, base.OutputFormat = "auto", "pretty"
-	if err := RunConfigureNonInteractive(base); err != nil {
+	if err := RunConfigureNonInteractive(with(map[string]any{"color_mode": "", "output_format": ""})); err != nil {
 		t.Fatal(err)
 	}
 	cfg := loadExisting()
 	if cfg.ColorMode != "" || cfg.OutputFormat != "" {
 		t.Errorf("defaults not cleared: color=%q format=%q", cfg.ColorMode, cfg.OutputFormat)
+	}
+	if cfg.UpdateLagBehind != 3 || cfg.EnableBrewScan == nil || *cfg.EnableBrewScan {
+		t.Errorf("unpassed keys not kept: lag=%d brew=%v", cfg.UpdateLagBehind, cfg.EnableBrewScan)
 	}
 }

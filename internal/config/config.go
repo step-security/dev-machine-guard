@@ -881,54 +881,20 @@ func isPlaceholder(v string) bool {
 
 // NonInteractiveOptions captures every input the non-interactive configure
 // path accepts. Populated by main.go from cli.Config plus the DMG_API_KEY
-// env var fallback. Empty fields preserve the existing on-disk value
-// (merge semantics — same as the interactive prompt's "press Enter to keep").
+// env var fallback. Keys absent from Values preserve the existing on-disk
+// value (merge semantics — same as the interactive prompt's "press Enter
+// to keep").
 type NonInteractiveOptions struct {
-	FromFile             string   // path to a complete ConfigFile JSON; wins over inline values
-	DeviceID             string   // --device-id
-	CustomerID           string   // --customer-id
-	APIEndpoint          string   // --api-endpoint
-	APIKey               string   // --api-key (or DMG_API_KEY env)
-	ScanFrequency        string   // --scan-frequency (hours, as string)
-	SearchDirs           []string // --search-dirs (re-used from scan flag; empty = unchanged)
-	MaxExecutionDuration string   // --max-execution-duration
-
-	// Scan toggles re-use the scan flags; nil = unchanged.
-	EnableNPMScan         *bool // --enable-npm-scan / --disable-npm-scan
-	EnableBrewScan        *bool // --enable-brew-scan / --disable-brew-scan
-	EnablePythonScan      *bool // --enable-python-scan / --disable-python-scan
-	EnableRuntimeScan     *bool // --enable-runtime-scan / --disable-runtime-scan
-	UseLegacyNodeScan     *bool // --legacy-node-scan / --disk-node-scan
-	UseLegacyPythonScan   *bool // --legacy-python-scan / --disk-python-scan
-	IncludeTCCProtected   *bool // --[no-]include-tcc-protected
-	IncludeNetworkVolumes *bool // --[no-]include-network-volumes
-
-	// Output settings re-use the output flags; "" = unchanged. The default
-	// values ("auto", "pretty") are stored as omitted keys, like the prompt.
-	ColorMode      string // --color=
-	OutputFormat   string // --pretty / --json / --html
-	HTMLOutputFile string // --html PATH
-	LogLevel       string // --log-level=
-	InstallDir     string // --install-dir
-
-	AutoUpdate          *bool  // --auto-update=true|false (nil = unchanged)
-	UpdateMirrorURL     string // --update-mirror-url
-	UpdateLagBehind     *int   // --update-lag-behind (nil = unchanged)
-	UpdateCooldownHours *int   // --update-cooldown-hours (nil = unchanged)
+	FromFile string         // path to a ConfigFile JSON; Values override it
+	Values   map[string]any // config.json key -> value, from the CLI flags
 }
 
 // HasAny reports whether the caller supplied any inline value. Used by
 // main.go to decide whether `configure` was invoked non-interactively
 // even without the explicit --non-interactive flag (e.g. an MSI that only
-// passes --from-file). Reflective so a new option can't be forgotten here.
+// passes --from-file).
 func (o NonInteractiveOptions) HasAny() bool {
-	v := reflect.ValueOf(o)
-	for i := range v.NumField() {
-		if !v.Field(i).IsZero() {
-			return true
-		}
-	}
-	return false
+	return o.FromFile != "" || len(o.Values) > 0
 }
 
 // RunConfigureNonInteractive applies the supplied options to the existing
@@ -942,7 +908,7 @@ func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
 
 	// --from-file merges: keys the file carries override the existing
 	// config (credential rotation), keys it omits are kept (an AUTOUPDATE=0
-	// opt-out, unknown keys). Inline flags still override individual fields
+	// opt-out, unknown keys). Inline flags still override individual keys
 	// below, so customers can ship a base config via the file and inject
 	// the per-tenant API key via an env var on the command line.
 	if opts.FromFile != "" {
@@ -959,74 +925,15 @@ func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
 		}
 	}
 
-	if opts.DeviceID != "" {
-		existing.DeviceID = opts.DeviceID
-	}
-	if opts.CustomerID != "" {
-		existing.CustomerID = opts.CustomerID
-	}
-	if opts.APIEndpoint != "" {
-		existing.APIEndpoint = opts.APIEndpoint
-	}
-	if opts.APIKey != "" {
-		existing.APIKey = opts.APIKey
-	}
-	if opts.ScanFrequency != "" {
-		existing.ScanFrequencyHours = opts.ScanFrequency
-	}
-	if len(opts.SearchDirs) > 0 {
-		existing.SearchDirs = opts.SearchDirs
-	}
-	if opts.MaxExecutionDuration != "" {
-		existing.MaxExecutionDuration = opts.MaxExecutionDuration
-	}
-	for _, b := range []struct {
-		dst **bool
-		src *bool
-	}{
-		{&existing.EnableNPMScan, opts.EnableNPMScan},
-		{&existing.EnableBrewScan, opts.EnableBrewScan},
-		{&existing.EnablePythonScan, opts.EnablePythonScan},
-		{&existing.EnableRuntimeScan, opts.EnableRuntimeScan},
-		{&existing.UseLegacyNodeScan, opts.UseLegacyNodeScan},
-		{&existing.UseLegacyPythonScan, opts.UseLegacyPythonScan},
-		{&existing.IncludeTCCProtected, opts.IncludeTCCProtected},
-		{&existing.IncludeNetworkVolumes, opts.IncludeNetworkVolumes},
-		{&existing.AutoUpdate, opts.AutoUpdate},
-	} {
-		if b.src != nil {
-			*b.dst = b.src
+	// Flag values merge the same way, over the file.
+	if len(opts.Values) > 0 {
+		data, err := json.Marshal(opts.Values)
+		if err != nil {
+			return fmt.Errorf("encoding configure flags: %w", err)
 		}
-	}
-	if opts.ColorMode != "" {
-		existing.ColorMode = opts.ColorMode
-		if existing.ColorMode == "auto" {
-			existing.ColorMode = ""
+		if err := json.Unmarshal(data, existing); err != nil {
+			return fmt.Errorf("applying configure flags: %w", err)
 		}
-	}
-	if opts.OutputFormat != "" {
-		existing.OutputFormat = opts.OutputFormat
-		if existing.OutputFormat == "pretty" {
-			existing.OutputFormat = ""
-		}
-	}
-	if opts.HTMLOutputFile != "" {
-		existing.HTMLOutputFile = opts.HTMLOutputFile
-	}
-	if opts.LogLevel != "" {
-		existing.LogLevel = opts.LogLevel
-	}
-	if opts.InstallDir != "" {
-		existing.InstallDir = opts.InstallDir
-	}
-	if opts.UpdateMirrorURL != "" {
-		existing.UpdateMirrorURL = opts.UpdateMirrorURL
-	}
-	if opts.UpdateLagBehind != nil {
-		existing.UpdateLagBehind = *opts.UpdateLagBehind
-	}
-	if opts.UpdateCooldownHours != nil {
-		existing.UpdateCooldownHours = *opts.UpdateCooldownHours
 	}
 
 	// Validation: an MSI deploy with no creds is almost certainly a bug.
