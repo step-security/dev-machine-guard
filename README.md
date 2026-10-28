@@ -256,7 +256,8 @@ Configuration (~/.stepsecurity/config.json):
 Configuration is saved to `~/.stepsecurity/config.json` with `0600` permissions (owner read/write only).
 
 To use a custom device ID, add `"device_id": "my-device-123"` to the existing
-config JSON, or set **Device ID** through `configure`. The override is also
+config JSON, set **Device ID** through `configure`, or pass
+`configure --device-id my-device-123`. The override is also
 supported in JSON supplied to `configure --from-file`. An omitted, empty, or
 whitespace-only value uses the machine serial as before. The agent continues
 reporting the actual machine serial in `serial_number`. WSL guest scans derive
@@ -264,6 +265,37 @@ separate IDs from the host ID and distro ID.
 
 Choose an ID unique within your customer and keep it stable: changing the ID
 registers a separate device in the backend; it does not migrate existing history.
+
+Every setting can also be written without prompts, which is how MDM, MSI and
+CI deployments configure the agent. Any setting flag passed to `configure`
+selects the no-prompt path; settings you don't pass keep their current value:
+
+```bash
+./stepsecurity-dev-machine-guard configure --non-interactive \
+  --customer-id my-company --api-endpoint https://api.stepsecurity.io \
+  --device-id my-device-123 --scan-frequency 4 --search-dirs /Volumes/code \
+  --disable-brew-scan --log-level=info
+```
+
+| Setting                 | `configure` flag                                     |
+| ----------------------- | ---------------------------------------------------- |
+| Device ID               | `--device-id ID`                                     |
+| Customer ID             | `--customer-id ID`                                   |
+| API Endpoint            | `--api-endpoint URL`                                 |
+| API Key                 | `--api-key KEY` (or `DMG_API_KEY` env var)           |
+| Scan Frequency          | `--scan-frequency HOURS`                             |
+| Max Execution Duration  | `--max-execution-duration 2h` (`off` to disable)     |
+| Search Directories      | `--search-dirs DIR...`                               |
+| NPM / Brew / Python / runtime scan | `--enable-<x>-scan` / `--disable-<x>-scan` |
+| Node / Python scanner   | `--legacy-node-scan` / `--disk-node-scan`, `--legacy-python-scan` / `--disk-python-scan` |
+| macOS TCC-protected dirs | `--include-tcc-protected` / `--no-include-tcc-protected` |
+| macOS network volumes   | `--include-network-volumes` / `--no-include-network-volumes` |
+| Color Mode              | `--color=auto\|always\|never`                         |
+| Output Format / HTML file | `--pretty`, `--json`, `--html FILE`                |
+| Log Level               | `--log-level=LEVEL`                                  |
+| Install Directory       | `--install-dir DIR`                                  |
+| Self-update             | `--auto-update=BOOL`, `--update-mirror-url URL`, `--update-lag-behind N`, `--update-cooldown-hours N` |
+| Everything at once      | `--from-file config.json` (flags override the file)  |
 
 **CLI flags always override config file values** — this matches the shell script behavior. For example, if your config has `output_format: json`, running `./stepsecurity-dev-machine-guard --pretty` uses pretty output. To clear a value during configuration, enter a single dash (`-`).
 

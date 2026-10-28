@@ -884,27 +884,51 @@ func isPlaceholder(v string) bool {
 // env var fallback. Empty fields preserve the existing on-disk value
 // (merge semantics — same as the interactive prompt's "press Enter to keep").
 type NonInteractiveOptions struct {
-	FromFile      string   // path to a complete ConfigFile JSON; wins over inline values
-	CustomerID    string   // --customer-id
-	APIEndpoint   string   // --api-endpoint
-	APIKey        string   // --api-key (or DMG_API_KEY env)
-	ScanFrequency string   // --scan-frequency (hours, as string)
-	SearchDirs    []string // --search-dirs (re-used from scan flag; empty = unchanged)
-	AutoUpdate    *bool    // --auto-update=true|false (nil = unchanged)
+	FromFile             string   // path to a complete ConfigFile JSON; wins over inline values
+	DeviceID             string   // --device-id
+	CustomerID           string   // --customer-id
+	APIEndpoint          string   // --api-endpoint
+	APIKey               string   // --api-key (or DMG_API_KEY env)
+	ScanFrequency        string   // --scan-frequency (hours, as string)
+	SearchDirs           []string // --search-dirs (re-used from scan flag; empty = unchanged)
+	MaxExecutionDuration string   // --max-execution-duration
+
+	// Scan toggles re-use the scan flags; nil = unchanged.
+	EnableNPMScan         *bool // --enable-npm-scan / --disable-npm-scan
+	EnableBrewScan        *bool // --enable-brew-scan / --disable-brew-scan
+	EnablePythonScan      *bool // --enable-python-scan / --disable-python-scan
+	EnableRuntimeScan     *bool // --enable-runtime-scan / --disable-runtime-scan
+	UseLegacyNodeScan     *bool // --legacy-node-scan / --disk-node-scan
+	UseLegacyPythonScan   *bool // --legacy-python-scan / --disk-python-scan
+	IncludeTCCProtected   *bool // --[no-]include-tcc-protected
+	IncludeNetworkVolumes *bool // --[no-]include-network-volumes
+
+	// Output settings re-use the output flags; "" = unchanged. The default
+	// values ("auto", "pretty") are stored as omitted keys, like the prompt.
+	ColorMode      string // --color=
+	OutputFormat   string // --pretty / --json / --html
+	HTMLOutputFile string // --html PATH
+	LogLevel       string // --log-level=
+	InstallDir     string // --install-dir
+
+	AutoUpdate          *bool  // --auto-update=true|false (nil = unchanged)
+	UpdateMirrorURL     string // --update-mirror-url
+	UpdateLagBehind     *int   // --update-lag-behind (nil = unchanged)
+	UpdateCooldownHours *int   // --update-cooldown-hours (nil = unchanged)
 }
 
 // HasAny reports whether the caller supplied any inline value. Used by
 // main.go to decide whether `configure` was invoked non-interactively
 // even without the explicit --non-interactive flag (e.g. an MSI that only
-// passes --from-file).
+// passes --from-file). Reflective so a new option can't be forgotten here.
 func (o NonInteractiveOptions) HasAny() bool {
-	return o.FromFile != "" ||
-		o.CustomerID != "" ||
-		o.APIEndpoint != "" ||
-		o.APIKey != "" ||
-		o.ScanFrequency != "" ||
-		len(o.SearchDirs) > 0 ||
-		o.AutoUpdate != nil
+	v := reflect.ValueOf(o)
+	for i := range v.NumField() {
+		if !v.Field(i).IsZero() {
+			return true
+		}
+	}
+	return false
 }
 
 // RunConfigureNonInteractive applies the supplied options to the existing
@@ -935,6 +959,9 @@ func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
 		}
 	}
 
+	if opts.DeviceID != "" {
+		existing.DeviceID = opts.DeviceID
+	}
 	if opts.CustomerID != "" {
 		existing.CustomerID = opts.CustomerID
 	}
@@ -950,8 +977,56 @@ func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
 	if len(opts.SearchDirs) > 0 {
 		existing.SearchDirs = opts.SearchDirs
 	}
-	if opts.AutoUpdate != nil {
-		existing.AutoUpdate = opts.AutoUpdate
+	if opts.MaxExecutionDuration != "" {
+		existing.MaxExecutionDuration = opts.MaxExecutionDuration
+	}
+	for _, b := range []struct {
+		dst **bool
+		src *bool
+	}{
+		{&existing.EnableNPMScan, opts.EnableNPMScan},
+		{&existing.EnableBrewScan, opts.EnableBrewScan},
+		{&existing.EnablePythonScan, opts.EnablePythonScan},
+		{&existing.EnableRuntimeScan, opts.EnableRuntimeScan},
+		{&existing.UseLegacyNodeScan, opts.UseLegacyNodeScan},
+		{&existing.UseLegacyPythonScan, opts.UseLegacyPythonScan},
+		{&existing.IncludeTCCProtected, opts.IncludeTCCProtected},
+		{&existing.IncludeNetworkVolumes, opts.IncludeNetworkVolumes},
+		{&existing.AutoUpdate, opts.AutoUpdate},
+	} {
+		if b.src != nil {
+			*b.dst = b.src
+		}
+	}
+	if opts.ColorMode != "" {
+		existing.ColorMode = opts.ColorMode
+		if existing.ColorMode == "auto" {
+			existing.ColorMode = ""
+		}
+	}
+	if opts.OutputFormat != "" {
+		existing.OutputFormat = opts.OutputFormat
+		if existing.OutputFormat == "pretty" {
+			existing.OutputFormat = ""
+		}
+	}
+	if opts.HTMLOutputFile != "" {
+		existing.HTMLOutputFile = opts.HTMLOutputFile
+	}
+	if opts.LogLevel != "" {
+		existing.LogLevel = opts.LogLevel
+	}
+	if opts.InstallDir != "" {
+		existing.InstallDir = opts.InstallDir
+	}
+	if opts.UpdateMirrorURL != "" {
+		existing.UpdateMirrorURL = opts.UpdateMirrorURL
+	}
+	if opts.UpdateLagBehind != nil {
+		existing.UpdateLagBehind = *opts.UpdateLagBehind
+	}
+	if opts.UpdateCooldownHours != nil {
+		existing.UpdateCooldownHours = *opts.UpdateCooldownHours
 	}
 
 	// Validation: an MSI deploy with no creds is almost certainly a bug.

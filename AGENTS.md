@@ -586,6 +586,16 @@ case arg == "--api-key":
 case strings.HasPrefix(arg, "--api-key="):
     cfg.ConfigAPIKey = strings.TrimPrefix(arg, "--api-key=")
 ```
+- **Every config setting gets a non-interactive `configure` flag.** Anything an admin can set in
+  `config.json` (a `ConfigFile` field) or through the interactive `configure` prompt MUST also be
+  settable by a `configure` CLI flag, because MDM/MSI/CI deploys can't drive a prompt. Adding a
+  setting means: (1) the `ConfigFile` field; (2) a matching `NonInteractiveOptions` field, applied in
+  `RunConfigureNonInteractive`; (3) a CLI flag (reuse an existing scan/output flag for that setting
+  if there is one, else add a `Config*` field + parse case) wired into `opts` in `main.go`; (4) a
+  `--help` line and a row in the README's non-interactive flag table. Empty/nil means "unchanged".
+  `TestNonInteractiveOptions_CoverEveryConfigKey` and
+  `TestRunConfigureNonInteractive_AppliesEveryOption` fail if (1) lands without (2); (3) and (4) are
+  on you.
 - **Exit-code contract** (scheduler-facing — use these, don't invent new ones): `0` success ·
   `1` generic failure/usage/config error · `2` execution-watchdog hard timeout (and `--exec` launcher
   misuse) · `130` SIGINT/SIGTERM. **The hidden `_hook` path MUST exit `0` even on bad args** (agents

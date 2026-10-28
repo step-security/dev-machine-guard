@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -200,5 +201,85 @@ func TestRunConfigureNonInteractive_FromFileMerges(t *testing.T) {
 	raw, _ = os.ReadFile(path)
 	if !strings.Contains(string(raw), `"future_key"`) {
 		t.Fatalf("unknown key dropped:\n%s", raw)
+	}
+}
+
+// Every config.json setting must be settable non-interactively. A new
+// ConfigFile field fails here until NonInteractiveOptions grows a matching
+// field (and, per AGENTS.md §13, a `configure` CLI flag).
+func TestNonInteractiveOptions_CoverEveryConfigKey(t *testing.T) {
+	aliases := map[string]string{"ScanFrequencyHours": "ScanFrequency"}
+	opts := reflect.TypeOf(NonInteractiveOptions{})
+	cf := reflect.TypeOf(ConfigFile{})
+	for i := range cf.NumField() {
+		f := cf.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		name := f.Name
+		if a, ok := aliases[name]; ok {
+			name = a
+		}
+		if _, ok := opts.FieldByName(name); !ok {
+			t.Errorf("config key %s (ConfigFile.%s) has no NonInteractiveOptions.%s", f.Tag.Get("json"), f.Name, name)
+		}
+	}
+}
+
+// Every NonInteractiveOptions field must reach config.json: fill them all
+// and check no ConfigFile key is left empty.
+func TestRunConfigureNonInteractive_AppliesEveryOption(t *testing.T) {
+	withHome(t)
+	var opts NonInteractiveOptions
+	v := reflect.ValueOf(&opts).Elem()
+	for i := range v.NumField() {
+		f := v.Field(i)
+		name := v.Type().Field(i).Name
+		switch f.Kind() {
+		case reflect.String:
+			f.SetString("value-" + name)
+		case reflect.Slice:
+			f.Set(reflect.ValueOf([]string{"/dir-" + name}))
+		case reflect.Pointer:
+			p := reflect.New(f.Type().Elem())
+			switch p.Elem().Kind() {
+			case reflect.Bool:
+				p.Elem().SetBool(true)
+			case reflect.Int:
+				p.Elem().SetInt(7)
+			}
+			f.Set(p)
+		default:
+			t.Fatalf("unhandled option kind %s for %s", f.Kind(), name)
+		}
+	}
+	opts.FromFile = ""
+	if err := RunConfigureNonInteractive(opts); err != nil {
+		t.Fatal(err)
+	}
+
+	got := reflect.ValueOf(*loadExisting())
+	for i := range got.NumField() {
+		f := got.Type().Field(i)
+		if f.IsExported() && got.Field(i).IsZero() {
+			t.Errorf("option for %s was not persisted", f.Tag.Get("json"))
+		}
+	}
+}
+
+func TestRunConfigureNonInteractive_DefaultsStoredAsOmitted(t *testing.T) {
+	withHome(t)
+	base := NonInteractiveOptions{CustomerID: "c", APIEndpoint: "https://e", APIKey: "k"}
+	base.ColorMode, base.OutputFormat = "never", "json"
+	if err := RunConfigureNonInteractive(base); err != nil {
+		t.Fatal(err)
+	}
+	base.ColorMode, base.OutputFormat = "auto", "pretty"
+	if err := RunConfigureNonInteractive(base); err != nil {
+		t.Fatal(err)
+	}
+	cfg := loadExisting()
+	if cfg.ColorMode != "" || cfg.OutputFormat != "" {
+		t.Errorf("defaults not cleared: color=%q format=%q", cfg.ColorMode, cfg.OutputFormat)
 	}
 }

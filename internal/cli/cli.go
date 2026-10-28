@@ -100,16 +100,25 @@ type Config struct {
 
 	// Non-interactive `configure` inputs. Used by MSI/SCCM and other
 	// orchestrators that can't drive a stdin prompt loop. NonInteractive
-	// is implied when any of ConfigFromFile / ConfigCustomerID /
-	// ConfigAPIEndpoint / ConfigAPIKey / ConfigScanFrequency is set,
-	// and main.go routes accordingly.
-	NonInteractive      bool
-	ConfigFromFile      string // --from-file: read full config JSON from path
-	ConfigCustomerID    string // --customer-id
-	ConfigAPIEndpoint   string // --api-endpoint
-	ConfigAPIKey        string // --api-key (also accepts env var DMG_API_KEY)
-	ConfigScanFrequency string // --scan-frequency (hours)
-	ConfigAutoUpdate    *bool  // --auto-update=true|false (Windows self-update)
+	// is implied when any config-setting flag is passed to `configure`
+	// (these Config* fields, plus the scan/output flags above, which
+	// `configure` persists), and main.go routes accordingly.
+	NonInteractive             bool
+	ConfigFromFile             string // --from-file: read full config JSON from path
+	ConfigDeviceID             string // --device-id
+	ConfigCustomerID           string // --customer-id
+	ConfigAPIEndpoint          string // --api-endpoint
+	ConfigAPIKey               string // --api-key (also accepts env var DMG_API_KEY)
+	ConfigScanFrequency        string // --scan-frequency (hours)
+	ConfigMaxExecutionDuration string // --max-execution-duration (e.g. 2h, 30m, off)
+	ConfigAutoUpdate           *bool  // --auto-update=true|false (Windows self-update)
+	ConfigUpdateMirrorURL      string // --update-mirror-url
+	ConfigUpdateLagBehind      *int   // --update-lag-behind N (releases)
+	ConfigUpdateCooldownHours  *int   // --update-cooldown-hours N
+
+	// ColorModeSet is true when --color= was passed explicitly, so
+	// `configure` persists it (ColorMode itself defaults to "auto").
+	ColorModeSet bool
 
 	// IgnoreTelemetryError opts the `install` subcommand into treating an
 	// initial-telemetry POST failure as a warning rather than a fatal exit.
@@ -292,6 +301,7 @@ func Parse(args []string) (*Config, error) {
 				return nil, fmt.Errorf("invalid color mode: %s (must be auto, always, or never)", mode)
 			}
 			cfg.ColorMode = mode
+			cfg.ColorModeSet = true
 		case arg == "--search-dirs":
 			i++
 			if i >= len(args) || strings.HasPrefix(args[i], "--") {
@@ -319,6 +329,14 @@ func Parse(args []string) (*Config, error) {
 			cfg.ConfigFromFile = args[i]
 		case strings.HasPrefix(arg, "--from-file="):
 			cfg.ConfigFromFile = strings.TrimPrefix(arg, "--from-file=")
+		case arg == "--device-id":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--device-id requires a value")
+			}
+			cfg.ConfigDeviceID = args[i]
+		case strings.HasPrefix(arg, "--device-id="):
+			cfg.ConfigDeviceID = strings.TrimPrefix(arg, "--device-id=")
 		case arg == "--customer-id":
 			i++
 			if i >= len(args) {
@@ -351,6 +369,34 @@ func Parse(args []string) (*Config, error) {
 			cfg.ConfigScanFrequency = args[i]
 		case strings.HasPrefix(arg, "--scan-frequency="):
 			cfg.ConfigScanFrequency = strings.TrimPrefix(arg, "--scan-frequency=")
+		case arg == "--max-execution-duration":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--max-execution-duration requires a value (e.g. 2h, 30m, off)")
+			}
+			cfg.ConfigMaxExecutionDuration = args[i]
+		case strings.HasPrefix(arg, "--max-execution-duration="):
+			cfg.ConfigMaxExecutionDuration = strings.TrimPrefix(arg, "--max-execution-duration=")
+		case arg == "--update-mirror-url":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--update-mirror-url requires a value")
+			}
+			cfg.ConfigUpdateMirrorURL = args[i]
+		case strings.HasPrefix(arg, "--update-mirror-url="):
+			cfg.ConfigUpdateMirrorURL = strings.TrimPrefix(arg, "--update-mirror-url=")
+		case arg == "--update-lag-behind" || strings.HasPrefix(arg, "--update-lag-behind="):
+			v, err := intFlagValue(args, &i, "--update-lag-behind")
+			if err != nil {
+				return nil, err
+			}
+			cfg.ConfigUpdateLagBehind = &v
+		case arg == "--update-cooldown-hours" || strings.HasPrefix(arg, "--update-cooldown-hours="):
+			v, err := intFlagValue(args, &i, "--update-cooldown-hours")
+			if err != nil {
+				return nil, err
+			}
+			cfg.ConfigUpdateCooldownHours = &v
 		case strings.HasPrefix(arg, "--auto-update="):
 			v, err := strconv.ParseBool(strings.TrimPrefix(arg, "--auto-update="))
 			if err != nil {
@@ -462,6 +508,24 @@ func Parse(args []string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// intFlagValue reads a non-negative integer for name from either
+// `name=N` (args[*i]) or `name N` (advancing *i).
+func intFlagValue(args []string, i *int, name string) (int, error) {
+	raw, ok := strings.CutPrefix(args[*i], name+"=")
+	if !ok {
+		*i++
+		if *i >= len(args) {
+			return 0, fmt.Errorf("%s requires a value", name)
+		}
+		raw = args[*i]
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer, got %q", name, raw)
+	}
+	return v, nil
 }
 
 // parseHooks handles `hooks install` and `hooks uninstall`.
@@ -655,8 +719,17 @@ Non-interactive configure (for MSI / SCCM / Intune deployments):
   --customer-id ID              Customer identifier
   --api-endpoint URL            StepSecurity backend URL
   --api-key KEY                 Authentication key (or set DMG_API_KEY env var)
+  --device-id ID                Custom device identifier (default: machine serial)
   --scan-frequency HOURS        Scheduled scan frequency
+  --max-execution-duration D    Whole-run watchdog (e.g. 2h, 30m; off to disable)
   --auto-update=BOOL            Windows MSI self-update on (default) or off
+  --update-mirror-url URL       HTTPS packages mirror for self-update
+  --update-lag-behind N         Stay N releases behind the latest
+  --update-cooldown-hours N     Wait N hours after a release before updating
+  Passed to 'configure', the scan and output flags above (--search-dirs,
+  --enable-*/--disable-*-scan, --legacy-*/--disk-*-scan, --[no-]include-*,
+  --pretty/--json/--html, --color=, --log-level=, --install-dir=) are saved
+  to config.json too.
   --ignore-telemetry-error      On 'install', treat a failed initial telemetry POST
                                 as a warning instead of a fatal exit (use in MSI
                                 custom actions to avoid rollback on transient network)

@@ -460,3 +460,58 @@ func TestParse_ConfigureAutoUpdate(t *testing.T) {
 		t.Fatal("invalid --auto-update accepted")
 	}
 }
+
+func TestParse_ConfigureSettingFlags(t *testing.T) {
+	cfg, err := Parse([]string{"configure",
+		"--device-id", "dev-1",
+		"--max-execution-duration=2h",
+		"--update-mirror-url", "https://mirror.example.com",
+		"--update-lag-behind=2",
+		"--update-cooldown-hours", "24",
+		"--color=never",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ConfigDeviceID != "dev-1" {
+		t.Errorf("ConfigDeviceID = %q", cfg.ConfigDeviceID)
+	}
+	if cfg.ConfigMaxExecutionDuration != "2h" {
+		t.Errorf("ConfigMaxExecutionDuration = %q", cfg.ConfigMaxExecutionDuration)
+	}
+	if cfg.ConfigUpdateMirrorURL != "https://mirror.example.com" {
+		t.Errorf("ConfigUpdateMirrorURL = %q", cfg.ConfigUpdateMirrorURL)
+	}
+	if cfg.ConfigUpdateLagBehind == nil || *cfg.ConfigUpdateLagBehind != 2 {
+		t.Errorf("ConfigUpdateLagBehind = %v", cfg.ConfigUpdateLagBehind)
+	}
+	if cfg.ConfigUpdateCooldownHours == nil || *cfg.ConfigUpdateCooldownHours != 24 {
+		t.Errorf("ConfigUpdateCooldownHours = %v", cfg.ConfigUpdateCooldownHours)
+	}
+	if !cfg.ColorModeSet || cfg.ColorMode != "never" {
+		t.Errorf("ColorMode = %q set=%v", cfg.ColorMode, cfg.ColorModeSet)
+	}
+
+	cfg, err = Parse([]string{"configure", "--device-id=dev-2"})
+	if err != nil || cfg.ConfigDeviceID != "dev-2" {
+		t.Fatalf("--device-id=: cfg=%+v err=%v", cfg, err)
+	}
+	if cfg.ColorModeSet {
+		t.Error("ColorModeSet true without --color=")
+	}
+}
+
+func TestParse_ConfigureSettingFlagErrors(t *testing.T) {
+	for _, args := range [][]string{
+		{"configure", "--device-id"},
+		{"configure", "--max-execution-duration"},
+		{"configure", "--update-mirror-url"},
+		{"configure", "--update-lag-behind"},
+		{"configure", "--update-lag-behind=-1"},
+		{"configure", "--update-cooldown-hours", "soon"},
+	} {
+		if _, err := Parse(args); err == nil {
+			t.Errorf("Parse(%v) accepted", args)
+		}
+	}
+}

@@ -241,12 +241,38 @@ func main() {
 		// through the no-prompt code path. This is how MSI/SCCM/Intune
 		// custom actions drive configuration — they can't talk to stdin.
 		opts := config.NonInteractiveOptions{
-			FromFile:      cfg.ConfigFromFile,
-			CustomerID:    cfg.ConfigCustomerID,
-			APIEndpoint:   cfg.ConfigAPIEndpoint,
-			APIKey:        cfg.ConfigAPIKey,
-			ScanFrequency: cfg.ConfigScanFrequency,
-			AutoUpdate:    cfg.ConfigAutoUpdate,
+			FromFile:              cfg.ConfigFromFile,
+			DeviceID:              cfg.ConfigDeviceID,
+			CustomerID:            cfg.ConfigCustomerID,
+			APIEndpoint:           cfg.ConfigAPIEndpoint,
+			APIKey:                cfg.ConfigAPIKey,
+			ScanFrequency:         cfg.ConfigScanFrequency,
+			MaxExecutionDuration:  cfg.ConfigMaxExecutionDuration,
+			EnableNPMScan:         cfg.EnableNPMScan,
+			EnableBrewScan:        cfg.EnableBrewScan,
+			EnablePythonScan:      cfg.EnablePythonScan,
+			EnableRuntimeScan:     cfg.EnableRuntimeScan,
+			UseLegacyNodeScan:     cfg.UseLegacyNodeScan,
+			UseLegacyPythonScan:   cfg.UseLegacyPythonScan,
+			IncludeTCCProtected:   cfg.IncludeTCCProtected,
+			IncludeNetworkVolumes: cfg.IncludeNetworkVolumes,
+			LogLevel:              cfg.LogLevel,
+			AutoUpdate:            cfg.ConfigAutoUpdate,
+			UpdateMirrorURL:       cfg.ConfigUpdateMirrorURL,
+			UpdateLagBehind:       cfg.ConfigUpdateLagBehind,
+			UpdateCooldownHours:   cfg.ConfigUpdateCooldownHours,
+		}
+		// Output/color/install-dir carry parse-time defaults, so only
+		// forward them when the flag was actually passed.
+		if cfg.ColorModeSet {
+			opts.ColorMode = cfg.ColorMode
+		}
+		if cfg.OutputFormatSet {
+			opts.OutputFormat = cfg.OutputFormat
+			opts.HTMLOutputFile = cfg.HTMLOutputFile
+		}
+		if cfg.InstallDirSet {
+			opts.InstallDir = cfg.InstallDir
 		}
 		if opts.APIKey == "" {
 			// Env-var fallback keeps the secret off the msiexec command
