@@ -1,12 +1,13 @@
 package configaudit
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
@@ -15,76 +16,88 @@ import (
 // It is intentionally tolerant: malformed lines are skipped without aborting
 // the whole parse, so a single garbage line doesn't hide useful entries.
 //
-// Behavior matches the npm/ini parser's surface in the ways that matter for
-// audit:
+// Line handling follows npm's bundled ini parser:
 //   - `;` and `#` start a comment when they are the first non-whitespace char
-//     on a line (inline `key=value ; comment` is NOT treated as a comment;
-//     npm/ini retains it as part of the value).
+//     on a line; elsewhere an unescaped `;` or `#` ends an unquoted value.
+//   - A value wrapped in matching quotes is unwrapped (JSON-decoded when it
+//     is valid JSON) and keeps comment characters.
+//   - A key without `=` has the value `true`.
 //   - `key[]=value` denotes an array entry.
-//   - URI-prefixed keys (`//host/path/:_authToken`) are valid keys.
-//   - Surrounding double quotes on a value are unwrapped, but the fact that
-//     the value was quoted is preserved on the entry.
 //   - `${VAR}` references are NEVER expanded — preserving the literal form is
 //     load-bearing for the audit (it's how we tell hardcoded secrets apart
 //     from env-referenced ones).
-//   - Section headers `[section]` are accepted (rare in npmrc) but ignored;
-//     keys are still emitted at the top level.
+//   - Keys under a `[section]` header become a nested object in npm, not
+//     top-level settings, so they are not emitted; the returned limitation
+//     says the file has settings npm won't apply as written.
 //
-// Returns the parsed entries. Caller decides how to attach them to a file.
-func parseNPMRC(data []byte) []model.NPMRCEntry {
-	var entries []model.NPMRCEntry
-
+// Entries stay in physical order with their line numbers, duplicates included.
+func parseNPMRC(data []byte) (entries []model.NPMRCEntry, limitation string) {
 	// Strip UTF-8 BOM if present so the first line parses correctly.
-	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
-
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	// Allow large lines (some users base64-pin a CA into `cafile`).
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
-	lineNum := 0
-	for scanner.Scan() {
-		lineNum++
-		raw := scanner.Text()
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
+	text := string(bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF}))
+	text = strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(text)
+	inSection := false
+	for i, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || trimmed[0] == ';' || trimmed[0] == '#' {
 			continue
 		}
-		// Comment lines.
-		if trimmed[0] == ';' || trimmed[0] == '#' {
+		if iniSectionPattern.MatchString(line) {
+			inSection = true
+			limitation = "sectioned settings not applied"
 			continue
 		}
-		// Section header — accept and ignore.
-		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+		rawKey, rawValue, hasValue := strings.Cut(line, "=")
+		key, _ := iniUnsafe(rawKey)
+		if key == "" || inSection {
 			continue
 		}
-		// Find the first '=' — npm/ini uses the first one as the separator.
-		eq := strings.IndexByte(trimmed, '=')
-		if eq < 0 {
-			// No '=' — treat as a key with empty value (matches npm/ini).
-			key := strings.TrimSpace(trimmed)
-			if key == "" {
-				continue
-			}
-			entries = append(entries, buildEntry(key, "", false, lineNum))
-			continue
+		value, quoted := "true", false
+		if hasValue {
+			value, quoted = iniUnsafe(rawValue)
 		}
-		key := strings.TrimSpace(trimmed[:eq])
-		value := strings.TrimSpace(trimmed[eq+1:])
-
-		if key == "" {
-			continue
-		}
-
-		quoted := false
-		if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
-			value = value[1 : len(value)-1]
-			quoted = true
-		}
-
-		entries = append(entries, buildEntry(key, value, quoted, lineNum))
+		entries = append(entries, buildEntry(key, value, quoted, i+1))
 	}
+	return entries, limitation
+}
 
-	return entries
+var iniSectionPattern = regexp.MustCompile(`^\[[^\]]*\]\s*$`)
+
+// iniUnsafe decodes one key or value the way npm's ini parser does.
+func iniUnsafe(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {
+		inner := s
+		if s[0] == '\'' {
+			inner = s[1 : len(s)-1]
+		}
+		var decoded string
+		if json.Unmarshal([]byte(inner), &decoded) == nil {
+			return decoded, true
+		}
+		return inner, true
+	}
+	var b strings.Builder
+	escaped := false
+	for _, r := range s {
+		switch {
+		case escaped:
+			if r != '\\' && r != ';' && r != '#' {
+				b.WriteByte('\\')
+			}
+			b.WriteRune(r)
+			escaped = false
+		case r == ';' || r == '#':
+			return strings.TrimSpace(b.String()), false
+		case r == '\\':
+			escaped = true
+		default:
+			b.WriteRune(r)
+		}
+	}
+	if escaped {
+		b.WriteByte('\\')
+	}
+	return strings.TrimSpace(b.String()), false
 }
 
 // buildEntry classifies a key/value into an NPMRCEntry, populating the
@@ -98,22 +111,19 @@ func buildEntry(key, value string, quoted bool, lineNum int) model.NPMRCEntry {
 
 	isAuth := isAuthKey(key)
 	envRefVars, isEnvRef := extractEnvRefs(value)
-
-	display := value
-	if isAuth && !isEnvRef && value != "" {
-		display = redactSecret(value)
-	}
+	display, hasLiteral := redactValue(value, isAuth)
 
 	return model.NPMRCEntry{
-		Key:          key,
-		DisplayValue: display,
-		LineNum:      lineNum,
-		IsArray:      isArray,
-		IsAuth:       isAuth,
-		IsEnvRef:     isEnvRef,
-		EnvRefVars:   envRefVars,
-		ValueSHA256:  hashValue(value),
-		Quoted:       quoted,
+		Key:            key,
+		DisplayValue:   display,
+		LineNum:        lineNum,
+		IsArray:        isArray,
+		IsAuth:         isAuth,
+		IsEnvRef:       isEnvRef,
+		EnvRefVars:     envRefVars,
+		ValueSHA256:    hashValue(value),
+		Quoted:         quoted,
+		HasLiteralAuth: hasLiteral,
 	}
 }
 
@@ -122,19 +132,25 @@ func buildEntry(key, value string, quoted bool, lineNum int) model.NPMRCEntry {
 //
 //	//registry.npmjs.org/:_authToken=...
 //
-// so we have to look at the part after the final `:`. TLS-material keys
-// (`cafile`, `certfile`, `keyfile`, `cert`, `key`) are intentionally NOT
-// included — their values are file paths, not secrets, and redacting them
-// makes the audit less useful while mislabeling them as auth material.
+// so we have to look at the part after the final `:`. `key` holds inline
+// private-key PEM content. The other TLS keys (`cafile`, `certfile`,
+// `keyfile`, `cert`) are intentionally NOT included — they hold file paths
+// or public certificates, and redacting them makes the audit less useful
+// while mislabeling them as auth material.
 var authKeySuffixes = []string{
 	"_auth",
 	"_authtoken",
 	"_password",
 	"username",
 	"email",
+	"key",
 }
 
 func isAuthKey(key string) bool {
+	// pnpm's structured `_auth` YAML map flattens to `_auth.<registry>...`.
+	if strings.HasPrefix(key, "_auth.") {
+		return true
+	}
 	// Compare against the segment after the final `:` (URI-scoped keys) or
 	// against the full key (non-scoped legacy form).
 	suffix := key
@@ -150,10 +166,10 @@ func isAuthKey(key string) bool {
 	return false
 }
 
-// envRefPattern matches ${VAR}, ${VAR:-default}, and ${VAR?error} forms.
-// We only care about the VAR name; default/error sub-syntax is captured but
-// not used.
-var envRefPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?:[?:][^}]*)?\}`)
+// envRefPattern matches ${VAR}, ${VAR?}, ${VAR-default}, ${VAR:-default}
+// and ${VAR?error} forms. Group 2 holds any operator and default text; a
+// default is literal material, so redaction masks it while keeping VAR.
+var envRefPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)([?:-][^}]*)?\}`)
 
 func extractEnvRefs(value string) ([]string, bool) {
 	matches := envRefPattern.FindAllStringSubmatch(value, -1)
@@ -172,6 +188,68 @@ func extractEnvRefs(value string) ([]string, bool) {
 	}
 	return out, true
 }
+
+// redactValue returns the display form of a value plus whether literal
+// credential material was masked. Auth values mask every literal span and
+// keep env-reference names; other values only lose URL userinfo.
+func redactValue(value string, isAuth bool) (string, bool) {
+	if !isAuth || value == "" {
+		return redactURLUserinfo(value)
+	}
+	locs := envRefPattern.FindAllStringSubmatchIndex(value, -1)
+	if len(locs) == 0 {
+		return redactSecret(value), true
+	}
+	var b strings.Builder
+	literal := false
+	mask := func(s string) {
+		if strings.IndexFunc(s, isAlnum) >= 0 {
+			b.WriteString("***")
+			literal = true
+		} else {
+			b.WriteString(s)
+		}
+	}
+	last := 0
+	for _, m := range locs {
+		mask(value[last:m[0]])
+		ref := value[m[0]:m[1]]
+		if m[4] >= 0 {
+			suffix := value[m[4]:m[5]]
+			op := suffix[:len(suffix)-len(strings.TrimLeft(suffix, "?:-"))]
+			if len(op) < len(suffix) {
+				ref = value[m[0]:m[4]] + op + "***}"
+				literal = true
+			}
+		}
+		b.WriteString(ref)
+		last = m[1]
+	}
+	mask(value[last:])
+	return b.String(), literal
+}
+
+// The userinfo runs to the last `@` before the path, as URL parsers read
+// it, so an unencoded `@` in a password is still masked.
+var urlUserinfoPattern = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)([^/?#\s]+)@`)
+
+// redactURLUserinfo masks credentials embedded in any URL inside v, even
+// when another part of the value is an env reference. Userinfo made only of
+// env references stays visible.
+func redactURLUserinfo(v string) (string, bool) {
+	literal := false
+	out := urlUserinfoPattern.ReplaceAllStringFunc(v, func(m string) string {
+		sub := urlUserinfoPattern.FindStringSubmatch(m)
+		if _, masked := redactValue(sub[2], true); !masked {
+			return m
+		}
+		literal = true
+		return sub[1] + "***@"
+	})
+	return out, literal
+}
+
+func isAlnum(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
 
 // redactSecret returns a safe-to-display form of an auth value. We keep the
 // last 4 characters when the secret is long enough to make rotation tracking

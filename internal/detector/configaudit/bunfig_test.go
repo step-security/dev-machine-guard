@@ -2,6 +2,7 @@ package configaudit
 
 import (
 	"context"
+	"fmt"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -71,10 +72,14 @@ frozenLockfile = true
 	for _, f := range audit.Files {
 		gotScopes[f.Scope] = f.Path
 	}
-	for _, want := range []string{"user", "user-xdg", "project"} {
+	for _, want := range []string{"user", "project"} {
 		if _, ok := gotScopes[want]; !ok {
 			t.Errorf("missing bunfig scope %q (got: %v)", want, gotScopes)
 		}
+	}
+	// Bun has no implicit ~/.config default when XDG_CONFIG_HOME is unset.
+	if p, ok := gotScopes["user-xdg"]; ok {
+		t.Errorf("unexpected user-xdg scope %q", p)
 	}
 
 	// User file should parse multiple sections including install.scopes.* and
@@ -247,5 +252,67 @@ registry = "https://registry.npmjs.org/"
 		if f.Scope == "builtin" || f.Scope == "global" {
 			t.Errorf("builtin/global scopes should be excluded from bun side-channel; got %+v", f)
 		}
+	}
+}
+
+func TestBunDetector_SourceApplicability(t *testing.T) {
+	tests := []struct {
+		name, version, xdg, userconfig string
+		xdgNPMRC                       bool
+		want                           map[string]string // bunfig scope → applicability
+		wantNPMRC                      string            // user .npmrc path ("~" = home, "$XDG" = xdg)
+	}{
+		{name: "xdg unset", version: "1.4.4",
+			want: map[string]string{"user": "applicable"}, wantNPMRC: "~/.npmrc"},
+		{name: "absolute xdg wins", version: "1.4.4", xdg: "abs",
+			want: map[string]string{"user-xdg": "applicable", "user": "ignored"}, wantNPMRC: "~/.npmrc"},
+		{name: "existing xdg npmrc", version: "1.4.4", xdg: "abs", xdgNPMRC: true,
+			want: map[string]string{"user-xdg": "applicable", "user": "ignored"}, wantNPMRC: "$XDG/.npmrc"},
+		{name: "relative xdg skipped from 1.4.4", version: "1.4.4", xdg: "rel",
+			want: map[string]string{"user-xdg": "ignored", "user": "applicable"}, wantNPMRC: "~/.npmrc"},
+		{name: "relative xdg used before 1.4.4", version: "1.3.0", xdg: "rel",
+			want: map[string]string{"user-xdg": "applicable", "user": "ignored"}, wantNPMRC: "~/.npmrc"},
+		{name: "relative xdg unknown version", xdg: "rel",
+			want: map[string]string{"user-xdg": "unknown", "user": "unknown"}, wantNPMRC: "~/.npmrc"},
+		{name: "npm userconfig wins", version: "1.4.4", xdg: "abs", xdgNPMRC: true, userconfig: "/u/npmrc",
+			want: map[string]string{"user-xdg": "applicable", "user": "ignored"}, wantNPMRC: "/u/npmrc"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			home, xdg := filepath.Join(tmp, "home"), ""
+			mock := executor.NewMock()
+			mock.SetHomeDir(home)
+			switch tc.xdg {
+			case "abs":
+				xdg = filepath.Join(tmp, "xdg")
+			case "rel":
+				xdg = "xdg"
+			}
+			mock.SetEnv("XDG_CONFIG_HOME", xdg)
+			mock.SetEnv("NPM_CONFIG_USERCONFIG", tc.userconfig)
+			if tc.xdgNPMRC {
+				mock.SetFile(filepath.Join(xdg, ".npmrc"), nil)
+			}
+			if tc.version != "" {
+				mock.SetPath("bun", "/opt/bun/bin/bun")
+				mock.SetCommand(tc.version+"\n", "", 0, "/opt/bun/bin/bun", "--version")
+			}
+			d := NewBunDetector(mock)
+			d.ownerLookup = fixedOwner()
+			audit := d.Detect(context.Background(), nil, &user.User{HomeDir: home})
+
+			got := map[string]string{}
+			for _, f := range audit.Files {
+				got[f.Scope] = f.RuntimeApplicability
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+				t.Errorf("bunfig applicability = %v, want %v", got, tc.want)
+			}
+			wantNPMRC := strings.NewReplacer("~", home, "$XDG", xdg).Replace(tc.wantNPMRC)
+			if len(audit.NPMRCFiles) != 1 || audit.NPMRCFiles[0].Path != wantNPMRC || audit.NPMRCFiles[0].RuntimeApplicability != "applicable" {
+				t.Errorf("npmrc files = %+v, want only %s", audit.NPMRCFiles, wantNPMRC)
+			}
+		})
 	}
 }

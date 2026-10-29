@@ -2,6 +2,9 @@ package configaudit
 
 import (
 	"fmt"
+	"maps"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -48,7 +51,8 @@ func parseBunfig(data []byte) ([]model.BunSection, error) {
 // walkBunfig lifts scalars into the section keyed by their dotted ancestor
 // path and recurses into nested tables.
 func walkBunfig(sections map[string]*model.BunSection, prefix string, node map[string]any) {
-	for k, v := range node {
+	for _, k := range slices.Sorted(maps.Keys(node)) {
+		v := node[k]
 		switch typed := v.(type) {
 		case map[string]any:
 			nested := joinSection(prefix, k)
@@ -80,20 +84,21 @@ func buildBunEntry(key string, value any) model.NPMRCEntry {
 	raw := stringifyBunValue(value)
 	isAuth := isBunAuthKey(key)
 	envRefVars, isEnvRef := extractEnvRefs(raw)
-
-	display := raw
-	if isAuth && !isEnvRef && raw != "" {
-		display = redactSecret(raw)
+	display, hasLiteral := redactValue(raw, isAuth)
+	// Bun also substitutes a whole-value `$NAME` in credentials and URLs.
+	if m := bunBareEnvRef.FindStringSubmatch(raw); m != nil {
+		envRefVars, isEnvRef, display, hasLiteral = []string{m[1]}, true, raw, false
 	}
 
 	return model.NPMRCEntry{
-		Key:          key,
-		DisplayValue: display,
-		IsAuth:       isAuth,
-		IsEnvRef:     isEnvRef,
-		EnvRefVars:   envRefVars,
-		ValueSHA256:  hashValue(raw),
-		Quoted:       true, // TOML strings are always quoted; non-strings stringified
+		Key:            key,
+		DisplayValue:   display,
+		IsAuth:         isAuth,
+		IsEnvRef:       isEnvRef,
+		EnvRefVars:     envRefVars,
+		ValueSHA256:    hashValue(raw),
+		Quoted:         true, // TOML strings are always quoted; non-strings stringified
+		HasLiteralAuth: hasLiteral,
 	}
 }
 
@@ -115,6 +120,8 @@ func stringifyBunValue(v any) string {
 		return fmt.Sprintf("%v", typed)
 	}
 }
+
+var bunBareEnvRef = regexp.MustCompile(`^\$([A-Za-z0-9_]+)$`)
 
 // bunAuthKeys: leaf names that indicate a credential. Match the last segment
 // only since bun nests creds under dotted section paths (install.scopes.<x>.token).

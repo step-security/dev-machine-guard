@@ -237,3 +237,64 @@ func TestYarnFlavorFromVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestYarnDetector_SourceApplicability(t *testing.T) {
+	tests := []struct {
+		name, version, rcName string
+		want                  map[string]string // path under the temp root → applicability
+		wantNPMRC             string
+	}{
+		{name: "classic", version: "1.22.22",
+			want:      map[string]string{"home/.yarnrc": "applicable", "home/.yarnrc.yml": "ignored", "code/app/.yarnrc": "unknown", "code/app/.yarnrc.yml": "unknown", "code/app/.custom.yml": "", ".custom.yml": ""},
+			wantNPMRC: "applicable"},
+		{name: "modern", version: "4.5.0",
+			want:      map[string]string{"home/.yarnrc": "ignored", "home/.yarnrc.yml": "applicable", "code/app/.yarnrc": "unknown", "code/app/.yarnrc.yml": "unknown", "code/.yarnrc.yml": "unknown"},
+			wantNPMRC: "ignored"},
+		{name: "modern custom rc filename", version: "4.5.0", rcName: ".custom.yml",
+			want:      map[string]string{"home/.yarnrc.yml": "applicable", "code/app/.yarnrc.yml": "ignored", "code/app/.custom.yml": "unknown", ".custom.yml": "unknown", "home/.custom.yml": "applicable"},
+			wantNPMRC: "ignored"},
+		{name: "not installed",
+			want:      map[string]string{"home/.yarnrc": "unknown", "home/.yarnrc.yml": "unknown", "code/app/.yarnrc.yml": "unknown"},
+			wantNPMRC: "unknown"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			home, code := filepath.Join(tmp, "home"), filepath.Join(tmp, "code", "app")
+			// The search root is code/app; code/ and the temp root are ancestors.
+			for _, p := range []string{filepath.Join(home, ".npmrc"), filepath.Join(code, ".yarnrc"), filepath.Join(code, ".yarnrc.yml"), filepath.Join(code, ".custom.yml"),
+				filepath.Join(tmp, "code", ".yarnrc.yml"), filepath.Join(tmp, ".custom.yml")} {
+				mustWriteFile(t, p, "")
+			}
+			mock := executor.NewMock()
+			mock.SetHomeDir(home)
+			mock.SetEnv("YARN_RC_FILENAME", tc.rcName)
+			if tc.version != "" {
+				mock.SetPath("yarn", "/opt/yarn/bin/yarn")
+				mock.SetCommand(tc.version+"\n", "", 0, "/opt/yarn/bin/yarn", "--version")
+			}
+			d := NewYarnDetector(mock)
+			d.ownerLookup = fixedOwner()
+			audit := d.Detect(context.Background(), []string{code}, &user.User{HomeDir: home})
+
+			got := map[string]string{}
+			for _, f := range audit.Files {
+				rel, _ := filepath.Rel(tmp, f.Path)
+				got[rel] = f.RuntimeApplicability
+			}
+			for k, want := range tc.want {
+				if got[k] != want {
+					t.Errorf("%s applicability = %q, want %q (all: %v)", k, got[k], want, got)
+				}
+			}
+			for _, f := range audit.NPMRCFiles {
+				if f.Scope == "user" && f.RuntimeApplicability != tc.wantNPMRC {
+					t.Errorf("user .npmrc applicability = %q, want %q", f.RuntimeApplicability, tc.wantNPMRC)
+				}
+			}
+			if wantCtx := map[bool]string{true: home}[tc.version != ""]; audit.ContextDirectory != wantCtx {
+				t.Errorf("context directory = %q, want %q", audit.ContextDirectory, wantCtx)
+			}
+		})
+	}
+}

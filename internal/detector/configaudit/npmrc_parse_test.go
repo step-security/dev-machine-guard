@@ -1,6 +1,7 @@
 package configaudit
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -13,7 +14,7 @@ registry = https://registry.npmjs.org/
 @mycompany:registry=https://npm.mycompany.com/
 strict-ssl=false
 `
-	entries := parseNPMRC([]byte(input))
+	entries, _ := parseNPMRC([]byte(input))
 	if len(entries) != 3 {
 		t.Fatalf("expected 3 entries, got %d", len(entries))
 	}
@@ -38,7 +39,7 @@ func TestParseNPMRC_AuthRedaction(t *testing.T) {
 //npm.mycompany.com/:_authToken=short
 //registry.yarnpkg.com/:_password=plainpassword123
 `
-	entries := parseNPMRC([]byte(input))
+	entries, _ := parseNPMRC([]byte(input))
 	if len(entries) != 3 {
 		t.Fatalf("expected 3 entries, got %d", len(entries))
 	}
@@ -71,7 +72,7 @@ func TestParseNPMRC_EnvRefPreserved(t *testing.T) {
 //npm.mycompany.com/:_authToken=${COMPANY_TOKEN:-fallback}
 cache = ${HOME}/.npm-packages
 `
-	entries := parseNPMRC([]byte(input))
+	entries, _ := parseNPMRC([]byte(input))
 	if len(entries) != 3 {
 		t.Fatalf("expected 3 entries, got %d", len(entries))
 	}
@@ -102,7 +103,7 @@ func TestParseNPMRC_ArraySyntax(t *testing.T) {
 	input := `ca[]=cert1
 ca[]=cert2
 `
-	entries := parseNPMRC([]byte(input))
+	entries, _ := parseNPMRC([]byte(input))
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(entries))
 	}
@@ -118,7 +119,7 @@ ca[]=cert2
 
 func TestParseNPMRC_QuotedValue(t *testing.T) {
 	input := `node-options = "--max-old-space-size=4096 --require=/tmp/x.js"`
-	entries := parseNPMRC([]byte(input))
+	entries, _ := parseNPMRC([]byte(input))
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
@@ -131,24 +132,25 @@ func TestParseNPMRC_QuotedValue(t *testing.T) {
 }
 
 func TestParseNPMRC_Comments(t *testing.T) {
-	// Both `;` and `#` at start of line are comments; inline `;` is NOT.
+	// `;` and `#` start a comment at line start; an unescaped inline one ends
+	// an unquoted value (npm's ini parser).
 	input := `; pure comment
 # pure comment
-key1 = value1 ; this stays in the value (npm/ini behavior)
+key1 = value1 ; trailing comment
 # trailing comment line
 `
-	entries := parseNPMRC([]byte(input))
+	entries, _ := parseNPMRC([]byte(input))
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry (only key1), got %d: %+v", len(entries), entries)
 	}
-	if !strings.Contains(entries[0].DisplayValue, ";") {
-		t.Errorf("inline ; should remain in value, got %q", entries[0].DisplayValue)
+	if entries[0].DisplayValue != "value1" {
+		t.Errorf("inline comment should end the value, got %q", entries[0].DisplayValue)
 	}
 }
 
 func TestParseNPMRC_BOM(t *testing.T) {
 	input := "\xEF\xBB\xBFregistry=https://registry.npmjs.org/"
-	entries := parseNPMRC([]byte(input))
+	entries, _ := parseNPMRC([]byte(input))
 	if len(entries) != 1 || entries[0].Key != "registry" {
 		t.Fatalf("BOM not stripped; got entries=%+v", entries)
 	}
@@ -163,14 +165,17 @@ key=
 [section]
 key2=value2
 `
-	entries := parseNPMRC([]byte(input))
-	// Expect: keyonly (empty value), key (empty value), key2=value2.
-	// `=novalue` has empty key so it's skipped. `[section]` is skipped.
+	entries, limitation := parseNPMRC([]byte(input))
+	// Expect: keyonly (true), key (empty value). `=novalue` has an empty key
+	// and key2 sits under `[section]`, which npm nests as an object.
+	if limitation != "sectioned settings not applied" {
+		t.Errorf("limitation = %q", limitation)
+	}
 	keys := make([]string, 0, len(entries))
 	for _, e := range entries {
 		keys = append(keys, e.Key)
 	}
-	wantKeys := []string{"keyonly", "key", "key2"}
+	wantKeys := []string{"keyonly", "key"}
 	if len(keys) != len(wantKeys) {
 		t.Fatalf("want keys %v, got %v", wantKeys, keys)
 	}
@@ -193,7 +198,7 @@ func TestIsAuthKey(t *testing.T) {
 		"certfile":                         false, // TLS material — file path, not a secret
 		"keyfile":                          false, // TLS material — file path, not a secret
 		"cert":                             false, // TLS material — file path, not a secret
-		"key":                              false, // TLS material — file path, not a secret
+		"key":                              true,  // inline private-key PEM
 		"registry":                         false,
 		"@scope:registry":                  false,
 		"strict-ssl":                       false,
@@ -249,5 +254,59 @@ func TestRedactSecret(t *testing.T) {
 		if got := redactSecret(in); got != want {
 			t.Errorf("redactSecret(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestParseNPMRC_ValueMatrix(t *testing.T) {
+	tests := []struct {
+		name, line, key, display string
+		quoted, array, literal   bool
+	}{
+		{"inline comment ends value", `a = b ; c`, "a", "b", false, false, false},
+		{"escaped comment chars", `a = b \; c \# d`, "a", "b ; c # d", false, false, false},
+		{"escaped backslash", `a = c:\\dir`, "a", `c:\dir`, false, false, false},
+		{"unknown escape kept", `a = c:\dir`, "a", `c:\dir`, false, false, false},
+		{"double quotes keep comment chars", `a = "x;y#z"`, "a", "x;y#z", true, false, false},
+		{"single quotes", `a = 'x#y'`, "a", "x#y", true, false, false},
+		{"json escapes decoded", `a = "\u0041b"`, "a", "Ab", true, false, false},
+		{"bare key is true", `flag`, "flag", "true", false, false, false},
+		{"quoted key", `"//h/:always-auth" = true`, "//h/:always-auth", "true", false, false, false},
+		{"array", `ca[] = x`, "ca", "x", false, true, false},
+		{"literal token", `//h/:_authToken = npm_abcdefghijkl`, "//h/:_authToken", "***ijkl", false, false, true},
+		{"pem key", `key = "-----BEGIN PRIVATE KEY-----\nMIIsecret\n-----END PRIVATE KEY-----"`, "key", "***----", true, false, true},
+		{"env ref", `//h/:_authToken = ${TOKEN}`, "//h/:_authToken", "${TOKEN}", false, false, false},
+		{"env ref default masked", `//h/:_authToken = ${TOKEN:-npm_fallbacksecret}`, "//h/:_authToken", "${TOKEN:-***}", false, false, true},
+		{"literal beside env ref", `//h/:_auth = Basic${TOKEN}`, "//h/:_auth", "***${TOKEN}", false, false, true},
+		{"url userinfo", `registry = https://user:pass@npm.example.com/`, "registry", "https://***@npm.example.com/", false, false, true},
+		{"url userinfo with @ in password", `registry = https://user:pw@secret@npm.example.com/`, "registry", "https://***@npm.example.com/", false, false, true},
+		{"url userinfo env refs kept", `registry = https://${U}:${P}@npm.example.com/`, "registry", "https://${U}:${P}@npm.example.com/", false, false, false},
+		{"url userinfo partly literal", `proxy = http://${U}:pw@proxy.example/`, "proxy", "http://***@proxy.example/", false, false, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			entries, _ := parseNPMRC([]byte(tc.line))
+			if len(entries) != 1 {
+				t.Fatalf("entries = %+v, want 1", entries)
+			}
+			e := entries[0]
+			if e.Key != tc.key || e.DisplayValue != tc.display || e.Quoted != tc.quoted || e.IsArray != tc.array || e.HasLiteralAuth != tc.literal {
+				t.Errorf("got key=%q display=%q quoted=%v array=%v literal=%v, want %q %q %v %v %v",
+					e.Key, e.DisplayValue, e.Quoted, e.IsArray, e.HasLiteralAuth, tc.key, tc.display, tc.quoted, tc.array, tc.literal)
+			}
+		})
+	}
+}
+
+func TestParseNPMRC_LineEndingsAndDuplicates(t *testing.T) {
+	entries, limitation := parseNPMRC([]byte("a=1\r\na=2\rb=3\n"))
+	if limitation != "" {
+		t.Errorf("limitation = %q, want none", limitation)
+	}
+	var got []string
+	for _, e := range entries {
+		got = append(got, fmt.Sprintf("%s=%s@%d", e.Key, e.DisplayValue, e.LineNum))
+	}
+	if want := "a=1@1 a=2@2 b=3@3"; strings.Join(got, " ") != want {
+		t.Errorf("entries = %v, want %s", got, want)
 	}
 }
