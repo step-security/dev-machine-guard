@@ -96,7 +96,7 @@ func (s *PythonScanner) ScanGlobalPackages(ctx context.Context) []model.PythonSc
 // ScanGlobalPackagesFromDisk inventories global / user site-packages by
 // reading install metadata on disk (no pip/conda/uv subprocess) and returns
 // the result in the same PythonScanResult shape as ScanGlobalPackages: the
-// package list is JSON-encoded ([{"name","version"},...]) into RawStdoutBase64
+// package list is JSON-encoded with name, version and installation paths into RawStdoutBase64
 // so the existing backend decoder needs no change. Returns nil when no global
 // site-packages roots exist on the host.
 func (s *PythonScanner) ScanGlobalPackagesFromDisk(ctx context.Context, skipper *tcc.Skipper) []model.PythonScanResult {
@@ -111,7 +111,7 @@ func (s *PythonScanner) ScanGlobalPackagesFromDisk(ctx context.Context, skipper 
 
 	start := time.Now()
 	dist := NewPythonDistDetector(s.exec).WithLogger(s.log).WithSkipper(skipper)
-	pkgs := dist.ScanRoots(ctx, roots)
+	pkgs := dist.scanRoots(ctx, roots, true)
 	duration := time.Since(start).Milliseconds()
 	if pkgs == nil {
 		return []model.PythonScanResult{{
@@ -120,15 +120,7 @@ func (s *PythonScanner) ScanGlobalPackagesFromDisk(ctx context.Context, skipper 
 		}}
 	}
 
-	type pipEntry struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
-	}
-	entries := make([]pipEntry, len(pkgs))
-	for i, p := range pkgs {
-		entries[i] = pipEntry{Name: p.Name, Version: p.Version}
-	}
-	raw, _ := json.Marshal(entries)
+	raw, _ := json.Marshal(pkgs)
 	s.log.Debug("python global disk scan: roots=%d packages=%d duration=%dms", len(roots), len(pkgs), duration)
 
 	return []model.PythonScanResult{{
