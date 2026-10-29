@@ -173,6 +173,10 @@ jobs:
       - run: go test -race -count=1 -run '^TestReal_' ./internal/detector/
       - name: Test scheduled scan console suppression
         run: go test -race -count=1 -run 'Test(IsTaskRegistered|DetectInvocationMethod_Windows|HideWindow|StopUnderThenWaitReleased)' ./internal/schtasks/ ./internal/telemetry/ ./internal/winproc/
+      # Starts a wsl.exe-like probe through every production spawn path and
+      # fails if it gets a console window of its own (#271).
+      - name: Test console pop-up guard (every spawn path)
+        run: go test -race -count=1 -v ./internal/consoleguard/
       # One command per step: the default pwsh shell only fails a step on the
       # LAST native command's exit code, so a multi-line run would mask an
       # earlier failure.
