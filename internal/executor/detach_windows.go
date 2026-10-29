@@ -2,37 +2,37 @@
 
 package executor
 
-import "syscall"
+import (
+	"syscall"
+
+	"golang.org/x/sys/windows"
+)
 
 // createBreakawayFromJob lets a child escape the parent's job object. Not in
 // syscall/x-sys, so it is spelled out here (winbase.h).
 const createBreakawayFromJob = 0x01000000
 
-// detachedProcess detaches the child from the parent's console.
-const detachedProcess = 0x00000008
-
 // detachAttrs returns creation flags for a spawn that must outlive this
 // process, most-isolated first.
 //
-// Honest status: a plain spawn was NOT observed to fail. Triggering a distro
-// scan works identically with and without these flags when the agent runs in a
-// live logon session, so this is insurance rather than a fix for a measured
-// bug.
+// The child gets its own hidden console (CREATE_NO_WINDOW), not none: a
+// console app started with DETACHED_PROCESS, as wsl.exe was, allocates a
+// fresh visible console when it needs one, so every WSL guest scan opened a
+// terminal window on the user's desktop. CREATE_NO_WINDOW is ignored when
+// combined with DETACHED_PROCESS, so the two must not be mixed. A console of
+// its own still keeps the child independent of ours.
 //
-// It is kept because the failure it guards against is silent and the property
-// is load-bearing: os/exec puts the child in the parent's job object, a job
-// with KILL_ON_JOB_CLOSE would take the child with it, and WSL tears a distro
-// down shortly after its last Windows-side client exits — so a killed relay
-// means a scan that reported "launched" and then quietly never happened. The
-// case that would expose it (a guest scan outlasting the host run) has not been
-// reproduced on the test box, where guest scans finish in ~2s.
-//
-// Breakaway fails outright when the job forbids it, so the caller retries with
-// the second (flags-only) form; a detached child that shares the job is still
-// better than none.
+// Breakaway is insurance rather than a fix for a measured bug. os/exec puts
+// the child in the parent's job object, a job with KILL_ON_JOB_CLOSE would
+// take the child with it, and WSL tears a distro down shortly after its last
+// Windows-side client exits — so a killed relay means a scan that reported
+// "launched" and then quietly never happened. Breakaway fails outright when
+// the job forbids it, so the caller retries with the second form; a child
+// that shares the job is still better than none.
 func detachAttrs() []*syscall.SysProcAttr {
+	const flags = syscall.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW
 	return []*syscall.SysProcAttr{
-		{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | detachedProcess | createBreakawayFromJob},
-		{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | detachedProcess},
+		{HideWindow: true, CreationFlags: flags | createBreakawayFromJob},
+		{HideWindow: true, CreationFlags: flags},
 	}
 }
