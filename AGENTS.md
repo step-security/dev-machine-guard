@@ -27,7 +27,8 @@ The ten rules that matter most. The rest of the doc expands on these.
 
 1. **All OS interaction goes through `executor.Executor`.** Never call `os/exec`, and avoid raw
    `os.*` file/env access, in detector/scheduler/business logic. This is the seam that makes
-   everything mockable and timeout-bounded. (§2.1, §7.1)
+   everything mockable and timeout-bounded. On Windows, every process the agent starts must
+   hide its console, or users see a window pop up on every scan. (§2.1, §7.1, §7.4)
 2. **A scan never aborts because one part failed.** Inventory detectors return values, not errors,
    and skip on failure. Only the top-level orchestrator returns an error. (§6.1)
 3. **Detection is data-driven.** Add an entry to a spec table; don't add control flow. (§3.1)
@@ -397,8 +398,33 @@ code **124** (`timeout` convention). De-facto taxonomy:
 - Every `Real.Run` calls `setupKillgroupOnCancel(cmd)` (Unix: `Setpgid` + `cmd.Cancel` does
   `kill(-pid, SIGKILL)`, plus `WaitDelay`) so forked grandchildren can't hold pipes open past the
   deadline. *(This is a no-op on Windows today — timeout guarantees are weaker there.)*
-- Every `*exec.Cmd` you construct calls `winproc.HideWindow(cmd)` (no-op off Windows) so scheduled
-  `powershell`/`cmd` children don't flash a console.
+- **No process the agent starts may open a console window on Windows.** The agent runs from a
+  scheduled task on the user's desktop, so one unhidden child is a window popping up on every scan.
+  It has shipped twice: the scan task itself (fixed by the GUI-subsystem task launcher), and the
+  WSL guest-scan relay (#271), which `StartDetached` launched with `DETACHED_PROCESS`.
+  - Prefer `executor.Executor`: `Run`, `RunWithTimeout`, `RunInDir` and `StartDetached` already
+    hide the console.
+  - Building your own `*exec.Cmd`? Call `winproc.HideWindow(cmd)` (or `executor.HardenCommand`) in
+    the same function, after any assignment to `cmd.SysProcAttr`. HideWindow is a no-op off Windows.
+  - Setting `SysProcAttr` yourself? The literal must set both `HideWindow: true` and
+    `CREATE_NO_WINDOW` in `CreationFlags`. Assigning a fresh literal replaces a `HideWindow` applied
+    earlier.
+  - Never use `DETACHED_PROCESS` or `CREATE_NEW_CONSOLE`. A console app started with no console
+    (`DETACHED_PROCESS`) allocates a new, visible one, and Windows ignores `CREATE_NO_WINDOW`
+    alongside it. To outlive the agent, use `CREATE_NEW_PROCESS_GROUP` plus job breakaway, as
+    `detachAttrs` does.
+  - Never start processes with `os.StartProcess`, `syscall.StartProcess` or
+    `windows.CreateProcess`/`ShellExecute`.
+  - It doesn't matter that the child is "only ever run as SYSTEM" or "only from the CLI": code
+    paths get reused, so hide every one.
+
+  **Gate:** `internal/consoleguard` enforces this. `TestNoConsoleWindowSpawns` (every OS) parses each
+  non-test file that builds for Windows and fails on any of the above. It lists every
+  `exec.Command` site it checked in `-v` output, so check your new site is listed. The Windows CI
+  job runs a probe that behaves like `wsl.exe` through each spawn path and fails if it ends up with
+  a console of its own. When you add a spawn path that isn't one of those (a new helper that builds
+  `SysProcAttr`, a new launcher), add it to `attrHelpers` in `consoleguard_test.go` **and** add a
+  probe test for it in `probe_windows_test.go`. Don't widen the checker to make a failure go away.
 
 ### 7.5 `shlex` parses, never builds
 `github.com/google/shlex` is used **only** to parse observed command strings (from hook/telemetry
