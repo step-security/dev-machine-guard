@@ -67,6 +67,7 @@ type Payload struct {
 	PayloadSchemaVersion int                    `json:"payload_schema_version,omitempty"`
 	CustomerID           string                 `json:"customer_id"`
 	DeviceID             string                 `json:"device_id"`
+	PreviousDeviceID     string                 `json:"previous_device_id,omitempty"` // set only when it differs from DeviceID; see device_id_history.go
 	SerialNumber         string                 `json:"serial_number"`
 	UserIdentity         string                 `json:"user_identity"`
 	Hostname             string                 `json:"hostname"`
@@ -529,6 +530,15 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		dev.UserIdentity == "unknown" ||
 		(dev.UserIdentity == "root" && exec.IsRoot())
 	log.Progress("Device ID: %s", deviceID)
+	// A WSL guest's identity is the host's plus its distro; it never changes
+	// the way a configured or resolved ID does, so it reports no history.
+	var previousID string
+	if wslGuest == nil {
+		previousID = previousDeviceID(exec, deviceID)
+	}
+	if previousID != "" {
+		log.Progress("Device ID changed from %s; reporting it so the dashboard can retire the old registration", previousID)
+	}
 	log.Progress("Serial Number: %s", dev.SerialNumber)
 	log.Progress("OS Version: %s", dev.OSVersion)
 	if noUserLoggedIn {
@@ -1319,6 +1329,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		PayloadSchemaVersion: schemaVersion,
 		CustomerID:           config.CustomerID,
 		DeviceID:             deviceID,
+		PreviousDeviceID:     previousID,
 		SerialNumber:         deviceIdentity,
 		UserIdentity:         dev.UserIdentity,
 		Hostname:             dev.Hostname,
@@ -1483,6 +1494,13 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// contract: a missing stamp only means the next gated invocation runs.
 	if err := rungate.StampLastFullRun(deviceID, time.Now()); err != nil {
 		log.Debug("run-gate: could not stamp last full run: %v", err)
+	}
+	// A rejected payload registered nothing, so it must not become the ID a
+	// later change reports as previous.
+	if wslGuest == nil && ingest != ingestRejected {
+		if err := recordUploadedDeviceID(exec, deviceID); err != nil {
+			log.Debug("device id history: could not record %s: %v", deviceID, err)
+		}
 	}
 
 	fmt.Fprintln(os.Stderr)

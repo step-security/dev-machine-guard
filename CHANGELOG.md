@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [Unreleased]
+
+### Added
+
+- **Device ID changes are reported.** The agent remembers the device ID it last uploaded telemetry under (`~/.stepsecurity/last-uploaded-device-id`, which `--install-dir` and `STEPSECURITY_HOME` never move). When the ID changes, by `configure`, a hand edit, the loader or MSI, or an identity resolver change, the next upload sends the old one as `previous_device_id`. The backend can then retire the old registration instead of showing the machine twice. Only uploads the backend accepted update it, and WSL guests never send it.
+
 ## [1.18.1] - 2026-10-26
 
 ### Fixed
