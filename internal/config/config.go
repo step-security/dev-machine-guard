@@ -881,16 +881,12 @@ func isPlaceholder(v string) bool {
 
 // NonInteractiveOptions captures every input the non-interactive configure
 // path accepts. Populated by main.go from cli.Config plus the DMG_API_KEY
-// env var fallback. Empty fields preserve the existing on-disk value
-// (merge semantics — same as the interactive prompt's "press Enter to keep").
+// env var fallback. Keys absent from Values preserve the existing on-disk
+// value (merge semantics — same as the interactive prompt's "press Enter
+// to keep").
 type NonInteractiveOptions struct {
-	FromFile      string   // path to a complete ConfigFile JSON; wins over inline values
-	CustomerID    string   // --customer-id
-	APIEndpoint   string   // --api-endpoint
-	APIKey        string   // --api-key (or DMG_API_KEY env)
-	ScanFrequency string   // --scan-frequency (hours, as string)
-	SearchDirs    []string // --search-dirs (re-used from scan flag; empty = unchanged)
-	AutoUpdate    *bool    // --auto-update=true|false (nil = unchanged)
+	FromFile string         // path to a ConfigFile JSON; Values override it
+	Values   map[string]any // config.json key -> value, from the CLI flags
 }
 
 // HasAny reports whether the caller supplied any inline value. Used by
@@ -898,13 +894,7 @@ type NonInteractiveOptions struct {
 // even without the explicit --non-interactive flag (e.g. an MSI that only
 // passes --from-file).
 func (o NonInteractiveOptions) HasAny() bool {
-	return o.FromFile != "" ||
-		o.CustomerID != "" ||
-		o.APIEndpoint != "" ||
-		o.APIKey != "" ||
-		o.ScanFrequency != "" ||
-		len(o.SearchDirs) > 0 ||
-		o.AutoUpdate != nil
+	return o.FromFile != "" || len(o.Values) > 0
 }
 
 // RunConfigureNonInteractive applies the supplied options to the existing
@@ -918,7 +908,7 @@ func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
 
 	// --from-file merges: keys the file carries override the existing
 	// config (credential rotation), keys it omits are kept (an AUTOUPDATE=0
-	// opt-out, unknown keys). Inline flags still override individual fields
+	// opt-out, unknown keys). Inline flags still override individual keys
 	// below, so customers can ship a base config via the file and inject
 	// the per-tenant API key via an env var on the command line.
 	if opts.FromFile != "" {
@@ -935,23 +925,15 @@ func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
 		}
 	}
 
-	if opts.CustomerID != "" {
-		existing.CustomerID = opts.CustomerID
-	}
-	if opts.APIEndpoint != "" {
-		existing.APIEndpoint = opts.APIEndpoint
-	}
-	if opts.APIKey != "" {
-		existing.APIKey = opts.APIKey
-	}
-	if opts.ScanFrequency != "" {
-		existing.ScanFrequencyHours = opts.ScanFrequency
-	}
-	if len(opts.SearchDirs) > 0 {
-		existing.SearchDirs = opts.SearchDirs
-	}
-	if opts.AutoUpdate != nil {
-		existing.AutoUpdate = opts.AutoUpdate
+	// Flag values merge the same way, over the file.
+	if len(opts.Values) > 0 {
+		data, err := json.Marshal(opts.Values)
+		if err != nil {
+			return fmt.Errorf("encoding configure flags: %w", err)
+		}
+		if err := json.Unmarshal(data, existing); err != nil {
+			return fmt.Errorf("applying configure flags: %w", err)
+		}
 	}
 
 	// Validation: an MSI deploy with no creds is almost certainly a bug.
