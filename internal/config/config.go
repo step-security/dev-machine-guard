@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -87,7 +88,8 @@ var (
 	UpdateCooldownHours int
 )
 
-// ConfigFile is the JSON structure persisted to ~/.stepsecurity/config.json.
+// ConfigFile is the JSON structure persisted to config.json (see
+// readConfigDir for where that file lives).
 type ConfigFile struct {
 	DeviceID              string   `json:"device_id,omitempty"`
 	CustomerID            string   `json:"customer_id,omitempty"`
@@ -193,16 +195,24 @@ func userConfigDir() string {
 // live somewhere both can read. C:\ProgramData is that place.
 
 // readConfigDir returns the directory we should READ config from.
-// Prefers machine-wide if a config exists there (so an MSI-deployed install
-// is visible even when the scanner runs as an unprivileged user).
+// Where config.json is read from, in order: the --config override; the
+// Windows machine-wide directory when a config exists there (so an
+// MSI-deployed install is visible even when the scanner runs as an
+// unprivileged user); the per-user legacy directory when it holds a config;
+// then the binary's install tree (see installTreeConfigDir); and finally the
+// per-user directory, which is also where a fresh configure writes. The
+// legacy file wins over the install tree on purpose: every loader still
+// refreshes that copy, so a stale file left in an old install dir can never
+// shadow a rotated key.
+//
 // fileOverride, when set, is the exact config.json the process must read,
-// bypassing both the machine-wide and per-user lookups. Set from --config.
+// bypassing every lookup. Set from --config.
 //
 // It exists for one case that has no other answer: an agent running inside a
-// WSL distribution. config.json is pinned to the per-user directory and
-// neither STEPSECURITY_HOME nor --install-dir redirects it, so without this a
-// distro scan needs the tenant key copied into every distro's home. With it
-// the key stays on the Windows host and is read over /mnt/c.
+// WSL distribution. Neither STEPSECURITY_HOME nor --install-dir redirects
+// config.json, so without this a distro scan needs the tenant key copied
+// into every distro's home. With it the key stays on the Windows host and is
+// read over /mnt/c.
 var fileOverride string
 
 // SetFileOverride pins the config file path. Called before Load(), from a
@@ -216,20 +226,110 @@ func readConfigDir() string {
 			return mcd
 		}
 	}
-	return userConfigDir()
+	ucd := userConfigDir()
+	if _, err := os.Stat(filepath.Join(ucd, "config.json")); err == nil {
+		return ucd
+	}
+	if itd := installTreeConfigDir(); itd != "" {
+		return itd
+	}
+	return ucd
 }
 
-// writeConfigDir returns the directory we should WRITE config to.
-// Elevated/admin/SYSTEM context → machine-wide (Windows only). Otherwise
-// per-user. This is what makes `configure` invoked from an MSI custom
-// action put the config where the scheduled task can later read it.
+// executablePath is a seam for tests; production value is os.Executable.
+var executablePath = os.Executable
+
+// installTreeMaxConfigBytes bounds how much of a candidate config.json is
+// read while deciding whether it is ours.
+const installTreeMaxConfigBytes = 1 << 20
+
+// installTreeConfigDir returns the directory of a config.json that lives in
+// the running binary's install tree: the binary's own directory, or its
+// parent when the binary sits in a bin directory (the loader layout is
+// <install_dir>/bin/<binary> with config.json at <install_dir>). It is the
+// fallback for installs whose per-user legacy copy is gone, such as a
+// system-wide install under a custom directory. Empty when the lookup is
+// not allowed in this context (installTreeLookupAllowed), when neither
+// location holds a file that looks like ours (isAgentConfigFile), or when
+// the executable path cannot be resolved. Symlinks on the executable are
+// resolved so a symlinked binary still finds its real install tree.
+func installTreeConfigDir() string {
+	if !installTreeLookupAllowed() {
+		return ""
+	}
+	exe, err := executablePath()
+	if err != nil || exe == "" {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil && resolved != "" {
+		exe = resolved
+	}
+	exeDir := filepath.Dir(exe)
+	candidates := []string{exeDir}
+	if filepath.Base(exeDir) == "bin" {
+		candidates = append(candidates, filepath.Dir(exeDir))
+	}
+	for _, dir := range candidates {
+		if isAgentConfigFile(filepath.Join(dir, "config.json")) {
+			return dir
+		}
+	}
+	return ""
+}
+
+// isAgentConfigFile reports whether path is a config.json this agent wrote:
+// a regular file (never a symlink), trusted for this context
+// (installTreeFileTrusted), small, valid JSON, and carrying both customer_id
+// and api_endpoint. "api_key" alone is not enough: it is a common key name
+// in other tools' config.json files, and a binary dropped into ~/bin or
+// /usr/local/bin must never adopt and later overwrite one of those.
+func isAgentConfigFile(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > installTreeMaxConfigBytes {
+		return false
+	}
+	if !installTreeFileTrusted(info) {
+		return false
+	}
+	f, err := os.Open(path) // #nosec G304 -- path is derived from the running binary's own location.
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, installTreeMaxConfigBytes))
+	if err != nil {
+		return false
+	}
+	var probe struct {
+		CustomerID  string `json:"customer_id"`
+		APIEndpoint string `json:"api_endpoint"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return false
+	}
+	return strings.TrimSpace(probe.CustomerID) != "" && strings.TrimSpace(probe.APIEndpoint) != ""
+}
+
+// Write where we read. Elevated/admin/SYSTEM context writes machine-wide
+// (Windows only), which is what makes `configure` invoked from an MSI custom
+// action put the config where the scheduled task can later read it. Then
+// the per-user directory when it already holds a config; then the install
+// tree when the read resolved there, so configure and persist updates never
+// fork a second copy at the legacy path that the next read would not see.
 func writeConfigDir() string {
 	if isElevated() {
 		if mcd := machineConfigDir(); mcd != "" {
 			return mcd
 		}
 	}
-	return userConfigDir()
+	ucd := userConfigDir()
+	if _, err := os.Stat(filepath.Join(ucd, "config.json")); err == nil {
+		return ucd
+	}
+	if itd := installTreeConfigDir(); itd != "" {
+		return itd
+	}
+	return ucd
 }
 
 // ConfigFilePath returns the path to the config file (read-preferred).

@@ -79,7 +79,8 @@ func main() {
 	// (self-update --system, self-check); they exit here.
 	runEarlyVerbs(os.Args[1:])
 
-	// Load persisted config (~/.stepsecurity/config.json) before parsing CLI
+	// Load persisted config (config.json; config.readConfigDir documents where
+	// it is looked up) before parsing CLI
 	// --config must be honoured before Load(), which runs ahead of flag
 	// parsing and keeps the first values it reads.
 	if p := cli.ConfigPathFromArgs(os.Args[1:]); p != "" {
@@ -229,8 +230,8 @@ func main() {
 	}
 	log.Debug("resolved log level: %s (config=%q cli=%q verbose=%v output=%s)",
 		level, config.LogLevel, cfg.LogLevel, cfg.Verbose, cfg.OutputFormat)
-	log.Debug("config loaded: enterprise=%v api_endpoint=%q scan_freq=%q search_dirs=%v log_level=%q",
-		config.IsEnterpriseMode(), config.APIEndpoint, config.ScanFrequencyHours, config.SearchDirs, config.LogLevel)
+	log.Debug("config loaded: path=%q enterprise=%v api_endpoint=%q scan_freq=%q search_dirs=%v log_level=%q",
+		config.ConfigFilePath(), config.IsEnterpriseMode(), config.APIEndpoint, config.ScanFrequencyHours, config.SearchDirs, config.LogLevel)
 	log.Debug("cli parsed: command=%q output_format=%q output_format_set=%v color=%s include_bundled=%v",
 		cfg.Command, cfg.OutputFormat, cfg.OutputFormatSet, cfg.ColorMode, cfg.IncludeBundledPlugins)
 
@@ -683,8 +684,8 @@ func scanJSONEncoder(w io.Writer) *json.Encoder {
 // findLegacyLeftovers checks the legacy ~/.stepsecurity dir for agent
 // files the operator may have moved (intentionally) to a new install
 // dir. Returns basenames of present diagnostic files (config.json is
-// excluded — it must stay at the legacy path as the bootstrap, so its
-// presence there is expected and not a leftover to migrate).
+// excluded: the legacy copy is still the first place the agent reads, so
+// its presence there is expected and not a leftover to migrate).
 func findLegacyLeftovers(legacy string) []string {
 	candidates := []string{
 		"agent.error.log",

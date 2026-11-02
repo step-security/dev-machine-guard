@@ -63,3 +63,13 @@ func hardenMachineConfigACL(path string) error {
 // preserveOwner is a no-op on Windows: access is ACL-based (see
 // hardenMachineConfigACL), not owner-based.
 func preserveOwner(path string, prev os.FileInfo) {}
+
+// installTreeLookupAllowed: never for an elevated or SYSTEM run. The SYSTEM
+// self-updater trusts config.json only because users cannot write the
+// machine-wide copy; a file next to the binary carries no such guarantee,
+// and the machine-wide lookup must keep outranking everything there.
+func installTreeLookupAllowed() bool { return !isElevated() }
+
+// installTreeFileTrusted: an unelevated user reading a file it can already
+// read gains nothing it did not have; ACLs are the control on Windows.
+func installTreeFileTrusted(os.FileInfo) bool { return true }

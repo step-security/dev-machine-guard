@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [Unreleased]
+
+### Added
+
+- **config.json is found in the install tree when the per-user file is absent.** The agent still reads `~/.stepsecurity/config.json` (and the Windows machine-wide file) first; when neither exists it looks beside its own binary, or one level up when the binary sits in a `bin` directory, for a `config.json` that carries `customer_id` and `api_endpoint`, and then writes configuration changes back to that same file. A system-wide install under a custom directory can therefore carry its configuration with it instead of depending on a per-user copy. Symlinked files are ignored, an elevated Windows run never uses the lookup, and a root run only trusts a root-owned file nobody else can write.
+
 ## [1.18.1] - 2026-10-26
 
 ### Fixed

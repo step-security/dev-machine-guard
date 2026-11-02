@@ -30,3 +30,26 @@ func preserveOwner(path string, prev os.FileInfo) {
 		_ = os.Lchown(path, int(st.Uid), int(st.Gid))
 	}
 }
+
+// installTreeLookupAllowed: a root run may read a config.json from its
+// install tree, subject to installTreeFileTrusted; everyone else always may.
+func installTreeLookupAllowed() bool { return true }
+
+// installTreeFileTrusted guards the root case: a root-run agent whose binary
+// sits in a user-writable directory must not adopt a config.json planted
+// there (its install_dir would send root's logs and state wherever that
+// user chose). Root only trusts a root-owned file nobody else can write.
+func installTreeFileTrusted(info os.FileInfo) bool {
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+	return installTreeFileTrustedFor(os.Geteuid(), st.Uid, info.Mode().Perm())
+}
+
+func installTreeFileTrustedFor(euid int, ownerUID uint32, perm os.FileMode) bool {
+	if euid != 0 {
+		return true
+	}
+	return ownerUID == 0 && perm&0o022 == 0
+}
