@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [Unreleased]
+
+### Added
+
+- **Sleep-spanning runs are reported.** When the machine sleeps during a scan, every run-status beacon and the uploaded payload now carry `slept_ms` for the run and for each completed phase, measured as wall-clock time minus awake time (the monotonic clock on macOS and Linux, `QueryUnbiasedInterruptTime` on Windows). Phase and run durations count awake time only, so a scan that paused for a lid close reports its real work time and the dashboard's Slept annotation has a producer. Divergence under a minute (clock corrections) is not reported.
+
 ## [1.18.1] - 2026-10-26
 
 ### Fixed
