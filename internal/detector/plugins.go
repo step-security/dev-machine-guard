@@ -1316,7 +1316,31 @@ func (s *pluginScan) finalizePluginScan(contexts []*model.AgentPluginContext) *m
 	if len(scan.Contexts) == 0 {
 		return nil
 	}
-	if size := encodedSize(scan); size > maxEnvelopeBytes {
+	// Pi must not exhaust the space used by already-collected agents.
+	size := encodedSize(scan)
+	if size > maxEnvelopeBytes {
+		for i := range scan.Contexts {
+			if scan.Contexts[i].Agent != model.AgentPi {
+				continue
+			}
+			for j := range scan.Contexts[i].Plugins {
+				p := &scan.Contexts[i].Plugins[j]
+				p.Components = []model.PluginComponent{}
+				degrade(&p.ComponentStatus, model.AgentScanStatusPartial)
+			}
+			size = encodedSize(scan)
+			if size > maxEnvelopeBytes {
+				// An omitted context preserves its previous inventory.
+				scan.Contexts = append(scan.Contexts[:i], scan.Contexts[i+1:]...)
+				size = encodedSize(scan)
+			}
+			break
+		}
+	}
+	if len(scan.Contexts) == 0 {
+		return nil
+	}
+	if size > maxEnvelopeBytes {
 		for i := range scan.Contexts {
 			for j := range scan.Contexts[i].Plugins {
 				p := &scan.Contexts[i].Plugins[j]

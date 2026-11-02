@@ -468,8 +468,7 @@ func (a *piAdapter) run() {
 	}
 	for _, l := range layers {
 		for _, pkg := range l.packages {
-			if len(a.parents) >= maxPluginObs || a.s.ctx.Err() != nil {
-				a.fail(model.AgentScanErrLimitExceeded, l.path)
+			if a.limitReached(l.path) {
 				break
 			}
 			a.addPackage(l, pkg, layers[0])
@@ -480,6 +479,14 @@ func (a *piAdapter) run() {
 	for _, pp := range a.parents {
 		a.s.addPlugin(a.c, pp.p)
 	}
+}
+
+func (a *piAdapter) limitReached(source string) bool {
+	if len(a.parents) >= maxPluginObs || a.s.ctx.Err() != nil {
+		a.fail(model.AgentScanErrLimitExceeded, source)
+		return true
+	}
+	return false
 }
 
 // parentKey identifies a physical payload, so a saved alias and the automatic
@@ -494,6 +501,9 @@ func (a *piAdapter) parentKey(scope, project, source string) string {
 // newParent starts an installation, or returns nil when the same payload is
 // already an installation at this scope.
 func (a *piAdapter) newParent(l *piLayer, nativeID, name, source, installPath, evidence string, loc *model.SourceLocator) *piParent {
+	if a.limitReached(l.path) {
+		return nil
+	}
 	key := a.parentKey(l.scope, l.project, source)
 	if a.byPath[key] != nil {
 		return nil
@@ -716,6 +726,9 @@ func (a *piAdapter) savedExtensions(l *piLayer) {
 		}
 	}
 	for _, entry := range plain {
+		if a.limitReached(l.path) {
+			break
+		}
 		resolved, ok := piResolvePath(entry, l.base, a.s.home, a.s.goos)
 		if !ok {
 			a.fail(model.AgentScanErrParseFailed, l.path)
@@ -774,6 +787,9 @@ func (a *piAdapter) autoExtensions(l *piLayer) {
 		}
 	}
 	for _, g := range groups {
+		if a.limitReached(dir) {
+			break
+		}
 		if a.claimed[a.parentKey(l.scope, l.project, g.path)] {
 			continue
 		}
@@ -786,6 +802,9 @@ func (a *piAdapter) autoExtensions(l *piLayer) {
 			continue
 		}
 		pp.p.Installed, pp.p.FilesPresent = boolPtr(true), boolPtr(true)
+		for _, e := range g.errors {
+			piPartial(pp.p, e.Code, e.SourcePath)
+		}
 		gk := &piCollector{a: a, gd: gd, p: pp.p}
 		if !g.file {
 			a.manifestFields(pp, gk.manifest(g.path))
@@ -1396,6 +1415,7 @@ type piGroup struct {
 	file     bool
 	files    []string
 	pointers map[string]string
+	errors   []model.AgentScanError
 }
 
 // extensionGroups discovers extensions in dir: the directory's own
@@ -1419,6 +1439,10 @@ func (k *piCollector) extensionGroups(dir string) []piGroup {
 	entries := k.list(dir)
 	var out []piGroup
 	for _, name := range sortedEntryNames(entries) {
+		if len(out) >= maxPluginObs || k.a.s.ctx.Err() != nil {
+			piPartial(k.p, model.AgentScanErrLimitExceeded, dir)
+			break
+		}
 		if piHidden(name) {
 			continue
 		}
@@ -1448,7 +1472,10 @@ func (k *piCollector) entrypoints(dir string) (piGroup, bool) {
 			if filepath.IsAbs(entry) {
 				target = filepath.Clean(entry)
 			}
-			if st, _, _ := k.a.s.stat(k.gd, target); st != fileAbsent {
+			if st, _, err := k.a.s.stat(k.gd, target); st == fileRefused {
+				piPartial(k.p, readCode(err), target)
+				g.errors = append(g.errors, model.AgentScanError{Code: readCode(err), SourcePath: target})
+			} else if st != fileAbsent {
 				g.files = append(g.files, target)
 				g.pointers[target] = "/pi/extensions/" + jsonPointerIndex(i)
 			}
@@ -1459,7 +1486,10 @@ func (k *piCollector) entrypoints(dir string) (piGroup, bool) {
 	}
 	for _, index := range []string{"index.ts", "index.js"} {
 		target := filepath.Join(dir, index)
-		if st, _, _ := k.a.s.stat(k.gd, target); st != fileAbsent {
+		if st, _, err := k.a.s.stat(k.gd, target); st == fileRefused {
+			piPartial(k.p, readCode(err), target)
+			g.errors = append(g.errors, model.AgentScanError{Code: readCode(err), SourcePath: target})
+		} else if st != fileAbsent {
 			g.files = []string{target}
 			return g, true
 		}
@@ -1623,7 +1653,12 @@ func (k *piCollector) ignored(ig *piIgnore, rel string, dir bool) bool {
 		if rule.anchored {
 			target = segs
 		}
-		if piMatchSegments(rule.segs, target, false) {
+		match, ok := piMatchSegments(rule.segs, target, false)
+		if !ok {
+			piPartial(k.p, model.AgentScanErrLimitExceeded, rel)
+			return false
+		}
+		if match {
 			ignored = !rule.negate
 		}
 	}
@@ -1810,7 +1845,11 @@ func piGlobMatch(pattern, name string) (match, ok bool) {
 			}
 			segs = append(segs, seg)
 		}
-		if piMatchSegments(segs, parts, true) {
+		match, ok := piMatchSegments(segs, parts, true)
+		if !ok {
+			return false, false
+		}
+		if match {
 			return true, true
 		}
 	}
@@ -1825,10 +1864,11 @@ func piExpandBraces(p string) ([]string, bool) {
 			i++
 			continue
 		}
-		if len(out) > 64 {
+		s := out[i]
+		alternatives := strings.Count(s[loc[2]:loc[3]], ",") + 1
+		if len(out)-1+alternatives > 64 {
 			return nil, false
 		}
-		s := out[i]
 		var expanded []string
 		for part := range strings.SplitSeq(s[loc[2]:loc[3]], ",") {
 			expanded = append(expanded, s[:loc[0]]+part+s[loc[1]:])
@@ -1840,31 +1880,32 @@ func piExpandBraces(p string) ([]string, bool) {
 
 // piMatchSegments matches path segments, with ** spanning any number of
 // segments. dotRule keeps wildcards off dot-prefixed names, as minimatch does.
-func piMatchSegments(pat, name []string, dotRule bool) bool {
-	for len(pat) > 0 {
-		if pat[0] == "**" {
-			for i := 0; i <= len(name); i++ {
-				if piMatchSegments(pat[1:], name[i:], dotRule) {
-					return true
-				}
-				if i < len(name) && dotRule && strings.HasPrefix(name[i], ".") {
-					return false
-				}
-			}
-			return false
-		}
-		if len(name) == 0 {
-			return false
-		}
-		if dotRule && strings.HasPrefix(name[0], ".") && !strings.HasPrefix(pat[0], ".") {
-			return false
-		}
-		if match, _ := path.Match(pat[0], name[0]); !match {
-			return false
-		}
-		pat, name = pat[1:], name[1:]
+func piMatchSegments(pat, name []string, dotRule bool) (match, ok bool) {
+	// Bound the state grid before allocating; repeated globstars visit each state once.
+	const maxStates = 64 * 1024
+	if len(name)+1 > maxStates/(len(pat)+1) {
+		return false, false
 	}
-	return len(name) == 0
+	current, next := make([]bool, len(name)+1), make([]bool, len(name)+1)
+	current[0] = true
+	for _, seg := range pat {
+		clear(next)
+		if seg == "**" {
+			next[0] = current[0]
+			for i, part := range name {
+				next[i+1] = current[i+1] || next[i] && !(dotRule && strings.HasPrefix(part, "."))
+			}
+		} else {
+			for i, part := range name {
+				if !current[i] || dotRule && strings.HasPrefix(part, ".") && !strings.HasPrefix(seg, ".") {
+					continue
+				}
+				next[i+1], _ = path.Match(seg, part)
+			}
+		}
+		current, next = next, current
+	}
+	return current[len(name)], true
 }
 
 // ---------------------------------------------------------------------------

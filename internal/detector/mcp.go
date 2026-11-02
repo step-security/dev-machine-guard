@@ -114,7 +114,7 @@ func (d *MCPDetector) DetectEnterprise(ctx context.Context, searchDirs []string)
 
 	for _, loc := range d.allConfigLocations(ctx, homeDir, searchDirs) {
 		reader := d.exec
-		if loc.SourceName == "codex" || loc.SourceName == model.AgentCopilot || loc.SourceName == "pi" || loc.SourceName == "pi_project" || isCopilotProjectMCP(loc.ConfigPath) {
+		if loc.SourceName == "codex" || loc.SourceName == model.AgentCopilot || loc.SourceName == "pi" || loc.SourceName == "pi_project" || isPiMCPPath(loc.ConfigPath, d.piDir) || isCopilotProjectMCP(loc.ConfigPath) {
 			roots := []string{filepath.Dir(loc.ConfigPath)}
 			if isCopilotProjectMCP(loc.ConfigPath) {
 				project := filepath.Dir(loc.ConfigPath)
