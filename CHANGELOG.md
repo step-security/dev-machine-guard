@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [1.19.0] - Unreleased
+
+### Added
+
+- One-time `configure --user-id` provisioning when no usable user identity is detected, with the same persisted attribution for scans and hooks. IDs use 1–256 ASCII letters, digits, or `@ . _ + -`; explicit device-ID inputs follow the same format.
+- Explicit `user_id_missing` and `device_id_missing` telemetry fields, independent of OS login detection.
+
+### Changed
+
+- Configuration mutations use a process lock and atomic replacement. Unreadable or corrupt configuration now blocks configure instead of being replaced, preventing accidental loss of an assigned user ID. Imports preserve existing settings and reject conflicting or invalid identity inputs.
+
 ## [1.18.1] - 2026-10-26
 
 ### Fixed

@@ -134,6 +134,8 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go test -race -count=1 -tags selfupdate_faults,selfupdate_testkeys ./internal/faultinject/ ./internal/updatestate/ ./internal/selfupdate/
+      - name: Test identity provisioning and configuration on Linux
+        run: go test -race -count=1 ./internal/config/ ./internal/identity/ ./internal/cli/
 
   # These packages have Windows-only code and Windows-specific behavior whose
   # tests the macOS test job can only cross-compile, not run:
@@ -171,6 +173,10 @@ jobs:
           go-version-file: go.mod
       - run: go test -race -count=1 ./internal/devicepolicy/ ./internal/secureuserfile/ ./internal/detector/credentials/ ./internal/safepath/ ./internal/executor/ ./internal/updatestate/ ./internal/selfupdate/ ./internal/authenticode/ ./internal/awakeclock/
       - run: go test -race -count=1 -run '^TestReal_' ./internal/detector/
+      - name: Test identity validation and CLI parsing
+        run: go test -race -count=1 ./internal/identity/ ./internal/cli/
+      - name: Test config transaction kernel and atomic file paths in scratch directories
+        run: go test -race -count=1 -run '^(TestConfigTransactionScratchLock|TestConfigTransactionScratchReplace|TestAtomicConfigFailure|TestAtomicConfigFaults|TestConfigIdentityNullAndAlias)$' ./internal/config/
       - name: Test scheduled scan console suppression
         run: go test -race -count=1 -run 'Test(IsTaskRegistered|DetectInvocationMethod_Windows|HideWindow|StopUnderThenWaitReleased)' ./internal/schtasks/ ./internal/telemetry/ ./internal/winproc/
       # Starts a wsl.exe-like probe through every production spawn path and

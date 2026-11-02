@@ -54,6 +54,7 @@ type Config struct {
 	PnpmRCOnly            bool     // --pnpmrc: run only the pnpm config audit and render verbose pretty output
 	BunfigOnly            bool     // --bunfig: run only the bun config audit and render verbose pretty output
 	YarnRCOnly            bool     // --yarnrc: run only the yarn config audit (both flavors) and render verbose pretty output
+	SearchDirsSet         bool     // explicit --search-dirs
 	SearchDirs            []string // defaults to ["$HOME"]
 
 	// GateProceedReason is populated at runtime (not a CLI flag) by the run
@@ -105,6 +106,8 @@ type Config struct {
 	// and main.go routes accordingly.
 	NonInteractive      bool
 	ConfigFromFile      string // --from-file: read full config JSON from path
+	ConfigUserID        string // --user-id
+	ConfigUserIDSet     bool
 	ConfigCustomerID    string // --customer-id
 	ConfigAPIEndpoint   string // --api-endpoint
 	ConfigAPIKey        string // --api-key (also accepts env var DMG_API_KEY)
@@ -293,6 +296,7 @@ func Parse(args []string) (*Config, error) {
 			}
 			cfg.ColorMode = mode
 		case arg == "--search-dirs":
+			cfg.SearchDirsSet = true
 			i++
 			if i >= len(args) || strings.HasPrefix(args[i], "--") {
 				return nil, fmt.Errorf("--search-dirs requires at least one directory path argument")
@@ -319,6 +323,20 @@ func Parse(args []string) (*Config, error) {
 			cfg.ConfigFromFile = args[i]
 		case strings.HasPrefix(arg, "--from-file="):
 			cfg.ConfigFromFile = strings.TrimPrefix(arg, "--from-file=")
+		case arg == "--user-id" || strings.HasPrefix(arg, "--user-id="):
+			if cfg.ConfigUserIDSet {
+				return nil, fmt.Errorf("--user-id may only be supplied once")
+			}
+			cfg.ConfigUserIDSet = true
+			if arg == "--user-id" {
+				i++
+				if i >= len(args) || strings.HasPrefix(args[i], "--") {
+					return nil, fmt.Errorf("--user-id requires a value")
+				}
+				cfg.ConfigUserID = args[i]
+			} else {
+				cfg.ConfigUserID = strings.TrimPrefix(arg, "--user-id=")
+			}
 		case arg == "--customer-id":
 			i++
 			if i >= len(args) {
@@ -461,6 +479,9 @@ func Parse(args []string) (*Config, error) {
 		return nil, fmt.Errorf("--install-dir= (empty) cannot be combined with %s — pass a directory or omit the flag", cfg.Command)
 	}
 
+	if cfg.ConfigUserIDSet && cfg.Command != "configure" {
+		return nil, fmt.Errorf("--user-id is only supported by configure")
+	}
 	return cfg, nil
 }
 
@@ -652,6 +673,7 @@ Examples:
 Non-interactive configure (for MSI / SCCM / Intune deployments):
   --non-interactive             Skip prompts; require values via flags or --from-file
   --from-file PATH              Read full config JSON from PATH (preferred for MSI)
+  --user-id ID                  Set user identity once, only when none is detected
   --customer-id ID              Customer identifier
   --api-endpoint URL            StepSecurity backend URL
   --api-key KEY                 Authentication key (or set DMG_API_KEY env var)

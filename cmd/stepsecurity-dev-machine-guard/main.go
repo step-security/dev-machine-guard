@@ -242,6 +242,8 @@ func main() {
 		// custom actions drive configuration — they can't talk to stdin.
 		opts := config.NonInteractiveOptions{
 			FromFile:      cfg.ConfigFromFile,
+			UserID:        cfg.ConfigUserID,
+			UserIDSet:     cfg.ConfigUserIDSet,
 			CustomerID:    cfg.ConfigCustomerID,
 			APIEndpoint:   cfg.ConfigAPIEndpoint,
 			APIKey:        cfg.ConfigAPIKey,
@@ -256,17 +258,21 @@ func main() {
 		// Only forward --search-dirs to configure when the user actually
 		// passed it on this invocation. (cli.Parse defaults SearchDirs to
 		// ["$HOME"] for the scan path, which we must not persist here.)
-		if len(cfg.SearchDirs) > 0 && !(len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME") {
+		if cfg.SearchDirsSet {
 			opts.SearchDirs = cfg.SearchDirs
 		}
 		if cfg.NonInteractive || opts.HasAny() {
 			if err := config.RunConfigureNonInteractive(opts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				// os.Exit skips defers; drain the stderr tee so configure errors are visible.
+				_ = capture.Stop()
 				os.Exit(1)
 			}
 		} else {
 			if err := config.RunConfigure(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				// os.Exit skips defers; drain the stderr tee so configure errors are visible.
+				_ = capture.Stop()
 				os.Exit(1)
 			}
 		}

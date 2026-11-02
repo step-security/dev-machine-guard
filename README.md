@@ -231,6 +231,18 @@ This interactively prompts for all configurable settings:
 | HTML Output File   | Default path for HTML reports               | _(not set)_     |
 | Log Level          | Logging verbosity                           | `error`         |
 
+On an ephemeral device with no detected user identity (empty, `unknown`, or `root`), assign one once:
+
+```bash
+./stepsecurity-dev-machine-guard configure --non-interactive --user-id employee-123
+```
+
+This does not require enterprise credentials. The ID uses 1–256 ASCII letters, digits, or `@ . _ + -`; surrounding whitespace is trimmed, control characters are rejected, and `unknown`/`root` are reserved regardless of case. An ID-only JSON import such as `{"user_id":"employee-123"}` also works through `configure --from-file PATH`.
+
+An existing detected email or regular OS username prevents assignment. Once assigned, scans and hooks use the stored ID even if automatic detection changes. Repeating the same value succeeds; replacing or clearing it fails without changing configuration. Other configure operations preserve it. The guarantee applies to the existing configuration scope; the config file owner can still edit or remove files directly. Provision after cloning an ephemeral image to avoid copying an assigned identity to every clone.
+
+When no user identity is available, scanning continues as `unknown` with a warning and remains eligible for later assignment. Enterprise telemetry includes explicit `user_id_missing` and `device_id_missing` booleans based on the resolved identities, including `false` values. OS login state (`no_user_logged_in`) is detected independently of attribution. Backend handling of missing device IDs requires deployment verification.
+
 View current settings:
 
 ```bash
