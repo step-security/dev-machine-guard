@@ -12,10 +12,10 @@ probation rules) is described in
 setup (credentials, `config.json` permissions, signature verification)
 is in [`deploying-via-sccm.md`](deploying-via-sccm.md).
 
-## What changes in 1.18.0
+## What changes in 1.18.1
 
-- **One last MSI push.** Devices on an MSI older than 1.18.0 can't update
-  themselves. Deploy the 1.18.0 (or newer) MSI once, the same way you
+- **One last MSI push.** Devices on an MSI older than 1.18.1 can't update
+  themselves. Deploy the 1.18.1 (or newer) MSI once, the same way you
   deploy any upgrade. It replaces the older version in place and keeps
   the tenant configuration and the device identity, so each device keeps
   its existing record in the StepSecurity console.
@@ -178,7 +178,7 @@ example at `C:\ProgramData\StepSecurity\bootstrap.json`:
    `stepsecurity-dev-machine-guard-<version>-x64.msi` (or `-arm64.msi`)
    on a share your distribution points can read. SCCM reads the
    ProductCode from the MSI.
-3. Software version: the MSI version, e.g. `1.18.0`.
+3. Software version: the MSI version, e.g. `1.18.1`.
 
 ### 3. Deployment type: programs
 
@@ -220,7 +220,7 @@ Either rule works and stays stable while the device updates itself:
   Accept it.
 - Or a **registry** rule: `HKEY_LOCAL_MACHINE\SOFTWARE\StepSecurity`,
   value `AgentVersion`, String, **Equals** the MSI version (e.g.
-  `1.18.0`), 64-bit.
+  `1.18.1`), 64-bit.
 
 `AgentVersion` always names the installed MSI. The version the device is
 actually running is in `RunningVersion`. Never detect on `RunningVersion`
@@ -335,7 +335,7 @@ for your tenant: which version your devices take, how fast a new release
 reaches them, pausing a release, and moving the fleet back to an earlier
 release. Contact StepSecurity support to change them. Devices pick up a
 change at their next check, within about 6 hours. A device never takes a
-version older than 1.18.0, the first self-updating release.
+version older than 1.18.1, the first self-updating release.
 
 ## Verify a device
 
@@ -432,7 +432,7 @@ appears on hover.
 | Switch failed (`update_switch_failed`) | The new version was ready but the switch couldn't be saved. | Check disk health and free space. Retried automatically. |
 | Switch deferred (`update_switch_deferred`) | A scan was running at four update runs in a row, so the switch kept waiting. | Usually nothing: it switches at the first update run with no scan running. If it repeats, check for scans that never finish. |
 | Update check failed (`update_check_failed`) | The device couldn't get its target version from the StepSecurity API. | Check the machine's access to `<api-host>`, the proxy settings and the API key in `config.json`. Reported at most once a day. |
-| Below version floor (`update_refused_floor`) | The device was offered a version older than 1.18.0 and refused it. | Contact StepSecurity support. |
+| Below version floor (`update_refused_floor`) | The device was offered a version older than 1.18.1 and refused it. | Contact StepSecurity support. |
 | Auto update off (`update_disabled`) | Self-update is off on this device (`AUTOUPDATE=0`); the event names the version it isn't taking. | Expected for opted-out devices. To re-enable, see [Controlling updates](#controlling-updates). |
 | Version pointer invalid (`update_pointer_invalid`) | A scan couldn't start the current version and ran a fallback (the previous version or the MSI's seed). The reason names the cause, e.g. `state_missing` or `current_missing:<version>`. | Usually fixed by the next update run. If it repeats, check the Update task exists and runs; repair the MSI. |
 | Permissions repaired (`update_acl_drift`) | Something changed the permissions on `versions\` or `state\`; the updater restored them. | If it repeats, find the tool or Group Policy changing permissions under `C:\Program Files\StepSecurity\`. |
@@ -559,7 +559,7 @@ they already have.
 
 **Can a device be downgraded?**
 An MSI never downgrades a device. StepSecurity can move your tenant back
-to an earlier release (1.18.0 or newer) if a release has a problem;
+to an earlier release (1.18.1 or newer) if a release has a problem;
 devices then switch down at their next check, through the same verified
 path. A version that crashed or failed its self-test on a device is
 never installed on it again; a fix ships as a new version.
@@ -593,6 +593,6 @@ and never retried there. StepSecurity can also pause a release or move
 tenants back.
 
 **Can I keep using my SCCM/Intune app for a while?**
-Yes. Keep the 1.18.0 (or newer) app deployed so new devices get it.
+Yes. Keep the 1.18.1 (or newer) app deployed so new devices get it.
 Detection stays satisfied on self-updated devices, so SCCM and Intune
 don't reinstall anything.

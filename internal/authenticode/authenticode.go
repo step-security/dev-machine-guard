@@ -8,7 +8,8 @@
 // subject is read from the leaf of the chain it validated (provider data),
 // never from the PE's certificate bag, which lies outside the signed digest
 // and can carry look-alike certificates. The bag is still parsed in Go to
-// reject an ambiguous signer (two certs with the signer's issuer+serial) and
+// reject an ambiguous signer (two distinct certs with the signer's
+// issuer+serial; an identical duplicate is the same cert) and
 // to recognise an RFC 3161 timestamp WinVerifyTrust doesn't count.
 package authenticode
 
@@ -31,7 +32,7 @@ var (
 	// against (an unsigned dev build) and no test pin is configured.
 	ErrNoPublisher = errors.New("authenticode: running updater is unsigned; refusing updates")
 	// ErrAmbiguousSigner means the certificate bag holds more than one
-	// certificate matching the signer's issuer+serial (or key id).
+	// distinct certificate matching the signer's issuer+serial (or key id).
 	ErrAmbiguousSigner = errors.New("authenticode: signer certificate is ambiguous")
 	// ErrUnsupported is returned off Windows, where WinVerifyTrust is absent.
 	ErrUnsupported = errors.New("authenticode: verification is only supported on Windows")

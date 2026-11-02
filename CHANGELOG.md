@@ -19,7 +19,17 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
 ### Fixed
 
-- **Scans fired under a Windows service account are flagged `no_user_logged_in`.** Only `root` was recognised before, so a SYSTEM-context run reported `NT AUTHORITY\SYSTEM` as the developer and overwrote the device's real user in the dashboard.
+- **Scans fired under a Windows service account are flagged `no_user_logged_in`.** Only an empty or unknown user and `root` were recognised before, so a SYSTEM-context run reported `NT AUTHORITY\SYSTEM` as the developer and overwrote the device's real user in the dashboard.
+
+## [1.18.1] - 2026-10-26
+
+### Fixed
+
+- **Windows self-update now accepts real releases.** Trusted Signing embeds the signing certificate twice in every signature, and the 1.18.0 updater counted the copy as a second, ambiguous signer. Every release failed verification (`update_verify_failed`, "signer certificate is ambiguous"), and the MSI's own seed was never adopted. Identical copies now count once; two different certificates matching the signer are still rejected (#265).
+
+### Changed
+
+- **1.18.1 is the first self-updating Windows release.** 1.18.0 was published only as a release candidate. Devices on an older MSI need one final push of the 1.18.1 (or newer) MSI, and the self-update floor is now 1.18.1, so a device never takes 1.18.0 as a target.
 
 ## [1.18.0] - 2026-10-26
 
@@ -427,6 +437,7 @@ First open-source release. The scanning engine was previously an internal enterp
 - Execution log capture and base64 encoding
 - Instance locking to prevent concurrent runs
 
+[1.18.1]: https://github.com/step-security/dev-machine-guard/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/step-security/dev-machine-guard/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/step-security/dev-machine-guard/compare/v1.16.0...v1.17.0
 [1.16.0]: https://github.com/step-security/dev-machine-guard/compare/v1.15.0...v1.16.0

@@ -147,7 +147,7 @@ tenant API key. If that's not acceptable for your environment:
 2. **Manually specify the application information**:
    - Name: `StepSecurity Dev Machine Guard`
    - Publisher: `StepSecurity`
-   - Software version: matches the MSI you're deploying (e.g. `1.18.0`)
+   - Software version: matches the MSI you're deploying (e.g. `1.18.1`)
 3. **Add Deployment Type** → **Windows Installer (`*.msi`)**
 4. **Content**: point at the `.msi` file on a share that the
    Distribution Points can pull from
@@ -197,10 +197,10 @@ dashboard within a few minutes.
 
 ## Self-update
 
-From 1.18.0, MSI installs **update themselves**: a SYSTEM scheduled task
+From 1.18.1, MSI installs **update themselves**: a SYSTEM scheduled task
 downloads, verifies and switches to the version StepSecurity releases for
 your tenant, without user prompts or reboots, and rolls back a version
-that fails. Devices on an older MSI need one final push of the 1.18.0 (or
+that fails. Devices on an older MSI need one final push of the 1.18.1 (or
 newer) MSI; after that you don't need a new Application per release.
 
 Network and proxy requirements, the `AUTOUPDATE=0` opt-out, how to verify

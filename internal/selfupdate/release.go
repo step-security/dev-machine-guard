@@ -41,7 +41,9 @@ const (
 // minWindowsSelfUpdateVersion is the floor F (spec §6): the first release
 // that contains this updater. A target below it would land a version with no
 // SYSTEM updater, freezing the device, so it is refused. Set at release cut.
-const minWindowsSelfUpdateVersion = "1.18.0"
+// 1.18.0 shipped the updater but rejects every Trusted Signing release (its
+// signer check counted the duplicated leaf certificate), so it is below F.
+const minWindowsSelfUpdateVersion = "1.18.1"
 
 // Floor returns F.
 func Floor() updatestate.Version {

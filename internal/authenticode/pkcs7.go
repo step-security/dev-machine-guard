@@ -161,16 +161,26 @@ func parseSignedData(der []byte) (*Signature, error) {
 	return sig, nil
 }
 
-// findSigner returns every certificate matching the signer id: by
+// findSigner returns every distinct certificate matching the signer id: by
 // issuer+serial, or for a key-id SID by the SKI extension or (as Windows
-// does) the SHA-1 of the public key, so a look-alike can't hide.
+// does) the SHA-1 of the public key, so a look-alike can't hide. A byte-for-
+// byte copy of a certificate already matched is the same certificate, not a
+// look-alike: Trusted Signing embeds the leaf twice in every signature.
 func findSigner(certs []*x509.Certificate, sid asn1.RawValue) []*x509.Certificate {
 	var out []*x509.Certificate
+	add := func(c *x509.Certificate) {
+		for _, seen := range out {
+			if bytes.Equal(seen.Raw, c.Raw) {
+				return
+			}
+		}
+		out = append(out, c)
+	}
 	if sid.Class == asn1.ClassContextSpecific && sid.Tag == 0 {
 		for _, c := range certs {
 			keyID := sha1.Sum(publicKeyBits(c)) // #nosec G401 -- RFC 5280 key identifier lookup, not a security hash
 			if bytes.Equal(c.SubjectKeyId, sid.Bytes) || bytes.Equal(keyID[:], sid.Bytes) {
-				out = append(out, c)
+				add(c)
 			}
 		}
 		return out
@@ -181,7 +191,7 @@ func findSigner(certs []*x509.Certificate, sid asn1.RawValue) []*x509.Certificat
 	}
 	for _, c := range certs {
 		if bytes.Equal(c.RawIssuer, ias.Issuer.FullBytes) && c.SerialNumber.Cmp(ias.Serial) == 0 {
-			out = append(out, c)
+			add(c)
 		}
 	}
 	return out

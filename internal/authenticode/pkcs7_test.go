@@ -4,14 +4,17 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha1"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -62,6 +65,20 @@ func mustMarshal(t *testing.T, v any) []byte {
 func buildSignedData(t *testing.T, signer *x509.Certificate, certs []*x509.Certificate, tsOID asn1.ObjectIdentifier) []byte {
 	t.Helper()
 	sid := mustMarshal(t, issuerAndSerial{Issuer: asn1.RawValue{FullBytes: signer.RawIssuer}, Serial: signer.SerialNumber})
+	return buildSignedDataSID(t, sid, certs, tsOID)
+}
+
+// buildSignedDataKeyID is buildSignedData with a key-id SID: the SHA-1 of
+// the signer's public key, as Windows computes it.
+func buildSignedDataKeyID(t *testing.T, signer *x509.Certificate, certs []*x509.Certificate, tsOID asn1.ObjectIdentifier) []byte {
+	t.Helper()
+	keyID := sha1.Sum(publicKeyBits(signer)) // #nosec G401 -- RFC 5280 key identifier, not a security hash
+	sid := mustMarshal(t, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 0, Bytes: keyID[:]})
+	return buildSignedDataSID(t, sid, certs, tsOID)
+}
+
+func buildSignedDataSID(t *testing.T, sid []byte, certs []*x509.Certificate, tsOID asn1.ObjectIdentifier) []byte {
+	t.Helper()
 	algo := mustMarshal(t, pkix.AlgorithmIdentifier{Algorithm: asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 1}})
 	si := signerInfo{
 		Version:            1,
@@ -245,5 +262,118 @@ func TestInspectRejectsAmbiguousSigner(t *testing.T) {
 		if sig, err := Inspect(p); !errors.Is(err, ErrAmbiguousSigner) {
 			t.Fatalf("bag %s,%s: Inspect = %+v, %v; want ErrAmbiguousSigner", bag[0].Subject, bag[1].Subject, sig, err)
 		}
+	}
+}
+
+// Trusted Signing embeds the leaf twice (byte-identical) in every
+// signature. A duplicate is the same certificate, not a look-alike.
+func TestInspectAcceptsDuplicatedSigner(t *testing.T) {
+	leaf := makeCert(t, "StepSecurity Inc", 10)
+	other := makeCert(t, "Intermediate", 11)
+	for _, bag := range [][]*x509.Certificate{{leaf, leaf}, {other, leaf, leaf}, {leaf, other, leaf}} {
+		p := writePE(t, buildSignedData(t, leaf, bag, oidRFC3161CounterSign))
+		sig, err := Inspect(p)
+		if err != nil {
+			t.Fatalf("bag of %d: Inspect: %v", len(bag), err)
+		}
+		if sig.Subject != leaf.Subject.String() || !sig.Timestamped {
+			t.Fatalf("bag of %d: Inspect = %+v", len(bag), sig)
+		}
+	}
+}
+
+// A duplicated signer next to a look-alike is still ambiguous.
+func TestInspectRejectsLookalikeBesideDuplicatedSigner(t *testing.T) {
+	leaf := makeCert(t, "Evil Corp", 12)
+	fake := makeLookalike(t, leaf, "StepSecurity Inc")
+	for _, bag := range [][]*x509.Certificate{{leaf, leaf, fake}, {fake, leaf, leaf}, {leaf, fake, leaf}} {
+		p := writePE(t, buildSignedData(t, leaf, bag, oidRFC3161CounterSign))
+		if sig, err := Inspect(p); !errors.Is(err, ErrAmbiguousSigner) {
+			t.Fatalf("Inspect = %+v, %v; want ErrAmbiguousSigner", sig, err)
+		}
+	}
+}
+
+// makeCertSKI is makeCert with an explicit subject key id, distinct from
+// the SHA-1 of its public key.
+func makeCertSKI(t *testing.T, cn string, serial int64, ski []byte) *x509.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(serial),
+		Subject:      pkix.Name{CommonName: cn},
+		SubjectKeyId: ski,
+		NotBefore:    time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// A key-id SID can name the signer by its SKI extension: a duplicate is
+// accepted and another certificate with the same SKI is ambiguous.
+func TestInspectSKISigner(t *testing.T) {
+	ski := []byte("stepsecurity-ski-0001")
+	leaf := makeCertSKI(t, "StepSecurity Inc", 14, ski)
+	fake := makeCertSKI(t, "StepSecurity Inc", 15, ski)
+	sid := mustMarshal(t, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 0, Bytes: ski})
+	p := writePE(t, buildSignedDataSID(t, sid, []*x509.Certificate{leaf, leaf}, oidRFC3161CounterSign))
+	if sig, err := Inspect(p); err != nil || sig.Subject != leaf.Subject.String() {
+		t.Fatalf("duplicate: Inspect = %+v, %v", sig, err)
+	}
+	p = writePE(t, buildSignedDataSID(t, sid, []*x509.Certificate{leaf, leaf, fake}, oidRFC3161CounterSign))
+	if sig, err := Inspect(p); !errors.Is(err, ErrAmbiguousSigner) {
+		t.Fatalf("look-alike: Inspect = %+v, %v; want ErrAmbiguousSigner", sig, err)
+	}
+}
+
+// The same rules hold for a key-id SID: a duplicate is accepted and a
+// look-alike sharing the signer's public key is ambiguous.
+func TestInspectKeyIDSigner(t *testing.T) {
+	leaf := makeCert(t, "StepSecurity Inc", 13)
+	fake := makeLookalike(t, leaf, "StepSecurity Inc")
+	p := writePE(t, buildSignedDataKeyID(t, leaf, []*x509.Certificate{leaf, leaf}, oidRFC3161CounterSign))
+	if sig, err := Inspect(p); err != nil || sig.Subject != leaf.Subject.String() {
+		t.Fatalf("duplicate: Inspect = %+v, %v", sig, err)
+	}
+	p = writePE(t, buildSignedDataKeyID(t, leaf, []*x509.Certificate{leaf, leaf, fake}, oidRFC3161CounterSign))
+	if sig, err := Inspect(p); !errors.Is(err, ErrAmbiguousSigner) {
+		t.Fatalf("look-alike: Inspect = %+v, %v; want ErrAmbiguousSigner", sig, err)
+	}
+}
+
+func readFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// The signature of the v1.18.0 windows_amd64 binary as published on the
+// GitHub release (base64 of its PKCS#7): Trusted Signing embeds the leaf
+// twice. If this fails, the updater would refuse every real release.
+func TestInspect_RealRelease(t *testing.T) {
+	blob, err := base64.StdEncoding.DecodeString(string(readFixture(t, "real-1.18.0-windows_amd64.p7s.b64")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := Inspect(writePE(t, blob))
+	if err != nil {
+		t.Fatalf("real release signature rejected: %v", err)
+	}
+	if !strings.Contains(sig.Subject, "CN=Step Security\\, Inc.") || !sig.Timestamped {
+		t.Errorf("Inspect = %+v, want the Step Security leaf, timestamped", sig)
 	}
 }

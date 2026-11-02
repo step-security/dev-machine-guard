@@ -58,7 +58,7 @@ The steps below install the binary directly and are intended for **community use
 
 ### Install from release (community)
 
-Download the latest binary for your platform from [GitHub Releases](https://github.com/step-security/dev-machine-guard/releases). Release asset filenames embed the version (for example, `stepsecurity-dev-machine-guard-1.18.0-darwin`), so the snippets below resolve the latest tag first rather than hardcoding a version.
+Download the latest binary for your platform from [GitHub Releases](https://github.com/step-security/dev-machine-guard/releases). Release asset filenames embed the version (for example, `stepsecurity-dev-machine-guard-1.18.1-darwin`), so the snippets below resolve the latest tag first rather than hardcoding a version.
 
 **macOS** (universal binary — Apple Silicon and Intel)
 

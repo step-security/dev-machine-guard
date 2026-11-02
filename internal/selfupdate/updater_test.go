@@ -435,6 +435,7 @@ func TestPolicyOutcomes(t *testing.T) {
 	}{
 		{"disabled", func(e *env) { e.auto = false }, EventDisabled, ExitOK, false},
 		{"below floor", func(e *env) { e.api.setTarget("1.17.0") }, EventRefusedFloor, ExitOK, false},
+		{"1.18.0 is below the floor", func(e *env) { e.api.setTarget("1.18.0") }, EventRefusedFloor, ExitOK, false},
 		{"check failed", func(e *env) { e.api.metaStatus = 500 }, EventCheckFailed, ExitFailed, false},
 		{"bad signature", func(e *env) {
 			e.api.badSig["stepsecurity-dev-machine-guard-1.20.0-windows_amd64.exe"] = true
