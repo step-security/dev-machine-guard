@@ -383,9 +383,20 @@ jobs:
           set -euo pipefail
           tag="${{ needs.release.outputs.release_tag }}"
           version="${{ needs.release.outputs.version }}"
+          # Older Windows loaders (the single-binary ones and the pinned
+          # 1.11.7 / 1.13.0 templates) download "<name>_signed.exe". Publish
+          # that name as a byte-identical copy of the signed agent so those
+          # installed loaders can still install current releases: the
+          # checksum the backend serves for the .exe matches the copy.
+          for arch in amd64 arm64; do
+            cp "dist/stepsecurity-dev-machine-guard-${version}-windows_${arch}.exe" \
+              "dist/stepsecurity-dev-machine-guard-${version}-windows_${arch}_signed.exe"
+          done
           gh release upload "$tag" \
             "dist/stepsecurity-dev-machine-guard-${version}-windows_amd64.exe" \
             "dist/stepsecurity-dev-machine-guard-${version}-windows_arm64.exe" \
+            "dist/stepsecurity-dev-machine-guard-${version}-windows_amd64_signed.exe" \
+            "dist/stepsecurity-dev-machine-guard-${version}-windows_arm64_signed.exe" \
             "dist/stepsecurity-dev-machine-guard-task-${version}-windows_amd64.exe" \
             "dist/stepsecurity-dev-machine-guard-task-${version}-windows_arm64.exe" \
             dist/stepsecurity-dev-machine-guard-windows_amd64.exe.bundle \
