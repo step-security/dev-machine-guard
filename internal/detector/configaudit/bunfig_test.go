@@ -274,8 +274,8 @@ func TestBunDetector_SourceApplicability(t *testing.T) {
 			want: map[string]string{"user-xdg": "applicable", "user": "ignored"}, wantNPMRC: "~/.npmrc"},
 		{name: "relative xdg unknown version", xdg: "rel",
 			want: map[string]string{"user-xdg": "unknown", "user": "unknown"}, wantNPMRC: "~/.npmrc"},
-		{name: "npm userconfig wins", version: "1.4.4", xdg: "abs", xdgNPMRC: true, userconfig: "/u/npmrc",
-			want: map[string]string{"user-xdg": "applicable", "user": "ignored"}, wantNPMRC: "/u/npmrc"},
+		{name: "npm userconfig wins", version: "1.4.4", xdg: "abs", xdgNPMRC: true, userconfig: "$TMP/u/npmrc",
+			want: map[string]string{"user-xdg": "applicable", "user": "ignored"}, wantNPMRC: "$TMP/u/npmrc"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -290,7 +290,7 @@ func TestBunDetector_SourceApplicability(t *testing.T) {
 				xdg = "xdg"
 			}
 			mock.SetEnv("XDG_CONFIG_HOME", xdg)
-			mock.SetEnv("NPM_CONFIG_USERCONFIG", tc.userconfig)
+			mock.SetEnv("NPM_CONFIG_USERCONFIG", filepath.FromSlash(strings.ReplaceAll(tc.userconfig, "$TMP", tmp)))
 			if tc.xdgNPMRC {
 				mock.SetFile(filepath.Join(xdg, ".npmrc"), nil)
 			}
@@ -309,7 +309,7 @@ func TestBunDetector_SourceApplicability(t *testing.T) {
 			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
 				t.Errorf("bunfig applicability = %v, want %v", got, tc.want)
 			}
-			wantNPMRC := strings.NewReplacer("~", home, "$XDG", xdg).Replace(tc.wantNPMRC)
+			wantNPMRC := filepath.Clean(strings.NewReplacer("~", home, "$XDG", xdg, "$TMP", tmp).Replace(tc.wantNPMRC))
 			if len(audit.NPMRCFiles) != 1 || audit.NPMRCFiles[0].Path != wantNPMRC || audit.NPMRCFiles[0].RuntimeApplicability != "applicable" {
 				t.Errorf("npmrc files = %+v, want only %s", audit.NPMRCFiles, wantNPMRC)
 			}

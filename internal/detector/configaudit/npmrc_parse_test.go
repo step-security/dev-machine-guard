@@ -280,6 +280,12 @@ func TestParseNPMRC_ValueMatrix(t *testing.T) {
 		{"url userinfo", `registry = https://user:pass@npm.example.com/`, "registry", "https://***@npm.example.com/", false, false, true},
 		{"url userinfo with @ in password", `registry = https://user:pw@secret@npm.example.com/`, "registry", "https://***@npm.example.com/", false, false, true},
 		{"url userinfo env refs kept", `registry = https://${U}:${P}@npm.example.com/`, "registry", "https://${U}:${P}@npm.example.com/", false, false, false},
+		{"punctuation beside env ref", `//h/:_authToken = ${TOKEN}!!!!!!!!`, "//h/:_authToken", "${TOKEN}***", false, false, true},
+		{"punctuation fallback", `//h/:_authToken = ${TOKEN:-????????}`, "//h/:_authToken", "${TOKEN:-***}", false, false, true},
+		{"url punctuation password", `registry = https://${USER}:!!!@registry.example/`, "registry", "https://***@registry.example/", false, false, true},
+		{"url optional env reference", `registry = https://${USER?}:password@registry.example/`, "registry", "https://***@registry.example/", false, false, true},
+		{"url optional references kept", `registry = https://${USER?}:${PASS?}@registry.example/`, "registry", "https://${USER?}:${PASS?}@registry.example/", false, false, false},
+		{"url query is not userinfo", `registry = https://registry.example/?user=name@example`, "registry", "https://registry.example/?user=name@example", false, false, false},
 		{"url userinfo partly literal", `proxy = http://${U}:pw@proxy.example/`, "proxy", "http://***@proxy.example/", false, false, true},
 	}
 	for _, tc := range tests {

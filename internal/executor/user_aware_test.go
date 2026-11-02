@@ -181,7 +181,7 @@ func TestUserAwareExecutor_GetenvUsesAllowlistedUserSnapshot(t *testing.T) {
 				!strings.Contains(command, "GOPROXY") || !strings.Contains(command, "GOENV") || !strings.Contains(command, "GOAUTH") {
 				t.Fatalf("environment snapshot command = %q", command)
 			}
-			return "XDG_CONFIG_HOME=/home/alice/.xdg\x00PIP_EXTRA_INDEX_URL=https://pip-extra.example/simple\x00UV_INDEX_URL=https://user.example/simple\x00UV_NO_INDEX=true\x00GOPROXY=https://proxy.example/go\x00GOENV=off\x00GOAUTH=netrc\x00", nil
+			return "XDG_CONFIG_HOME=/home/alice/.xdg\x00PIP_EXTRA_INDEX_URL=https://pip-extra.example/simple\x00UV_INDEX_URL=https://user.example/simple\x00UV_NO_INDEX=true\x00yarn_rc_filename=.custom.yml\x00GOPROXY=https://proxy.example/go\x00GOENV=off\x00GOAUTH=netrc\x00", nil
 		},
 	}
 	exec := NewUserAwareExecutor(inner, "alice")
@@ -202,6 +202,9 @@ func TestUserAwareExecutor_GetenvUsesAllowlistedUserSnapshot(t *testing.T) {
 	}
 	if got := exec.Getenv("GOENV"); got != "off" {
 		t.Fatalf("GOENV = %q, want resolved user value", got)
+	}
+	if got := exec.Getenv("yarn_rc_filename"); got != ".custom.yml" {
+		t.Fatalf("yarn_rc_filename = %q", got)
 	}
 	if got := exec.Getenv("GOAUTH"); got != "netrc" {
 		t.Fatalf("GOAUTH = %q, want resolved user value", got)

@@ -212,6 +212,7 @@ func TestPnpmDetector_EnvVars_Snapshot(t *testing.T) {
 func TestPnpmDetector_SourceApplicability(t *testing.T) {
 	tests := []struct {
 		name, goos, version, configYAML string
+		authFile                        string
 		env                             map[string]string
 		want                            map[string]string // path ("~" = home) → applicability
 		absent                          []string
@@ -222,46 +223,54 @@ func TestPnpmDetector_SourceApplicability(t *testing.T) {
 			want: map[string]string{"~/.config/pnpm/rc": "ignored", "~/.config/pnpm/config.yaml": "applicable", "~/.config/pnpm/auth.ini": "applicable"}},
 		{name: "darwin native dir", goos: "darwin", version: "11.6.0",
 			want: map[string]string{"~/Library/Preferences/pnpm/config.yaml": "applicable"}},
-		{name: "xdg wins", goos: "darwin", version: "10.11.0", env: map[string]string{"XDG_CONFIG_HOME": "/xdg"},
-			want: map[string]string{"/xdg/pnpm/rc": "applicable"}, absent: []string{"~/Library/Preferences/pnpm/rc"}},
-		{name: "windows localappdata", goos: "windows", version: "11.6.0", env: map[string]string{"LOCALAPPDATA": "/local"},
-			want: map[string]string{"/local/pnpm/config/config.yaml": "applicable"}},
+		{name: "xdg wins", goos: "darwin", version: "10.11.0", env: map[string]string{"XDG_CONFIG_HOME": "$ROOT/xdg"},
+			want: map[string]string{"$ROOT/xdg/pnpm/rc": "applicable"}, absent: []string{"~/Library/Preferences/pnpm/rc"}},
+		{name: "windows localappdata", goos: "windows", version: "11.6.0", env: map[string]string{"LOCALAPPDATA": "$ROOT/local"},
+			want: map[string]string{"$ROOT/local/pnpm/config/config.yaml": "applicable"}},
 		{name: "unknown version", goos: "linux",
 			want: map[string]string{"~/.config/pnpm/rc": "unknown", "~/.config/pnpm/config.yaml": "unknown", "~/.npmrc": "unknown"}},
 		{name: "pnpm 11 auth file override", goos: "linux", version: "11.6.0",
-			env:  map[string]string{"pnpm_config_npmrc_auth_file": "/auth/npmrc", "npm_config_userconfig": "/npm/npmrc"},
-			want: map[string]string{"/auth/npmrc": "applicable"}, absent: []string{"/npm/npmrc", "~/.npmrc"}},
+			env:  map[string]string{"pnpm_config_npmrc_auth_file": "$ROOT/auth/npmrc", "npm_config_userconfig": "$ROOT/npm/npmrc"},
+			want: map[string]string{"$ROOT/auth/npmrc": "applicable"}, absent: []string{"$ROOT/npm/npmrc", "~/.npmrc"}},
+		{name: "auth override with yaml extension stays INI", goos: "linux", version: "12.16.1",
+			env: map[string]string{"pnpm_config_npmrc_auth_file": "$ROOT/auth.yaml"}, authFile: "$ROOT/auth.yaml",
+			want: map[string]string{"$ROOT/auth.yaml": "applicable"}},
 		{name: "auth file resolves in home", goos: "linux", version: "11.6.0",
 			env:  map[string]string{"pnpm_config_npmrc_auth_file": "~/auth/npmrc"},
 			want: map[string]string{"~/auth/npmrc": "applicable"}},
 		{name: "relative auth file resolves in home", goos: "linux", version: "11.6.0",
 			env:  map[string]string{"pnpm_config_npmrc_auth_file": "auth/npmrc"},
 			want: map[string]string{"~/auth/npmrc": "applicable"}},
-		{name: "pnpm 11 yaml auth file", goos: "linux", version: "11.6.0", configYAML: "npmrcAuthFile: /yaml/npmrc\n",
-			env:  map[string]string{"npm_config_userconfig": "/npm/npmrc"},
-			want: map[string]string{"/yaml/npmrc": "applicable"}, absent: []string{"/npm/npmrc"}},
+		{name: "pnpm 11 yaml auth file", goos: "linux", version: "11.6.0", configYAML: "npmrcAuthFile: $ROOT/yaml/npmrc\n",
+			env:  map[string]string{"npm_config_userconfig": "$ROOT/npm/npmrc"},
+			want: map[string]string{"$ROOT/yaml/npmrc": "applicable"}, absent: []string{"$ROOT/npm/npmrc"}},
 		{name: "pnpm 10 follows npm userconfig", goos: "linux", version: "10.11.0",
-			env:  map[string]string{"pnpm_config_npmrc_auth_file": "/auth/npmrc", "npm_config_userconfig": "/npm/npmrc"},
-			want: map[string]string{"/npm/npmrc": "applicable"}, absent: []string{"/auth/npmrc"}},
+			env:  map[string]string{"pnpm_config_npmrc_auth_file": "$ROOT/auth/npmrc", "npm_config_userconfig": "$ROOT/npm/npmrc"},
+			want: map[string]string{"$ROOT/npm/npmrc": "applicable"}, absent: []string{"$ROOT/auth/npmrc"}},
 		{name: "unreliable globalconfig query skipped", goos: "linux", version: "10.17.0",
-			absent: []string{"/query/rc"}},
+			absent: []string{"$ROOT/query/rc"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			home := filepath.Join(t.TempDir(), "home")
+			tmp := t.TempDir()
+			home := filepath.Join(tmp, "home")
+			expand := func(s string) string { return strings.ReplaceAll(s, "$ROOT", filepath.ToSlash(tmp)) }
 			mock := executor.NewMock()
 			mock.SetGOOS(tc.goos)
 			mock.SetHomeDir(home)
 			for k, v := range tc.env {
-				mock.SetEnv(k, v)
+				mock.SetEnv(k, expand(v))
 			}
 			if tc.version != "" {
 				mock.SetPath("pnpm", "/bin/pnpm")
 				mock.SetCommand(tc.version+"\n", "", 0, "pnpm", "--version")
-				mock.SetCommand("/query/rc\n", "", 0, "pnpm", "config", "get", "globalconfig")
+				mock.SetCommand(expand("$ROOT/query/rc")+"\n", "", 0, "pnpm", "config", "get", "globalconfig")
 			}
 			if tc.configYAML != "" {
-				mustWriteFile(t, filepath.Join(home, ".config", "pnpm", "config.yaml"), tc.configYAML)
+				mustWriteFile(t, filepath.Join(home, ".config", "pnpm", "config.yaml"), expand(tc.configYAML))
+			}
+			if tc.authFile != "" {
+				mustWriteFile(t, expand(tc.authFile), "//registry.example/:_authToken=${TOKEN}\n")
 			}
 			d := NewPnpmDetector(mock)
 			d.ownerLookup = fixedOwner()
@@ -269,7 +278,10 @@ func TestPnpmDetector_SourceApplicability(t *testing.T) {
 
 			got := map[string]string{}
 			for _, f := range audit.Files {
-				got[strings.Replace(f.Path, home, "~", 1)] = f.RuntimeApplicability
+				if tc.authFile != "" && filepath.ToSlash(f.Path) == expand(tc.authFile) && (f.Format != "ini" || f.ParseError != "" || len(f.Entries) != 1 || !f.Entries[0].IsAuth) {
+					t.Errorf("auth override was not parsed as INI: %+v", f)
+				}
+				got[strings.ReplaceAll(strings.Replace(filepath.ToSlash(f.Path), filepath.ToSlash(home), "~", 1), filepath.ToSlash(tmp), "$ROOT")] = f.RuntimeApplicability
 			}
 			for p, want := range tc.want {
 				if got[p] != want {

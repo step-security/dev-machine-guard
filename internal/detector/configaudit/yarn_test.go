@@ -280,7 +280,7 @@ func TestYarnDetector_SourceApplicability(t *testing.T) {
 			got := map[string]string{}
 			for _, f := range audit.Files {
 				rel, _ := filepath.Rel(tmp, f.Path)
-				got[rel] = f.RuntimeApplicability
+				got[filepath.ToSlash(rel)] = f.RuntimeApplicability
 			}
 			for k, want := range tc.want {
 				if got[k] != want {

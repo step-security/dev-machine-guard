@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
-	"unicode"
 
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
@@ -202,8 +201,8 @@ func redactValue(value string, isAuth bool) (string, bool) {
 	}
 	var b strings.Builder
 	literal := false
-	mask := func(s string) {
-		if strings.IndexFunc(s, isAlnum) >= 0 {
+	mask := func(s string, betweenRefs bool) {
+		if s != "" && !(betweenRefs && s == ":") {
 			b.WriteString("***")
 			literal = true
 		} else {
@@ -212,11 +211,14 @@ func redactValue(value string, isAuth bool) (string, bool) {
 	}
 	last := 0
 	for _, m := range locs {
-		mask(value[last:m[0]])
+		mask(value[last:m[0]], last > 0)
 		ref := value[m[0]:m[1]]
 		if m[4] >= 0 {
 			suffix := value[m[4]:m[5]]
-			op := suffix[:len(suffix)-len(strings.TrimLeft(suffix, "?:-"))]
+			op := suffix[:1]
+			if strings.HasPrefix(suffix, ":-") {
+				op = ":-"
+			}
 			if len(op) < len(suffix) {
 				ref = value[m[0]:m[4]] + op + "***}"
 				literal = true
@@ -225,13 +227,13 @@ func redactValue(value string, isAuth bool) (string, bool) {
 		b.WriteString(ref)
 		last = m[1]
 	}
-	mask(value[last:])
+	mask(value[last:], false)
 	return b.String(), literal
 }
 
 // The userinfo runs to the last `@` before the path, as URL parsers read
 // it, so an unencoded `@` in a password is still masked.
-var urlUserinfoPattern = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)([^/?#\s]+)@`)
+var urlUserinfoPattern = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)((?:` + envRefPattern.String() + `|[^/?#\s])+)@`)
 
 // redactURLUserinfo masks credentials embedded in any URL inside v, even
 // when another part of the value is an env reference. Userinfo made only of
@@ -248,8 +250,6 @@ func redactURLUserinfo(v string) (string, bool) {
 	})
 	return out, literal
 }
-
-func isAlnum(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
 
 // redactSecret returns a safe-to-display form of an auth value. We keep the
 // last 4 characters when the secret is long enough to make rotation tracking

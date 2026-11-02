@@ -276,7 +276,7 @@ func (d *PnpmDetector) findProjectNPMRCs(ctx context.Context, dir string) []stri
 // files are pnpm settings YAML; everything else is .npmrc syntax.
 func (d *PnpmDetector) collectFile(ctx context.Context, path, scope string) model.NPMRCFile {
 	f := model.NPMRCFile{Path: path, Scope: scope, Format: "ini"}
-	if filepath.Ext(path) == ".yaml" {
+	if scope != "user" && filepath.Ext(path) == ".yaml" {
 		f.Format = "yaml"
 	}
 
@@ -310,6 +310,10 @@ func (d *PnpmDetector) collectFile(ctx context.Context, path, scope string) mode
 
 	if info.IsDir() {
 		f.ParseError = "path is a directory"
+		return f
+	}
+	if !info.Mode().IsRegular() {
+		f.ParseError = "not a regular file"
 		return f
 	}
 	if f.Format == "yaml" && info.Size() > maxPnpmYAMLBytes {

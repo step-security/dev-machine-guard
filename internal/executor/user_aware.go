@@ -91,6 +91,7 @@ var userEnvironmentKeys = []string{
 	"pnpm_config_minimum_release_age_strict",
 	"pnpm_config_npmrc_auth_file",
 	"pnpm_config_userconfig",
+	"yarn_rc_filename",
 }
 
 // NewUserAwareExecutor returns a wrapped executor that runs commands through the
