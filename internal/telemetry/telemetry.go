@@ -142,6 +142,9 @@ type Payload struct {
 	RubyConfigAudit     *model.RubyConfigAudit     `json:"ruby_config_audit,omitempty"`
 	CondaInventory      *model.CondaInventory      `json:"conda_inventory,omitempty"`
 	CondaConfigAudit    *model.CondaConfigAudit    `json:"conda_config_audit,omitempty"`
+	MavenInventory      *model.MavenInventory      `json:"maven_inventory,omitempty"`
+	MavenConfigAudit    *model.MavenConfigAudit    `json:"maven_config_audit,omitempty"`
+	GradleConfigAudit   *model.GradleConfigAudit   `json:"gradle_config_audit,omitempty"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -1218,6 +1221,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	endPhase(phaseCtx, phaseCancel, tracker, log, "conda_scan")
 	postPhase()
 
+	// Maven and Gradle metadata use the raw executor and the same developer as Go/Cargo.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "maven_scan")
+	log.Progress("Collecting Java/JVM packages and configuration...")
+	mavenInventory, mavenConfigAudit, gradleConfigAudit := detector.NewMavenScanner(exec, log).Scan(phaseCtx, browserTarget, searchDirs, cfg.IncludeNetworkVolumes)
+	log.Progress("  Java/JVM: %d projects, %d package facts (inventory %s, maven config %s, gradle config %s)", len(mavenInventory.Projects), len(mavenInventory.Packages), mavenInventory.Status, mavenConfigAudit.Status, gradleConfigAudit.Status)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "maven_scan")
+	postPhase()
+
 	// npm + pip configuration audits — surface-only inventory of every
 	// .npmrc and pip.conf on the host, plus the merged effective views
 	// each tool would resolve. We use the user-aware executor so npm and
@@ -1390,6 +1401,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		RubyConfigAudit:         rubyConfigAudit,
 		CondaInventory:          condaInventory,
 		CondaConfigAudit:        condaConfigAudit,
+		MavenInventory:          mavenInventory,
+		MavenConfigAudit:        mavenConfigAudit,
+		GradleConfigAudit:       gradleConfigAudit,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,

@@ -2050,3 +2050,96 @@ type CondaConfigContext struct {
 	ConfigSourceIDs []string `json:"config_source_ids"` // highest precedence first
 	SelectionStatus string   `json:"selection_status"`  // observed | partial
 }
+
+// MavenInventorySchemaVersion versions maven_inventory, maven_config_audit and
+// gradle_config_audit.
+const MavenInventorySchemaVersion = 1
+
+// MavenSource reuses the Cargo source shape. Kinds: project_search_root |
+// project | manifest | version_catalog | lockfile | verification_metadata |
+// maven_repository | gradle_cache | artifact_directory | cached_artifact.
+type MavenSource = CargoSource
+
+// MavenRecordedChecksum is an expected digest from verification metadata,
+// never a hash DMG computed or verified.
+type MavenRecordedChecksum = ComposerRecordedChecksum
+
+// MavenCredentialFile reports existence only; contents are never read.
+type MavenCredentialFile = CargoCredentialFile
+
+// MavenOrigin reuses the Ruby origin shape with kind unknown | repository |
+// local. Cache layout and current settings are not historical provenance.
+type MavenOrigin = RubyOrigin
+
+// MavenConfigAudit and GradleConfigAudit reuse the Ruby observed-source model
+// with manager maven or gradle and scope system | user | project | process.
+type (
+	MavenConfigAudit  = RubyConfigAudit
+	GradleConfigAudit = RubyConfigAudit
+)
+
+// MavenInventory covers Maven and Gradle from passive metadata reads; no
+// Maven, Gradle, wrapper, plugin or script runs. Declarations, locks, cached
+// files and verification references stay separate evidence.
+type MavenInventory struct {
+	SchemaVersion int            `json:"schema_version"`
+	Status        string         `json:"status"` // complete | partial
+	Reasons       []string       `json:"reasons"`
+	Sources       []MavenSource  `json:"sources"`
+	Projects      []MavenProject `json:"projects"`
+	Packages      []MavenPackage `json:"packages"`
+}
+
+// MavenProject is a directory whose listing holds a POM, .mvn configuration,
+// or a Gradle build, lock, catalog, verification, wrapper or properties file.
+type MavenProject struct {
+	ProjectPath string `json:"project_path"`
+	SourceID    string `json:"source_id"`
+	Tool        string `json:"tool"` // maven | gradle | unknown
+}
+
+// MavenPackage is one observation of a case-sensitive group:artifact.
+// Declarations never carry a version; their raw text is requested_specs.
+type MavenPackage struct {
+	SourceID          string                  `json:"source_id"`
+	SourcePath        string                  `json:"source_path"`
+	PackageName       string                  `json:"package_name"`
+	GroupID           string                  `json:"group_id"`
+	ArtifactID        string                  `json:"artifact_id"`
+	Evidence          string                  `json:"evidence"` // declared_dependency | locked_package | cached_artifact | verification_reference
+	ProjectPath       string                  `json:"project_path,omitempty"`
+	Tool              string                  `json:"tool"`           // maven | gradle | unknown
+	Scope             string                  `json:"scope"`          // project | user | system | custom | unknown
+	VersionStatus     string                  `json:"version_status"` // known | unknown
+	Version           string                  `json:"version,omitempty"`
+	RequestedSpecs    []string                `json:"requested_specs"`
+	Configurations    []string                `json:"configurations"`    // Gradle lock configurations
+	RepositoryFormat  string                  `json:"repository_format"` // maven | ivy | unknown
+	Origin            MavenOrigin             `json:"origin"`
+	RecordedChecksums []MavenRecordedChecksum `json:"recorded_checksums"`
+	Reasons           []string                `json:"reasons"`
+	// Declaration-only context; maven_scope is the declared Maven scope, not file placement.
+	DeclarationRole    string         `json:"declaration_role,omitempty"`    // direct | managed | bom_import | parent | plugin | managed_plugin | plugin_dependency | extension | catalog_entry
+	DeclarationContext string         `json:"declaration_context,omitempty"` // plugin:<g>:<a> | managed_plugin:<g>:<a> | catalog:<alias>
+	ProfileID          string         `json:"profile_id,omitempty"`
+	MavenScope         string         `json:"maven_scope,omitempty"`
+	DeclaredType       string         `json:"declared_type,omitempty"`
+	DeclaredClassifier *string        `json:"declared_classifier,omitempty"` // nil = not declared
+	Optional           *bool          `json:"optional,omitempty"`
+	Artifact           *MavenArtifact `json:"artifact,omitempty"`
+}
+
+// MavenArtifact names one file. Cached files carry path, role and size; a
+// verification reference has only the filename.
+type MavenArtifact struct {
+	Filename                  string  `json:"filename"`
+	Path                      string  `json:"path,omitempty"`
+	ArtifactRole              string  `json:"artifact_role,omitempty"` // metadata | payload
+	SizeBytes                 int64   `json:"size_bytes,omitempty"`
+	Extension                 string  `json:"extension,omitempty"`
+	Classifier                *string `json:"classifier,omitempty"` // nil = unknown, "" = unclassified
+	BaseVersion               string  `json:"base_version,omitempty"`
+	FileVersion               string  `json:"file_version,omitempty"` // timestamped snapshot file
+	ContentKey                string  `json:"content_key,omitempty"`  // Gradle cache directory, not a computed digest
+	LocalInstallMarkerPresent bool    `json:"local_install_marker_present,omitempty"`
+}

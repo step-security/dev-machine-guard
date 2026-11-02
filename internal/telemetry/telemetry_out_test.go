@@ -285,3 +285,32 @@ func TestPayloadCondaSections(t *testing.T) {
 		}
 	}
 }
+
+func TestPayloadMavenSections(t *testing.T) {
+	raw, err := os.ReadFile("../model/testdata/maven_inventory_v1_golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload Payload
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&payload); err != nil {
+		t.Fatalf("Maven golden does not fit Payload: %v", err)
+	}
+	if payload.MavenInventory == nil || payload.MavenConfigAudit == nil || payload.GradleConfigAudit == nil {
+		t.Fatal("Maven sections not decoded into Payload")
+	}
+	data, err := json.Marshal(&Payload{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var empty map[string]json.RawMessage
+	if err := json.Unmarshal(data, &empty); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"maven_inventory", "maven_config_audit", "gradle_config_audit"} {
+		if _, exists := empty[key]; exists {
+			t.Errorf("unrun section %s was emitted", key)
+		}
+	}
+}
