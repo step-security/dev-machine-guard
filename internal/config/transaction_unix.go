@@ -4,13 +4,18 @@ package config
 
 import (
 	"errors"
+	"math"
 	"os"
 
 	"golang.org/x/sys/unix"
 )
 
 func tryConfigLock(f *os.File) (bool, error) {
-	err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB)
+	fd := f.Fd()
+	if fd > uintptr(math.MaxInt) {
+		return false, unix.EBADF
+	}
+	err := unix.Flock(int(fd), unix.LOCK_EX|unix.LOCK_NB)
 	if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
 		return false, nil
 	}
