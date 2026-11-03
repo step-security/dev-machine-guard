@@ -700,3 +700,77 @@ func TestMavenScanRootOwnership(t *testing.T) {
 		t.Errorf("gradle audit lacks the verified user home: %s", mavenJSON(t, gradle))
 	}
 }
+
+func TestMavenScanVerificationPolicyCoverage(t *testing.T) {
+	for _, tc := range []struct {
+		name, value, component, status string
+	}{
+		{"invalid policy", "invalid", "", "partial"},
+		{"invalid component only", "false", `<component group="${group}" name="lib" version="1"/>`, "complete"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := goTestHome(t)
+			root := filepath.Join(home, "projects")
+			dir := filepath.Join(root, "app")
+			goWrite(t, filepath.Join(dir, "build.gradle"), "", 0o600)
+			goWrite(t, filepath.Join(dir, "gradle", "verification-metadata.xml"), `<verification-metadata><configuration><verify-metadata>`+tc.value+`</verify-metadata></configuration><components>`+tc.component+`</components></verification-metadata>`, 0o600)
+			scanner, _ := mavenTestScanner(t, home)
+			inv, _, audit := scanner.Scan(t.Context(), goTestTarget(home), []string{root}, nil)
+			if inv.Status != "partial" || audit.Status != tc.status {
+				t.Fatalf("inventory=%s audit=%s reasons=%v", inv.Status, audit.Status, audit.Reasons)
+			}
+			for _, c := range audit.Contexts {
+				if c.ProjectPath == dir && (c.SelectionStatus == "partial") != (tc.status == "partial") {
+					t.Errorf("project coverage=%s", c.SelectionStatus)
+				}
+			}
+		})
+	}
+}
+
+func TestMavenScanKnownRootsAtLimit(t *testing.T) {
+	old := maxMavenRecords
+	t.Cleanup(func() { maxMavenRecords = old })
+	maxMavenRecords = 3
+	home := goTestHome(t)
+	root := filepath.Join(home, "projects")
+	goWrite(t, filepath.Join(root, "app", "pom.xml"), mavenTestPOM("org.example", "app", "1"), 0o600)
+	scanner, _ := mavenTestScanner(t, home)
+	inv, _, _ := scanner.Scan(t.Context(), goTestTarget(home), []string{root}, nil)
+	for _, r := range []struct{ kind, path string }{
+		{"maven_repository", filepath.Join(home, ".m2", "repository")},
+		{"gradle_cache", filepath.Join(home, ".gradle", "caches", "modules-2", "files-2.1")},
+	} {
+		src := mavenSource(t, inv, r.kind, r.path)
+		if src.Presence != "unknown" || src.Status != "partial" || !slices.Contains(src.Reasons, "record_limit") {
+			t.Errorf("unscanned root=%+v", src)
+		}
+	}
+}
+
+type mavenInfoTrap struct {
+	os.DirEntry
+	t *testing.T
+}
+
+func (e mavenInfoTrap) Info() (os.FileInfo, error) {
+	e.t.Fatal("file metadata read after cancellation")
+	return nil, os.ErrNotExist
+}
+
+func TestMavenScanQueuedMetadataCanceled(t *testing.T) {
+	dir := t.TempDir()
+	goWrite(t, filepath.Join(dir, "lib-1.jar"), "fixture", 0o600)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	repo := &model.MavenSource{SourceID: "repo"}
+	c := &mavenScan{ctx: ctx, inv: emptyMavenInventory(), byID: map[string]*model.MavenSource{"repo": repo}}
+	c.versionDir(repo, nil, mavenRoot{}, dir, []string{"org", "example", "lib", "1"}, []os.DirEntry{mavenInfoTrap{entries[0], t}})
+	if !slices.Contains(repo.Reasons, "deadline_exceeded") {
+		t.Errorf("stop reason missing: %v", repo.Reasons)
+	}
+}

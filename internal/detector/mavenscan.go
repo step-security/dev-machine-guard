@@ -330,6 +330,8 @@ func (c *mavenScan) cacheRoot(path, kind, scope, origin string) {
 	}
 	c.rootKeys[c.key(path)], c.rootKeys[c.key(phys)] = true, true
 	c.cacheRoots = append(c.cacheRoots, mavenRoot{path, kind, scope, origin})
+	// Preserve known roots even when earlier project/cache facts fill the budget.
+	c.source(kind, path, "")
 }
 
 // gradleHome registers a Gradle user home's module cache. The whole home is
@@ -350,7 +352,7 @@ func (c *mavenScan) skip(path string) bool {
 }
 
 // adopt remembers the walk source that physically reached a pruned cache
-// location, so the cache source can be placed under it once it exists.
+// location, so the cache source can be attached after discovery.
 func (c *mavenScan) adopt(path string, owner *model.MavenSource) {
 	if owner != nil {
 		if _, ok := c.owners[c.key(path)]; !ok {
@@ -838,6 +840,9 @@ func (c *mavenScan) rootSource(r mavenRoot, budget *int) (*model.MavenSource, ex
 	if src == nil {
 		return nil, nil, nil
 	}
+	if src.ParentSourceID == "" {
+		src.ParentSourceID = c.ownerOf(r.path)
+	}
 	if c.stopped(src) {
 		src.Presence = "unknown"
 		return nil, nil, nil
@@ -880,6 +885,9 @@ func (c *mavenScan) mavenRepository(r mavenRoot) {
 	}
 	queue := []dir{{r.path, nil, entries}}
 	for len(queue) > 0 {
+		if c.stopped(src) {
+			return
+		}
 		d := queue[0]
 		queue = queue[1:]
 		if n := len(d.segments); n >= 3 && c.versionDir(src, files, r, d.path, d.segments, d.entries) {
@@ -999,6 +1007,9 @@ func (c *mavenScan) versionDir(repo *model.MavenSource, files executor.Executor,
 
 // artifact describes one non-empty regular cache file; nil skips it.
 func (c *mavenScan) artifact(owner *model.MavenSource, dir string, e fs.DirEntry, f mavenFile) *model.MavenArtifact {
+	if c.stopped(owner) {
+		return nil
+	}
 	info, err := e.Info()
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -1143,6 +1154,9 @@ func (c *mavenScan) descriptor(files executor.Executor, path string) ([]byte, st
 	// The guarded reader refuses an oversized file, so size is checked first.
 	if info, err := files.Stat(path); err == nil && info.Size() > maxMavenMetadataBytes {
 		return nil, "size_limit"
+	}
+	if reason := c.stopReason(); reason != "" {
+		return nil, reason
 	}
 	data, err := files.ReadFile(path)
 	switch {

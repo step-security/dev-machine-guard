@@ -369,8 +369,11 @@ func parseGradleLock(data []byte, legacyConfiguration string) (*mavenLock, error
 		l.named = []string{legacyConfiguration}
 	}
 	index := map[string]int{}
+	named := map[string]bool{legacyConfiguration: true}
+	configurations := map[string]map[string]bool{}
 	name := func(c string) {
-		if !slices.Contains(l.named, c) {
+		if !named[c] {
+			named[c] = true
 			l.named = append(l.named, c)
 		}
 	}
@@ -409,11 +412,16 @@ func parseGradleLock(data []byte, legacyConfiguration string) (*mavenLock, error
 		}
 		if i, ok := index[coords]; ok {
 			for _, c := range confs {
-				if !slices.Contains(l.entries[i].configurations, c) {
+				if !configurations[coords][c] {
+					configurations[coords][c] = true
 					l.entries[i].configurations = append(l.entries[i].configurations, c)
 				}
 			}
 			continue
+		}
+		configurations[coords] = map[string]bool{}
+		for _, c := range confs {
+			configurations[coords][c] = true
 		}
 		index[coords] = len(l.entries)
 		l.entries = append(l.entries, mavenLockEntry{group: parts[0], artifact: parts[1], version: parts[2], configurations: confs})
@@ -616,6 +624,7 @@ func parseGradleVerification(data []byte) ([]mavenReference, configaudit.GradleV
 			*f.dst = boolPtr(v == "true")
 		case "":
 		default:
+			policy.Invalid = true
 			note("parse_error")
 		}
 	}

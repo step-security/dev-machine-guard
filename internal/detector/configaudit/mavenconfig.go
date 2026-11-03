@@ -210,6 +210,7 @@ type MavenRepository struct {
 type GradleVerification struct {
 	VerifyMetadata, VerifySignatures *bool
 	TrustedArtifacts, TrustedKeys    bool
+	Invalid                          bool // a policy value could not be read
 }
 
 // MavenConfigScope comes from the resolved developer, never a login shell.
@@ -283,8 +284,8 @@ func emptyMavenAudit() model.RubyConfigAudit {
 
 func (d *MavenConfigDetector) Detect(ctx context.Context, scope MavenConfigScope) *MavenConfigSnapshot {
 	a := &MavenConfigSnapshot{exec: d.exec, ctx: ctx, scope: scope, env: map[string]string{}, leads: map[string]bool{}, credentials: map[string]bool{}, protected: map[string]bool{}, projects: map[string]*mavenProjectConfig{},
-		maven:  &mavenAudit{audit: emptyMavenAudit(), files: map[string]*model.RubyConfigFile{}},
-		gradle: &mavenAudit{audit: emptyMavenAudit(), files: map[string]*model.RubyConfigFile{}}}
+		maven:  &mavenAudit{audit: emptyMavenAudit(), files: map[string]*model.RubyConfigFile{}, bytes: mavenAuditSize(emptyMavenAudit()) + 128},
+		gradle: &mavenAudit{audit: emptyMavenAudit(), files: map[string]*model.RubyConfigFile{}, bytes: mavenAuditSize(emptyMavenAudit()) + 128}}
 	if scope.Username == "" || scope.Home == "" {
 		a.Partial("user_unresolved")
 		return a
@@ -402,14 +403,15 @@ func (a *MavenConfigSnapshot) record(manager, scope, path string) *model.RubyCon
 	if f := s.files[id]; f != nil {
 		return f
 	}
-	if s.limited || s.bytes+len(path)+256 > maxMavenAuditBytes {
+	f := &model.RubyConfigFile{SourceID: id, Manager: manager, Scope: scope, Path: path, Status: "absent", Reasons: []string{}, Settings: []model.CargoConfigSetting{}}
+	size := mavenAuditSize(f) + 128 // room for later coverage reasons
+	if s.limited || s.bytes+size > maxMavenAuditBytes {
 		s.limited = true
 		s.degrade("output_size_limit")
 		return nil
 	}
-	f := &model.RubyConfigFile{SourceID: id, Manager: manager, Scope: scope, Path: path, Status: "absent", Reasons: []string{}, Settings: []model.CargoConfigSetting{}}
 	s.files[id] = f
-	s.bytes += len(path) + 256
+	s.bytes += size
 	return f
 }
 
@@ -429,13 +431,20 @@ func (a *MavenConfigSnapshot) setting(f *model.RubyConfigFile, key, value string
 		a.limitation(f, "record_limit")
 		return
 	}
-	if s.limited || s.bytes+len(key)+len(value)+128 > maxMavenAuditBytes {
+	setting := model.CargoConfigSetting{Key: key, Display: value, SourceID: f.SourceID, Redacted: redacted}
+	size := mavenAuditSize(setting)
+	// Reserve the possible finding before admitting its setting. A blocked
+	// mirror may suppress that finding, never increase this charge.
+	for _, finding := range mavenFindings(model.RubyConfigFile{Manager: f.Manager, SourceID: f.SourceID, Settings: []model.CargoConfigSetting{setting}}) {
+		size += mavenAuditSize(finding)
+	}
+	if s.limited || s.bytes+size > maxMavenAuditBytes {
 		s.limited = true
-		a.fileReason(f, "unsupported", "output_size_limit")
+		a.limitation(f, "output_size_limit")
 		return
 	}
-	s.bytes += len(key) + len(value) + 128
-	f.Settings = append(f.Settings, model.CargoConfigSetting{Key: key, Display: value, SourceID: f.SourceID, Redacted: redacted})
+	s.bytes += size
+	f.Settings = append(f.Settings, setting)
 }
 
 func (a *MavenConfigSnapshot) readFile(manager, scope, p string, parse func(*model.RubyConfigFile, []byte)) *model.RubyConfigFile {
@@ -764,7 +773,6 @@ func (a *MavenConfigSnapshot) parseSettings(f *model.RubyConfigFile, data []byte
 		}
 		prefix := "mirrors." + strconv.Itoa(i) + "."
 		a.label(f, prefix+"id", m.ID)
-		a.url(f, prefix+"url", m.URL)
 		a.selector(f, prefix+"mirror_of", m.MirrorOf)
 		a.selector(f, prefix+"mirror_of_layouts", m.MirrorOfLayouts)
 		// A present mirror is unblocked unless it says otherwise.
@@ -773,6 +781,8 @@ func (a *MavenConfigSnapshot) parseSettings(f *model.RubyConfigFile, data []byte
 		} else {
 			a.setting(f, prefix+"blocked", "false", false)
 		}
+		// Keep the blocking policy before a URL that can raise a finding.
+		a.url(f, prefix+"url", m.URL)
 	}
 	for i, p := range doc.Proxies {
 		if i >= mavenIndexLimit {
@@ -1144,6 +1154,9 @@ func (a *MavenConfigSnapshot) Verification(dir, path string, v GradleVerificatio
 		return
 	}
 	f.Status, f.Reasons = status, append([]string{}, reasons...)
+	if v.Invalid {
+		a.limitation(f, "parse_error")
+	}
 	if status == "present" {
 		for key, b := range map[string]*bool{"verification.verify_metadata": v.VerifyMetadata, "verification.verify_signatures": v.VerifySignatures} {
 			if b != nil {
@@ -1187,15 +1200,21 @@ func (a *MavenConfigSnapshot) credential(path string) {
 			s.degrade("unsupported_entry")
 		}
 	}
+	size := mavenAuditSize(c)
+	if s.bytes+size > maxMavenAuditBytes {
+		s.limited = true
+		s.degrade("output_size_limit")
+		return
+	}
 	s.audit.CredentialFiles = append(s.audit.CredentialFiles, c)
-	s.bytes += len(path) + 128
+	s.bytes += size
 }
 
 func (s *mavenAudit) context(c model.RubyConfigContext) {
 	if s.limited {
 		return
 	}
-	size := len(c.ProjectPath) + len(c.ConfigSourceIDs)*70 + 128
+	size := mavenAuditSize(c)
 	if s.bytes+size > maxMavenAuditBytes {
 		s.limited = true
 		s.degrade("output_size_limit")
@@ -1302,12 +1321,13 @@ func (s *mavenAudit) finish() model.RubyConfigAudit {
 		return strings.Compare(x.Code+x.SourceID+x.Key, y.Code+y.SourceID+y.Key)
 	})
 	slices.Sort(s.audit.Reasons)
-	data, _ := json.Marshal(s.audit)
-	if len(data) > maxMavenAuditBytes {
-		s.audit = emptyMavenAudit()
-		s.degrade("output_size_limit")
-	}
 	return s.audit
+}
+
+// mavenAuditSize includes JSON escaping and the array separator.
+func mavenAuditSize(record any) int {
+	data, _ := json.Marshal(record)
+	return len(data) + 1
 }
 
 // mavenFindings derives the stable catalog from kept settings. Details are

@@ -326,3 +326,59 @@ func TestMavenConfigSeparateBudgets(t *testing.T) {
 		}
 	}
 }
+
+func TestMavenConfigBudgetRetainsObservations(t *testing.T) {
+	for _, tc := range []string{"project findings", "settings", "blocked mirrors"} {
+		t.Run(tc, func(t *testing.T) {
+			m, scope := mavenConfigTest(t)
+			if tc != "project findings" {
+				var text strings.Builder
+				text.WriteString("<settings><mirrors>")
+				for i := range 120 {
+					blocked := tc == "blocked mirrors" && i > 0
+					text.WriteString("<mirror><id>repo" + strconv.Itoa(i) + "</id><url>http://example.invalid/" + strings.Repeat("a", 3000) + "</url><blocked>" + strconv.FormatBool(blocked) + "</blocked></mirror>")
+				}
+				text.WriteString("</mirrors></settings>")
+				m.SetFile(filepath.Join(scope.Home, ".m2", "settings.xml"), []byte(text.String()))
+			}
+			snap := NewMavenConfigDetector(m).Detect(t.Context(), scope)
+			if tc == "project findings" {
+				for i := range 120 {
+					dir := filepath.Join(scope.Home, "projects", "app"+strconv.Itoa(i))
+					repos := []MavenRepository{}
+					for j := range 5 {
+						repos = append(repos, MavenRepository{ID: new("repo" + strconv.Itoa(j)), URL: new("http://example.invalid/releases"), Kind: "dependency"})
+					}
+					snap.Manifest(dir, filepath.Join(dir, "pom.xml"), repos, "present", nil)
+				}
+			}
+			audit, _ := snap.Finish()
+			data, _ := json.Marshal(audit)
+			if len(data) > maxMavenAuditBytes || !slices.Contains(audit.Reasons, "output_size_limit") || len(audit.Files) == 0 || len(audit.Findings) == 0 {
+				t.Fatalf("bytes=%d status=%s reasons=%v files=%d findings=%d", len(data), audit.Status, audit.Reasons, len(audit.Files), len(audit.Findings))
+			}
+			if tc == "blocked mirrors" && len(audit.Findings) != 1 {
+				t.Errorf("blocked mirrors raised findings: %v", mavenFindingKeys(audit))
+			}
+			ids := map[string]bool{}
+			for _, f := range audit.Files {
+				ids[f.SourceID] = true
+				if slices.Contains(f.Reasons, "output_size_limit") && (f.Status != "present" || len(f.Settings) == 0) {
+					t.Errorf("lost admitted settings: %+v", f)
+				}
+			}
+			for _, f := range audit.Findings {
+				if !ids[f.SourceID] {
+					t.Errorf("finding source missing: %s", f.SourceID)
+				}
+			}
+			for _, c := range audit.Contexts {
+				for _, id := range c.ConfigSourceIDs {
+					if !ids[id] {
+						t.Errorf("context source missing: %s", id)
+					}
+				}
+			}
+		})
+	}
+}
