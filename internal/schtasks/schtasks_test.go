@@ -675,6 +675,8 @@ func TestPerUserIdentity_AutoOnMultiSessionHost(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "multi-user.json"), []byte(`{"since":1,"reason":"edition"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// The mode is snapshotted once per process; `install` is a new process.
+	device.ResetAutoIdentityForTest()
 	if !perUserIdentity(mock) {
 		t.Fatal("a shared host must register the task with the parallel instance policy")
 	}

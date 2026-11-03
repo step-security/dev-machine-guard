@@ -333,7 +333,16 @@ func ResolvedDeviceID(ctx context.Context, exec executor.Executor) Identity {
 		serial = SerialNumber(ctx, exec)
 	}
 	hostname := getHostname(ctx, exec, exec.GOOS())
-	return ResolveIdentity(exec, serial, hostname, getDeveloperIdentity(exec))
+	user := getDeveloperIdentity(exec)
+	id := ResolveIdentity(exec, serial, hostname, user)
+	if serial == "" && id.Source == IdentitySourceSerial {
+		// The template fell back to the machine identity (an unknown token,
+		// an empty expansion): resolve the serial now rather than handing
+		// back an empty id that would skip the check-in.
+		serial = SerialNumber(ctx, exec)
+		id = ResolveIdentity(exec, serial, hostname, user)
+	}
+	return id
 }
 
 // IdentityUserScope returns the per-user state scope for this run: the

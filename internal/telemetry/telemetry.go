@@ -442,11 +442,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	fmt.Fprintf(os.Stderr, "StepSecurity Device Agent v%s\n", buildinfo.Version)
 	fmt.Fprintf(os.Stderr, "==========================================\n\n")
 
-	// Resolve the serial before the lock so a refused run is attributable
-	// (the backend rejects an empty device_id).
+	// Resolve the identity before the lock so a refused run is attributable
+	// under the same id the scan would report (a configured or automatic
+	// identity, not only the serial). An incomplete identity leaves it empty
+	// and the lock_held beacon is skipped; the run gate reports that case.
 	serialCtx, serialCancel := context.WithTimeout(ctx, serialProbeTimeout)
-	probed := model.Device{SerialNumber: device.SerialNumber(serialCtx, exec)}
+	ident := device.ResolvedDeviceID(serialCtx, exec)
 	serialCancel()
+	probed := model.Device{SerialNumber: ident.Serial, DeviceID: ident.DeviceID, DeviceIDSource: ident.Source, IdentityIncomplete: ident.Incomplete}
 	wslGuest := wslGuestFromConfig(cfg)
 	if wslGuest != nil {
 		deviceID = device.IDForGuest(probed, wslGuest.HostDeviceID, wslGuest.DistroID)
@@ -506,6 +509,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	phaseCtx, phaseCancel := startPhase(ctx, tracker, "device_info")
 	log.Progress("Gathering device information...")
 	dev := device.Gather(phaseCtx, exec)
+	dev.Virtualization = device.DetectVirtualization(phaseCtx, exec)
 	// WSL detection (Windows host-side; feature-gated until the backend
 	// consumes device.wsl). No-op off Windows.
 	if featuregate.IsEnabled(featuregate.FeatureWSLDetection) {

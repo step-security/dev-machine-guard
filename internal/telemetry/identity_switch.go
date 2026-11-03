@@ -10,6 +10,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/heartbeat"
+	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 	"github.com/step-security/dev-machine-guard/internal/retire"
@@ -37,6 +38,16 @@ func retireSerialRowOnIdentitySwitch(ctx context.Context, exec executor.Executor
 	if !config.IsEnterpriseMode() {
 		return
 	}
+	// A scan that started under the previous identity holds the machine-wide
+	// lock until it has reported. Retiring now would be undone by its upload,
+	// and the marker would then keep the retire from ever being retried, so
+	// the retire waits for a later run instead.
+	shared, lerr := lock.AcquireMachineWide()
+	if lerr != nil {
+		log.Progress("Identity switch: a scan under the previous identity %s is still running; its row is retired on a later run", dev.SerialNumber)
+		return
+	}
+	defer shared.Release()
 	rctx, cancel := context.WithTimeout(ctx, identitySwitchBudget)
 	defer cancel()
 	err := retire.Post(rctx, config.APIEndpoint, config.APIKey, config.CustomerID, dev.SerialNumber,

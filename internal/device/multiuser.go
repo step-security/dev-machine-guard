@@ -2,9 +2,11 @@ package device
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
@@ -66,11 +68,36 @@ var machineStateDir = func() string { return config.MachineInstallDir() }
 func MachineStateDir() string { return machineStateDir() }
 
 // SetMachineStateDirForTest overrides the machine-wide state dir and returns
-// a func restoring the previous one. Tests only.
+// a func restoring the previous one. Tests only. Each override starts a fresh
+// automatic-mode snapshot (a test stands for a new process).
 func SetMachineStateDirForTest(dir string) (restore func()) {
 	prev := machineStateDir
 	machineStateDir = func() string { return dir }
-	return func() { machineStateDir = prev }
+	ResetAutoIdentityForTest()
+	return func() { machineStateDir = prev; ResetAutoIdentityForTest() }
+}
+
+// autoDecision is the automatic-mode answer snapshotted once per process.
+// main reads the mode before choosing the state scope and the lock target;
+// a second user's scan can flip the shared files at any moment afterwards,
+// and if the mode changed between the run gate, Gather and the upload, one
+// run would check in and report under two different ids while keeping the
+// shared state and the machine-wide lock. A flip takes effect on the next
+// run of any user instead.
+var autoDecision struct {
+	mu       sync.Mutex
+	done     bool
+	template string
+	reason   string
+}
+
+// ResetAutoIdentityForTest drops the per-process automatic-mode snapshot so a
+// test can act as the next run. Tests only.
+func ResetAutoIdentityForTest() {
+	autoDecision.mu.Lock()
+	defer autoDecision.mu.Unlock()
+	autoDecision.done = false
+	autoDecision.template, autoDecision.reason = "", ""
 }
 
 // probeWindowsEdition reads the edition facts (multiuser_windows.go); the
@@ -107,8 +134,20 @@ func isMultiSessionEdition(edition string) bool {
 // autoIdentity reports the template the automatic mode applies on this host
 // ("" when the host is not shared, the feature is off, or the OS is not
 // Windows) and the display reason. The first positive decision writes the
-// sticky marker; every later call reads it back.
+// sticky marker; every later call reads it back. The answer is taken once
+// per process (autoDecision): main evaluates it right after RecordScanUser,
+// and everything else in the run reuses that snapshot.
 func autoIdentity(exec executor.Executor) (template, reason string) {
+	autoDecision.mu.Lock()
+	defer autoDecision.mu.Unlock()
+	if !autoDecision.done {
+		autoDecision.template, autoDecision.reason = autoIdentityUncached(exec)
+		autoDecision.done = true
+	}
+	return autoDecision.template, autoDecision.reason
+}
+
+func autoIdentityUncached(exec executor.Executor) (template, reason string) {
 	dir := machineStateDir()
 	if dir == "" || exec.GOOS() != model.PlatformWindows {
 		return "", ""
@@ -165,19 +204,34 @@ func RecordScanUser(exec executor.Executor) {
 	_ = appendSeenUser(dir, token)
 }
 
+// readBounded reads at most limit bytes of a shared-host file and reports
+// false when the file is missing, unreadable or larger than limit. Every
+// user of the host can write these files, so the bound is applied while
+// reading, never after an unbounded read.
+func readBounded(path string, limit int64) ([]byte, bool) {
+	f, err := os.Open(path) // #nosec G304 -- fixed basename under the install dir
+	if err != nil {
+		return nil, false
+	}
+	defer func() { _ = f.Close() }()
+	if info, err := f.Stat(); err != nil || info.IsDir() {
+		return nil, false
+	}
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil || int64(len(data)) > limit {
+		return nil, false
+	}
+	return data, true
+}
+
 // readSeenUsers returns the distinct user tokens recorded so far, in first-seen
 // order. An unreadable or oversized file reads as empty.
 func readSeenUsers(dir string) []string {
 	if dir == "" {
 		return nil
 	}
-	path := filepath.Join(dir, seenUsersFile)
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() || info.Size() > maxSeenUsersBytes {
-		return nil
-	}
-	data, err := os.ReadFile(path) // #nosec G304 -- fixed basename under the install dir
-	if err != nil {
+	data, ok := readBounded(filepath.Join(dir, seenUsersFile), maxSeenUsersBytes)
+	if !ok {
 		return nil
 	}
 	seen := map[string]bool{}
@@ -221,8 +275,8 @@ func readMultiUserMarker(dir string) (*multiUserMarker, bool) {
 	if dir == "" {
 		return nil, false
 	}
-	data, err := os.ReadFile(filepath.Join(dir, multiUserMarkerFile)) // #nosec G304 -- fixed basename under the install dir
-	if err != nil || len(data) > maxSeenUsersBytes {
+	data, ok := readBounded(filepath.Join(dir, multiUserMarkerFile), maxSeenUsersBytes)
+	if !ok {
 		return nil, false
 	}
 	var m multiUserMarker

@@ -482,10 +482,16 @@ func patchBatterySettings(xml, timeLimit string, perUser bool) (string, bool) {
 	return out, out != xml
 }
 
-// perUserIdentity reports whether the configured device identity template
-// makes each logged-on user a separate device ({user} token). Resolved the
-// same way the scheduled runs resolve it (STEPSEC_DEVICE_ID, else the config
-// the installer just wrote).
+// perUserIdentity reports whether the device identity makes each logged-on
+// user a separate device ({user} token). Resolved the same way the scheduled
+// runs resolve it (STEPSEC_DEVICE_ID, else the config the installer just
+// wrote, else the automatic mode): on a multi-session edition the automatic
+// template is already in force at install time, so those hosts register
+// Parallel from the start. A host that turns multi-user later through a
+// second developer keeps IgnoreNew until the next install or upgrade
+// re-registers the tasks; the per-user locks are what make that safe, and
+// Parallel is not applied unconditionally because a long scan on a
+// single-user machine would then spawn a lock-refused instance every tick.
 func perUserIdentity(exec executor.Executor) bool {
 	template, _ := device.IdentityTemplate(exec)
 	return strings.Contains(strings.ToLower(template), device.TokenUser)

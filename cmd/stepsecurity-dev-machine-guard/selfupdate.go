@@ -59,7 +59,7 @@ func runEarlyVerbs(args []string) {
 func resolveDeviceID(ctx context.Context) string {
 	ctx, cancel := context.WithTimeout(ctx, deviceProbeTimeout)
 	defer cancel()
-	return device.ID(model.Device{SerialNumber: device.SerialNumber(ctx, executor.NewReal())})
+	return device.ResolvedDeviceID(ctx, executor.NewReal()).DeviceID
 }
 
 // selfCheckDeviceID resolves the self-check's device id. As SYSTEM (the
@@ -74,7 +74,7 @@ func selfCheckDeviceID(ctx context.Context, exec executor.Executor, system bool,
 	}
 	ctx, cancel := context.WithTimeout(ctx, deviceProbeTimeout)
 	defer cancel()
-	return device.ID(model.Device{SerialNumber: device.SerialNumber(ctx, exec)})
+	return device.ResolvedDeviceID(ctx, exec).DeviceID
 }
 
 // runSelfCheck is `agent self-check`: the S5 smoke test run by the updater

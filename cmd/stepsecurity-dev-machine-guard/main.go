@@ -454,12 +454,16 @@ func main() {
 
 	case "uninstall":
 		_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
-		// Retire FIRST, while config.json and the per-user state files are
-		// still on disk (the MSI removes nothing before this custom action,
-		// but a teardown script may wipe the install dir right after).
-		// Best-effort by contract: a dead network must never leave the
-		// scheduler job behind, so nothing here can fail the uninstall.
-		retireDeviceOnUninstall(exec, log, cfg)
+		// Collect the identities to retire while config.json and the
+		// per-user state files are still on disk (the MSI removes nothing
+		// before this custom action, but a teardown script may wipe the
+		// install dir right after), tear the scheduler down so no scan can
+		// start or finish reporting, and only then retire: a scan that
+		// reported after the retire would have restored the device. A
+		// failed teardown exits below and leaves the device registered,
+		// since the agent is still in place. Best-effort by contract: a
+		// dead network must never leave the scheduler job behind.
+		retireIDs := retireCandidatesOnUninstall(exec, log, cfg)
 		switch runtime.GOOS {
 		case model.PlatformWindows:
 			if err := schtasks.Uninstall(exec, log); err != nil {
@@ -480,6 +484,7 @@ func main() {
 			log.Error("Scheduled installation is not supported on %s", runtime.GOOS)
 			os.Exit(1)
 		}
+		retireDevicesOnUninstall(exec, log, retireIDs)
 
 	case "hooks install":
 		if !featuregate.IsEnabled(featuregate.FeatureAIAgentHooks) {
@@ -797,38 +802,49 @@ func resolvedIdentityLine(exec executor.Executor) string {
 	return line
 }
 
-// retireDeviceOnUninstall tells the dashboard this device is going away.
-// Decided by `uninstall --retire` / `--no-retire`, else config.json's
-// retire_on_uninstall (written at provisioning time, so a plain `msiexec /x`
-// needs no arguments). Every identity this install may have registered under
-// is retired — the resolved one plus each cached per-user id, which is how an
-// MSI custom action running as SYSTEM retires a {user}-template fleet's rows.
-// Never fails the uninstall: failures are warnings.
-func retireDeviceOnUninstall(exec executor.Executor, log *progress.Logger, cfg *cli.Config) {
+// retireCandidatesOnUninstall decides whether `uninstall` retires this device
+// (`--retire` / `--no-retire`, else config.json's retire_on_uninstall, written
+// at provisioning time so a plain `msiexec /x` needs no extra arguments) and
+// collects every identity to retire while the state is still on disk: the
+// resolved one plus each cached per-user id, which is how an MSI custom
+// action running as SYSTEM retires a {user}-template fleet's rows. Nil when
+// nothing is to be retired.
+func retireCandidatesOnUninstall(exec executor.Executor, log *progress.Logger, cfg *cli.Config) []string {
 	retireWanted := cfg.UninstallRetire || (config.RetireOnUninstall && !cfg.UninstallNoRetire)
 	if !retireWanted {
-		return
+		return nil
 	}
 	if !config.IsEnterpriseMode() {
 		log.Debug("retire: skipped (no enterprise config)")
-		return
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), retire.TotalBudget)
 	defer cancel()
 	ids := retire.CollectIdentities(ctx, exec, log)
 	if len(ids) == 0 {
 		log.Warn("retire: no device id could be resolved; the device stays registered until it is retired from the dashboard or by inactivity")
+	}
+	return ids
+}
+
+// retireDevicesOnUninstall posts the retire for each collected identity once
+// the scheduler is gone, so nothing can report under them afterwards. A
+// failure is a warning, never an exit code.
+func retireDevicesOnUninstall(exec executor.Executor, log *progress.Logger, ids []string) {
+	if len(ids) == 0 {
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), retire.TotalBudget)
+	defer cancel()
 	for _, id := range ids {
-		err := retire.Post(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, id, buildinfo.Version, runtime.GOOS, retire.ReasonUninstall)
+		err := retire.Post(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, id, buildinfo.Version, exec.GOOS(), retire.ReasonUninstall)
 		switch {
 		case err == nil:
 			log.Progress("Retired device %s in the dashboard", id)
 		case errors.Is(err, retire.ErrNotSupported):
 			log.Warn("retire: the dashboard backend does not support device retirement yet; %s stays registered (retire it from the dashboard or let inactivity retire it)", id)
 		default:
-			log.Warn("retire %s: %v (continuing uninstall)", id, err)
+			log.Warn("retire %s: %v", id, err)
 		}
 	}
 }

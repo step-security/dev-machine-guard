@@ -147,8 +147,10 @@ func vendorFromStrings(fields ...string) string {
 // detectDarwin uses the kernel's own answer: kern.hv_vmm_present is 1 inside
 // any Virtualization.framework, VMware or Parallels guest.
 func detectDarwin(ctx context.Context, exec executor.Executor) *model.Virtualization {
-	out, _, _, err := exec.RunWithTimeout(ctx, imdsTimeout, "sysctl", "-n", "kern.hv_vmm_present")
-	if err != nil {
+	out, _, code, err := exec.RunWithTimeout(ctx, imdsTimeout, "sysctl", "-n", "kern.hv_vmm_present")
+	if err != nil || code != 0 {
+		// A missing key exits non-zero with empty output: no evidence, not
+		// a physical machine.
 		return &model.Virtualization{Type: model.VirtualizationUnknown, Source: VirtSourceSysctl}
 	}
 	if strings.TrimSpace(out) != "1" {

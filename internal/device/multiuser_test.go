@@ -141,6 +141,9 @@ func TestAutoIdentity_SecondUserFlipsAndSticks(t *testing.T) {
 		t.Fatalf("single user must keep the serial identity: %+v", id)
 	}
 
+	// The second developer's own run: it records itself before the mode is
+	// read (main's order), so it already flips.
+	ResetAutoIdentityForTest()
 	second := windowsMock(`HOST\asmith`)
 	RecordScanUser(second)
 	id := ResolveIdentity(second, "SER1", "HOST", `HOST\asmith`)
@@ -156,6 +159,7 @@ func TestAutoIdentity_SecondUserFlipsAndSticks(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, seenUsersFile)); err != nil {
 		t.Fatal(err)
 	}
+	ResetAutoIdentityForTest()
 	if id := ResolveIdentity(first, "SER1", "HOST", `HOST\jdoe`); id.Source != IdentitySourceAuto || id.DeviceID != "host-jdoe" {
 		t.Fatalf("marker must keep the host multi-user: %+v", id)
 	}

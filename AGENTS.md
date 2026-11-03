@@ -675,8 +675,9 @@ if isConfigured(ctx, exec) {
   Never read the serial as the id anywhere else. An `IdentityIncomplete` identity ({user} under a
   service account) skips the run — no beacon, no upload, no phantom row.
   `device.IsServiceAccount` is the single no-user predicate.
-- **Uninstall retires first.** `uninstall` calls `internal/retire` (best-effort, bounded) BEFORE the
-  scheduler teardown when `--retire` or config `retire_on_uninstall` says so; `--no-retire`
+- **Uninstall collects, tears down, then retires.** `uninstall` collects the identities to retire
+  while the state files exist, removes the scheduler (so no scan can report afterwards), then calls
+  `internal/retire` (best-effort, bounded) when `--retire` or config `retire_on_uninstall` says so; `--no-retire`
   suppresses it (the MSI skips the uninstall CA entirely on a major upgrade, so an upgrade never
   retires). A failure is a warning, never an exit code.
 - **Config: build-time values win.** Enterprise config globals start as `"{{PLACEHOLDER}}"` strings the

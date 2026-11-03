@@ -41,7 +41,9 @@ func IDForGuest(dev model.Device, hostDeviceID, distroID string) string {
 
 // Gather collects device information (hostname, serial, OS version, user
 // identity) and resolves the device identity (DeviceID) from the configured
-// template or, by default, the machine identity. See identity.go.
+// template or, by default, the machine identity. See identity.go. It does
+// not probe virtualization: hooks and policy lanes call Gather on a budget of
+// a second and never report it; the scan paths attach DetectVirtualization.
 func Gather(ctx context.Context, exec executor.Executor) model.Device {
 	platform := exec.GOOS()
 	hostname := getHostname(ctx, exec, platform)
@@ -66,7 +68,6 @@ func Gather(ctx context.Context, exec executor.Executor) model.Device {
 		UserIdentity: userIdentity,
 		Resources:    gatherResources(ctx, exec),
 	}
-	dev.Virtualization = DetectVirtualization(ctx, exec)
 	AttachIdentity(exec, &dev)
 	return dev
 }

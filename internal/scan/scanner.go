@@ -64,6 +64,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	log.StepStart("Gathering device information")
 	start := time.Now()
 	dev := device.Gather(ctx, exec)
+	dev.Virtualization = device.DetectVirtualization(ctx, exec)
 	log.StepDone(time.Since(start))
 
 	// WSL detection — host-side "is WSL present and actively used" on Windows.

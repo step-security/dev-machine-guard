@@ -14,7 +14,9 @@ func readWindowsEdition() (edition string, tsAppCompat bool) {
 		}
 		_ = k.Close()
 	}
-	if k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion\Terminal Server`, registry.QUERY_VALUE); err == nil {
+	// TSAppCompat=1 marks an installed Remote Desktop Session Host role; it
+	// lives under the Terminal Server control key, not next to EditionID.
+	if k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Control\Terminal Server`, registry.QUERY_VALUE); err == nil {
 		if v, _, err := k.GetIntegerValue("TSAppCompat"); err == nil && v == 1 {
 			tsAppCompat = true
 		}

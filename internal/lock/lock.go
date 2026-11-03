@@ -42,6 +42,21 @@ func Acquire(_ executor.Executor) (*Lock, error) {
 	return &Lock{release: release}, nil
 }
 
+// AcquireMachineWide takes the shared, unscoped instance lock that scans
+// under the machine identity hold, without blocking, independently of the
+// per-user lock the caller may already own. The identity switch uses it to
+// make sure no scan still reporting under the previous identity is running
+// before that identity's row is retired.
+func AcquireMachineWide() (*Lock, error) {
+	old := setLockTarget(unscopedTarget(lockTarget(), paths.UserScope()))
+	release, err := acquire()
+	setLockTarget(old)
+	if err != nil {
+		return nil, err
+	}
+	return &Lock{release: release}, nil
+}
+
 // SetTargetForTest points the lock at another file (Unix) or mutex name
 // (Windows) and returns a func restoring the previous one. Tests only.
 func SetTargetForTest(target string) (restore func()) {
@@ -55,6 +70,16 @@ func (l *Lock) Release() {
 		return
 	}
 	l.once.Do(l.release)
+}
+
+// unscopedTarget undoes scopedTarget: the shared target a scoped one came from.
+func unscopedTarget(target, scope string) string {
+	if scope == "" {
+		return target
+	}
+	ext := filepath.Ext(target)
+	stem := strings.TrimSuffix(target, ext)
+	return strings.TrimSuffix(stem, "-"+scope) + ext
 }
 
 // scopedTarget suffixes a lock target (a file path on Unix, a mutex name on

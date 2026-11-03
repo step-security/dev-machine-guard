@@ -58,6 +58,7 @@ func TestClassifySMBIOS(t *testing.T) {
 }
 
 func TestDetectVirtualization_WindowsAzureViaIMDS(t *testing.T) {
+	stubWindowsFirmware(t)
 	asked := stubIMDS(t, map[string]bool{VirtVendorAzure: true})
 	mock := executor.NewMock()
 	mock.SetGOOS(model.PlatformWindows)
@@ -73,6 +74,7 @@ func TestDetectVirtualization_WindowsAzureViaIMDS(t *testing.T) {
 }
 
 func TestDetectVirtualization_WindowsHyperVWithoutIMDS(t *testing.T) {
+	stubWindowsFirmware(t)
 	stubIMDS(t, nil)
 	mock := executor.NewMock()
 	mock.SetGOOS(model.PlatformWindows)
@@ -85,6 +87,7 @@ func TestDetectVirtualization_WindowsHyperVWithoutIMDS(t *testing.T) {
 }
 
 func TestDetectVirtualization_WindowsPhysicalNeverProbes(t *testing.T) {
+	stubWindowsFirmware(t)
 	asked := stubIMDS(t, map[string]bool{VirtVendorAzure: true, VirtVendorAWS: true})
 	mock := executor.NewMock()
 	mock.SetGOOS(model.PlatformWindows)
