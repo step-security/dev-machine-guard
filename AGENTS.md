@@ -27,7 +27,8 @@ The ten rules that matter most. The rest of the doc expands on these.
 
 1. **All OS interaction goes through `executor.Executor`.** Never call `os/exec`, and avoid raw
    `os.*` file/env access, in detector/scheduler/business logic. This is the seam that makes
-   everything mockable and timeout-bounded. (§2.1, §7.1)
+   everything mockable and timeout-bounded. On Windows, every process the agent starts must
+   hide its console, or users see a window pop up on every scan. (§2.1, §7.1, §7.4)
 2. **A scan never aborts because one part failed.** Inventory detectors return values, not errors,
    and skip on failure. Only the top-level orchestrator returns an error. (§6.1)
 3. **Detection is data-driven.** Add an entry to a spec table; don't add control flow. (§3.1)
@@ -397,8 +398,33 @@ code **124** (`timeout` convention). De-facto taxonomy:
 - Every `Real.Run` calls `setupKillgroupOnCancel(cmd)` (Unix: `Setpgid` + `cmd.Cancel` does
   `kill(-pid, SIGKILL)`, plus `WaitDelay`) so forked grandchildren can't hold pipes open past the
   deadline. *(This is a no-op on Windows today — timeout guarantees are weaker there.)*
-- Every `*exec.Cmd` you construct calls `winproc.HideWindow(cmd)` (no-op off Windows) so scheduled
-  `powershell`/`cmd` children don't flash a console.
+- **No process the agent starts may open a console window on Windows.** The agent runs from a
+  scheduled task on the user's desktop, so one unhidden child is a window popping up on every scan.
+  It has shipped twice: the scan task itself (fixed by the GUI-subsystem task launcher), and the
+  WSL guest-scan relay (#271), which `StartDetached` launched with `DETACHED_PROCESS`.
+  - Prefer `executor.Executor`: `Run`, `RunWithTimeout`, `RunInDir` and `StartDetached` already
+    hide the console.
+  - Building your own `*exec.Cmd`? Call `winproc.HideWindow(cmd)` (or `executor.HardenCommand`) in
+    the same function, after any assignment to `cmd.SysProcAttr`. HideWindow is a no-op off Windows.
+  - Setting `SysProcAttr` yourself? The literal must set both `HideWindow: true` and
+    `CREATE_NO_WINDOW` in `CreationFlags`. Assigning a fresh literal replaces a `HideWindow` applied
+    earlier.
+  - Never use `DETACHED_PROCESS` or `CREATE_NEW_CONSOLE`. A console app started with no console
+    (`DETACHED_PROCESS`) allocates a new, visible one, and Windows ignores `CREATE_NO_WINDOW`
+    alongside it. To outlive the agent, use `CREATE_NEW_PROCESS_GROUP` plus job breakaway, as
+    `detachAttrs` does.
+  - Never start processes with `os.StartProcess`, `syscall.StartProcess` or
+    `windows.CreateProcess`/`ShellExecute`.
+  - It doesn't matter that the child is "only ever run as SYSTEM" or "only from the CLI": code
+    paths get reused, so hide every one.
+
+  **Gate:** `internal/consoleguard` enforces this. `TestNoConsoleWindowSpawns` (every OS) parses each
+  non-test file that builds for Windows and fails on any of the above. It lists every
+  `exec.Command` site it checked in `-v` output, so check your new site is listed. The Windows CI
+  job runs a probe that behaves like `wsl.exe` through each spawn path and fails if it ends up with
+  a console of its own. When you add a spawn path that isn't one of those (a new helper that builds
+  `SysProcAttr`, a new launcher), add it to `attrHelpers` in `consoleguard_test.go` **and** add a
+  probe test for it in `probe_windows_test.go`. Don't widen the checker to make a failure go away.
 
 ### 7.5 `shlex` parses, never builds
 `github.com/google/shlex` is used **only** to parse observed command strings (from hook/telemetry
@@ -571,21 +597,25 @@ default:     return output.Pretty(os.Stdout, result, cfg.ColorMode)
   `switch cfg.Command` and immediately calls into a package. Work functions take the uniform
   signature **`Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config)`** and read `cfg.*`
   directly — don't thread individual flag values as separate params.
-- **Hand-rolled parser in `internal/cli` — no `flag`, no `cobra`.** Parsing is a manual
-  `for i < len(args) { switch … }` loop. Verbs set `cfg.Command` to a canonical string; two-word verbs
-  (`configure show`, `hooks install`) peek at `args[i+1]`.
-- **Add-a-flag recipe:** (1) add a field to `cli.Config` with a doc comment naming the flag; (2) add
-  the parse `case` (support both `--x val` and `--x=val` for value flags); (3) read `cfg.X` in the work
-  package; (4) add a `--help` line + a `TestParse_*` test. Dev-only flags also get an env fallback and
-  are omitted from `--help`. Optional on/off flags are `*bool` (nil = auto).
-```go
-case arg == "--api-key":
-    i++
-    if i >= len(args) { return nil, fmt.Errorf("--api-key requires a value") }
-    cfg.ConfigAPIKey = args[i]
-case strings.HasPrefix(arg, "--api-key="):
-    cfg.ConfigAPIKey = strings.TrimPrefix(arg, "--api-key=")
-```
+- **Hand-rolled, table-driven parser in `internal/cli` — no `flag`, no `cobra`.** Verbs (`install`,
+  `configure`, `configure show`, `version`, `help`) are matched in `Parse`; every `--flag` is a
+  `flagSpec` row in `flagTable` (`internal/cli/flags.go`), the single source for parsing, `--help`, and
+  which config.json keys `configure` saves. Two-word verbs peek at `args[i+1]`.
+- **Add-a-flag recipe:** (1) add a field to `cli.Config` with a doc comment naming the flag; (2) add a
+  `flagTable` row in `--help` order, using a helper (`switchFlag`, `triFlag`, `stringFlag`, `configFlag`,
+  `intConfigFlag`) where one fits. Pick the `kind` (`flagValue` accepts both `--x val` and `--x=val`;
+  use it for new value flags), a `missing` message if the default "requires a value" isn't enough,
+  and the verbatim `help` lines, or `helpHidden` with no help for dev-only flags (those also get an env
+  fallback); (3) read `cfg.X` in the work package; (4) add a `TestParse_*` test and rerun the goldens
+  (`go test ./internal/cli -run Golden -update`), then review the diff. Optional on/off flags are `*bool`
+  (nil = auto). A golden diff is a user-visible CLI change.
+- **Every config setting gets a non-interactive `configure` flag.** Anything an admin can set in
+  `config.json` (a `config.ConfigFile` field) MUST be settable by a flag, because MDM/MSI/CI deploys
+  can't drive a prompt. Declare the key in the row's `saves` and call `cfg.save(key, v)` in its `set`.
+  `configure` merges `cfg.ConfigValues` into config.json, so no other wiring is needed. Reuse an existing
+  scan/output flag for the setting if there is one. An empty value means "unchanged". Add a row to the
+  README's non-interactive flag table. `TestFlagTable_CoversEveryConfigKey` and
+  `TestFlagTable_EveryKeyReachesConfigFile` fail until the flag exists and reaches the file.
 - **Exit-code contract** (scheduler-facing — use these, don't invent new ones): `0` success ·
   `1` generic failure/usage/config error · `2` execution-watchdog hard timeout (and `--exec` launcher
   misuse) · `130` SIGINT/SIGTERM. **The hidden `_hook` path MUST exit `0` even on bad args** (agents

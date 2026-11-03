@@ -277,8 +277,7 @@ func TestAutoUpdateConfigRoundTrip(t *testing.T) {
 	if cf.AutoUpdate == nil || *cf.AutoUpdate || cf.UpdateMirrorURL != "https://m" || cf.UpdateLagBehind != 1 || cf.UpdateCooldownHours != 2 {
 		t.Fatalf("decoded %+v", cf)
 	}
-	off := false
-	if !(NonInteractiveOptions{AutoUpdate: &off}).HasAny() {
+	if !(NonInteractiveOptions{Values: map[string]any{"auto_update": false}}).HasAny() {
 		t.Fatal("--auto-update alone is not a non-interactive configure")
 	}
 }
