@@ -44,7 +44,9 @@ func previousDeviceID(exec executor.Executor, current string) string {
 		return ""
 	}
 	data, err := exec.ReadFile(path)
-	if err != nil || len(data) > maxDeviceIDLen {
+	// The file holds the ID plus a line ending (LF, or CRLF after a hand
+	// edit); the trimmed ID is length-checked by usableDeviceID below.
+	if err != nil || len(data) > maxDeviceIDLen+2 {
 		return ""
 	}
 	prev := strings.TrimSpace(string(data))

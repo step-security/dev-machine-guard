@@ -31,7 +31,10 @@ func TestPreviousDeviceID(t *testing.T) {
 		{name: "configured id removed", stored: ptr("custom-dev-01\n"), current: "C02X", want: "custom-dev-01"},
 		{name: "empty file", stored: ptr("\n"), current: "C02X", want: ""},
 		{name: "unknown is not an identity", stored: ptr("unknown\n"), current: "C02X", want: ""},
-		{name: "oversized file", stored: ptr(strings.Repeat("x", maxDeviceIDLen+1)), current: "C02X", want: ""},
+		{name: "oversized file", stored: ptr(strings.Repeat("x", maxDeviceIDLen+3)), current: "C02X", want: ""},
+		{name: "oversized id", stored: ptr(strings.Repeat("x", maxDeviceIDLen+1) + "\n"), current: "C02X", want: ""},
+		{name: "max length id with LF", stored: ptr(strings.Repeat("x", maxDeviceIDLen) + "\n"), current: "C02X", want: strings.Repeat("x", maxDeviceIDLen)},
+		{name: "max length id with CRLF", stored: ptr(strings.Repeat("x", maxDeviceIDLen) + "\r\n"), current: "C02X", want: strings.Repeat("x", maxDeviceIDLen)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -72,6 +75,18 @@ func TestRecordUploadedDeviceID(t *testing.T) {
 	}
 	if got := previousDeviceID(m, "custom-dev-01"); got != "" {
 		t.Fatalf("after recording the new ID, previous = %q, want empty", got)
+	}
+
+	// An ID at the length limit round-trips despite the stored newline.
+	long := strings.Repeat("x", maxDeviceIDLen)
+	if err := recordUploadedDeviceID(m, long); err != nil {
+		t.Fatal(err)
+	}
+	if got := previousDeviceID(m, "C02X"); got != long {
+		t.Fatalf("max-length ID did not round-trip, got %d bytes", len(got))
+	}
+	if err := recordUploadedDeviceID(m, "custom-dev-01"); err != nil {
+		t.Fatal(err)
 	}
 
 	// Unusable IDs never overwrite the history.

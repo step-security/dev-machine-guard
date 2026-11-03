@@ -1496,7 +1496,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		log.Debug("run-gate: could not stamp last full run: %v", err)
 	}
 	// A rejected payload registered nothing, so it must not become the ID a
-	// later change reports as previous.
+	// later change reports as previous. Anything else counts: the backend
+	// processes uploads asynchronously and answers "queued", so waiting for
+	// "processed" would never record. If a queued upload is later dropped, the
+	// next change reports an ID with no row and the backend does nothing; the
+	// cost is a missed cleanup, never removing the wrong device.
 	if wslGuest == nil && ingest != ingestRejected {
 		if err := recordUploadedDeviceID(exec, deviceID); err != nil {
 			log.Debug("device id history: could not record %s: %v", deviceID, err)
