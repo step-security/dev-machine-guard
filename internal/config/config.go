@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -227,13 +228,22 @@ func readConfigDir() string {
 		}
 	}
 	ucd := userConfigDir()
-	if _, err := os.Stat(filepath.Join(ucd, "config.json")); err == nil {
+	if legacyConfigPresent(ucd) {
 		return ucd
 	}
 	if itd := installTreeConfigDir(); itd != "" {
 		return itd
 	}
 	return ucd
+}
+
+// legacyConfigPresent reports whether the per-user config.json should keep
+// precedence: it exists, or it could not be checked for any reason other
+// than not existing (a permission error must surface as ErrConfigInvalid
+// from readExisting, never let a stale install-tree copy take over).
+func legacyConfigPresent(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, "config.json"))
+	return !errors.Is(err, fs.ErrNotExist)
 }
 
 // executablePath is a seam for tests; production value is os.Executable.
@@ -270,44 +280,63 @@ func installTreeConfigDir() string {
 		candidates = append(candidates, filepath.Dir(exeDir))
 	}
 	for _, dir := range candidates {
-		if isAgentConfigFile(filepath.Join(dir, "config.json")) {
+		if _, ok := isAgentConfigFile(filepath.Join(dir, "config.json")); ok {
 			return dir
 		}
 	}
 	return ""
 }
 
-// isAgentConfigFile reports whether path is a config.json this agent wrote:
-// a regular file (never a symlink), trusted for this context
+// fromInstallTree reports whether path was resolved through the install-tree
+// lookup rather than the override, the machine-wide or the per-user
+// directory.
+func fromInstallTree(path string) bool {
+	if fileOverride != "" || path == "" {
+		return false
+	}
+	dir := filepath.Dir(path)
+	if mcd := machineConfigDir(); mcd != "" && dir == mcd {
+		return false
+	}
+	return dir != userConfigDir()
+}
+
+// isAgentConfigFile reports whether path is a config.json this agent wrote
+// and returns the bytes it validated: a regular file opened without
+// following symlinks, checked on the open descriptor (so nothing can be
+// swapped in between the check and the read), trusted for this context
 // (installTreeFileTrusted), small, valid JSON, and carrying both customer_id
 // and api_endpoint. "api_key" alone is not enough: it is a common key name
 // in other tools' config.json files, and a binary dropped into ~/bin or
 // /usr/local/bin must never adopt and later overwrite one of those.
-func isAgentConfigFile(path string) bool {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > installTreeMaxConfigBytes {
-		return false
-	}
-	if !installTreeFileTrusted(info) {
-		return false
-	}
-	f, err := os.Open(path) // #nosec G304 -- path is derived from the running binary's own location.
+func isAgentConfigFile(path string) ([]byte, bool) {
+	f, err := openNoFollow(path)
 	if err != nil {
-		return false
+		return nil, false
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, installTreeMaxConfigBytes))
-	if err != nil {
-		return false
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > installTreeMaxConfigBytes {
+		return nil, false
+	}
+	if !installTreeFileTrusted(info) {
+		return nil, false
+	}
+	data, err := io.ReadAll(io.LimitReader(f, installTreeMaxConfigBytes+1))
+	if err != nil || len(data) > installTreeMaxConfigBytes {
+		return nil, false
 	}
 	var probe struct {
 		CustomerID  string `json:"customer_id"`
 		APIEndpoint string `json:"api_endpoint"`
 	}
 	if err := json.Unmarshal(data, &probe); err != nil {
-		return false
+		return nil, false
 	}
-	return strings.TrimSpace(probe.CustomerID) != "" && strings.TrimSpace(probe.APIEndpoint) != ""
+	if strings.TrimSpace(probe.CustomerID) == "" || strings.TrimSpace(probe.APIEndpoint) == "" {
+		return nil, false
+	}
+	return data, true
 }
 
 // Write where we read. Elevated/admin/SYSTEM context writes machine-wide
@@ -323,7 +352,7 @@ func writeConfigDir() string {
 		}
 	}
 	ucd := userConfigDir()
-	if _, err := os.Stat(filepath.Join(ucd, "config.json")); err == nil {
+	if legacyConfigPresent(ucd) {
 		return ucd
 	}
 	if itd := installTreeConfigDir(); itd != "" {
@@ -723,13 +752,26 @@ func promptValue(reader *bufio.Reader, label, current string) string {
 // ErrConfigInvalid when it exists but can't be read or parsed.
 func readExisting() (*ConfigFile, error) {
 	path := ConfigFilePath()
-	// #nosec G304 -- path is the agent's own config location, not user input.
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
+	var data []byte
+	if fromInstallTree(path) {
+		// Read through the same validated, no-follow open as the lookup, so
+		// the bytes loaded are bytes that passed the checks on their own
+		// descriptor; a file swapped in since reads as absent.
+		d, ok := isAgentConfigFile(path)
+		if !ok {
 			return &ConfigFile{}, nil
 		}
-		return &ConfigFile{}, fmt.Errorf("%w: %s: %v", ErrConfigInvalid, path, err)
+		data = d
+	} else {
+		var err error
+		// #nosec G304 -- path is the agent's own config location, not user input.
+		data, err = os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return &ConfigFile{}, nil
+			}
+			return &ConfigFile{}, fmt.Errorf("%w: %s: %v", ErrConfigInvalid, path, err)
+		}
 	}
 	var cfg ConfigFile
 	if err := json.Unmarshal(data, &cfg); err != nil {

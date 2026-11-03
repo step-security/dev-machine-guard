@@ -31,6 +31,12 @@ func preserveOwner(path string, prev os.FileInfo) {
 	}
 }
 
+// openNoFollow opens path for reading without following a symlink at the
+// last component, so the file checked is the file read.
+func openNoFollow(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0) // #nosec G304 -- derived from the running binary's own location.
+}
+
 // installTreeLookupAllowed: a root run may read a config.json from its
 // install tree, subject to installTreeFileTrusted; everyone else always may.
 func installTreeLookupAllowed() bool { return true }
