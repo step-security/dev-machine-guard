@@ -630,8 +630,9 @@ Options:
                          <DIR>/agent.error.log, rotated at 5 MiB to .prev.
                          Equivalent to STEPSECURITY_HOME env var. Pass
                          --install-dir= (empty) to disable file logging for
-                         this run. Note: config.json itself always lives at
-                         ~/.stepsecurity/config.json for bootstrap.
+                         this run. Note: config.json is read from
+                         ~/.stepsecurity/config.json, or from the install
+                         tree next to the binary when that file is absent.
   --verbose                     Shortcut for --log-level=debug
   --color=WHEN           Color mode: auto | always | never (default: auto)
   -v, --version          Show version
@@ -663,6 +664,8 @@ Non-interactive configure (for MSI / SCCM / Intune deployments):
 
 Configuration:
   Per-user config:    ~/.stepsecurity/config.json
+  Install tree:       config.json beside the binary (or one level up from bin/),
+                      used when the per-user file is absent
   Machine-wide (Windows, admin): C:\ProgramData\StepSecurity\config.json
   Run '%s configure' to set credentials and search directories interactively.
 

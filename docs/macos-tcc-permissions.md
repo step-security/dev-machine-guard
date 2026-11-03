@@ -366,9 +366,9 @@ per-user deployment:
    grep install_dir ~/.stepsecurity/config.json            # what config says
    ```
 
-   Both must show the fixed directory. `config.json` itself stays at
-   `~/.stepsecurity/config.json` by design — it is the bootstrap file
-   and does not move.
+   Both must show the fixed directory. `config.json` is still read from
+   `~/.stepsecurity/config.json` first; a copy in the install directory
+   is used only when the per-user file is absent.
 5. **Clean up the old per-user binaries** at
    `~/.stepsecurity/bin/` once the fleet has checked in. Leaving them is
    harmless (nothing launches them), but they'd hold a stale manual FDA
