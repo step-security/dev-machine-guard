@@ -632,6 +632,7 @@ func (c *mavenScan) project(dir string, entries []fs.DirEntry, walk *model.Maven
 func (c *mavenScan) pom(project *model.MavenSource, dir, path string) {
 	src := c.source("manifest", path, project.SourceID)
 	if src == nil {
+		c.config.Unlisted(dir, "maven", cmp.Or(c.stopReason(), "path_unresolved"))
 		return
 	}
 	data, ok := c.read(src, path)
@@ -676,6 +677,7 @@ func (c *mavenScan) catalog(project *model.MavenSource, dir, path string) {
 func (c *mavenScan) verification(project *model.MavenSource, dir, path string) {
 	src := c.source("verification_metadata", path, project.SourceID)
 	if src == nil {
+		c.config.Unlisted(dir, "gradle", cmp.Or(c.stopReason(), "path_unresolved"))
 		return
 	}
 	data, ok := c.read(src, path)
@@ -970,7 +972,7 @@ func (c *mavenScan) versionDir(repo *model.MavenSource, files executor.Executor,
 	}
 	artifacts := []*model.MavenArtifact{}
 	for _, cand := range candidates {
-		if a := c.artifact(repo, dir, cand.entry, cand.file); a != nil {
+		if a := c.artifact(repo, files, dir, cand.entry, cand.file); a != nil {
 			artifacts = append(artifacts, a)
 		}
 	}
@@ -1006,11 +1008,11 @@ func (c *mavenScan) versionDir(repo *model.MavenSource, files executor.Executor,
 }
 
 // artifact describes one non-empty regular cache file; nil skips it.
-func (c *mavenScan) artifact(owner *model.MavenSource, dir string, e fs.DirEntry, f mavenFile) *model.MavenArtifact {
+func (c *mavenScan) artifact(owner *model.MavenSource, files executor.Executor, dir string, e fs.DirEntry, f mavenFile) *model.MavenArtifact {
 	if c.stopped(owner) {
 		return nil
 	}
-	info, err := e.Info()
+	info, err := files.Stat(filepath.Join(dir, e.Name()))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
@@ -1108,7 +1110,7 @@ func (c *mavenScan) gradleVersion(cache *model.MavenSource, files executor.Execu
 			return
 		}
 		path := filepath.Join(dir, cand.key)
-		a := c.artifact(cache, path, cand.entry, f)
+		a := c.artifact(cache, files, path, cand.entry, f)
 		if a == nil {
 			continue
 		}

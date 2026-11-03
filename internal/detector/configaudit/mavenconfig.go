@@ -1104,7 +1104,7 @@ func (a *MavenConfigSnapshot) Project(dir, tool string, files []string) MavenPro
 }
 
 // Unlisted marks one manager's project context partial when a project
-// configuration folder could not be fully listed.
+// configuration file or folder could not be fully observed.
 func (a *MavenConfigSnapshot) Unlisted(dir, manager, reason string) {
 	if a.scope.Username == "" {
 		return

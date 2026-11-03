@@ -746,6 +746,42 @@ func TestMavenScanKnownRootsAtLimit(t *testing.T) {
 			t.Errorf("unscanned root=%+v", src)
 		}
 	}
+	for _, manager := range []string{"maven", "gradle"} {
+		t.Run(manager+" project source", func(t *testing.T) {
+			maxMavenRecords = 4
+			home := goTestHome(t)
+			root := filepath.Join(home, "projects")
+			dir := filepath.Join(root, "app")
+			if manager == "maven" {
+				goWrite(t, filepath.Join(dir, "pom.xml"), mavenTestPOM("org.example", "app", "1"), 0o600)
+			} else {
+				goWrite(t, filepath.Join(dir, "build.gradle"), "", 0o600)
+				goWrite(t, filepath.Join(dir, "gradle", "verification-metadata.xml"), `<verification-metadata/>`, 0o600)
+			}
+			scanner, _ := mavenTestScanner(t, home)
+			_, maven, gradle := scanner.Scan(t.Context(), goTestTarget(home), []string{root}, nil)
+			audit, other := maven, gradle
+			if manager == "gradle" {
+				audit, other = gradle, maven
+			}
+			if audit.Status != "partial" || !slices.Contains(audit.Reasons, "record_limit") || slices.Contains(other.Reasons, "record_limit") {
+				t.Fatalf("audit = %s %v, other = %s %v", audit.Status, audit.Reasons, other.Status, other.Reasons)
+			}
+			found := false
+			for _, c := range audit.Contexts {
+				if c.ProjectPath == dir {
+					found = true
+					if c.SelectionStatus != "partial" {
+						t.Errorf("project context = %+v", c)
+					}
+				}
+			}
+			if !found {
+				t.Fatal("project context missing")
+			}
+		})
+	}
+
 }
 
 type mavenInfoTrap struct {
@@ -754,7 +790,7 @@ type mavenInfoTrap struct {
 }
 
 func (e mavenInfoTrap) Info() (os.FileInfo, error) {
-	e.t.Fatal("file metadata read after cancellation")
+	e.t.Fatal("unguarded file metadata read")
 	return nil, os.ErrNotExist
 }
 
@@ -773,4 +809,20 @@ func TestMavenScanQueuedMetadataCanceled(t *testing.T) {
 	if !slices.Contains(repo.Reasons, "deadline_exceeded") {
 		t.Errorf("stop reason missing: %v", repo.Reasons)
 	}
+	t.Run("protected queued artifact", func(t *testing.T) {
+		repo := &model.MavenSource{SourceID: "repo"}
+		guard := func(path string) string {
+			if path == filepath.Join(dir, "lib-1.jar") {
+				return "skipped_protected"
+			}
+			return ""
+		}
+		files := executor.NewReal().GuardedFiles([]string{dir}, guard, 0)
+		c := &mavenScan{ctx: t.Context(), remaining: 10, guard: guard, inv: emptyMavenInventory(), byID: map[string]*model.MavenSource{"repo": repo}}
+		c.versionDir(repo, files, mavenRoot{}, dir, []string{"org", "example", "lib", "1"}, []os.DirEntry{mavenInfoTrap{entries[0], t}})
+		if !slices.Contains(repo.Reasons, "skipped_protected") || len(c.inv.Packages) != 0 {
+			t.Errorf("protected artifact = %v, packages = %d", repo.Reasons, len(c.inv.Packages))
+		}
+	})
+
 }
