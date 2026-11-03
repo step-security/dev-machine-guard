@@ -897,6 +897,21 @@ func (o NonInteractiveOptions) HasAny() bool {
 	return o.FromFile != "" || len(o.Values) > 0
 }
 
+// preferencesOnly reports whether o only changes settings other than the
+// enterprise credentials. A bare --non-interactive (e.g. an MSI whose
+// credential properties were empty) and --from-file are bootstraps.
+func (o NonInteractiveOptions) preferencesOnly() bool {
+	if o.FromFile != "" || len(o.Values) == 0 {
+		return false
+	}
+	for _, k := range []string{"customer_id", "api_endpoint", "api_key"} {
+		if _, ok := o.Values[k]; ok {
+			return false
+		}
+	}
+	return true
+}
+
 // RunConfigureNonInteractive applies the supplied options to the existing
 // on-disk config and saves. Designed for MSI custom actions, CI, and any
 // orchestrator that can't drive stdin prompts. Always writes to
@@ -938,15 +953,19 @@ func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
 
 	// Validation: an MSI deploy with no creds is almost certainly a bug.
 	// Fail loud so the MSI transaction rolls back instead of silently
-	// installing a half-configured agent.
-	if existing.APIKey == "" {
-		return fmt.Errorf("api_key is required (pass --api-key, --from-file, or DMG_API_KEY env var)")
-	}
-	if existing.CustomerID == "" {
-		return fmt.Errorf("customer_id is required (pass --customer-id or --from-file)")
-	}
-	if existing.APIEndpoint == "" {
-		return fmt.Errorf("api_endpoint is required (pass --api-endpoint or --from-file)")
+	// installing a half-configured agent. A preference-only update
+	// (`configure --color=never`) needs no credentials, so a community
+	// install can use it.
+	if !opts.preferencesOnly() {
+		if existing.APIKey == "" {
+			return fmt.Errorf("api_key is required (pass --api-key, --from-file, or DMG_API_KEY env var)")
+		}
+		if existing.CustomerID == "" {
+			return fmt.Errorf("customer_id is required (pass --customer-id or --from-file)")
+		}
+		if existing.APIEndpoint == "" {
+			return fmt.Errorf("api_endpoint is required (pass --api-endpoint or --from-file)")
+		}
 	}
 
 	if err := save(existing); err != nil {

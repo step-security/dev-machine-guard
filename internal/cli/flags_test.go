@@ -100,6 +100,11 @@ func TestFlagTable_EveryKeyReachesConfigFile(t *testing.T) {
 		home := t.TempDir()
 		t.Setenv("HOME", home)
 		t.Setenv("USERPROFILE", home)
+		// Elevated on Windows, configure writes the machine-wide config;
+		// never clobber a real install's.
+		if !strings.HasPrefix(config.WriteConfigFilePath(), home) {
+			t.Skip("config writes outside the temp HOME (elevated Windows)")
+		}
 		args := append([]string{"configure", "--customer-id", "c", "--api-endpoint", "https://e", "--api-key", "k"}, sampleArgs(f)...)
 		cfg, err := Parse(args)
 		if err != nil {

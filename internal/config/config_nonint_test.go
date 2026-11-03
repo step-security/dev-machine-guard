@@ -17,6 +17,11 @@ func withHome(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir) // Windows
+	// Elevated on Windows, save() writes the machine-wide config; never
+	// clobber a real install's.
+	if !strings.HasPrefix(WriteConfigFilePath(), dir) {
+		t.Skip("config writes outside the temp HOME (elevated Windows)")
+	}
 	return dir
 }
 
@@ -232,5 +237,40 @@ func TestRunConfigureNonInteractive_ValuesMerge(t *testing.T) {
 	}
 	if cfg.UpdateLagBehind != 3 || cfg.EnableBrewScan == nil || *cfg.EnableBrewScan {
 		t.Errorf("unpassed keys not kept: lag=%d brew=%v", cfg.UpdateLagBehind, cfg.EnableBrewScan)
+	}
+}
+
+// A community install (no credentials) can change preferences without
+// prompts; anything touching credentials, a --from-file, or a bare
+// --non-interactive (an MSI with empty credential properties) still needs
+// all three.
+func TestRunConfigureNonInteractive_CredentialsRequirement(t *testing.T) {
+	tests := []struct {
+		name    string
+		opts    NonInteractiveOptions
+		wantErr string
+	}{
+		{"preferences only", NonInteractiveOptions{Values: map[string]any{"color_mode": "never", "enable_brew_scan": false}}, ""},
+		{"bare non-interactive", NonInteractiveOptions{}, "api_key is required"},
+		{"partial credentials", NonInteractiveOptions{Values: map[string]any{"customer_id": "c", "color_mode": "never"}}, "api_key is required"},
+		{"env api key only", NonInteractiveOptions{Values: map[string]any{"api_key": "k"}}, "customer_id is required"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			withHome(t)
+			err := RunConfigureNonInteractive(tc.opts)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if cfg := loadExisting(); cfg.ColorMode != "never" || cfg.EnableBrewScan == nil || *cfg.EnableBrewScan {
+					t.Errorf("preferences not saved: %+v", cfg)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want %q", err, tc.wantErr)
+			}
+		})
 	}
 }

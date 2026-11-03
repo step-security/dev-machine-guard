@@ -83,7 +83,8 @@ func parseProjection(t *testing.T, args []string) any {
 	t.Helper()
 	cfg, err := Parse(args)
 	if err != nil {
-		return map[string]string{"error": err.Error()}
+		// The binary name is cli.test, or cli.test.exe on Windows.
+		return map[string]string{"error": strings.ReplaceAll(err.Error(), filepath.Base(os.Args[0]), "BINARY")}
 	}
 	m := configFields(t, cfg)
 	if len(args) > 0 {
@@ -141,15 +142,27 @@ func TestHelp_Golden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Read while printing: the help outgrows a Windows pipe buffer, so a
+	// write-then-read would block forever.
+	type result struct {
+		out []byte
+		err error
+	}
+	read := make(chan result, 1)
+	go func() {
+		out, err := io.ReadAll(r)
+		read <- result{out, err}
+	}()
 	stdout := os.Stdout
 	os.Stdout = w
 	printHelp()
 	os.Stdout = stdout
 	_ = w.Close()
-	out, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatal(err)
+	res := <-read
+	if res.err != nil {
+		t.Fatal(res.err)
 	}
+	out := res.out
 	// Pin the text, not the release it was built from.
 	out = bytes.ReplaceAll(out, []byte(buildinfo.Version), []byte("VERSION"))
 	out = bytes.ReplaceAll(out, []byte(buildinfo.AgentURL), []byte("AGENT_URL"))

@@ -163,7 +163,7 @@
       "--html=r.html"
     ],
     "result": {
-      "error": "unknown option: --html=r.html, run 'cli.test --help' for usage information"
+      "error": "unknown option: --html=r.html, run 'BINARY --help' for usage information"
     }
   },
   {
@@ -416,7 +416,7 @@
       "never"
     ],
     "result": {
-      "error": "unknown option: --color, run 'cli.test --help' for usage information"
+      "error": "unknown option: --color, run 'BINARY --help' for usage information"
     }
   },
   {
@@ -849,7 +849,7 @@
       "--auto-update"
     ],
     "result": {
-      "error": "unknown option: --auto-update, run 'cli.test --help' for usage information"
+      "error": "unknown option: --auto-update, run 'BINARY --help' for usage information"
     }
   },
   {
@@ -1057,7 +1057,7 @@
       "debug"
     ],
     "result": {
-      "error": "unknown option: --log-level, run 'cli.test --help' for usage information"
+      "error": "unknown option: --log-level, run 'BINARY --help' for usage information"
     }
   },
   {
@@ -1128,7 +1128,7 @@
       "--bogus"
     ],
     "result": {
-      "error": "unknown option: --bogus, run 'cli.test --help' for usage information"
+      "error": "unknown option: --bogus, run 'BINARY --help' for usage information"
     }
   },
   {
@@ -1136,7 +1136,7 @@
       "stray"
     ],
     "result": {
-      "error": "unknown option: stray, run 'cli.test --help' for usage information"
+      "error": "unknown option: stray, run 'BINARY --help' for usage information"
     }
   },
   {

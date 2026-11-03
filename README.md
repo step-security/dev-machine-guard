@@ -268,7 +268,10 @@ registers a separate device in the backend; it does not migrate existing history
 
 Every setting can also be written without prompts, which is how MDM, MSI and
 CI deployments configure the agent. Any setting flag passed to `configure`
-selects the no-prompt path; settings you don't pass keep their current value:
+selects the no-prompt path; settings you don't pass keep their current value.
+Credentials are required only when the command sets one of them, passes
+`--from-file`, or sets nothing at all, so a community install can change
+preferences (`configure --color=never`) without them:
 
 ```bash
 ./stepsecurity-dev-machine-guard configure --non-interactive \
