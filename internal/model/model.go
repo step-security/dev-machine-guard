@@ -1935,3 +1935,118 @@ type RubyConfigContext struct {
 	ConfigSourceIDs []string `json:"config_source_ids"` // highest precedence first
 	SelectionStatus string   `json:"selection_status"`  // observed | partial
 }
+
+// CondaInventorySchemaVersion versions conda_inventory and conda_config_audit.
+const CondaInventorySchemaVersion = 1
+
+// CondaSource reuses the Cargo source shape. Kinds: project_search_root |
+// environment_root | environment | manifest | lockfile | installed_metadata |
+// cache_root | cached_metadata. A cached_metadata path is the distribution's
+// info directory, whichever metadata file inside it was readable.
+type CondaSource = CargoSource
+
+// CondaRecordedChecksum is a recorded artifact digest (sha256 or md5), never
+// a hash DMG computed or verified.
+type CondaRecordedChecksum = ComposerRecordedChecksum
+
+// CondaCredentialFile reports existence only; contents are never read.
+type CondaCredentialFile = CargoCredentialFile
+
+// CondaConfigFile reuses the Ruby file shape with manager "conda" and scope
+// system | user | environment | project | process.
+type CondaConfigFile = RubyConfigFile
+
+// CondaInventory covers Conda, Mamba, Micromamba and Pixi prefixes from
+// passive metadata reads; no conda, mamba, python or shell runs. Packages are
+// language-independent. Declarations, locks, prefix receipts and extracted
+// caches stay separate evidence; an environment is its source plus each
+// installed package's environment_path, never a separate array.
+type CondaInventory struct {
+	SchemaVersion int            `json:"schema_version"`
+	Status        string         `json:"status"` // complete | partial
+	Reasons       []string       `json:"reasons"`
+	Sources       []CondaSource  `json:"sources"`
+	Projects      []CondaProject `json:"projects"`
+	Packages      []CondaPackage `json:"packages"`
+}
+
+// CondaProject is one recognized environment manifest. Conda has no
+// manifest-to-lock linkage, so LockfilePaths lists the supported locks found
+// beside it; a standalone lock has no project.
+type CondaProject struct {
+	ManifestSourceID string   `json:"manifest_source_id"`
+	ManifestPath     string   `json:"manifest_path"`
+	ProjectPath      string   `json:"project_path"`
+	SelectionStatus  string   `json:"selection_status"` // observed | partial
+	LockfilePaths    []string `json:"lockfile_paths"`
+}
+
+// CondaPackage is one observation. Name is lowercase with separators kept
+// distinct; version and build are opaque; subdir is the recorded artifact
+// platform (noarch is real), never the scanning host.
+type CondaPackage struct {
+	SourceID        string   `json:"source_id"`
+	SourcePath      string   `json:"source_path"`
+	PackageName     string   `json:"package_name"`
+	Evidence        string   `json:"evidence"` // declared_requirement | locked_package | installed_package | cached_package
+	ProjectPath     string   `json:"project_path,omitempty"`
+	EnvironmentPath string   `json:"environment_path,omitempty"` // installed evidence: the prefix
+	Scope           string   `json:"scope"`                      // project | user | system | unknown
+	Reasons         []string `json:"reasons"`
+	VersionStatus   string   `json:"version_status"` // known | unknown (declarations)
+	Version         string   `json:"version,omitempty"`
+	Build           string   `json:"build,omitempty"`
+	Subdir          string   `json:"subdir,omitempty"`
+	BuildNumber     *int64   `json:"build_number,omitempty"` // zero is a recorded value
+	// LockEnvironment and TargetPlatform are a lock's selection labels and
+	// part of occurrence identity; neither claims installation.
+	LockEnvironment    string                  `json:"lock_environment,omitempty"`
+	TargetPlatform     string                  `json:"target_platform,omitempty"`
+	RequestedSpecs     []string                `json:"requested_specs"`     // sanitized, always an array
+	DependencyRelation string                  `json:"dependency_relation"` // direct | unknown
+	Origin             CondaOrigin             `json:"origin"`
+	ArtifactURL        string                  `json:"artifact_url,omitempty"` // sanitized download URL, distinct from the channel
+	ChecksumStatus     string                  `json:"checksum_status"`        // absent | recorded | partial
+	RecordedChecksums  []CondaRecordedChecksum `json:"recorded_checksums"`
+	Installation       *CondaInstallation      `json:"installation,omitempty"` // installed evidence only
+}
+
+// CondaOrigin is a safely established channel. A bare label without a
+// trustworthy recorded artifact mapping stays unknown rather than being
+// rewritten with today's channel_alias.
+type CondaOrigin struct {
+	Kind string `json:"kind"` // channel | local | unknown
+	URL  string `json:"url,omitempty"`
+	Path string `json:"path,omitempty"`
+}
+
+// CondaInstallation is prefix presence from the receipt observation, not
+// payload integrity; Conda has no package-specific directory.
+type CondaInstallation struct {
+	Path       string `json:"path"`
+	PathStatus string `json:"path_status"` // resolved
+	Presence   string `json:"presence"`    // present | absent | unknown
+}
+
+// CondaConfigAudit follows the Ruby observed-source model: per-file settings
+// with ordered applicable source IDs per context, never one effective view.
+type CondaConfigAudit struct {
+	SchemaVersion   int                   `json:"schema_version"`
+	Status          string                `json:"status"` // complete | partial
+	Reasons         []string              `json:"reasons"`
+	Files           []CondaConfigFile     `json:"files"`
+	Contexts        []CondaConfigContext  `json:"contexts"`
+	CredentialFiles []CondaCredentialFile `json:"credential_files"`
+	Findings        []CargoConfigFinding  `json:"findings"`
+}
+
+// CondaConfigContext is the precedence chain for one target: the ambient
+// chain has neither path, a discovered prefix has EnvironmentPath, and a
+// recognized manifest's declared channels have ProjectPath.
+type CondaConfigContext struct {
+	Manager         string   `json:"manager"` // conda
+	EnvironmentPath string   `json:"environment_path,omitempty"`
+	ProjectPath     string   `json:"project_path,omitempty"`
+	ConfigSourceIDs []string `json:"config_source_ids"` // highest precedence first
+	SelectionStatus string   `json:"selection_status"`  // observed | partial
+}
