@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -61,7 +62,7 @@ func TestIdentityRuntimeTelemetryOut(t *testing.T) {
 			device.ResetIDCache()
 			t.Cleanup(device.ResetIDCache)
 			defer lock.SetTargetForTest(filepath.Join(dir, "scanner.lock"))()
-			if err := Run(m, progress.NewNoop(), cfg); err != nil {
+			if err := Run(m, progress.NewLogger(progress.LevelWarn), cfg); err != nil {
 				t.Fatal(err)
 			}
 			data, err := os.ReadFile(output)
@@ -95,6 +96,19 @@ func TestIdentityRuntimeTelemetryOut(t *testing.T) {
 			}
 			if tc.configured != "" {
 				wantUser = tc.configured
+			}
+			if tc.missingUser {
+				var logs ExecutionLogs
+				if err := json.Unmarshal(raw["execution_logs"], &logs); err != nil {
+					t.Fatal(err)
+				}
+				output, err := base64.StdEncoding.DecodeString(logs.OutputBase64)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(string(output), "Run this executable with: configure --non-interactive --user-id <ID>") {
+					t.Fatalf("recovery instruction assumes an alias: %s", output)
+				}
 			}
 			if gotUser != wantUser {
 				t.Fatalf("runtime user %q want %q", gotUser, wantUser)

@@ -3,6 +3,7 @@
 package identity
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -44,14 +45,14 @@ func MissingUser(value string) bool {
 // DetectUser preserves usable automatic identities, including values outside
 // the configured-ID allowlist. Absent/sentinel env values do not mask OS users.
 func DetectUser(exec executor.Executor) string {
-	value, _ := DetectUserSession(exec)
+	value, _ := DetectUserSession(context.Background(), exec)
 	return value
 }
 
 // DetectUserSession takes one OS-user snapshot, keeping session state separate
 // from email attribution and any configured identity applied by the caller.
-func DetectUserSession(exec executor.Executor) (string, bool) {
-	u, err := exec.LoggedInUser()
+func DetectUserSession(ctx context.Context, exec executor.Executor) (string, bool) {
+	u, err := exec.LoggedInUserContext(ctx)
 	noUser := err != nil || u == nil || MissingUser(u.Username)
 	for _, key := range []string{"USER_EMAIL", "DEVELOPER_EMAIL", "STEPSEC_DEVELOPER_EMAIL"} {
 		if v := exec.Getenv(key); !MissingUser(v) {
@@ -63,3 +64,6 @@ func DetectUserSession(exec executor.Executor) (string, bool) {
 	}
 	return "unknown", true
 }
+
+// MissingUserWarning gives runnable arguments without assuming a binary alias.
+const MissingUserWarning = "No user identity detected. Scanning will continue. Run this executable with: configure --non-interactive --user-id <ID>"

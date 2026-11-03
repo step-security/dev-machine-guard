@@ -66,7 +66,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	start := time.Now()
 	dev := device.Gather(ctx, exec)
 	if identity.MissingUser(dev.UserIdentity) {
-		log.Warn("No user identity detected. Scanning will continue. Set it once with: dmg configure --non-interactive --user-id <ID>")
+		log.Warn(identity.MissingUserWarning)
 	}
 	log.StepDone(time.Since(start))
 

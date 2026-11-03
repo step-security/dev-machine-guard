@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -39,13 +40,13 @@ func TestNormalizeConfiguredIDs(t *testing.T) {
 func TestDetectUserSession(t *testing.T) {
 	m := executor.NewMock()
 	m.SetUsername("root")
-	if got, noUser := DetectUserSession(m); got != "unknown" || !noUser {
+	if got, noUser := DetectUserSession(context.Background(), m); got != "unknown" || !noUser {
 		t.Fatalf("root: %s %v", got, noUser)
 	}
 	m.SetEnv("USER_EMAIL", "  UNKNOWN ")
 	m.SetEnv("DEVELOPER_EMAIL", " ")
 	m.SetUsername("DOMAIN\\alice")
-	if got, noUser := DetectUserSession(m); got != "DOMAIN\\alice" || noUser {
+	if got, noUser := DetectUserSession(context.Background(), m); got != "DOMAIN\\alice" || noUser {
 		t.Fatalf("fallback: %s %v", got, noUser)
 	}
 	m.SetEnv("STEPSEC_DEVELOPER_EMAIL", "third@example.com")
@@ -55,7 +56,7 @@ func TestDetectUserSession(t *testing.T) {
 	}
 	m.SetEnv("USER_EMAIL", "first@example.com")
 	m.SetLoggedInUserError(errors.New("no console"))
-	if got, noUser := DetectUserSession(m); got != "first@example.com" || !noUser {
+	if got, noUser := DetectUserSession(context.Background(), m); got != "first@example.com" || !noUser {
 		t.Fatalf("email without session: %s %v", got, noUser)
 	}
 }

@@ -99,7 +99,7 @@ func main() {
 
 	// Apply saved config values if CLI didn't explicitly override them.
 	// CLI flags always win over config file values (same as the shell script).
-	if len(config.SearchDirs) > 0 && len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME" {
+	if !cfg.SearchDirsSet && len(config.SearchDirs) > 0 && len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME" {
 		cfg.SearchDirs = config.SearchDirs
 	}
 	if cfg.EnableNPMScan == nil && config.EnableNPMScan != nil {

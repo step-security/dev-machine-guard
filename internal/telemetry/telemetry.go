@@ -538,7 +538,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	}
 	log.Debug("device gathered: hostname=%q platform=%q serial=%q user_identity=%q no_user=%v", dev.Hostname, dev.Platform, dev.SerialNumber, dev.UserIdentity, noUserLoggedIn)
 	if identity.MissingUser(dev.UserIdentity) {
-		log.Warn("No user identity detected. Scanning will continue. Set it once with: dmg configure --non-interactive --user-id <ID>")
+		log.Warn(identity.MissingUserWarning)
 	}
 	if noUserLoggedIn {
 		log.Warn("no real developer identity (UserIdentity=%q, root=%v) — telemetry will be marked no_user_logged_in", dev.UserIdentity, exec.IsRoot())

@@ -40,7 +40,7 @@ func IDForGuest(dev model.Device, hostDeviceID, distroID string) string {
 func Gather(ctx context.Context, exec executor.Executor) model.Device {
 	platform := exec.GOOS()
 	hostname := getHostname(ctx, exec, platform)
-	userIdentity, noUserLoggedIn := identity.DetectUserSession(exec)
+	userIdentity, noUserLoggedIn := identity.DetectUserSession(ctx, exec)
 	if config.UserID != "" {
 		userIdentity = config.UserID
 	}

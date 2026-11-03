@@ -86,6 +86,8 @@ type Executor interface {
 	// real console user via /dev/console rather than returning root.
 	// Falls back to CurrentUser() when not root or on non-macOS platforms.
 	LoggedInUser() (*user.User, error)
+	// LoggedInUserContext is the deadline-aware form for budgeted probes.
+	LoggedInUserContext(context.Context) (*user.User, error)
 	// GOOS returns the runtime operating system.
 	GOOS() string
 	// IsAppleCLTStub reports whether binPath is an Apple Command Line Tools
@@ -364,39 +366,7 @@ func (r *Real) Readlink(path string) (string, error) {
 }
 
 func (r *Real) LoggedInUser() (*user.User, error) {
-	if runtime.GOOS != "darwin" || !r.IsRoot() {
-		return r.CurrentUser()
-	}
-
-	// On macOS running as root, detect the console user via
-	// stat -f%Su /dev/console (mirrors the bash script's
-	// get_logged_in_user_info()).
-	//
-	// When the lookup can't yield a real GUI user — stat errored, console
-	// is owned by root or _windowserver, or the resolved name doesn't
-	// exist in Directory Services — we must NOT fall back to
-	// r.CurrentUser(). Under a LaunchDaemon that returns the root user
-	// with err == nil, callers treat that as "root is the developer", and
-	// the telemetry pipeline ships user_identity="root" with
-	// no_user_logged_in=false (issue #63). Surface the absence as an
-	// error so callers can flag the run as no-user instead.
-	ctx := context.Background()
-	stdout, _, _, err := r.Run(ctx, "stat", "-f%Su", "/dev/console")
-	if err != nil {
-		return nil, fmt.Errorf("stat /dev/console failed: %w", err)
-	}
-
-	username := strings.TrimSpace(stdout)
-	if username == "" || username == "root" || username == "_windowserver" {
-		return nil, fmt.Errorf("no GUI console user (owner=%q)", username)
-	}
-
-	u, err := user.Lookup(username)
-	if err != nil {
-		return nil, fmt.Errorf("console user %q not in directory services: %w", username, err)
-	}
-
-	return u, nil
+	return r.LoggedInUserContext(context.Background())
 }
 
 func (r *Real) GOOS() string {

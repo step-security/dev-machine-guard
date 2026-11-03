@@ -120,3 +120,39 @@ func TestUserIDCLIInitialAssignmentLinuxRoot(t *testing.T) {
 		t.Fatalf("actual Linux provisioning: %s %v", data, err)
 	}
 }
+
+func TestConfigureExplicitDefaultSearchRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("native Windows config-root isolation required")
+	}
+	home := t.TempDir()
+	dir := filepath.Join(home, ".stepsecurity")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.json")
+	original := []byte(`{"customer_id":"test-org","api_key":"key","api_endpoint":"https://example.test","search_dirs":["/saved-scan-root"]}`)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestUserIDCLIHelper$", "--", "configure", "--non-interactive", "--search-dirs", "$HOME")
+	cmd.Env = append(os.Environ(), "DMG_USER_ID_CLI_HELPER=1", "HOME="+home, "USERPROFILE="+home, "STEPSECURITY_HOME="+dir, "DMG_API_KEY=")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("configure: %s %v", out, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored struct {
+		SearchDirs []string `json:"search_dirs"`
+	}
+	if err := json.Unmarshal(data, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.SearchDirs) != 1 || stored.SearchDirs[0] != "$HOME" {
+		t.Fatalf("explicit search dirs replaced: %v", stored.SearchDirs)
+	}
+}
