@@ -292,8 +292,9 @@ type NodePackage struct {
 
 // PackageDetail represents a single package name and version.
 type PackageDetail struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Name         string   `json:"name"`
+	Version      string   `json:"version"`
+	InstallPaths []string `json:"install_paths,omitempty"`
 }
 
 // ProjectInfo represents a detected project directory with its packages.
