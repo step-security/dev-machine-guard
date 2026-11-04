@@ -2,12 +2,14 @@ package configaudit
 
 import (
 	"context"
+	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
 func TestPnpmDetector_Discovery_AllScopes(t *testing.T) {
@@ -119,6 +121,58 @@ func TestPnpmDetector_Discovery_AllScopes(t *testing.T) {
 	}
 	if got := audit.Effective.Config["auto-install-peers"]; got != true {
 		t.Errorf("effective auto-install-peers = %v, want true", got)
+	}
+}
+
+func TestPnpmDetector_GlobalRC_Discovered(t *testing.T) {
+	tmp := t.TempDir()
+
+	pnpmDir := filepath.Join(tmp, "Library", "Preferences", "pnpm")
+	if err := os.MkdirAll(pnpmDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+	rcPath := filepath.Join(pnpmDir, "rc")
+	mustWriteFile(t, rcPath, "minimumReleaseAge=10080\n")
+
+	configYamlPath := filepath.Join(pnpmDir, "config.yaml")
+	mustWriteFile(t, configYamlPath, "fetchRetries: 5\n")
+
+	mock := executor.NewMock()
+	mock.SetGOOS(model.PlatformDarwin)
+	mock.SetPath("pnpm", filepath.Join(tmp, "bin", "pnpm"))
+	mock.SetCommand("11.25.0\n", "", 0, "pnpm", "--version")
+	mock.SetCommand(configYamlPath+"\n", "", 0, "pnpm", "config", "get", "globalconfig")
+	mock.SetCommand(`{"minimumReleaseAge":10080}`, "", 0, "pnpm", "config", "list", "--json")
+	mock.SetHomeDir(tmp)
+
+	d := NewPnpmDetector(mock)
+	d.ownerLookup = fixedOwner()
+	d.gitTracked = func(_ context.Context, _ string) bool { return false }
+	d.inGitRepo = func(_ string) bool { return false }
+
+	loggedIn := &user.User{Username: "tester", HomeDir: tmp}
+	audit := d.Detect(context.Background(), nil, loggedIn)
+
+	var foundRC bool
+	for _, f := range audit.Files {
+		if f.Path == rcPath && f.Scope == "global" {
+			foundRC = true
+			if !f.Exists {
+				t.Errorf("expected rc file to exist")
+			}
+			var foundCooldown bool
+			for _, e := range f.Entries {
+				if e.Key == "minimumReleaseAge" && e.DisplayValue == "10080" {
+					foundCooldown = true
+				}
+			}
+			if !foundCooldown {
+				t.Errorf("expected minimumReleaseAge=10080 in rc entries, got: %+v", f.Entries)
+			}
+		}
+	}
+	if !foundRC {
+		t.Errorf("expected global rc file %q in audit.Files: %+v", rcPath, audit.Files)
 	}
 }
 

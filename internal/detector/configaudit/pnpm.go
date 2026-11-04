@@ -96,10 +96,20 @@ func (d *PnpmDetector) Detect(ctx context.Context, searchDirs []string, loggedIn
 	}
 
 	// pnpm has no `builtinconfig` equivalent; only global/user/project apply.
+	var globalConfig string
 	if v := d.exec.Getenv("PNPM_CONFIG_GLOBALCONFIG"); v != "" {
-		add("global", v)
+		globalConfig = v
 	} else {
-		add("global", d.pnpmConfigGet(ctx, "globalconfig"))
+		globalConfig = d.pnpmConfigGet(ctx, "globalconfig")
+	}
+	if globalConfig != "" {
+		add("global", globalConfig)
+	}
+
+	for _, rcPath := range d.pnpmGlobalRCPaths(globalConfig, loggedInUser) {
+		if _, err := os.Stat(rcPath); err == nil {
+			add("global", rcPath)
+		}
 	}
 
 	if v := d.exec.Getenv("PNPM_CONFIG_USERCONFIG"); v != "" {
@@ -122,6 +132,45 @@ func (d *PnpmDetector) Detect(ctx context.Context, searchDirs []string, loggedIn
 		audit.Effective = d.captureEffective(ctx)
 	}
 	return audit
+}
+
+// pnpmGlobalRCPaths returns candidate paths for the global pnpm rc file across platforms.
+func (d *PnpmDetector) pnpmGlobalRCPaths(globalConfig string, loggedInUser *user.User) []string {
+	var paths []string
+	if globalConfig != "" {
+		dir := filepath.Dir(globalConfig)
+		rc := filepath.Join(dir, "rc")
+		if rc != globalConfig {
+			paths = append(paths, rc)
+		}
+	}
+
+	homeDir := ""
+	if loggedInUser != nil && loggedInUser.HomeDir != "" {
+		homeDir = loggedInUser.HomeDir
+	} else if h, err := os.UserHomeDir(); err == nil && h != "" {
+		homeDir = h
+	} else if h := d.exec.Getenv("HOME"); h != "" {
+		homeDir = h
+	}
+
+	switch d.exec.GOOS() {
+	case model.PlatformDarwin:
+		if homeDir != "" {
+			paths = append(paths, filepath.Join(homeDir, "Library", "Preferences", "pnpm", "rc"))
+		}
+	case model.PlatformLinux:
+		if xdg := d.exec.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+			paths = append(paths, filepath.Join(xdg, "pnpm", "rc"))
+		} else if homeDir != "" {
+			paths = append(paths, filepath.Join(homeDir, ".config", "pnpm", "rc"))
+		}
+	case model.PlatformWindows:
+		if localAppData := d.exec.Getenv("LOCALAPPDATA"); localAppData != "" {
+			paths = append(paths, filepath.Join(localAppData, "pnpm", "config", "rc"))
+		}
+	}
+	return paths
 }
 
 // findProjectNPMRCs walks dir for .npmrc files using the same skip rules as
