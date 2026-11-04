@@ -81,6 +81,7 @@ Non-interactive configure (for MSI / SCCM / Intune deployments):
   --customer-id ID              Customer identifier
   --api-endpoint URL            StepSecurity backend URL
   --api-key KEY                 Authentication key (or set DMG_API_KEY env var)
+  --user-id ID                  Set user identity once, only when none is detected
   --device-id VALUE             Device identity: a literal id, or a template over
                                 {serial} {hostname} {user} (e.g. "{hostname}-{user}"
                                 for pooled virtual desktops). Blank/omitted keeps the

@@ -1,6 +1,7 @@
 package device
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -221,7 +222,7 @@ func RecordScanUser(exec executor.Executor) {
 	if dir == "" || exec.GOOS() != model.PlatformWindows {
 		return
 	}
-	token := SanitizeDeviceID(userToken(exec.GOOS(), exec.IsRoot(), getDeveloperIdentity(exec)))
+	token := SanitizeDeviceID(userToken(exec.GOOS(), exec.IsRoot(), developerIdentity(context.Background(), exec)))
 	if token == "" {
 		return
 	}

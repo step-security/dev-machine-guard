@@ -63,7 +63,10 @@ type ScanResult struct {
 }
 
 type Device struct {
-	Hostname string `json:"hostname"`
+	// NoUserLoggedIn is the OS session state, independent of attribution: a
+	// provisioned user_id keeps UserIdentity while the session has no user.
+	NoUserLoggedIn bool   `json:"-"`
+	Hostname       string `json:"hostname"`
 	// SerialNumber is the probed hardware serial. DeviceID is the identity
 	// every backend call uses: the same value unless a device identity template
 	// is configured (STEPSEC_DEVICE_ID / config.json device_id), in which case

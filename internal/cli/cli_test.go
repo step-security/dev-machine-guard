@@ -484,15 +484,18 @@ func TestParse_ConfigureDeviceIDAndRetireOnUninstall(t *testing.T) {
 		}
 	}
 
-	// "-" clears: saved as "" so the key is dropped from the file.
+	// "-" clears. The tag is saved as "" so the key is dropped from the file;
+	// the device id reaches configure verbatim, which validates every
+	// explicit id and turns "-" into the clear (identity.NormalizeDevice).
 	cfg, err = Parse([]string{"configure", "--device-id=-", "--device-tag", "-"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"device_id", "device_tag"} {
-		if v, ok := cfg.ConfigValues[key]; !ok || v != "" {
-			t.Errorf("\"-\" must save an empty %s, got %v (present %v)", key, v, ok)
-		}
+	if v, ok := cfg.ConfigValues["device_tag"]; !ok || v != "" {
+		t.Errorf("\"-\" must save an empty device_tag, got %v (present %v)", v, ok)
+	}
+	if v, ok := cfg.ConfigValues["device_id"]; !ok || v != "-" {
+		t.Errorf("\"-\" must reach configure as the device_id clear sentinel, got %v (present %v)", v, ok)
 	}
 
 	if _, err := Parse([]string{"configure", "--retire-on-uninstall=maybe"}); err == nil {

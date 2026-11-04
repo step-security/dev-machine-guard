@@ -187,7 +187,7 @@ func TestRunConfigureNonInteractive_DeviceIDAndRetireFlags(t *testing.T) {
 	}
 
 	// Omitted = unchanged; false (saved as null by the flag) drops the retire
-	// key; "" (what "-" saves) clears the template.
+	// key; "-" clears the template (an explicit empty id is rejected).
 	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"api_key": "sk-2", "retire_on_uninstall": nil}}); err != nil {
 		t.Fatalf("second configure: %v", err)
 	}
@@ -198,11 +198,14 @@ func TestRunConfigureNonInteractive_DeviceIDAndRetireFlags(t *testing.T) {
 	if cfg.RetireOnUninstall != nil {
 		t.Errorf("retire_on_uninstall=false must be omitted from the file, got %v", *cfg.RetireOnUninstall)
 	}
-	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_id": ""}}); err != nil {
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_id": ""}}); err == nil {
+		t.Error("an explicit empty device_id must be rejected")
+	}
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_id": "-"}}); err != nil {
 		t.Fatalf("third configure: %v", err)
 	}
 	if cfg = loadExisting(); cfg.DeviceID != "" {
-		t.Errorf("an empty device_id must clear the template, got %q", cfg.DeviceID)
+		t.Errorf("\"-\" must clear the template, got %q", cfg.DeviceID)
 	}
 }
 
@@ -359,7 +362,7 @@ func TestShowConfigure_PrintsDeviceIdentity(t *testing.T) {
 	if strings.Contains(out, "resolves now to") {
 		t.Errorf("empty resolved line must be omitted:\n%s", out)
 	}
-	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_id": ""}}); err != nil {
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_id": "-"}}); err != nil {
 		t.Fatal(err)
 	}
 	out = captureStdout(t, func() { ShowConfigure("") })

@@ -20,6 +20,12 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 - **Retire on uninstall.** `uninstall --retire`, or `retire_on_uninstall: true` in config (MSI `RETIREONUNINSTALL=1`, bootstrap.json), posts a best-effort retire to the dashboard once the scheduler job is removed and no scan can report any more, so a torn-down virtual desktop leaves the device list and the license count. For a `{user}` template every per-user device the install has state for is retired, which is how an MSI uninstall running as SYSTEM covers all of a host's users. `--no-retire` suppresses it, a major upgrade skips the uninstall step entirely (so it never retires), and a failure (offline machine, older backend) is a warning that never blocks the uninstall.
 
 - **Every config setting can be set non-interactively.** `configure` gains `--device-id`, `--max-execution-duration`, `--update-mirror-url`, `--update-lag-behind` and `--update-cooldown-hours`, and now saves the scan, output, color, log-level and install-dir flags (`--enable-npm-scan`, `--json`, `--color=never`, `--log-level=info`, …) to config.json, the way it already saved `--search-dirs`. Passing any of them selects the no-prompt path, so an MDM or MSI deploy no longer needs a `--from-file` JSON for settings beyond the credentials.
+- One-time `configure --user-id` provisioning when no usable user identity is detected, with the same persisted attribution for scans and hooks. IDs use 1–256 ASCII letters, digits, or `@ . _ + -`; explicit device-ID inputs follow the same format.
+- Explicit `user_id_missing` and `device_id_missing` telemetry fields, independent of OS login detection.
+
+### Changed
+
+- Configuration mutations use a process lock and atomic replacement. Unreadable or corrupt configuration now blocks configure instead of being replaced, preventing accidental loss of an assigned user ID. Imports preserve existing settings and reject conflicting or invalid identity inputs.
 
 ### Fixed
 

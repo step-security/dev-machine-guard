@@ -1,6 +1,7 @@
 package devicepolicy
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -122,6 +123,12 @@ type targetUserExecutor struct {
 	user *user.User
 }
 
+func (e targetUserExecutor) LoggedInUserContext(ctx context.Context) (*user.User, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return e.LoggedInUser()
+}
 func (e targetUserExecutor) LoggedInUser() (*user.User, error) {
 	u := *e.user
 	return &u, nil

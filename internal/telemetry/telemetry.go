@@ -30,6 +30,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/featuregate"
+	"github.com/step-security/dev-machine-guard/internal/identity"
 	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/paths"
@@ -61,6 +62,8 @@ const serialProbeTimeout = 10 * time.Second
 
 // Payload is the enterprise telemetry JSON structure.
 type Payload struct {
+	UserIDMissing   bool `json:"user_id_missing"`
+	DeviceIDMissing bool `json:"device_id_missing"`
 	// PayloadSchemaVersion gates the delta-protocol sibling fields below
 	// (NodeProjectsUnchanged etc.). Zero/absent = legacy snapshot, every
 	// scanned project ships its full body in NodeProjects/PythonProjects.
@@ -552,10 +555,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// A host that just became multi-user retires the row it used to report
 	// under (once), before anything is posted under the new identity.
 	retireSerialRowOnIdentitySwitch(ctx, exec, log, &dev, wslGuest)
-	// Single source of truth for "is this a real developer or a daemon
-	// context?" — same predicate the identity template uses, so the warning,
-	// the Developer: line, the telemetry field and the {user} token agree.
-	noUserLoggedIn := device.IsServiceAccount(exec, dev.UserIdentity)
+	// Gather decided whether this is a developer session or a daemon context
+	// (service accounts included); the identity template's {user} token
+	// applies the same rule, so the warning, the Developer: line, the
+	// telemetry field and the token agree.
+	noUserLoggedIn := dev.NoUserLoggedIn
 	if dev.DeviceIDSource == "" || dev.DeviceIDSource == device.IdentitySourceSerial {
 		log.Progress("Device ID: %s", deviceID)
 	} else {
@@ -576,6 +580,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	}
 	log.Debug("device gathered: hostname=%q platform=%q device_id=%q source=%q serial=%q user_identity=%q no_user=%v",
 		dev.Hostname, dev.Platform, deviceID, dev.DeviceIDSource, dev.SerialNumber, dev.UserIdentity, noUserLoggedIn)
+	if identity.MissingUser(dev.UserIdentity) {
+		log.Warn(identity.MissingUserWarning)
+	}
 	if noUserLoggedIn {
 		log.Warn("no real developer identity (UserIdentity=%q, root=%v) — telemetry will be marked no_user_logged_in", dev.UserIdentity, exec.IsRoot())
 	}
@@ -1371,21 +1378,13 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	payload := &Payload{
 		PayloadSchemaVersion: schemaVersion,
 		CustomerID:           config.CustomerID,
-		DeviceID:             deviceID,
-		SerialNumber:         deviceIdentity,
 		DeviceIDSource:       identitySource,
 		DeviceTag:            dev.DeviceTag,
-		UserIdentity:         dev.UserIdentity,
-		Hostname:             dev.Hostname,
-		Platform:             dev.Platform,
-		OSVersion:            dev.OSVersion,
-		Resources:            dev.Resources,
 		Virtualization:       dev.Virtualization,
 		WSL:                  dev.WSL,
 		WSLGuest:             wslGuest,
 		AgentVersion:         buildinfo.Version,
 		CollectedAt:          endTime.Unix(),
-		NoUserLoggedIn:       noUserLoggedIn,
 
 		InvocationMethod: invocationMethod,
 		StatusInfo:       &finalStatusInfo,
@@ -1477,6 +1476,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// the inner JSON process-uploaded sees after gunzip, so it doubles as a
 	// backend ingestion fixture. Never set in production (zero impact when
 	// the flag/env var is unset).
+	payload.applyDevice(dev, deviceID, deviceIdentity)
+
 	if cfg.TelemetryOutFile != "" {
 		if err := writeTelemetryFile(cfg.TelemetryOutFile, payload); err != nil {
 			log.Error("telemetry-out: %v", err)

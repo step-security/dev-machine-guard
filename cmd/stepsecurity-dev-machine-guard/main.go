@@ -100,7 +100,7 @@ func main() {
 
 	// Apply saved config values if CLI didn't explicitly override them.
 	// CLI flags always win over config file values (same as the shell script).
-	if len(config.SearchDirs) > 0 && len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME" {
+	if !cfg.SearchDirsSet && len(config.SearchDirs) > 0 && len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME" {
 		cfg.SearchDirs = config.SearchDirs
 	}
 	if cfg.EnableNPMScan == nil && config.EnableNPMScan != nil {
@@ -271,11 +271,15 @@ func main() {
 		if cfg.NonInteractive || opts.HasAny() {
 			if err := config.RunConfigureNonInteractive(opts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				// os.Exit skips defers; drain the stderr tee so configure errors are visible.
+				_ = capture.Stop()
 				os.Exit(1)
 			}
 		} else {
 			if err := config.RunConfigure(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				// os.Exit skips defers; drain the stderr tee so configure errors are visible.
+				_ = capture.Stop()
 				os.Exit(1)
 			}
 		}

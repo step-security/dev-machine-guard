@@ -349,7 +349,7 @@ func ResolvedDeviceID(ctx context.Context, exec executor.Executor) Identity {
 	template, _ := IdentityTemplate(exec)
 	lower := strings.ToLower(template)
 	hostname := getHostname(ctx, exec, exec.GOOS())
-	user := getDeveloperIdentity(exec)
+	user := developerIdentity(ctx, exec)
 	serial := ""
 	if template == "" || strings.Contains(lower, TokenSerial) ||
 		(strings.Contains(lower, TokenHostname) && hostnameToken(hostname, "") == "") {
@@ -381,5 +381,5 @@ func IdentityUserScope(exec executor.Executor) string {
 	if _, issue, _ := expandIdentityTemplate(template, "", "", "", exec.GOOS(), false); issue != "" {
 		return ""
 	}
-	return SanitizeDeviceID(userToken(exec.GOOS(), exec.IsRoot(), getDeveloperIdentity(exec)))
+	return SanitizeDeviceID(userToken(exec.GOOS(), exec.IsRoot(), developerIdentity(context.Background(), exec)))
 }

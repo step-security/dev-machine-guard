@@ -541,6 +541,91 @@
   {
     "args": [
       "configure",
+      "--user-id",
+      "abc"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--user-id=abc"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--user-id="
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--user-id"
+    ],
+    "result": {
+      "error": "--user-id requires a value"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--user-id",
+      "--api-key",
+      "secret"
+    ],
+    "result": {
+      "error": "--user-id requires a value"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--user-id=abc",
+      "--user-id=abc"
+    ],
+    "result": {
+      "error": "--user-id may only be specified once"
+    }
+  },
+  {
+    "args": [
+      "--user-id=abc"
+    ],
+    "result": {
+      "error": "--user-id is only supported with configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "show",
+      "--user-id=abc"
+    ],
+    "result": {
+      "error": "--user-id is only supported with configure"
+    }
+  },
+  {
+    "args": [
+      "send-telemetry",
+      "--user-id=abc"
+    ],
+    "result": {
+      "error": "--user-id is only supported with configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
       "--device-id",
       "d1"
     ],

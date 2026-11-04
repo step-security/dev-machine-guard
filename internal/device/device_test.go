@@ -175,7 +175,7 @@ func TestGather_LinuxDistroOnly(t *testing.T) {
 
 // TestGather_NoConsoleUser_DoesNotLeakRoot covers issue #63: when running as
 // a daemon on macOS and LoggedInUser() reports an error (no GUI console
-// user), getDeveloperIdentity must not silently fall back to the process's
+// user), developerIdentity must not silently fall back to the process's
 // own user (which under a LaunchDaemon is "root"). Identity should resolve
 // to "unknown" so the telemetry payload's no_user_logged_in flag fires.
 func TestGather_NoConsoleUser_DoesNotLeakRoot(t *testing.T) {
@@ -197,7 +197,7 @@ func TestGather_NoConsoleUser_DoesNotLeakRoot(t *testing.T) {
 }
 
 // TestGather_NoConsoleUser_EnvVarRescues asserts that the env-var path in
-// getDeveloperIdentity still works when LoggedInUser would error. Operators
+// developerIdentity still works when LoggedInUser would error. Operators
 // who populate USER_EMAIL/DEVELOPER_EMAIL in the daemon plist should still
 // get correct identity attribution even on no-console-user hosts.
 func TestGather_NoConsoleUser_EnvVarRescues(t *testing.T) {
