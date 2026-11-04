@@ -255,6 +255,14 @@ Configuration (~/.stepsecurity/config.json):
 
 Configuration is saved to `~/.stepsecurity/config.json` with `0600` permissions (owner read/write only).
 
+To label a device for the dashboard, add `"device_tag": "avd-pool-eu"` to the
+config JSON, pass `configure --device-tag avd-pool-eu`, or use the MSI
+`DEVICETAG` property. The tag is set in the agent configuration only (the
+dashboard shows it and never edits it). In the dashboard's Device activity
+settings an admin can limit retirement (on uninstall, on the automatic
+identity switch, by inactivity and from the dashboard) to devices carrying
+chosen tags; the default applies it to all devices.
+
 To use a custom device ID, add `"device_id": "my-device-123"` to the existing
 config JSON, or set **Device ID** through `configure`. The override is also
 supported in JSON supplied to `configure --from-file`. An omitted, empty, or

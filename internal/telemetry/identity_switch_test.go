@@ -50,6 +50,46 @@ func autoDevice(serial string) *model.Device {
 	return &model.Device{SerialNumber: serial, DeviceID: "host-jdoe", DeviceIDSource: device.IdentitySourceAuto, Platform: model.PlatformWindows}
 }
 
+// retireServerAnswering is retireServer with a configurable backend status.
+func retireServerAnswering(t *testing.T, status string) (*httptest.Server, *[]retireCall) {
+	t.Helper()
+	var mu sync.Mutex
+	var calls []retireCall
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		calls = append(calls, retireCall{Path: r.URL.Path, Reason: body["reason"]})
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"` + status + `"}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &calls
+}
+
+// A row outside the tenant's retirement scope is left in place and the
+// marker stays pending, so widening the scope later removes it on the next
+// run without a reinstall.
+func TestRetireSerialRowOnIdentitySwitch_OutOfScopeKeepsMarkerPending(t *testing.T) {
+	srv, calls := retireServerAnswering(t, "out_of_scope")
+	t.Cleanup(withEnterpriseConfig(t, srv.URL))
+	dir := t.TempDir()
+	t.Cleanup(device.SetMachineStateDirForTest(dir))
+	writeMarker(t, dir, "users")
+	exec := executor.NewMock()
+	exec.SetGOOS(model.PlatformWindows)
+
+	retireSerialRowOnIdentitySwitch(context.Background(), exec, progress.NewNoop(), autoDevice("SER1"), nil)
+	retireSerialRowOnIdentitySwitch(context.Background(), exec, progress.NewNoop(), autoDevice("SER1"), nil)
+	if len(*calls) != 2 {
+		t.Fatalf("an out-of-scope answer must be retried on the next run, got %d calls", len(*calls))
+	}
+	if !device.SerialRowRetirePending("SER1", "") {
+		t.Error("the pending marker must survive an out-of-scope answer")
+	}
+}
+
 func TestRetireSerialRowOnIdentitySwitch_OnceAfterSecondUser(t *testing.T) {
 	srv, calls := retireServer(t)
 	t.Cleanup(withEnterpriseConfig(t, srv.URL))

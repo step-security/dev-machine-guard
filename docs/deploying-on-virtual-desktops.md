@@ -174,7 +174,7 @@ msiexec /i "stepsecurity-dev-machine-guard-<version>-x64.msi" /qn /norestart `
 msiexec /i "stepsecurity-dev-machine-guard-<version>-x64.msi" /qn /norestart `
   CUSTOMERID="acme-corp" APIENDPOINT="https://agent.api.stepsecurity.io" `
   APIKEY="sk_live_xxxxxxxxxxxxxxxx" `
-  DEVICEID="{hostname}-{user}" RETIREONUNINSTALL=1
+  DEVICEID="{hostname}-{user}" RETIREONUNINSTALL=1 DEVICETAG="avd-pool-eu"
 ```
 
 Or set the identity machine-wide and let any install path pick it up:
@@ -194,6 +194,17 @@ A retired device leaves the device list and the license count. Its row is
 kept for 30 days — if the agent on that device ever checks in again (a
 reinstall, a reimage with the same name) the device is **restored
 automatically** — and is then permanently purged along with its history.
+
+**Retirement scope.** `device_tag` (config.json, MSI `DEVICETAG`,
+bootstrap.json, `configure --device-tag`, or the install wizard) is a label
+the dashboard shows next to the device and never edits. In Settings, Device
+activity, an admin chooses whether retirement applies to all devices (the
+default) or only to devices carrying chosen tags. A device outside the scope
+is never retired: not on uninstall, not by the identity switch, not by the
+inactivity sweep and not from the dashboard (the API answers 409
+`device_out_of_scope`; delete it instead). Give every pooled virtual desktop
+its host pool as the tag and scope retirement to those tags, so the fleet's
+laptops are never touched.
 
 Three ways to retire:
 

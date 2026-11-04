@@ -261,6 +261,7 @@ func main() {
 			APIKey:            cfg.ConfigAPIKey,
 			ScanFrequency:     cfg.ConfigScanFrequency,
 			DeviceID:          cfg.ConfigDeviceID,
+			DeviceTag:         cfg.ConfigDeviceTag,
 			RetireOnUninstall: cfg.ConfigRetireOnUninstall,
 			AutoUpdate:        cfg.ConfigAutoUpdate,
 		}
@@ -837,8 +838,14 @@ func retireDevicesOnUninstall(exec executor.Executor, log *progress.Logger, ids 
 	ctx, cancel := context.WithTimeout(context.Background(), retire.TotalBudget)
 	defer cancel()
 	for _, id := range ids {
-		err := retire.Post(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, id, buildinfo.Version, exec.GOOS(), retire.ReasonUninstall)
+		status, err := retire.Post(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, id, buildinfo.Version, exec.GOOS(), retire.ReasonUninstall)
 		switch {
+		case err == nil && status == retire.StatusOutOfScope:
+			// The tenant limits retirement to chosen device tags (Settings,
+			// Device activity) and this device is not among them.
+			log.Progress("Device %s is outside the dashboard's retirement scope; left registered", id)
+		case err == nil && status == retire.StatusUnknownDevice:
+			log.Debug("retire: %s is not registered in the dashboard; nothing to retire", id)
 		case err == nil:
 			log.Progress("Retired device %s in the dashboard", id)
 		case errors.Is(err, retire.ErrNotSupported):

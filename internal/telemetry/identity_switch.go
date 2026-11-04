@@ -54,10 +54,16 @@ func retireSerialRowOnIdentitySwitch(ctx context.Context, exec executor.Executor
 	defer shared.Release()
 	rctx, cancel := context.WithTimeout(ctx, identitySwitchBudget)
 	defer cancel()
-	err := retire.Post(rctx, config.APIEndpoint, config.APIKey, config.CustomerID, dev.SerialNumber,
+	status, err := retire.Post(rctx, config.APIEndpoint, config.APIKey, config.CustomerID, dev.SerialNumber,
 		buildinfo.Version, exec.GOOS(), retire.ReasonIdentityChanged)
 	if err != nil {
 		log.Warn("identity switch: could not remove the previous device row %s: %v (auto-retire or the dashboard can still remove it)", dev.SerialNumber, err)
+		return
+	}
+	if status == retire.StatusOutOfScope {
+		// Not recorded in the marker: once an admin widens the scope (or
+		// tags this host), the next run removes the row without a reinstall.
+		log.Progress("Identity switch: previous device row %s is outside the dashboard's retirement scope; left in place", dev.SerialNumber)
 		return
 	}
 	if merr := device.MarkSerialRowRetired(dev.SerialNumber); merr != nil {

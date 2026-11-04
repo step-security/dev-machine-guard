@@ -144,13 +144,13 @@
     "expect_incomplete": true
   },
   {
-    "name": "empty_hostname_is_incomplete",
+    "name": "empty_hostname_falls_back_to_serial",
     "template": "{hostname}",
     "serial": "SER1",
     "hostname": "",
     "user": "jdoe",
     "goos": "linux",
-    "expect_incomplete": true
+    "expect_id": "SER1"
   },
   {
     "name": "long_expansion_trimmed_prefix_plus_hash",
@@ -160,5 +160,23 @@
     "user": "bbbbbbbbbbbbbbbbbbbb",
     "goos": "linux",
     "expect_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-74e82d78aed4"
+  },
+  {
+    "name": "unknown_hostname_falls_back_to_serial",
+    "template": "{hostname}-{user}",
+    "serial": "SER1",
+    "hostname": "unknown",
+    "user": "jdoe",
+    "goos": "windows",
+    "expect_id": "SER1-jdoe"
+  },
+  {
+    "name": "empty_hostname_and_unusable_serial_is_incomplete",
+    "template": "{hostname}",
+    "serial": "unknown",
+    "hostname": "",
+    "user": "jdoe",
+    "goos": "linux",
+    "expect_incomplete": true
   }
 ]

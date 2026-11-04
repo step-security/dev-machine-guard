@@ -48,7 +48,7 @@ func TestPost_PathBearerBody(t *testing.T) {
 	var got capturedRequest
 	srv := retireServer(t, http.StatusOK, &hits, &got)
 
-	err := Post(context.Background(), srv.URL+"/", "tkey", "acme", "avd-host-07/jdoe", "1.2.3", "windows", ReasonUninstall)
+	_, err := Post(context.Background(), srv.URL+"/", "tkey", "acme", "avd-host-07/jdoe", "1.2.3", "windows", ReasonUninstall)
 	if err != nil {
 		t.Fatalf("Post: %v", err)
 	}
@@ -66,10 +66,28 @@ func TestPost_PathBearerBody(t *testing.T) {
 	}
 }
 
+func TestPost_ReturnsBackendStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"device_id":"laptop-1","status":"out_of_scope","already_retired":false}`))
+	}))
+	t.Cleanup(srv.Close)
+	status, err := Post(context.Background(), srv.URL, "k", "acme", "laptop-1", "v", "windows", ReasonUninstall)
+	if err != nil || status != StatusOutOfScope {
+		t.Fatalf("status=%q err=%v, want %q", status, err, StatusOutOfScope)
+	}
+	// A 2xx without a status body is still a success.
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	t.Cleanup(plain.Close)
+	if status, err := Post(context.Background(), plain.URL, "k", "acme", "laptop-1", "v", "windows", ReasonUninstall); err != nil || status != "" {
+		t.Fatalf("plain 2xx: status=%q err=%v", status, err)
+	}
+}
+
 func TestPost_404IsNotSupported(t *testing.T) {
 	var hits atomic.Int32
 	srv := retireServer(t, http.StatusNotFound, &hits, nil)
-	err := Post(context.Background(), srv.URL, "k", "acme", "dev", "v", "linux", ReasonUninstall)
+	_, err := Post(context.Background(), srv.URL, "k", "acme", "dev", "v", "linux", ReasonUninstall)
 	if err == nil || err != ErrNotSupported {
 		t.Fatalf("err = %v, want ErrNotSupported", err)
 	}
@@ -82,7 +100,7 @@ func TestPost_RetriesOn5xxThenGivesUp(t *testing.T) {
 	var hits atomic.Int32
 	srv := retireServer(t, http.StatusBadGateway, &hits, nil)
 	start := time.Now()
-	err := Post(context.Background(), srv.URL, "k", "acme", "dev", "v", "linux", ReasonUninstall)
+	_, err := Post(context.Background(), srv.URL, "k", "acme", "dev", "v", "linux", ReasonUninstall)
 	if err == nil {
 		t.Fatal("expected an error after exhausting attempts")
 	}
@@ -97,7 +115,7 @@ func TestPost_RetriesOn5xxThenGivesUp(t *testing.T) {
 func TestPost_4xxIsTerminal(t *testing.T) {
 	var hits atomic.Int32
 	srv := retireServer(t, http.StatusForbidden, &hits, nil)
-	if err := Post(context.Background(), srv.URL, "k", "acme", "dev", "v", "linux", ReasonUninstall); err == nil {
+	if _, err := Post(context.Background(), srv.URL, "k", "acme", "dev", "v", "linux", ReasonUninstall); err == nil {
 		t.Fatal("expected error")
 	}
 	if hits.Load() != 1 {
@@ -106,10 +124,10 @@ func TestPost_4xxIsTerminal(t *testing.T) {
 }
 
 func TestPost_RejectsUnusableInputs(t *testing.T) {
-	if err := Post(context.Background(), "", "k", "acme", "dev", "v", "linux", ReasonUninstall); err == nil {
+	if _, err := Post(context.Background(), "", "k", "acme", "dev", "v", "linux", ReasonUninstall); err == nil {
 		t.Fatal("empty endpoint accepted")
 	}
-	if err := Post(context.Background(), "http://127.0.0.1:1", "k", "acme", "unknown", "v", "linux", ReasonUninstall); err == nil {
+	if _, err := Post(context.Background(), "http://127.0.0.1:1", "k", "acme", "unknown", "v", "linux", ReasonUninstall); err == nil {
 		t.Fatal("unknown device id accepted")
 	}
 }

@@ -89,10 +89,15 @@
          {hostname} {user} tokens (e.g. "{hostname}-{user}" for pooled
          virtual desktops). Empty keeps the hardware serial.
          RETIREONUNINSTALL=1: `msiexec /x` retires the device in the
-         dashboard before removing the scheduled task. Both also accepted
-         as bootstrap.json keys (device_id / retire_on_uninstall). -->
+         dashboard before removing the scheduled task. DEVICETAG: a label
+         shown in the dashboard (e.g. the host pool); the dashboard's
+         retirement scope can limit retirement to chosen tags, so set it on
+         every pooled virtual desktop.
+         All three also accepted as bootstrap.json keys (device_id /
+         retire_on_uninstall / device_tag). -->
     <Property Id="DEVICEID"          Secure="yes"/>
     <Property Id="RETIREONUNINSTALL" Secure="yes"/>
+    <Property Id="DEVICETAG"         Secure="yes"/>
     <!-- AUTOUPDATE (no default): 0 opts the device out of self-update
          (configure writes auto_update:false into the SYSTEM-owned machine
          config; the update task still runs and reports update_disabled),
@@ -316,7 +321,7 @@
          backslash would escape the closing quote. -->
 
     <SetProperty Id="RunConfigureInline"
-                 Value='"[SEEDFOLDER]stepsecurity-dev-machine-guard.exe" configure --non-interactive --customer-id "[CUSTOMERID]" --api-endpoint "[APIENDPOINT]" --api-key "[APIKEY]" --scan-frequency "[SCANFREQUENCY]" --device-id="[DEVICEID]" --retire-on-uninstall="[RETIREONUNINSTALL]"'
+                 Value='"[SEEDFOLDER]stepsecurity-dev-machine-guard.exe" configure --non-interactive --customer-id "[CUSTOMERID]" --api-endpoint "[APIENDPOINT]" --api-key "[APIKEY]" --scan-frequency "[SCANFREQUENCY]" --device-id="[DEVICEID]" --retire-on-uninstall="[RETIREONUNINSTALL]" --device-tag="[DEVICETAG]"'
                  Sequence="execute"
                  Before="RunConfigureInline"
                  Condition="APIKEY AND NOT BOOTSTRAPFILE AND NOT Installed"/>

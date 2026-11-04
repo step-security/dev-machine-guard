@@ -206,7 +206,10 @@ func expandIdentityTemplate(template, serial, hostname, user, platform string, r
 			}
 			b.WriteString(serial)
 		case TokenHostname:
-			h := strings.ToLower(strings.TrimSpace(hostname))
+			// A host without a usable name falls back to its machine
+			// identity, as the dashboard does when it has no name to show:
+			// "unknown-jdoe" would collide across every nameless host.
+			h := hostnameToken(hostname, serial)
 			if h == "" {
 				incomplete = true
 			}
@@ -223,6 +226,21 @@ func expandIdentityTemplate(template, serial, hostname, user, platform string, r
 		}
 	}
 	return b.String(), "", incomplete
+}
+
+// hostnameToken is the {hostname} expansion: the lowercased host name, else
+// the machine identity when the host has no usable name (empty, "unknown",
+// "localhost"), else "" (incomplete). The loaders apply the same rule.
+func hostnameToken(hostname, serial string) string {
+	switch h := strings.ToLower(strings.TrimSpace(hostname)); h {
+	case "", "unknown", "localhost", "localhost.localdomain":
+		if usableSerial(serial) {
+			return serial
+		}
+		return ""
+	default:
+		return h
+	}
 }
 
 // userToken reduces a user identity to the form used inside a device id: a

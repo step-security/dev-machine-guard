@@ -69,6 +69,7 @@ type Payload struct {
 	DeviceID             string                 `json:"device_id"`
 	SerialNumber         string                 `json:"serial_number"`
 	DeviceIDSource       string                 `json:"device_id_source,omitempty"` // env | config | auto | serial | wsl_guest
+	DeviceTag            string                 `json:"device_tag"`                 // config.json device_tag; always present so the backend can tell "cleared" from "older agent"
 	Virtualization       *model.Virtualization  `json:"virtualization,omitempty"`
 	UserIdentity         string                 `json:"user_identity"`
 	Hostname             string                 `json:"hostname"`
@@ -510,6 +511,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	log.Progress("Gathering device information...")
 	dev := device.Gather(phaseCtx, exec)
 	dev.Virtualization = device.DetectVirtualization(phaseCtx, exec)
+	dev.DeviceTag = config.DeviceTag
 	// WSL detection (Windows host-side; feature-gated until the backend
 	// consumes device.wsl). No-op off Windows.
 	if featuregate.IsEnabled(featuregate.FeatureWSLDetection) {
@@ -553,6 +555,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	log.Progress("OS Version: %s", dev.OSVersion)
 	if v := device.FormatVirtualization(dev.Virtualization); v != "" {
 		log.Progress("Virtualization: %s", v)
+	}
+	if dev.DeviceTag != "" {
+		log.Progress("Device tag: %s", dev.DeviceTag)
 	}
 	if noUserLoggedIn {
 		log.Progress("Developer: (no user logged in)")
@@ -1351,6 +1356,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		DeviceID:             deviceID,
 		SerialNumber:         deviceIdentity,
 		DeviceIDSource:       identitySource,
+		DeviceTag:            dev.DeviceTag,
 		UserIdentity:         dev.UserIdentity,
 		Hostname:             dev.Hostname,
 		Platform:             dev.Platform,

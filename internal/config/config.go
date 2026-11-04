@@ -82,6 +82,43 @@ var MaxExecutionDuration string
 // `--no-retire` override it per invocation.
 var RetireOnUninstall bool
 
+// DeviceTag is the optional label an admin sets in the agent configuration
+// only (config.json `device_tag`, MSI DEVICETAG, bootstrap.json,
+// `configure --device-tag`); the dashboard displays it and never changes it.
+// The dashboard's retirement scope (Settings, Device activity) can limit
+// retirement (on uninstall, on the automatic identity switch, by inactivity,
+// from the dashboard) to devices carrying chosen tags, so a fleet's laptops
+// are never retired by a feature meant for its pooled virtual desktops.
+// Reported as device_tag in every upload. See
+// docs/deploying-on-virtual-desktops.md.
+var DeviceTag string
+
+// maxDeviceTagLen bounds device_tag; the charset keeps a tag safe as a query
+// value, an export cell and a command-line argument.
+const maxDeviceTagLen = 64
+
+// ValidDeviceTag reports whether s is an acceptable device_tag: 1 to 64
+// characters from letters, digits, '.', '_', ':', '/' and '-'. Spaces are
+// rejected so a tag pasted into an MSI property line is never silently split.
+func ValidDeviceTag(s string) bool {
+	if s == "" || len(s) > maxDeviceTagLen {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '.', r == '_', r == ':', r == '/', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func deviceTagError(s string) error {
+	return fmt.Errorf("device tag %q is not valid: use 1 to %d characters from letters, digits, '.', '_', ':', '/' and '-'", s, maxDeviceTagLen)
+}
+
 // Windows self-update settings (internal/selfupdate), read from the
 // machine config the SYSTEM updater trusts. AutoUpdate nil means the
 // default (on for MSI installs); `configure --auto-update=false` (the MSI
@@ -97,6 +134,7 @@ var (
 // ConfigFile is the JSON structure persisted to ~/.stepsecurity/config.json.
 type ConfigFile struct {
 	DeviceID              string   `json:"device_id,omitempty"`
+	DeviceTag             string   `json:"device_tag,omitempty"`
 	CustomerID            string   `json:"customer_id,omitempty"`
 	APIEndpoint           string   `json:"api_endpoint,omitempty"`
 	APIKey                string   `json:"api_key,omitempty"`
@@ -314,6 +352,11 @@ func Load() {
 	if id := strings.TrimSpace(cfg.DeviceID); id != "" && DeviceID == "" {
 		DeviceID = id
 	}
+	// An invalid tag is ignored rather than fatal: a bad config value must
+	// never stop a scan, and `configure` rejects it where it can be fixed.
+	if tag := strings.TrimSpace(cfg.DeviceTag); tag != "" && DeviceTag == "" && ValidDeviceTag(tag) {
+		DeviceTag = tag
+	}
 	if cfg.CustomerID != "" && isPlaceholder(CustomerID) {
 		CustomerID = cfg.CustomerID
 	}
@@ -411,6 +454,12 @@ func RunConfigure() error {
 	// virtual desktop fleet typically uses "{hostname}-{user}" so each person
 	// on a shared host is their own device. See docs/deploying-on-virtual-desktops.md.
 	existing.DeviceID = strings.TrimSpace(promptValue(reader, "Device ID (optional; default = machine serial; tokens {serial} {hostname} {user})", existing.DeviceID))
+	// A dashboard label (host pool, team, lifecycle group); the dashboard's
+	// retirement scope can select devices by it.
+	existing.DeviceTag = strings.TrimSpace(promptValue(reader, "Device tag (optional; dashboard label, selectable by the retirement scope)", existing.DeviceTag))
+	if existing.DeviceTag != "" && !ValidDeviceTag(existing.DeviceTag) {
+		return deviceTagError(existing.DeviceTag)
+	}
 	existing.CustomerID = promptValue(reader, "Customer ID", existing.CustomerID)
 	existing.APIEndpoint = promptValue(reader, "API Endpoint", existing.APIEndpoint)
 	existing.APIKey = promptSecret(reader, "API Key", existing.APIKey)
@@ -776,6 +825,7 @@ func ShowConfigure(resolvedIdentity string) {
 	if resolvedIdentity != "" {
 		fmt.Printf("  %-24s %s\n", "  resolves now to:", resolvedIdentity)
 	}
+	fmt.Printf("  %-24s %s\n", "Device Tag:", displayDeviceTag(cfg.DeviceTag))
 	fmt.Printf("  %-24s %s\n", "Customer ID:", displayValue(cfg.CustomerID))
 	fmt.Printf("  %-24s %s\n", "API Endpoint:", displayValue(cfg.APIEndpoint))
 	fmt.Printf("  %-24s %s\n", "API Key:", maskSecret(cfg.APIKey))
@@ -805,6 +855,13 @@ func displayRetireOnUninstall(v *bool) string {
 		return "true (uninstall retires this device in the dashboard)"
 	}
 	return "false (default)"
+}
+
+func displayDeviceTag(v string) string {
+	if v = strings.TrimSpace(v); v == "" {
+		return "(not set)"
+	}
+	return v
 }
 
 func displayDeviceID(v string) string {
@@ -944,6 +1001,9 @@ type NonInteractiveOptions struct {
 	// Empty = unchanged, like every other field; "-" clears it back to the
 	// hardware serial so an MSI property can reset a previously set template.
 	DeviceID string
+	// DeviceTag is --device-tag: the dashboard label. Empty = unchanged; "-"
+	// clears it; anything else must satisfy ValidDeviceTag.
+	DeviceTag string
 	// RetireOnUninstall is --retire-on-uninstall[=true|false]; nil = unchanged.
 	RetireOnUninstall *bool
 	AutoUpdate        *bool // --auto-update=true|false (nil = unchanged)
@@ -961,6 +1021,7 @@ func (o NonInteractiveOptions) HasAny() bool {
 		o.ScanFrequency != "" ||
 		len(o.SearchDirs) > 0 ||
 		o.DeviceID != "" ||
+		o.DeviceTag != "" ||
 		o.RetireOnUninstall != nil ||
 		o.AutoUpdate != nil
 }
@@ -1015,6 +1076,17 @@ func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
 		existing.DeviceID = ""
 	default:
 		existing.DeviceID = v
+	}
+	switch v := strings.TrimSpace(opts.DeviceTag); v {
+	case "":
+		// unchanged
+	case "-":
+		existing.DeviceTag = ""
+	default:
+		if !ValidDeviceTag(v) {
+			return deviceTagError(v)
+		}
+		existing.DeviceTag = v
 	}
 	if opts.RetireOnUninstall != nil {
 		if *opts.RetireOnUninstall {

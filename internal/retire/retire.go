@@ -63,33 +63,49 @@ const (
 // endpoint. Callers treat it as a warning, not a failure.
 var ErrNotSupported = errors.New("retire: endpoint not available on this backend (404)")
 
+// Statuses the backend answers with on a 2xx retire response.
+const (
+	// StatusRetired: the row is retired (or was already).
+	StatusRetired = "retired"
+	// StatusUnknownDevice: no row for the id; the backend created none.
+	StatusUnknownDevice = "unknown_device"
+	// StatusOutOfScope: the tenant's retirement scope (Settings, Device
+	// activity) does not select this device; the row stays as it is.
+	StatusOutOfScope = "out_of_scope"
+)
+
 // Post retires deviceID under customerID: POST
 // {endpoint}/v1/{customer}/developer-mdm-agent/devices/{device_id}/retire with
-// the telemetry key as Bearer and the given reason (Reason*). 2xx is success (including an unknown device —
-// the backend answers 200 without creating a row). 5xx and transport errors
-// retry once; any other 4xx is terminal. Errors are redacted (the URL embeds
-// the customer id, the header the tenant key).
-func Post(ctx context.Context, endpoint, apiKey, customerID, deviceID, agentVersion, platform, reason string) error {
+// the telemetry key as Bearer and the given reason (Reason*). A 2xx is
+// success and yields the backend's status (Status*; "" when the body carries
+// none), including an unknown device, which the backend answers without
+// creating a row. 5xx and transport errors retry once; any other 4xx is
+// terminal. Errors are redacted (the URL embeds the customer id, the header
+// the tenant key).
+func Post(ctx context.Context, endpoint, apiKey, customerID, deviceID, agentVersion, platform, reason string) (string, error) {
 	endpoint = strings.TrimSpace(endpoint)
 	apiKey = strings.TrimSpace(apiKey)
 	customerID = strings.TrimSpace(customerID)
 	deviceID = strings.TrimSpace(deviceID)
 	if endpoint == "" || apiKey == "" || customerID == "" {
-		return errors.New("retire: missing endpoint, api key or customer id")
+		return "", errors.New("retire: missing endpoint, api key or customer id")
 	}
 	if deviceID == "" || deviceID == "unknown" {
-		return errors.New("retire: no usable device id")
+		return "", errors.New("retire: no usable device id")
 	}
 	target := strings.TrimRight(endpoint, "/") + "/v1/" + url.PathEscape(customerID) +
 		"/developer-mdm-agent/devices/" + url.PathEscape(deviceID) + "/retire"
 
+	// device_tag lets the backend apply the tenant's retirement scope to a
+	// row that predates the tag (the serial row at the identity switch).
 	body, err := json.Marshal(map[string]string{
 		"agent_version": agentVersion,
 		"platform":      platform,
 		"reason":        reason,
+		"device_tag":    config.DeviceTag,
 	})
 	if err != nil {
-		return fmt.Errorf("retire: encode body: %w", err)
+		return "", fmt.Errorf("retire: encode body: %w", err)
 	}
 
 	var last error
@@ -97,30 +113,30 @@ func Post(ctx context.Context, endpoint, apiKey, customerID, deviceID, agentVers
 		if attempt > 1 {
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("retire: %w", ctx.Err())
+				return "", fmt.Errorf("retire: %w", ctx.Err())
 			case <-time.After(retryBackoff):
 			}
 		}
-		retryable, err := post(ctx, target, apiKey, body)
+		status, retryable, err := post(ctx, target, apiKey, body)
 		if err == nil {
-			return nil
+			return status, nil
 		}
 		last = err
 		if !retryable {
-			return err
+			return "", err
 		}
 	}
-	return last
+	return "", last
 }
 
 // post performs one attempt. retryable reports whether another attempt may
-// succeed (transport error or 5xx).
-func post(ctx context.Context, target, apiKey string, body []byte) (retryable bool, err error) {
+// succeed (transport error or 5xx); status is the backend's verdict on a 2xx.
+func post(ctx context.Context, target, apiKey string, body []byte) (status string, retryable bool, err error) {
 	ctx, cancel := context.WithTimeout(ctx, attemptTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
-		return false, fmt.Errorf("retire: build request: %w", err)
+		return "", false, fmt.Errorf("retire: build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -129,20 +145,24 @@ func post(ctx context.Context, target, apiKey string, body []byte) (retryable bo
 
 	resp, err := (&http.Client{Timeout: attemptTimeout}).Do(req)
 	if err != nil {
-		return true, fmt.Errorf("retire: transport: %s", redact.String(err.Error()))
+		return "", true, fmt.Errorf("retire: transport: %s", redact.String(err.Error()))
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrorBody))
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
 
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
-		return false, nil
+		var parsed struct {
+			Status string `json:"status"`
+		}
+		_ = json.Unmarshal(raw, &parsed) // a body without a status is a plain success
+		return parsed.Status, false, nil
 	case resp.StatusCode == http.StatusNotFound:
-		return false, ErrNotSupported
+		return "", false, ErrNotSupported
 	case resp.StatusCode >= 500:
-		return true, fmt.Errorf("retire: unexpected status %d", resp.StatusCode)
+		return "", true, fmt.Errorf("retire: unexpected status %d", resp.StatusCode)
 	default:
-		return false, fmt.Errorf("retire: unexpected status %d", resp.StatusCode)
+		return "", false, fmt.Errorf("retire: unexpected status %d", resp.StatusCode)
 	}
 }
 

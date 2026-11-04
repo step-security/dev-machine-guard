@@ -209,12 +209,107 @@ func withHomeDir(t *testing.T) string {
 	return os.Getenv("HOME")
 }
 
+func TestValidDeviceTag(t *testing.T) {
+	cases := []struct {
+		tag  string
+		want bool
+	}{
+		{"avd-pool-eu", true},
+		{"pool_1.b:c/d", true},
+		{"a", true},
+		{strings.Repeat("x", 64), true},
+		{"", false},
+		{strings.Repeat("x", 65), false},
+		{"avd pool", false},
+		{"pool#1", false},
+		{"caf\u00e9", false},
+	}
+	for _, tc := range cases {
+		if got := ValidDeviceTag(tc.tag); got != tc.want {
+			t.Errorf("ValidDeviceTag(%q) = %v, want %v", tc.tag, got, tc.want)
+		}
+	}
+}
+
+func TestRunConfigureNonInteractive_DeviceTag(t *testing.T) {
+	withHome(t)
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{
+		CustomerID: "cust-1", APIEndpoint: "https://api.example.com", APIKey: "sk-abcdef",
+		DeviceTag: " avd-pool-eu ",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cfg := loadExisting()
+	if cfg.DeviceTag != "avd-pool-eu" {
+		t.Errorf("DeviceTag: got %q", cfg.DeviceTag)
+	}
+	raw, _ := os.ReadFile(filepath.Join(withHomeDir(t), ".stepsecurity", "config.json"))
+	if !strings.Contains(string(raw), `"device_tag": "avd-pool-eu"`) {
+		t.Errorf("config.json missing device_tag:\n%s", raw)
+	}
+	// Omitted = unchanged.
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{APIKey: "sk-2"}); err != nil {
+		t.Fatalf("second configure: %v", err)
+	}
+	if cfg = loadExisting(); cfg.DeviceTag != "avd-pool-eu" {
+		t.Errorf("omitted --device-tag must keep the tag, got %q", cfg.DeviceTag)
+	}
+	// Invalid = rejected, file untouched.
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{DeviceTag: "avd pool"}); err == nil {
+		t.Error("a tag with a space must be rejected")
+	}
+	if cfg = loadExisting(); cfg.DeviceTag != "avd-pool-eu" {
+		t.Errorf("a rejected tag must not change the file, got %q", cfg.DeviceTag)
+	}
+	// "-" clears.
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{DeviceTag: "-"}); err != nil {
+		t.Fatalf("third configure: %v", err)
+	}
+	if cfg = loadExisting(); cfg.DeviceTag != "" {
+		t.Errorf("\"-\" must clear the tag, got %q", cfg.DeviceTag)
+	}
+}
+
+func TestLoad_DeviceTag(t *testing.T) {
+	dir := withHome(t)
+	cfgDir := filepath.Join(dir, ".stepsecurity")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(tag string) {
+		t.Helper()
+		content := `{"customer_id":"c","api_endpoint":"https://e","api_key":"k","device_tag":"` + tag + `"}`
+		if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prevTag, prevCust, prevEnd, prevKey := DeviceTag, CustomerID, APIEndpoint, APIKey
+	t.Cleanup(func() { DeviceTag, CustomerID, APIEndpoint, APIKey = prevTag, prevCust, prevEnd, prevKey })
+
+	write(" avd-pool-eu ")
+	DeviceTag = ""
+	Load()
+	if DeviceTag != "avd-pool-eu" {
+		t.Fatalf("DeviceTag = %q, want avd-pool-eu", DeviceTag)
+	}
+	// An invalid value in the file is ignored, never fatal.
+	write("avd pool")
+	DeviceTag = ""
+	Load()
+	if DeviceTag != "" {
+		t.Fatalf("an invalid device_tag must be ignored, got %q", DeviceTag)
+	}
+}
+
 func TestHasAny_DeviceIDAndRetire(t *testing.T) {
 	if (NonInteractiveOptions{}).HasAny() {
 		t.Fatal("empty options report HasAny")
 	}
 	if !(NonInteractiveOptions{DeviceID: "x"}).HasAny() {
 		t.Fatal("DeviceID alone must count as an inline value")
+	}
+	if !(NonInteractiveOptions{DeviceTag: "x"}).HasAny() {
+		t.Fatal("DeviceTag alone must count as an inline value")
 	}
 	v := false
 	if !(NonInteractiveOptions{RetireOnUninstall: &v}).HasAny() {

@@ -117,6 +117,9 @@ type Config struct {
 	// nil = unchanged.
 	ConfigDeviceID          string
 	ConfigRetireOnUninstall *bool
+	// ConfigDeviceTag is --device-tag: the dashboard label persisted as
+	// config.json device_tag ("-" clears it; empty = unchanged).
+	ConfigDeviceTag string
 
 	// UninstallRetire / UninstallNoRetire are `uninstall --retire` and
 	// `uninstall --no-retire`: force or suppress the backend retire call that
@@ -373,6 +376,14 @@ func Parse(args []string) (*Config, error) {
 			cfg.ConfigDeviceID = args[i]
 		case strings.HasPrefix(arg, "--device-id="):
 			cfg.ConfigDeviceID = strings.TrimPrefix(arg, "--device-id=")
+		case arg == "--device-tag":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--device-tag requires a value (1 to 64 characters: letters, digits, '.', '_', ':', '/', '-'; \"-\" clears it)")
+			}
+			cfg.ConfigDeviceTag = args[i]
+		case strings.HasPrefix(arg, "--device-tag="):
+			cfg.ConfigDeviceTag = strings.TrimPrefix(arg, "--device-tag=")
 		case arg == "--retire-on-uninstall":
 			v := true
 			cfg.ConfigRetireOnUninstall = &v
@@ -711,6 +722,9 @@ Non-interactive configure (for MSI / SCCM / Intune deployments):
                                 for pooled virtual desktops). Blank/omitted keeps the
                                 hardware serial; "-" clears a saved template. The
                                 STEPSEC_DEVICE_ID env var overrides it at run time.
+  --device-tag VALUE            Label shown in the dashboard (e.g. "avd-pool-eu"); the
+                                dashboard's retirement scope can select devices by
+                                tag. "-" clears it.
   --retire-on-uninstall[=BOOL]  Make 'uninstall' retire this device in the dashboard
                                 before removing the scheduler job (default false)
   --auto-update=BOOL            Windows MSI self-update on (default) or off

@@ -72,6 +72,9 @@ type Device struct {
 	SerialNumber   string `json:"serial_number"`
 	DeviceID       string `json:"device_id,omitempty"`
 	DeviceIDSource string `json:"device_id_source,omitempty"`
+	// DeviceTag is the admin-set label from the agent configuration
+	// (config.json device_tag); empty when none is configured.
+	DeviceTag string `json:"device_tag,omitempty"`
 	// IdentityPerUser: the template contained {user}, so this machine's users
 	// are separate devices. IdentityIncomplete: a token expanded empty (e.g.
 	// {user} under SYSTEM); DeviceID is "" and the run must not upload.

@@ -489,6 +489,17 @@ func TestParse_ConfigureDeviceIDAndRetireOnUninstall(t *testing.T) {
 	if _, err := Parse([]string{"configure", "--device-id"}); err == nil {
 		t.Error("expected error for --device-id without a value")
 	}
+	cfg, err = Parse([]string{"configure", "--device-tag", "avd-pool-eu"})
+	if err != nil || cfg.ConfigDeviceTag != "avd-pool-eu" {
+		t.Errorf("--device-tag VALUE: cfg=%+v err=%v", cfg, err)
+	}
+	cfg, err = Parse([]string{"configure", "--device-tag=-"})
+	if err != nil || cfg.ConfigDeviceTag != "-" {
+		t.Errorf("--device-tag=- must carry the clear marker: cfg=%+v err=%v", cfg, err)
+	}
+	if _, err := Parse([]string{"configure", "--device-tag"}); err == nil {
+		t.Error("expected error for --device-tag without a value")
+	}
 }
 
 func TestParse_UninstallRetireFlags(t *testing.T) {
