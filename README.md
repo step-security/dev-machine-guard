@@ -231,6 +231,18 @@ This interactively prompts for all configurable settings:
 | HTML Output File   | Default path for HTML reports               | _(not set)_     |
 | Log Level          | Logging verbosity                           | `error`         |
 
+On an ephemeral device with no detected user identity (empty, `unknown`, or `root`), assign one once:
+
+```bash
+./stepsecurity-dev-machine-guard configure --non-interactive --user-id employee-123
+```
+
+This does not require enterprise credentials. The ID uses 1–256 ASCII letters, digits, or `@ . _ + -`; surrounding whitespace is trimmed, control characters are rejected, and `unknown`/`root` are reserved regardless of case. An ID-only JSON import such as `{"user_id":"employee-123"}` also works through `configure --from-file PATH`.
+
+An existing detected email or regular OS username prevents assignment. Once assigned, scans and hooks use the stored ID even if automatic detection changes. Repeating the same value succeeds; replacing or clearing it fails without changing configuration. Other configure operations preserve it. The guarantee applies to the existing configuration scope; the config file owner can still edit or remove files directly. Provision after cloning an ephemeral image to avoid copying an assigned identity to every clone.
+
+When no user identity is available, scanning continues as `unknown` with a warning and remains eligible for later assignment. Enterprise telemetry includes explicit `user_id_missing` and `device_id_missing` booleans based on the resolved identities, including `false` values. OS login state (`no_user_logged_in`) is detected independently of attribution. Backend handling of missing device IDs requires deployment verification.
+
 View current settings:
 
 ```bash
@@ -256,14 +268,52 @@ Configuration (~/.stepsecurity/config.json):
 Configuration is saved to `~/.stepsecurity/config.json` with `0600` permissions (owner read/write only).
 
 To use a custom device ID, add `"device_id": "my-device-123"` to the existing
-config JSON, or set **Device ID** through `configure`. The override is also
-supported in JSON supplied to `configure --from-file`. An omitted, empty, or
-whitespace-only value uses the machine serial as before. The agent continues
+config JSON, set **Device ID** through `configure`, or pass
+`configure --device-id my-device-123`. The override is also
+supported in JSON supplied to `configure --from-file`. Explicit device-ID inputs
+must follow the ID format above; empty or whitespace-only inputs are rejected.
+An absent or empty saved override uses the machine serial as before. To reset an
+existing override, enter `-` at the interactive Device ID prompt. The agent continues
 reporting the actual machine serial in `serial_number`. WSL guest scans derive
 separate IDs from the host ID and distro ID.
 
 Choose an ID unique within your customer and keep it stable: changing the ID
 registers a separate device in the backend; it does not migrate existing history.
+
+Every setting can also be written without prompts, which is how MDM, MSI and
+CI deployments configure the agent. Any setting flag passed to `configure`
+selects the no-prompt path; settings you don't pass keep their current value.
+Credentials are required only when the command sets one of them, passes
+`--from-file`, or sets nothing at all, so a community install can change
+preferences (`configure --color=never`) without them:
+
+```bash
+./stepsecurity-dev-machine-guard configure --non-interactive \
+  --customer-id my-company --api-endpoint https://api.stepsecurity.io \
+  --device-id my-device-123 --scan-frequency 4 --search-dirs /Volumes/code \
+  --disable-brew-scan --log-level=info
+```
+
+| Setting                 | `configure` flag                                     |
+| ----------------------- | ---------------------------------------------------- |
+| User ID (one-time)      | `--user-id ID` (only when no usable identity is detected) |
+| Device ID               | `--device-id ID`                                     |
+| Customer ID             | `--customer-id ID`                                   |
+| API Endpoint            | `--api-endpoint URL`                                 |
+| API Key                 | `--api-key KEY` (or `DMG_API_KEY` env var)           |
+| Scan Frequency          | `--scan-frequency HOURS`                             |
+| Max Execution Duration  | `--max-execution-duration 2h` (`off` to disable)     |
+| Search Directories      | `--search-dirs DIR...`                               |
+| NPM / Brew / Python / runtime scan | `--enable-<x>-scan` / `--disable-<x>-scan` |
+| Node / Python scanner   | `--legacy-node-scan` / `--disk-node-scan`, `--legacy-python-scan` / `--disk-python-scan` |
+| macOS TCC-protected dirs | `--include-tcc-protected` / `--no-include-tcc-protected` |
+| macOS network volumes   | `--include-network-volumes` / `--no-include-network-volumes` |
+| Color Mode              | `--color=auto\|always\|never`                         |
+| Output Format / HTML file | `--pretty`, `--json`, `--html FILE`                |
+| Log Level               | `--log-level=LEVEL`                                  |
+| Install Directory       | `--install-dir DIR`                                  |
+| Self-update             | `--auto-update=BOOL`, `--update-mirror-url URL`, `--update-lag-behind N`, `--update-cooldown-hours N` |
+| Everything at once      | `--from-file config.json` (flags override the file)  |
 
 **CLI flags always override config file values** — this matches the shell script behavior. For example, if your config has `output_format: json`, running `./stepsecurity-dev-machine-guard --pretty` uses pretty output. To clear a value during configuration, enter a single dash (`-`).
 
@@ -309,6 +359,7 @@ See [SCAN_COVERAGE.md](SCAN_COVERAGE.md) for the full catalog of supported detec
 | Rust Packages        | `Cargo.toml` declarations, `Cargo.lock`, registry cache, Git checkouts, vendored sources, `cargo install` receipts (enterprise) |
 | PHP Packages         | `composer.json` requirements, `composer.lock` snapshots and Composer 1/2 installed receipts, with separate directory presence (enterprise) |
 | .NET Packages        | MSBuild project and `packages.config` references, `packages.lock.json`, `project.assets.json` restores, global package cache, .NET tools, templates and `.deps.json` (enterprise) |
+| Conda Packages       | `environment.yml` declarations, `@EXPLICIT`, conda-lock and pixi locks, `conda-meta` receipts in every environment, extracted package caches and `.condarc` configuration (enterprise) |
 | Package Configs      | npm (`.npmrc`), pnpm, bun (`bunfig.toml`), yarn classic & berry (`.yarnrc`/`.yarnrc.yml`), pip (`pip.conf`) — effective registry, cooldown policy, and auth surface across every scope |
 | Suspicious Files     | Malicious-file IOCs from StepSecurity-maintained rules — e.g. `binding.gyp` that runs during `npm install`, and editor/AI-tool config files that auto-execute on project open |
 
@@ -331,6 +382,8 @@ Composer auditing reads selected global `config.json`, root manifests and verifi
 NuGet auditing reads project, ancestor, user and machine `NuGet.Config` files plus verified process overrides. It reports package sources, source mapping, fallback folders, proxy, TLS and audit settings with credentials redacted, and records which configuration applied to each project and restore. It never executes `dotnet` or `nuget` or reads credential-provider output. See [.NET Packages](SCAN_COVERAGE.md#net-packages) for scope and limits.
 
 Ruby auditing reads RubyGems `gemrc` files and Bundler global, project and process settings for the resolved developer. It reports package sources, mirrors, install and cache paths, proxy, TLS and checksum settings with credentials redacted, and records which configuration applied to each project. It never executes `ruby`, `gem` or `bundle`, and reads `~/.gem/credentials` for existence only. See [Ruby Packages](SCAN_COVERAGE.md#ruby-packages) for scope and limits.
+
+Conda auditing reads `.condarc` files from the system, installation root, user and environment search path, `condarc.d` fragments, saved `conda-meta/state` variables and verified `CONDA_*` process settings for the resolved developer. It reports channels, channel aliases, custom channels, environment and package directories, proxy, TLS and safety-check settings with credentials and Anaconda tokens redacted, and records which configuration applied to each environment and project. It never executes `conda`, `mamba`, `micromamba`, `pixi` or Python, and checks `~/.netrc` and the anaconda-client token store for existence only. See [Conda Packages](SCAN_COVERAGE.md#conda-packages) for scope and limits.
 
 Enterprise Device Policy can also set StepSecurity Secure Registry as the sole user-level Python index for pip and uv. It manages only the resolved developer's user configuration and shared StepSecurity `.netrc` entry, keeps pip and uv results independent, and restores owned settings on an explicit policy clear. Project files, virtual environments, system configuration, environment variables, direct URLs, and Poetry are not modified.
 

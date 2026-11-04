@@ -12,6 +12,13 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 ### Added
 
 - **Sleep-spanning runs are reported.** When the machine sleeps during a scan, every run-status beacon and the uploaded payload now carry `slept_ms` for the run and for each completed phase, measured as wall-clock time minus awake time (the monotonic clock on macOS and Linux, `QueryUnbiasedInterruptTime` on Windows). Phase and run durations count awake time only, so a scan that paused for a lid close reports its real work time and the dashboard's Slept annotation has a producer. Divergence under a minute (clock corrections) is not reported.
+- **Every config setting can be set non-interactively.** `configure` gains `--device-id`, `--max-execution-duration`, `--update-mirror-url`, `--update-lag-behind` and `--update-cooldown-hours`, and now saves the scan, output, color, log-level and install-dir flags (`--enable-npm-scan`, `--json`, `--color=never`, `--log-level=info`, …) to config.json, the way it already saved `--search-dirs`. Passing any of them selects the no-prompt path, so an MDM or MSI deploy no longer needs a `--from-file` JSON for settings beyond the credentials.
+- One-time `configure --user-id` provisioning when no usable user identity is detected, with the same persisted attribution for scans and hooks. IDs use 1–256 ASCII letters, digits, or `@ . _ + -`; explicit device-ID inputs follow the same format.
+- Explicit `user_id_missing` and `device_id_missing` telemetry fields, independent of OS login detection.
+
+### Changed
+
+- Configuration mutations use a process lock and atomic replacement. Unreadable or corrupt configuration now blocks configure instead of being replaced, preventing accidental loss of an assigned user ID. Imports preserve existing settings and reject conflicting or invalid identity inputs.
 
 ## [1.18.1] - 2026-10-26
 

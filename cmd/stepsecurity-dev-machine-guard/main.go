@@ -99,7 +99,7 @@ func main() {
 
 	// Apply saved config values if CLI didn't explicitly override them.
 	// CLI flags always win over config file values (same as the shell script).
-	if len(config.SearchDirs) > 0 && len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME" {
+	if !cfg.SearchDirsSet && len(config.SearchDirs) > 0 && len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME" {
 		cfg.SearchDirs = config.SearchDirs
 	}
 	if cfg.EnableNPMScan == nil && config.EnableNPMScan != nil {
@@ -241,32 +241,31 @@ func main() {
 		// through the no-prompt code path. This is how MSI/SCCM/Intune
 		// custom actions drive configuration — they can't talk to stdin.
 		opts := config.NonInteractiveOptions{
-			FromFile:      cfg.ConfigFromFile,
-			CustomerID:    cfg.ConfigCustomerID,
-			APIEndpoint:   cfg.ConfigAPIEndpoint,
-			APIKey:        cfg.ConfigAPIKey,
-			ScanFrequency: cfg.ConfigScanFrequency,
-			AutoUpdate:    cfg.ConfigAutoUpdate,
+			FromFile: cfg.ConfigFromFile,
+			Values:   cfg.ConfigValues,
 		}
-		if opts.APIKey == "" {
+		if _, ok := opts.Values["api_key"]; !ok {
 			// Env-var fallback keeps the secret off the msiexec command
 			// line (which lands in AppEnforce.log on every endpoint).
-			opts.APIKey = os.Getenv("DMG_API_KEY")
-		}
-		// Only forward --search-dirs to configure when the user actually
-		// passed it on this invocation. (cli.Parse defaults SearchDirs to
-		// ["$HOME"] for the scan path, which we must not persist here.)
-		if len(cfg.SearchDirs) > 0 && !(len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME") {
-			opts.SearchDirs = cfg.SearchDirs
+			if key := os.Getenv("DMG_API_KEY"); key != "" {
+				if opts.Values == nil {
+					opts.Values = map[string]any{}
+				}
+				opts.Values["api_key"] = key
+			}
 		}
 		if cfg.NonInteractive || opts.HasAny() {
 			if err := config.RunConfigureNonInteractive(opts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				// os.Exit skips defers; drain the stderr tee so configure errors are visible.
+				_ = capture.Stop()
 				os.Exit(1)
 			}
 		} else {
 			if err := config.RunConfigure(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				// os.Exit skips defers; drain the stderr tee so configure errors are visible.
+				_ = capture.Stop()
 				os.Exit(1)
 			}
 		}

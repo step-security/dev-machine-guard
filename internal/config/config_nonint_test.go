@@ -17,15 +17,20 @@ func withHome(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir) // Windows
+	// Elevated on Windows, save() writes the machine-wide config; never
+	// clobber a real install's.
+	if !strings.HasPrefix(WriteConfigFilePath(), dir) {
+		t.Skip("config writes outside the temp HOME (elevated Windows)")
+	}
 	return dir
 }
 
 func TestRunConfigureNonInteractive_RequiresAPIKey(t *testing.T) {
 	withHome(t)
-	err := RunConfigureNonInteractive(NonInteractiveOptions{
-		CustomerID:  "cust-1",
-		APIEndpoint: "https://api.example.com",
-	})
+	err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id":  "cust-1",
+		"api_endpoint": "https://api.example.com",
+	}})
 	if err == nil || !strings.Contains(err.Error(), "api_key is required") {
 		t.Fatalf("expected api_key required error, got %v", err)
 	}
@@ -33,10 +38,10 @@ func TestRunConfigureNonInteractive_RequiresAPIKey(t *testing.T) {
 
 func TestRunConfigureNonInteractive_RequiresCustomerID(t *testing.T) {
 	withHome(t)
-	err := RunConfigureNonInteractive(NonInteractiveOptions{
-		APIKey:      "sk-1",
-		APIEndpoint: "https://api.example.com",
-	})
+	err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"api_key":      "sk-1",
+		"api_endpoint": "https://api.example.com",
+	}})
 	if err == nil || !strings.Contains(err.Error(), "customer_id is required") {
 		t.Fatalf("expected customer_id required error, got %v", err)
 	}
@@ -44,10 +49,10 @@ func TestRunConfigureNonInteractive_RequiresCustomerID(t *testing.T) {
 
 func TestRunConfigureNonInteractive_RequiresAPIEndpoint(t *testing.T) {
 	withHome(t)
-	err := RunConfigureNonInteractive(NonInteractiveOptions{
-		APIKey:     "sk-1",
-		CustomerID: "cust-1",
-	})
+	err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"api_key":     "sk-1",
+		"customer_id": "cust-1",
+	}})
 	if err == nil || !strings.Contains(err.Error(), "api_endpoint is required") {
 		t.Fatalf("expected api_endpoint required error, got %v", err)
 	}
@@ -55,13 +60,13 @@ func TestRunConfigureNonInteractive_RequiresAPIEndpoint(t *testing.T) {
 
 func TestRunConfigureNonInteractive_Inline(t *testing.T) {
 	withHome(t)
-	err := RunConfigureNonInteractive(NonInteractiveOptions{
-		CustomerID:    "cust-1",
-		APIEndpoint:   "https://api.example.com",
-		APIKey:        "sk-abcdef",
-		ScanFrequency: "6",
-		SearchDirs:    []string{"/opt", "/usr/local"},
-	})
+	err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id":          "cust-1",
+		"api_endpoint":         "https://api.example.com",
+		"api_key":              "sk-abcdef",
+		"scan_frequency_hours": "6",
+		"search_dirs":          []string{"/opt", "/usr/local"},
+	}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -128,7 +133,7 @@ func TestRunConfigureNonInteractive_InlineOverridesFromFile(t *testing.T) {
 	// customers inject per-tenant keys without committing them).
 	err := RunConfigureNonInteractive(NonInteractiveOptions{
 		FromFile: srcPath,
-		APIKey:   "sk-inline-wins",
+		Values:   map[string]any{"api_key": "sk-inline-wins"},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -147,8 +152,8 @@ func TestNonInteractiveOptions_HasAny(t *testing.T) {
 	if (NonInteractiveOptions{}).HasAny() {
 		t.Error("empty opts should not report HasAny")
 	}
-	if !(NonInteractiveOptions{APIKey: "x"}).HasAny() {
-		t.Error("APIKey alone should be enough")
+	if !(NonInteractiveOptions{Values: map[string]any{"api_key": "x"}}).HasAny() {
+		t.Error("one value alone should be enough")
 	}
 	if !(NonInteractiveOptions{FromFile: "p"}).HasAny() {
 		t.Error("FromFile alone should be enough")
@@ -162,10 +167,10 @@ func TestNonInteractiveOptions_HasAny(t *testing.T) {
 func TestRunConfigureNonInteractive_FromFileMerges(t *testing.T) {
 	optOut := false
 	withHome(t)
-	if err := RunConfigureNonInteractive(NonInteractiveOptions{
-		CustomerID: "cust", APIEndpoint: "https://old.example.com", APIKey: "sk-old",
-		AutoUpdate: &optOut,
-	}); err != nil {
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id": "cust", "api_endpoint": "https://old.example.com", "api_key": "sk-old",
+		"auto_update": optOut,
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	path := ConfigFilePath()
@@ -200,5 +205,72 @@ func TestRunConfigureNonInteractive_FromFileMerges(t *testing.T) {
 	raw, _ = os.ReadFile(path)
 	if !strings.Contains(string(raw), `"future_key"`) {
 		t.Fatalf("unknown key dropped:\n%s", raw)
+	}
+}
+
+// Flag values merge key by key: "" clears a string setting (how the CLI
+// stores the "auto"/"pretty" defaults), keys not passed are kept.
+func TestRunConfigureNonInteractive_ValuesMerge(t *testing.T) {
+	withHome(t)
+	creds := map[string]any{"customer_id": "c", "api_endpoint": "https://e", "api_key": "k"}
+	with := func(kv map[string]any) NonInteractiveOptions {
+		m := map[string]any{}
+		for k, v := range creds {
+			m[k] = v
+		}
+		for k, v := range kv {
+			m[k] = v
+		}
+		return NonInteractiveOptions{Values: m}
+	}
+	if err := RunConfigureNonInteractive(with(map[string]any{
+		"color_mode": "never", "output_format": "json", "update_lag_behind": 3, "enable_brew_scan": false,
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunConfigureNonInteractive(with(map[string]any{"color_mode": "", "output_format": ""})); err != nil {
+		t.Fatal(err)
+	}
+	cfg := loadExisting()
+	if cfg.ColorMode != "" || cfg.OutputFormat != "" {
+		t.Errorf("defaults not cleared: color=%q format=%q", cfg.ColorMode, cfg.OutputFormat)
+	}
+	if cfg.UpdateLagBehind != 3 || cfg.EnableBrewScan == nil || *cfg.EnableBrewScan {
+		t.Errorf("unpassed keys not kept: lag=%d brew=%v", cfg.UpdateLagBehind, cfg.EnableBrewScan)
+	}
+}
+
+// A community install (no credentials) can change preferences without
+// prompts; anything touching credentials, a --from-file, or a bare
+// --non-interactive (an MSI with empty credential properties) still needs
+// all three.
+func TestRunConfigureNonInteractive_CredentialsRequirement(t *testing.T) {
+	tests := []struct {
+		name    string
+		opts    NonInteractiveOptions
+		wantErr string
+	}{
+		{"preferences only", NonInteractiveOptions{Values: map[string]any{"color_mode": "never", "enable_brew_scan": false}}, ""},
+		{"bare non-interactive", NonInteractiveOptions{}, "api_key is required"},
+		{"partial credentials", NonInteractiveOptions{Values: map[string]any{"customer_id": "c", "color_mode": "never"}}, "api_key is required"},
+		{"env api key only", NonInteractiveOptions{Values: map[string]any{"api_key": "k"}}, "customer_id is required"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			withHome(t)
+			err := RunConfigureNonInteractive(tc.opts)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if cfg := loadExisting(); cfg.ColorMode != "never" || cfg.EnableBrewScan == nil || *cfg.EnableBrewScan {
+					t.Errorf("preferences not saved: %+v", cfg)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want %q", err, tc.wantErr)
+			}
+		})
 	}
 }

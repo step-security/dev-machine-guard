@@ -30,6 +30,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/featuregate"
+	"github.com/step-security/dev-machine-guard/internal/identity"
 	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/paths"
@@ -61,6 +62,8 @@ const serialProbeTimeout = 10 * time.Second
 
 // Payload is the enterprise telemetry JSON structure.
 type Payload struct {
+	UserIDMissing   bool `json:"user_id_missing"`
+	DeviceIDMissing bool `json:"device_id_missing"`
 	// PayloadSchemaVersion gates the delta-protocol sibling fields below
 	// (NodeProjectsUnchanged etc.). Zero/absent = legacy snapshot, every
 	// scanned project ships its full body in NodeProjects/PythonProjects.
@@ -140,6 +143,8 @@ type Payload struct {
 	NuGetConfigAudit    *model.NuGetConfigAudit    `json:"nuget_config_audit,omitempty"`
 	RubyInventory       *model.RubyInventory       `json:"ruby_inventory,omitempty"`
 	RubyConfigAudit     *model.RubyConfigAudit     `json:"ruby_config_audit,omitempty"`
+	CondaInventory      *model.CondaInventory      `json:"conda_inventory,omitempty"`
+	CondaConfigAudit    *model.CondaConfigAudit    `json:"conda_config_audit,omitempty"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -522,12 +527,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 			return fmt.Errorf("device identity could not be determined")
 		}
 	}
-	// Single source of truth for "is this a real developer or a daemon
-	// context?" — same predicate the payload uses below, so the warning,
-	// the Developer: line, and the telemetry field always agree.
-	noUserLoggedIn := dev.UserIdentity == "" ||
-		dev.UserIdentity == "unknown" ||
-		(dev.UserIdentity == "root" && exec.IsRoot())
+	noUserLoggedIn := dev.NoUserLoggedIn
 	log.Progress("Device ID: %s", deviceID)
 	log.Progress("Serial Number: %s", dev.SerialNumber)
 	log.Progress("OS Version: %s", dev.OSVersion)
@@ -537,6 +537,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		log.Progress("Developer: %s", dev.UserIdentity)
 	}
 	log.Debug("device gathered: hostname=%q platform=%q serial=%q user_identity=%q no_user=%v", dev.Hostname, dev.Platform, dev.SerialNumber, dev.UserIdentity, noUserLoggedIn)
+	if identity.MissingUser(dev.UserIdentity) {
+		log.Warn(identity.MissingUserWarning)
+	}
 	if noUserLoggedIn {
 		log.Warn("no real developer identity (UserIdentity=%q, root=%v) — telemetry will be marked no_user_logged_in", dev.UserIdentity, exec.IsRoot())
 	}
@@ -1208,6 +1211,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	endPhase(phaseCtx, phaseCancel, tracker, log, "ruby_scan")
 	postPhase()
 
+	// Conda metadata uses the raw executor and the same developer as Go/Cargo.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "conda_scan")
+	log.Progress("Collecting Conda packages and configuration...")
+	condaInventory, condaConfigAudit := detector.NewCondaScanner(exec, log).Scan(phaseCtx, browserTarget, searchDirs, cfg.IncludeNetworkVolumes)
+	log.Progress("  Conda: %d projects, %d package facts (inventory %s, config %s)", len(condaInventory.Projects), len(condaInventory.Packages), condaInventory.Status, condaConfigAudit.Status)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "conda_scan")
+	postPhase()
+
 	// npm + pip configuration audits — surface-only inventory of every
 	// .npmrc and pip.conf on the host, plus the merged effective views
 	// each tool would resolve. We use the user-aware executor so npm and
@@ -1325,18 +1336,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	payload := &Payload{
 		PayloadSchemaVersion: schemaVersion,
 		CustomerID:           config.CustomerID,
-		DeviceID:             deviceID,
-		SerialNumber:         deviceIdentity,
-		UserIdentity:         dev.UserIdentity,
-		Hostname:             dev.Hostname,
-		Platform:             dev.Platform,
-		OSVersion:            dev.OSVersion,
-		Resources:            dev.Resources,
 		WSL:                  dev.WSL,
 		WSLGuest:             wslGuest,
 		AgentVersion:         buildinfo.Version,
 		CollectedAt:          endTime.Unix(),
-		NoUserLoggedIn:       noUserLoggedIn,
 
 		InvocationMethod: invocationMethod,
 		StatusInfo:       &finalStatusInfo,
@@ -1385,6 +1388,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		NuGetConfigAudit:        nugetConfigAudit,
 		RubyInventory:           rubyInventory,
 		RubyConfigAudit:         rubyConfigAudit,
+		CondaInventory:          condaInventory,
+		CondaConfigAudit:        condaConfigAudit,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,
@@ -1426,6 +1431,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// the inner JSON process-uploaded sees after gunzip, so it doubles as a
 	// backend ingestion fixture. Never set in production (zero impact when
 	// the flag/env var is unset).
+	payload.applyDevice(dev, deviceID, deviceIdentity)
+
 	if cfg.TelemetryOutFile != "" {
 		if err := writeTelemetryFile(cfg.TelemetryOutFile, payload); err != nil {
 			log.Error("telemetry-out: %v", err)

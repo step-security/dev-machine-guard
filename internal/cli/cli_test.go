@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -453,10 +454,69 @@ func TestParse_ConfigureAutoUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ConfigAutoUpdate == nil || *cfg.ConfigAutoUpdate {
-		t.Fatalf("ConfigAutoUpdate = %v", cfg.ConfigAutoUpdate)
+	if v, ok := cfg.ConfigValues["auto_update"]; !ok || v != false {
+		t.Fatalf("auto_update = %v (set=%v)", v, ok)
 	}
 	if _, err := Parse([]string{"configure", "--auto-update=maybe"}); err == nil {
 		t.Fatal("invalid --auto-update accepted")
+	}
+}
+
+func TestParse_ConfigureSettingFlags(t *testing.T) {
+	cfg, err := Parse([]string{"configure",
+		"--device-id", "dev-1",
+		"--max-execution-duration=2h",
+		"--update-mirror-url", "https://mirror.example.com",
+		"--update-lag-behind=2",
+		"--update-cooldown-hours", "24",
+		"--color=auto",
+		"--html", "r.html",
+		"--search-dirs", "/a", "/b",
+		"--disable-brew-scan",
+		"--log-level=WARNING",
+		"--customer-id=",               // empty leaves the setting unchanged
+		"--api-key", "k", "--api-key=", // the last occurrence wins, even empty
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"device_id":              "dev-1",
+		"max_execution_duration": "2h",
+		"update_mirror_url":      "https://mirror.example.com",
+		"update_lag_behind":      2,
+		"update_cooldown_hours":  24,
+		"color_mode":             "",
+		"output_format":          "html",
+		"html_output_file":       "r.html",
+		"search_dirs":            []string{"/a", "/b"},
+		"enable_brew_scan":       false,
+		"log_level":              "warn",
+	}
+	if !reflect.DeepEqual(cfg.ConfigValues, want) {
+		t.Errorf("ConfigValues =\n%#v\nwant\n%#v", cfg.ConfigValues, want)
+	}
+
+	cfg, err = Parse([]string{"configure", "--verbose", "--install-dir="})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.ConfigValues) != 0 {
+		t.Errorf("runtime-only flags saved config values: %v", cfg.ConfigValues)
+	}
+}
+
+func TestParse_ConfigureSettingFlagErrors(t *testing.T) {
+	for _, args := range [][]string{
+		{"configure", "--device-id"},
+		{"configure", "--max-execution-duration"},
+		{"configure", "--update-mirror-url"},
+		{"configure", "--update-lag-behind"},
+		{"configure", "--update-lag-behind=-1"},
+		{"configure", "--update-cooldown-hours", "soon"},
+	} {
+		if _, err := Parse(args); err == nil {
+			t.Errorf("Parse(%v) accepted", args)
+		}
 	}
 }
