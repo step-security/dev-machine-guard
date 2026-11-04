@@ -383,7 +383,7 @@ See [SCAN_COVERAGE.md](SCAN_COVERAGE.md) for the full catalog of supported detec
 | PHP Packages         | `composer.json` requirements, `composer.lock` snapshots and Composer 1/2 installed receipts, with separate directory presence (enterprise) |
 | .NET Packages        | MSBuild project and `packages.config` references, `packages.lock.json`, `project.assets.json` restores, global package cache, .NET tools, templates and `.deps.json` (enterprise) |
 | Conda Packages       | `environment.yml` declarations, `@EXPLICIT`, conda-lock and pixi locks, `conda-meta` receipts in every environment, extracted package caches and `.condarc` configuration (enterprise) |
-| Package Configs      | npm (`.npmrc`), pnpm, bun (`bunfig.toml`), yarn classic & berry (`.yarnrc`/`.yarnrc.yml`), pip (`pip.conf`) — effective registry, cooldown policy, and auth surface across every scope |
+| Package Configs      | npm (`.npmrc`), pnpm (`.npmrc`, `config.yaml`, `pnpm-workspace.yaml`), bun (`bunfig.toml`), yarn classic & berry (`.yarnrc`/`.yarnrc.yml`), pip (`pip.conf`) — effective registry, cooldown policy, and auth surface across every scope |
 | Suspicious Files     | Malicious-file IOCs from StepSecurity-maintained rules — e.g. `binding.gyp` that runs during `npm install`, and editor/AI-tool config files that auto-execute on project open |
 
 ## Package Configs & Suspicious Files

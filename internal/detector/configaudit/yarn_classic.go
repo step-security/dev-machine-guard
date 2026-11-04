@@ -3,14 +3,15 @@ package configaudit
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"strings"
 
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
 // parseYarnClassic parses a yarn v1 `.yarnrc`: `key value` per line with
-// optional double-quoted value, `#` / `;` line comments, URI-prefixed keys
-// like `//npm.example.com/:_authToken`. Tolerant of malformed lines — they
+// optional double-quoted key and value, `#` / `;` line comments, URI-prefixed
+// keys like `//npm.example.com/:_authToken`. Tolerant of malformed lines — they
 // surface as best-effort entries rather than aborting the parse.
 func parseYarnClassic(data []byte) []model.YarnEntry {
 	var entries []model.YarnEntry
@@ -43,22 +44,47 @@ func parseYarnClassic(data []byte) []model.YarnEntry {
 	return entries
 }
 
-// splitYarnClassicLine returns (key, unquoted-value, was-quoted). Matching
-// outer double quotes are stripped from the returned value.
+// splitYarnClassicLine returns (key, unquoted-value, was-quoted). Keys and
+// values may be JSON strings, as `yarn config set` writes them for keys
+// holding `:` (`"//npm.example.com/:_authToken" abc`); an unterminated quote
+// keeps the raw text.
 func splitYarnClassicLine(line string) (string, string, bool) {
-	idx := strings.IndexAny(line, " \t")
-	if idx < 0 {
-		return line, "", false
+	key, rest, quotedKey := yarnClassicQuoted(line)
+	if !quotedKey {
+		idx := strings.IndexAny(line, " \t")
+		if idx < 0 {
+			return line, "", false
+		}
+		key, rest = line[:idx], line[idx:]
 	}
-	key := line[:idx]
-	rest := strings.TrimLeft(line[idx:], " \t")
+	rest = strings.TrimLeft(rest, " \t")
 	if rest == "" {
 		return key, "", false
 	}
-	if len(rest) >= 2 && rest[0] == '"' && rest[len(rest)-1] == '"' {
-		return key, rest[1 : len(rest)-1], true
+	if value, _, ok := yarnClassicQuoted(rest); ok {
+		return key, value, true
 	}
 	return key, rest, false
+}
+
+// yarnClassicQuoted reads a leading JSON string token and returns what
+// follows it.
+func yarnClassicQuoted(s string) (tok, rest string, ok bool) {
+	if !strings.HasPrefix(s, `"`) {
+		return "", "", false
+	}
+	for i := 1; i < len(s); i++ {
+		switch s[i] {
+		case '\\':
+			i++
+		case '"':
+			if json.Unmarshal([]byte(s[:i+1]), &tok) != nil {
+				return "", "", false
+			}
+			return tok, s[i+1:], true
+		}
+	}
+	return "", "", false
 }
 
 // yarnClassicAuthSuffixes match the segment after the final `:` so
@@ -87,20 +113,17 @@ func isYarnClassicAuthKey(key string) bool {
 func buildYarnEntry(key, value string, quoted bool, lineNum int) model.YarnEntry {
 	isAuth := isYarnClassicAuthKey(key) || isYarnBerryAuthKey(key)
 	envRefVars, isEnvRef := extractEnvRefs(value)
-
-	display := value
-	if isAuth && !isEnvRef && value != "" {
-		display = redactSecret(value)
-	}
+	display, hasLiteral := redactValue(value, isAuth)
 
 	return model.YarnEntry{
-		Key:          key,
-		DisplayValue: display,
-		LineNum:      lineNum,
-		IsAuth:       isAuth,
-		IsEnvRef:     isEnvRef,
-		EnvRefVars:   envRefVars,
-		ValueSHA256:  hashValue(value),
-		Quoted:       quoted,
+		Key:            key,
+		DisplayValue:   display,
+		LineNum:        lineNum,
+		IsAuth:         isAuth,
+		IsEnvRef:       isEnvRef,
+		EnvRefVars:     envRefVars,
+		ValueSHA256:    hashValue(value),
+		Quoted:         quoted,
+		HasLiteralAuth: hasLiteral,
 	}
 }
