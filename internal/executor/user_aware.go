@@ -56,6 +56,7 @@ var userEnvironmentKeys = []string{
 	"PIP_FIND_LINKS",
 	"PIP_INDEX_URL",
 	"PIP_NO_INDEX",
+	"PI_CODING_AGENT_DIR",
 	"TMPDIR",
 	"UV_CONFIG_FILE",
 	"UV_DEFAULT_INDEX",
