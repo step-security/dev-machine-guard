@@ -280,8 +280,9 @@ shared host is their own device), and the `STEPSEC_DEVICE_ID` environment
 variable overrides it at run time. With nothing configured, a shared Windows
 host (a multi-session edition, or one scanned by two or more developers)
 switches to `{hostname}-{user}` automatically and removes its old serial-based
-device once (the dashboard hides it immediately and purges it on its next
-sweep); configure `{serial}` to opt out. Every scan also reports whether
+device once (the dashboard hides it immediately and purges it after the
+standard 30-day retention); configure `{serial}` to opt out. Every scan also
+reports whether
 the machine is virtual or physical and on which hypervisor or cloud. See
 [docs/deploying-on-virtual-desktops.md](docs/deploying-on-virtual-desktops.md).
 
