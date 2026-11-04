@@ -110,6 +110,12 @@ type Config struct {
 
 	SearchDirsSet bool `json:"-"` // a --search-dirs replaced the $HOME default
 
+	// UninstallRetire / UninstallNoRetire are `uninstall --retire` and
+	// `uninstall --no-retire`: force or suppress the backend retire call that
+	// config.json retire_on_uninstall otherwise decides. Mutually exclusive.
+	UninstallRetire   bool
+	UninstallNoRetire bool
+
 	// IgnoreTelemetryError opts the `install` subcommand into treating an
 	// initial-telemetry POST failure as a warning rather than a fatal exit.
 	// Default behavior (flag absent) preserves dev-workflow ergonomics —
@@ -256,6 +262,12 @@ func Parse(args []string) (*Config, error) {
 	if cfg.InstallDirSet && cfg.InstallDir == "" && (cfg.Command == "install" || cfg.Command == "uninstall") {
 		return nil, fmt.Errorf("--install-dir= (empty) cannot be combined with %s — pass a directory or omit the flag", cfg.Command)
 	}
+	if cfg.UninstallRetire && cfg.UninstallNoRetire {
+		return nil, fmt.Errorf("--retire and --no-retire are mutually exclusive")
+	}
+	if (cfg.UninstallRetire || cfg.UninstallNoRetire) && cfg.Command != "uninstall" {
+		return nil, fmt.Errorf("--retire / --no-retire apply to the uninstall command only")
+	}
 
 	return cfg, nil
 }
@@ -400,6 +412,8 @@ Examples:
 
 Non-interactive configure (for MSI / SCCM / Intune deployments):
 %s%s
+Uninstall:
+%s
 Configuration:
   Per-user config:    ~/.stepsecurity/config.json
   Machine-wide (Windows, admin): C:\ProgramData\StepSecurity\config.json
@@ -409,7 +423,7 @@ Configuration:
 `, buildinfo.Version, name, name,
 		helpFor(helpOutput), helpFor(helpOptions),
 		name, name, name, name, name, name, name, name,
-		name, name, helpFor(helpConfigure), savedFlagsNote(), name,
+		name, name, helpFor(helpConfigure), savedFlagsNote(), helpFor(helpUninstall), name,
 		buildinfo.AgentURL)
 }
 

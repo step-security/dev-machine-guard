@@ -84,3 +84,30 @@ func FuzzNormalize(f *testing.F) {
 		}
 	})
 }
+
+func TestNormalizeDevice(t *testing.T) {
+	tests := []struct {
+		name, in, want string
+		wantErr        bool
+	}{
+		{"literal", " device-2 ", "device-2", false},
+		{"dash clears", "-", "", false},
+		{"template", "{hostname}-{user}", "{hostname}-{user}", false},
+		{"template is trimmed and case-insensitive", " {Serial}.vdi ", "{Serial}.vdi", false},
+		{"empty", "", "", true},
+		{"reserved literal", "root", "", true},
+		{"literal outside the allowlist", "bad/id", "", true},
+		{"unknown token", "{hostname}-{site}", "", true},
+		{"unbalanced brace", "{hostname", "", true},
+		{"literal text outside the allowlist inside a template", "{hostname} {user}", "", true},
+		{"too long", "{user}-" + strings.Repeat("a", 250), "", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := NormalizeDevice(tc.in)
+			if (err != nil) != tc.wantErr || got != tc.want {
+				t.Errorf("NormalizeDevice(%q) = %q, %v; want %q, err=%v", tc.in, got, err, tc.want, tc.wantErr)
+			}
+		})
+	}
+}

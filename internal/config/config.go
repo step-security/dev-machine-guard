@@ -18,7 +18,7 @@ import (
 
 // Default placeholders (replaced by backend for enterprise installation scripts).
 var (
-	DeviceID            string // Optional device identity override; empty uses the machine serial.
+	DeviceID            string // Optional device identity: a literal id or a template over {serial} {hostname} {user}; empty uses the machine serial. STEPSEC_DEVICE_ID overrides it (read by the device package).
 	CustomerID          = "{{CUSTOMER_ID}}"
 	APIEndpoint         = "{{API_ENDPOINT}}"
 	APIKey              = "{{API_KEY}}" //#nosec G101 -- build-time placeholder substituted by the backend installer; the literal is not a real credential.
@@ -75,6 +75,50 @@ var (
 // telemetry.ExecutionDeadline.
 var MaxExecutionDuration string
 
+// RetireOnUninstall makes `uninstall` tell the backend to retire this device
+// before removing the scheduler job (config.json `retire_on_uninstall`).
+// Written once at provisioning time (bootstrap.json / MSI RETIREONUNINSTALL)
+// so a later `msiexec /x` needs no extra arguments. `uninstall --retire` /
+// `--no-retire` override it per invocation.
+var RetireOnUninstall bool
+
+// DeviceTag is the optional label an admin sets in the agent configuration
+// only (config.json `device_tag`, MSI DEVICETAG, bootstrap.json,
+// `configure --device-tag`); the dashboard displays it and never changes it.
+// The dashboard's retirement scope (Settings, Device activity) can limit
+// retirement (on uninstall, on the automatic identity switch, by inactivity,
+// from the dashboard) to devices carrying chosen tags, so a fleet's laptops
+// are never retired by a feature meant for its pooled virtual desktops.
+// Reported as device_tag in every upload. See
+// docs/deploying-on-virtual-desktops.md.
+var DeviceTag string
+
+// maxDeviceTagLen bounds device_tag; the charset keeps a tag safe as a query
+// value, an export cell and a command-line argument.
+const maxDeviceTagLen = 64
+
+// ValidDeviceTag reports whether s is an acceptable device_tag: 1 to 64
+// characters from letters, digits, '.', '_', ':', '/' and '-'. Spaces are
+// rejected so a tag pasted into an MSI property line is never silently split.
+func ValidDeviceTag(s string) bool {
+	if s == "" || len(s) > maxDeviceTagLen {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '.', r == '_', r == ':', r == '/', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func deviceTagError(s string) error {
+	return fmt.Errorf("device tag %q is not valid: use 1 to %d characters from letters, digits, '.', '_', ':', '/' and '-'", s, maxDeviceTagLen)
+}
+
 // UserID is attribution, independent of the OS execution account.
 var UserID string
 
@@ -94,6 +138,7 @@ var (
 type ConfigFile struct {
 	UserID                string   `json:"user_id,omitempty"`
 	DeviceID              string   `json:"device_id,omitempty"`
+	DeviceTag             string   `json:"device_tag,omitempty"`
 	CustomerID            string   `json:"customer_id,omitempty"`
 	APIEndpoint           string   `json:"api_endpoint,omitempty"`
 	APIKey                string   `json:"api_key,omitempty"`
@@ -113,6 +158,7 @@ type ConfigFile struct {
 	MaxExecutionDuration  string   `json:"max_execution_duration,omitempty"`
 	UseLegacyNodeScan     *bool    `json:"use_legacy_node_scan,omitempty"`
 	UseLegacyPythonScan   *bool    `json:"use_legacy_python_scan,omitempty"`
+	RetireOnUninstall     *bool    `json:"retire_on_uninstall,omitempty"`
 	AutoUpdate            *bool    `json:"auto_update,omitempty"`
 	UpdateMirrorURL       string   `json:"update_mirror_url,omitempty"`
 	UpdateLagBehind       int      `json:"update_lag_behind,omitempty"`
@@ -186,6 +232,14 @@ func (c ConfigFile) MarshalJSON() ([]byte, error) {
 		}
 	}
 	return json.Marshal(m)
+}
+
+// MachineInstallDir returns the machine-wide install directory an elevated
+// Windows install uses (C:\ProgramData\StepSecurity), or "" on other
+// platforms. Exported for callers that must find per-user state written by
+// scheduled runs when they themselves run as SYSTEM (uninstall --retire).
+func MachineInstallDir() string {
+	return machineConfigDir()
 }
 
 // userConfigDir returns ~/.stepsecurity — the per-user config location.
@@ -312,6 +366,11 @@ func Load() {
 	if id := strings.TrimSpace(cfg.DeviceID); id != "" && DeviceID == "" {
 		DeviceID = id
 	}
+	// An invalid tag is ignored rather than fatal: a bad config value must
+	// never stop a scan, and `configure` rejects it where it can be fixed.
+	if tag := strings.TrimSpace(cfg.DeviceTag); tag != "" && DeviceTag == "" && ValidDeviceTag(tag) {
+		DeviceTag = tag
+	}
 	if cfg.CustomerID != "" && isPlaceholder(CustomerID) {
 		CustomerID = cfg.CustomerID
 	}
@@ -370,6 +429,9 @@ func Load() {
 	if cfg.UseLegacyPythonScan != nil {
 		UseLegacyPythonScan = *cfg.UseLegacyPythonScan
 	}
+	if cfg.RetireOnUninstall != nil {
+		RetireOnUninstall = *cfg.RetireOnUninstall
+	}
 	if cfg.AutoUpdate != nil && AutoUpdate == nil {
 		AutoUpdate = cfg.AutoUpdate
 	}
@@ -410,16 +472,25 @@ func RunConfigure() error {
 	fmt.Println("To clear a value, enter a single dash (-).")
 	fmt.Println()
 
-	deviceID := promptValue(reader, "Device ID (optional; default = machine serial)", existing.DeviceID)
+	// A literal id, or a template over {serial} {hostname} {user}: a pooled
+	// virtual desktop fleet typically uses "{hostname}-{user}" so each person
+	// on a shared host is their own device. See docs/deploying-on-virtual-desktops.md.
+	deviceID := promptValue(reader, "Device ID (optional; default = machine serial; tokens {serial} {hostname} {user})", existing.DeviceID)
 	if deviceID != existing.DeviceID {
 		// A dash explicitly resets the optional override to machine identity.
 		if deviceID != "" {
-			deviceID, err = identity.Normalize(deviceID, "device")
+			deviceID, err = identity.NormalizeDevice(deviceID)
 			if err != nil {
 				return err
 			}
 		}
 		existing.DeviceID = deviceID
+	}
+	// A dashboard label (host pool, team, lifecycle group); the dashboard's
+	// retirement scope can select devices by it.
+	existing.DeviceTag = strings.TrimSpace(promptValue(reader, "Device tag (optional; dashboard label, selectable by the retirement scope)", existing.DeviceTag))
+	if existing.DeviceTag != "" && !ValidDeviceTag(existing.DeviceTag) {
+		return deviceTagError(existing.DeviceTag)
 	}
 	existing.CustomerID = promptValue(reader, "Customer ID", existing.CustomerID)
 	existing.APIEndpoint = promptValue(reader, "API Endpoint", existing.APIEndpoint)
@@ -601,6 +672,20 @@ func RunConfigure() error {
 	// for one run, pass --install-dir=PATH or set $STEPSECURITY_HOME.
 	existing.InstallDir = promptValue(reader, "Install Directory (blank = default)", existing.InstallDir)
 
+	// Retire on uninstall: `uninstall` tells the dashboard to retire this
+	// device before removing the scheduler job. Stored only when enabled.
+	currentRetire := "false"
+	if existing.RetireOnUninstall != nil && *existing.RetireOnUninstall {
+		currentRetire = "true"
+	}
+	retireInput := promptValue(reader, "Retire device on uninstall (true/false)", currentRetire)
+	if strings.EqualFold(strings.TrimSpace(retireInput), "true") {
+		v := true
+		existing.RetireOnUninstall = &v
+	} else {
+		existing.RetireOnUninstall = nil
+	}
+
 	// Save
 	if err := save(existing); err != nil {
 		return fmt.Errorf("saving configuration: %w", err)
@@ -717,8 +802,11 @@ func save(cfg *ConfigFile) error {
 	return writeAtomic(configPath, data, atomicfile.PickMode(configPath, fileMode), machineWide)
 }
 
-// ShowConfigure prints the current configuration to stdout.
-func ShowConfigure() {
+// ShowConfigure prints the current configuration to stdout. resolvedIdentity,
+// when non-empty, is printed under the Device ID line ("<id> (source:
+// env|config|serial)"); main supplies it via device.ResolvedDeviceID because
+// the device package depends on this one, not the other way round.
+func ShowConfigure(resolvedIdentity string) {
 	cfg, err := readExisting()
 	if err != nil {
 		fmt.Printf("Warning: %v\n\n", err)
@@ -727,6 +815,10 @@ func ShowConfigure() {
 	fmt.Printf("Configuration (%s):\n\n", ConfigFilePath())
 	fmt.Printf("  %-24s %s\n", "User ID:", displayValue(cfg.UserID))
 	fmt.Printf("  %-24s %s\n", "Device ID:", displayDeviceID(cfg.DeviceID))
+	if resolvedIdentity != "" {
+		fmt.Printf("  %-24s %s\n", "  resolves now to:", resolvedIdentity)
+	}
+	fmt.Printf("  %-24s %s\n", "Device Tag:", displayDeviceTag(cfg.DeviceTag))
 	fmt.Printf("  %-24s %s\n", "Customer ID:", displayValue(cfg.CustomerID))
 	fmt.Printf("  %-24s %s\n", "API Endpoint:", displayValue(cfg.APIEndpoint))
 	fmt.Printf("  %-24s %s\n", "API Key:", maskSecret(cfg.APIKey))
@@ -748,11 +840,26 @@ func ShowConfigure() {
 	}
 	fmt.Printf("  %-24s %s\n", "Log Level:", displayLogLevel(cfg.LogLevel))
 	fmt.Printf("  %-24s %s\n", "Install Directory:", displayInstallDir(cfg.InstallDir))
+	fmt.Printf("  %-24s %s\n", "Retire On Uninstall:", displayRetireOnUninstall(cfg.RetireOnUninstall))
+}
+
+func displayRetireOnUninstall(v *bool) string {
+	if v != nil && *v {
+		return "true (uninstall retires this device in the dashboard)"
+	}
+	return "false (default)"
+}
+
+func displayDeviceTag(v string) string {
+	if v = strings.TrimSpace(v); v == "" {
+		return "(not set)"
+	}
+	return v
 }
 
 func displayDeviceID(v string) string {
 	if v = strings.TrimSpace(v); v == "" {
-		return "machine serial (default)"
+		return "auto (per-user on multi-session hosts, hardware serial elsewhere)"
 	}
 	return v
 }
@@ -1007,6 +1114,19 @@ func runConfigureNonInteractive(opts NonInteractiveOptions, exec executor.Execut
 	if idOnly && storedID == requestedID {
 		fmt.Println("User ID is already configured with this value; no changes made.")
 		return nil
+	}
+
+	// Settings with a shape the JSON merge cannot check. The identity
+	// template is trimmed, the tag must satisfy ValidDeviceTag (the agent
+	// ignores an invalid one at load time, so reject it where it can be
+	// fixed), and a false retire_on_uninstall is the default, so the key is
+	// dropped to keep the file minimal.
+	existing.DeviceID = strings.TrimSpace(existing.DeviceID)
+	if existing.DeviceTag = strings.TrimSpace(existing.DeviceTag); existing.DeviceTag != "" && !ValidDeviceTag(existing.DeviceTag) {
+		return deviceTagError(existing.DeviceTag)
+	}
+	if existing.RetireOnUninstall != nil && !*existing.RetireOnUninstall {
+		existing.RetireOnUninstall = nil
 	}
 
 	// Validation: an MSI deploy with no creds is almost certainly a bug.

@@ -14,9 +14,10 @@ import (
 
 // flagSamples are valid values for flags whose value is validated.
 var flagSamples = map[string]string{
-	"--color":       "never",
-	"--log-level":   "debug",
-	"--auto-update": "false",
+	"--color":               "never",
+	"--log-level":           "debug",
+	"--auto-update":         "false",
+	"--retire-on-uninstall": "true",
 }
 
 // sampleArgs is one valid spelling of f.
@@ -28,11 +29,20 @@ func sampleArgs(f flagSpec) []string {
 	switch f.kind {
 	case flagSwitch:
 		return []string{f.name}
-	case flagEquals:
+	case flagEquals, flagOptionalBool:
 		return []string{f.name + "=" + v}
 	default:
 		return []string{f.name, v}
 	}
+}
+
+// sampleVerb is the command a flag is exercised under: the uninstall flags
+// are rejected by Parse anywhere else.
+func sampleVerb(f flagSpec) string {
+	if f.section == helpUninstall {
+		return "uninstall"
+	}
+	return "configure"
 }
 
 // configKeys are config.json's top-level keys, from ConfigFile's tags.
@@ -74,7 +84,7 @@ func TestFlagTable_CoversEveryConfigKey(t *testing.T) {
 // saves nothing.
 func TestFlagTable_SavesOnlyDeclaredKeys(t *testing.T) {
 	for _, f := range flagTable {
-		cfg, err := Parse(append([]string{"configure"}, sampleArgs(f)...))
+		cfg, err := Parse(append([]string{sampleVerb(f)}, sampleArgs(f)...))
 		if err != nil {
 			t.Errorf("%s: %v", f.name, err)
 			continue

@@ -10,11 +10,12 @@ import (
 type flagKind int
 
 const (
-	flagSwitch flagKind = iota // --x
-	flagValue                  // --x VALUE or --x=VALUE
-	flagSpaced                 // --x VALUE only
-	flagEquals                 // --x=VALUE only
-	flagList                   // --x V1 [V2...]: consumes args up to the next --flag
+	flagSwitch       flagKind = iota // --x
+	flagValue                        // --x VALUE or --x=VALUE
+	flagSpaced                       // --x VALUE only
+	flagEquals                       // --x=VALUE only
+	flagList                         // --x V1 [V2...]: consumes args up to the next --flag
+	flagOptionalBool                 // --x (true) or --x=VALUE
 )
 
 // helpSection is the --help block a flag is listed in.
@@ -25,6 +26,7 @@ const (
 	helpOutput
 	helpOptions
 	helpConfigure
+	helpUninstall
 )
 
 // flagSpec is one CLI flag. flagTable is the single source for parsing,
@@ -70,6 +72,22 @@ func triFlag(name string, dst func(*Config) **bool, v bool, key string, section 
 func stringFlag(name string, dst func(*Config) *string, missing string, section helpSection, help string) flagSpec {
 	return flagSpec{name: name, kind: flagValue, missing: missing, section: section, help: help,
 		set: func(c *Config, v string) error { *dst(c) = v; return nil }}
+}
+
+// saveClearable records a `configure` value that "-" clears: an empty value
+// leaves the setting unchanged (the MSI passes an unset property as empty),
+// "-" saves "" so the key is dropped from config.json, anything else is
+// saved trimmed.
+func (c *Config) saveClearable(key, v string) error {
+	switch v = strings.TrimSpace(v); v {
+	case "":
+		c.unsave(key)
+	case "-":
+		c.save(key, "")
+	default:
+		c.save(key, v)
+	}
+	return nil
 }
 
 // unsave drops a value an earlier flag on this command line saved, so the
@@ -280,8 +298,48 @@ var flagTable = []flagSpec{
 			return nil
 		}},
 	{name: "--device-id", kind: flagValue, saves: []string{"device_id"}, section: helpConfigure,
-		help: "  --device-id ID                Custom device identifier (default: machine serial)",
-		set:  func(c *Config, v string) error { c.save("device_id", v); return nil }},
+		missing: "--device-id requires a value (a literal id, or a template over {serial} {hostname} {user}; \"-\" clears it)",
+		help: `  --device-id VALUE             Device identity: a literal id, or a template over
+                                {serial} {hostname} {user} (e.g. "{hostname}-{user}"
+                                for pooled virtual desktops). Blank/omitted keeps the
+                                current value; "-" clears a saved template. The
+                                STEPSEC_DEVICE_ID env var overrides it at run time.`,
+		// An empty value (the MSI passes an unset property verbatim) leaves the
+		// setting unchanged; everything else, "-" included, reaches configure,
+		// which validates literals and templates and turns "-" into a clear.
+		set: func(c *Config, v string) error {
+			if v = strings.TrimSpace(v); v == "" {
+				c.unsave("device_id")
+				return nil
+			}
+			c.save("device_id", v)
+			return nil
+		}},
+	{name: "--device-tag", kind: flagValue, saves: []string{"device_tag"}, section: helpConfigure,
+		missing: "--device-tag requires a value (letters, digits, '.', '_', ':', '/', '-'; \"-\" clears it)",
+		help: `  --device-tag VALUE            Label shown in the dashboard (e.g. "avd-pool-eu"); the
+                                dashboard's retirement scope can select devices by
+                                tag. "-" clears it.`,
+		set: func(c *Config, v string) error { return c.saveClearable("device_tag", v) }},
+	{name: "--retire-on-uninstall", kind: flagOptionalBool, saves: []string{"retire_on_uninstall"}, section: helpConfigure,
+		help: `  --retire-on-uninstall[=BOOL]  Make 'uninstall' retire this device in the dashboard
+                                before removing the scheduler job (default false)`,
+		set: func(c *Config, v string) error {
+			// An explicit empty value (the MSI passes an unset property
+			// verbatim) leaves the setting unchanged; false is the default,
+			// saved as null so the key is dropped from config.json.
+			switch strings.ToLower(strings.TrimSpace(v)) {
+			case "":
+				c.unsave("retire_on_uninstall")
+			case "true", "1", "yes":
+				c.save("retire_on_uninstall", true)
+			case "false", "0", "no":
+				c.save("retire_on_uninstall", nil)
+			default:
+				return fmt.Errorf("--retire-on-uninstall accepts true or false, got %q", v)
+			}
+			return nil
+		}},
 	func() flagSpec {
 		f := configFlag("--scan-frequency", "scan_frequency_hours",
 			"  --scan-frequency HOURS        Scheduled scan frequency")
@@ -314,6 +372,12 @@ var flagTable = []flagSpec{
 		`  --ignore-telemetry-error      On 'install', treat a failed initial telemetry POST
                                 as a warning instead of a fatal exit (use in MSI
                                 custom actions to avoid rollback on transient network)`),
+
+	switchFlag("--retire", func(c *Config) *bool { return &c.UninstallRetire }, helpUninstall,
+		`  --retire                      Retire this device in the dashboard, then remove the
+                                scheduler job (overrides retire_on_uninstall=false)`),
+	switchFlag("--no-retire", func(c *Config) *bool { return &c.UninstallNoRetire }, helpUninstall,
+		"  --no-retire                   Never call the dashboard (overrides retire_on_uninstall)"),
 
 	switchFlag("--override-gate", func(c *Config) *bool { return &c.OverrideGate }, helpHidden, ""),
 	switchFlag("--force-scan", func(c *Config) *bool { return &c.ForceScan }, helpHidden, ""),
@@ -350,6 +414,11 @@ func parseFlag(cfg *Config, args []string, i int) (next int, ok bool, err error)
 	case flagSwitch, flagSpaced, flagList:
 		if hasValue {
 			return i, false, nil
+		}
+	case flagOptionalBool:
+		// Both spellings: a bare flag is "true", --x=VALUE is parsed below.
+		if !hasValue {
+			return i + 1, true, f.set(cfg, "true")
 		}
 	}
 	missing := func() error {

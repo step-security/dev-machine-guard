@@ -449,6 +449,93 @@ func TestParseHooks_AcceptsInstallDir(t *testing.T) {
 // cmd/stepsecurity-dev-machine-guard/main_test.go for the integration
 // test that asserts the binary always exits 0 on `_hook` invocations.
 
+func TestParse_ConfigureDeviceIDAndRetireOnUninstall(t *testing.T) {
+	cfg, err := Parse([]string{"configure", "--device-id", "{hostname}-{user}", "--retire-on-uninstall"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ConfigValues["device_id"] != "{hostname}-{user}" {
+		t.Errorf("device_id = %v", cfg.ConfigValues["device_id"])
+	}
+	if cfg.ConfigValues["retire_on_uninstall"] != true {
+		t.Errorf("bare --retire-on-uninstall must save true, got %v", cfg.ConfigValues["retire_on_uninstall"])
+	}
+
+	cfg, err = Parse([]string{"configure", "--device-id=asset-1", "--retire-on-uninstall=false"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ConfigValues["device_id"] != "asset-1" {
+		t.Errorf("device_id = %v", cfg.ConfigValues["device_id"])
+	}
+	// false is the default: saved as null so the key is dropped from the file.
+	if v, ok := cfg.ConfigValues["retire_on_uninstall"]; !ok || v != nil {
+		t.Errorf("--retire-on-uninstall=false must save null, got %v (present %v)", v, ok)
+	}
+
+	// The MSI passes an empty property verbatim: empty means "unchanged".
+	cfg, err = Parse([]string{"configure", "--non-interactive", "--device-id=", "--retire-on-uninstall="})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"device_id", "retire_on_uninstall"} {
+		if _, ok := cfg.ConfigValues[key]; ok {
+			t.Errorf("empty --%s= must leave the setting unchanged, got %v", strings.ReplaceAll(key, "_", "-"), cfg.ConfigValues[key])
+		}
+	}
+
+	// "-" clears. The tag is saved as "" so the key is dropped from the file;
+	// the device id reaches configure verbatim, which validates every
+	// explicit id and turns "-" into the clear (identity.NormalizeDevice).
+	cfg, err = Parse([]string{"configure", "--device-id=-", "--device-tag", "-"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := cfg.ConfigValues["device_tag"]; !ok || v != "" {
+		t.Errorf("\"-\" must save an empty device_tag, got %v (present %v)", v, ok)
+	}
+	if v, ok := cfg.ConfigValues["device_id"]; !ok || v != "-" {
+		t.Errorf("\"-\" must reach configure as the device_id clear sentinel, got %v (present %v)", v, ok)
+	}
+
+	if _, err := Parse([]string{"configure", "--retire-on-uninstall=maybe"}); err == nil {
+		t.Error("expected error for a non-boolean --retire-on-uninstall")
+	}
+	if _, err := Parse([]string{"configure", "--device-id"}); err == nil {
+		t.Error("expected error for --device-id without a value")
+	}
+	cfg, err = Parse([]string{"configure", "--device-tag", "avd-pool-eu"})
+	if err != nil || cfg.ConfigValues["device_tag"] != "avd-pool-eu" {
+		t.Errorf("--device-tag VALUE: values=%v err=%v", cfg.ConfigValues, err)
+	}
+	if _, err := Parse([]string{"configure", "--device-tag"}); err == nil {
+		t.Error("expected error for --device-tag without a value")
+	}
+}
+
+func TestParse_UninstallRetireFlags(t *testing.T) {
+	cfg, err := Parse([]string{"uninstall", "--retire"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.UninstallRetire || cfg.UninstallNoRetire {
+		t.Errorf("--retire not parsed: %+v", cfg)
+	}
+	cfg, err = Parse([]string{"uninstall", "--no-retire"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UninstallRetire || !cfg.UninstallNoRetire {
+		t.Errorf("--no-retire not parsed: %+v", cfg)
+	}
+	if _, err := Parse([]string{"uninstall", "--retire", "--no-retire"}); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("expected mutual-exclusion error, got %v", err)
+	}
+	if _, err := Parse([]string{"send-telemetry", "--retire"}); err == nil || !strings.Contains(err.Error(), "uninstall") {
+		t.Errorf("--retire outside uninstall must be rejected, got %v", err)
+	}
+}
+
 func TestParse_ConfigureAutoUpdate(t *testing.T) {
 	cfg, err := Parse([]string{"configure", "--non-interactive", "--auto-update=false"})
 	if err != nil {

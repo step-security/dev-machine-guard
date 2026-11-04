@@ -33,6 +33,66 @@ func Normalize(value, kind string) (string, error) {
 	return value, nil
 }
 
+// Device identity template tokens the agent expands on every scan (see
+// internal/device, which config cannot import). Lower-case; matched
+// case-insensitively.
+var deviceTemplateTokens = map[string]bool{"{serial}": true, "{hostname}": true, "{user}": true}
+
+// NormalizeDevice validates an explicitly configured device ID. "-" clears
+// the override and is returned as "". A template over {serial}, {hostname}
+// and {user} is returned trimmed: the agent expands and sanitizes it on each
+// scan, so only its shape is checked here (known tokens, balanced braces,
+// literal text from the ID allowlist, at most 256 characters). Anything else
+// is a literal and must satisfy Normalize.
+func NormalizeDevice(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "-" {
+		return "", nil
+	}
+	if !strings.Contains(trimmed, "{") {
+		return Normalize(value, "device")
+	}
+	invalid := func(why string) (string, error) {
+		return "", fmt.Errorf("Invalid device ID template %q: %s. Use the tokens {serial}, {hostname} and {user}, joined by letters, digits, @, ., _, +, or -.", trimmed, why) //nolint:staticcheck // ST1005: matches the ID diagnostics.
+	}
+	if len(trimmed) > 256 {
+		return invalid("longer than 256 characters")
+	}
+	rest := trimmed
+	for rest != "" {
+		open := strings.Index(rest, "{")
+		if open < 0 {
+			if c, ok := literalRune(rest); !ok {
+				return invalid(fmt.Sprintf("character %q is not allowed", c))
+			}
+			break
+		}
+		if c, ok := literalRune(rest[:open]); !ok {
+			return invalid(fmt.Sprintf("character %q is not allowed", c))
+		}
+		closeRel := strings.Index(rest[open:], "}")
+		if closeRel < 0 {
+			return invalid("unbalanced brace")
+		}
+		token := strings.ToLower(rest[open : open+closeRel+1])
+		if !deviceTemplateTokens[token] {
+			return invalid("unknown token " + token)
+		}
+		rest = rest[open+closeRel+1:]
+	}
+	return trimmed, nil
+}
+
+// literalRune reports the first byte of s outside the ID allowlist, if any.
+func literalRune(s string) (byte, bool) {
+	for _, c := range []byte(s) {
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || strings.ContainsRune("@._+-", rune(c))) {
+			return c, false
+		}
+	}
+	return 0, true
+}
+
 func MissingDevice(value string) bool {
 	value = strings.TrimSpace(value)
 	return value == "" || strings.EqualFold(value, "unknown")

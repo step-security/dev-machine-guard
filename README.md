@@ -267,18 +267,39 @@ Configuration (~/.stepsecurity/config.json):
 
 Configuration is saved to `~/.stepsecurity/config.json` with `0600` permissions (owner read/write only).
 
+To label a device for the dashboard, add `"device_tag": "avd-pool-eu"` to the
+config JSON, pass `configure --device-tag avd-pool-eu`, or use the MSI
+`DEVICETAG` property. The tag is set in the agent configuration only (the
+dashboard shows it and never edits it). In the dashboard's Device activity
+settings an admin can limit retirement (on uninstall, on the automatic
+identity switch, by inactivity and from the dashboard) to devices carrying
+chosen tags; the default applies it to all devices.
+
 To use a custom device ID, add `"device_id": "my-device-123"` to the existing
 config JSON, set **Device ID** through `configure`, or pass
 `configure --device-id my-device-123`. The override is also
-supported in JSON supplied to `configure --from-file`. Explicit device-ID inputs
+supported in JSON supplied to `configure --from-file`. A literal device ID
 must follow the ID format above; empty or whitespace-only inputs are rejected.
-An absent or empty saved override uses the machine serial as before. To reset an
-existing override, enter `-` at the interactive Device ID prompt. The agent continues
+An absent saved override uses the machine serial as before. To reset an
+existing override, enter `-` at the interactive Device ID prompt or pass
+`--device-id -`. The agent continues
 reporting the actual machine serial in `serial_number`. WSL guest scans derive
 separate IDs from the host ID and distro ID.
 
 Choose an ID unique within your customer and keep it stable: changing the ID
 registers a separate device in the backend; it does not migrate existing history.
+
+The value may also be a template over `{serial}`, `{hostname}` and `{user}`
+(for example `{hostname}-{user}` on pooled virtual desktops, so each person on a
+shared host is their own device), and the `STEPSEC_DEVICE_ID` environment
+variable overrides it at run time. With nothing configured, a shared Windows
+host (a multi-session edition, or one scanned by two or more developers)
+switches to `{hostname}-{user}` automatically and removes its old serial-based
+device once (the dashboard hides it immediately and purges it after the
+standard 30-day retention); configure `{serial}` to opt out. Every scan also
+reports whether
+the machine is virtual or physical and on which hypervisor or cloud. See
+[docs/deploying-on-virtual-desktops.md](docs/deploying-on-virtual-desktops.md).
 
 Every setting can also be written without prompts, which is how MDM, MSI and
 CI deployments configure the agent. Any setting flag passed to `configure`
@@ -297,7 +318,9 @@ preferences (`configure --color=never`) without them:
 | Setting                 | `configure` flag                                     |
 | ----------------------- | ---------------------------------------------------- |
 | User ID (one-time)      | `--user-id ID` (only when no usable identity is detected) |
-| Device ID               | `--device-id ID`                                     |
+| Device ID               | `--device-id VALUE` (a literal, or a template over `{serial}` `{hostname}` `{user}`; `-` clears) |
+| Device tag              | `--device-tag TAG` (`-` clears)                      |
+| Retire on uninstall     | `--retire-on-uninstall[=BOOL]`                        |
 | Customer ID             | `--customer-id ID`                                   |
 | API Endpoint            | `--api-endpoint URL`                                 |
 | API Key                 | `--api-key KEY` (or `DMG_API_KEY` env var)           |

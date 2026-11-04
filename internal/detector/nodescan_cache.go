@@ -41,18 +41,20 @@ func newScanCache() *scanCache {
 	return &scanCache{Version: scanCacheVersion, Projects: map[string]scanCacheEntry{}}
 }
 
-// scanCacheFile returns the cache path under paths.Home(). Returns "" when
-// Home is disabled — caller must treat "" as "cache disabled, scan everything".
-// Override with STEPSEC_NODE_SCAN_CACHE for tests.
+// scanCacheFile returns the cache path under paths.StateDir() (the install
+// dir, or its per-user subdirectory when the device identity is per-user).
+// Returns "" when the install dir is disabled — caller must treat "" as
+// "cache disabled, scan everything". Override with STEPSEC_NODE_SCAN_CACHE for
+// tests.
 func scanCacheFile(exec executor.Executor) string {
 	if override := exec.Getenv("STEPSEC_NODE_SCAN_CACHE"); override != "" {
 		return override
 	}
-	home := paths.Home()
-	if home == "" {
+	dir := paths.StateDir()
+	if dir == "" {
 		return ""
 	}
-	return filepath.Join(home, "node-scan-cache.json")
+	return filepath.Join(dir, "node-scan-cache.json")
 }
 
 // loadScanCache reads the cache file. Returns an empty cache on any failure
