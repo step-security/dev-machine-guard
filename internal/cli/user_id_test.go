@@ -8,16 +8,16 @@ func TestParseUserID(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !cfg.ConfigUserIDSet || cfg.ConfigUserID == "" {
+		if cfg.ConfigValues["user_id"] == nil || cfg.ConfigValues["user_id"] == "" {
 			t.Fatalf("not forwarded: %+v", cfg)
 		}
 	}
 	cfg, err := Parse([]string{"configure", "--user-id="})
-	if err != nil || !cfg.ConfigUserIDSet || cfg.ConfigUserID != "" {
+	if err != nil || cfg.ConfigValues["user_id"] != "" {
 		t.Fatalf("explicit empty lost: %+v %v", cfg, err)
 	}
 	cfg, err = Parse([]string{"configure"})
-	if err != nil || cfg.ConfigUserIDSet {
+	if err != nil || cfg.ConfigValues["user_id"] != nil {
 		t.Fatalf("omission lost: %+v %v", cfg, err)
 	}
 	for _, args := range [][]string{{"configure", "--user-id"}, {"configure", "--user-id", "--api-key", "secret"}, {"configure", "--user-id=abc", "--user-id=abc"}, {"--user-id=abc"}, {"configure", "show", "--user-id=abc"}, {"send-telemetry", "--user-id=abc"}} {

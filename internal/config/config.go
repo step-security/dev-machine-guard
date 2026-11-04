@@ -871,18 +871,12 @@ func isPlaceholder(v string) bool {
 
 // NonInteractiveOptions captures every input the non-interactive configure
 // path accepts. Populated by main.go from cli.Config plus the DMG_API_KEY
-// env var fallback. Empty fields preserve the existing on-disk value
-// (merge semantics — same as the interactive prompt's "press Enter to keep").
+// env var fallback. Keys absent from Values preserve the existing on-disk
+// value (merge semantics — same as the interactive prompt's "press Enter
+// to keep").
 type NonInteractiveOptions struct {
-	UserID        string
-	UserIDSet     bool
-	FromFile      string   // path to a complete ConfigFile JSON; wins over inline values
-	CustomerID    string   // --customer-id
-	APIEndpoint   string   // --api-endpoint
-	APIKey        string   // --api-key (or DMG_API_KEY env)
-	ScanFrequency string   // --scan-frequency (hours, as string)
-	SearchDirs    []string // --search-dirs (re-used from scan flag; empty = unchanged)
-	AutoUpdate    *bool    // --auto-update=true|false (nil = unchanged)
+	FromFile string         // path to a ConfigFile JSON; Values override it
+	Values   map[string]any // config.json key -> value, from the CLI flags
 }
 
 // HasAny reports whether the caller supplied any inline value. Used by
@@ -890,13 +884,22 @@ type NonInteractiveOptions struct {
 // even without the explicit --non-interactive flag (e.g. an MSI that only
 // passes --from-file).
 func (o NonInteractiveOptions) HasAny() bool {
-	return o.UserIDSet || o.UserID != "" || o.FromFile != "" ||
-		o.CustomerID != "" ||
-		o.APIEndpoint != "" ||
-		o.APIKey != "" ||
-		o.ScanFrequency != "" ||
-		len(o.SearchDirs) > 0 ||
-		o.AutoUpdate != nil
+	return o.FromFile != "" || len(o.Values) > 0
+}
+
+// preferencesOnly reports whether o only changes settings other than the
+// enterprise credentials. A bare --non-interactive (e.g. an MSI whose
+// credential properties were empty) and --from-file are bootstraps.
+func (o NonInteractiveOptions) preferencesOnly() bool {
+	if o.FromFile != "" || len(o.Values) == 0 {
+		return false
+	}
+	for _, k := range []string{"customer_id", "api_endpoint", "api_key"} {
+		if _, ok := o.Values[k]; ok {
+			return false
+		}
+	}
+	return true
 }
 
 // RunConfigureNonInteractive applies the supplied options to the existing
@@ -919,19 +922,26 @@ func runConfigureNonInteractive(opts NonInteractiveOptions, exec executor.Execut
 		return err
 	}
 	storedID := existing.UserID
+	var valuesData []byte
 	var requestedID string
+	var explicitID bool
 	identityOnlyImport := false
-	explicitID := opts.UserIDSet || opts.UserID != ""
-	if explicitID {
-		requestedID, err = identity.Normalize(opts.UserID, "user")
+	var inlineIDs map[string]string
+	if len(opts.Values) > 0 {
+		valuesData, err = json.Marshal(opts.Values)
 		if err != nil {
-			return err
+			return fmt.Errorf("encoding configure flags: %w", err)
 		}
+		inlineIDs, err = explicitIdentities(valuesData, true)
+		if err != nil {
+			return fmt.Errorf("applying configure flags: %w", err)
+		}
+		requestedID, explicitID = inlineIDs["user"]
 	}
 
 	// --from-file merges: keys the file carries override the existing
 	// config (credential rotation), keys it omits are kept (an AUTOUPDATE=0
-	// opt-out, unknown keys). Inline flags still override individual fields
+	// opt-out, unknown keys). Inline flags still override individual keys
 	// below, so customers can ship a base config via the file and inject
 	// the per-tenant API key via an env var on the command line.
 	if opts.FromFile != "" {
@@ -968,23 +978,15 @@ func runConfigureNonInteractive(opts NonInteractiveOptions, exec executor.Execut
 		}
 	}
 
-	if opts.CustomerID != "" {
-		existing.CustomerID = opts.CustomerID
-	}
-	if opts.APIEndpoint != "" {
-		existing.APIEndpoint = opts.APIEndpoint
-	}
-	if opts.APIKey != "" {
-		existing.APIKey = opts.APIKey
-	}
-	if opts.ScanFrequency != "" {
-		existing.ScanFrequencyHours = opts.ScanFrequency
-	}
-	if len(opts.SearchDirs) > 0 {
-		existing.SearchDirs = opts.SearchDirs
-	}
-	if opts.AutoUpdate != nil {
-		existing.AutoUpdate = opts.AutoUpdate
+	// Validate identities before merging flags, then check the immutable transition.
+	if len(valuesData) > 0 {
+		if err := json.Unmarshal(valuesData, existing); err != nil {
+			return fmt.Errorf("applying configure flags: %w", err)
+		}
+		existing.UserID = storedID
+		if id, present := inlineIDs["device"]; present {
+			existing.DeviceID = id
+		}
 	}
 
 	if explicitID {
@@ -997,7 +999,8 @@ func runConfigureNonInteractive(opts NonInteractiveOptions, exec executor.Execut
 		}
 		existing.UserID = requestedID
 	}
-	idOnly := explicitID && (opts.FromFile == "" || identityOnlyImport) && opts.CustomerID == "" && opts.APIEndpoint == "" && opts.APIKey == "" && opts.ScanFrequency == "" && len(opts.SearchDirs) == 0 && opts.AutoUpdate == nil
+	onlyUserFlags := len(opts.Values) == 0 || (len(opts.Values) == 1 && inlineIDs["user"] != "")
+	idOnly := explicitID && (opts.FromFile == "" || identityOnlyImport) && onlyUserFlags
 	if idOnly && storedID == requestedID {
 		fmt.Println("User ID is already configured with this value; no changes made.")
 		return nil
@@ -1005,15 +1008,19 @@ func runConfigureNonInteractive(opts NonInteractiveOptions, exec executor.Execut
 
 	// Validation: an MSI deploy with no creds is almost certainly a bug.
 	// Fail loud so the MSI transaction rolls back instead of silently
-	// installing a half-configured agent.
-	if !idOnly && existing.APIKey == "" {
-		return fmt.Errorf("api_key is required (pass --api-key, --from-file, or DMG_API_KEY env var)")
-	}
-	if !idOnly && existing.CustomerID == "" {
-		return fmt.Errorf("customer_id is required (pass --customer-id or --from-file)")
-	}
-	if !idOnly && existing.APIEndpoint == "" {
-		return fmt.Errorf("api_endpoint is required (pass --api-endpoint or --from-file)")
+	// installing a half-configured agent. A preference-only update
+	// (`configure --color=never`) needs no credentials, so a community
+	// install can use it.
+	if !idOnly && !opts.preferencesOnly() {
+		if existing.APIKey == "" {
+			return fmt.Errorf("api_key is required (pass --api-key, --from-file, or DMG_API_KEY env var)")
+		}
+		if existing.CustomerID == "" {
+			return fmt.Errorf("customer_id is required (pass --customer-id or --from-file)")
+		}
+		if existing.APIEndpoint == "" {
+			return fmt.Errorf("api_endpoint is required (pass --api-endpoint or --from-file)")
+		}
 	}
 
 	if err := save(existing); err != nil {

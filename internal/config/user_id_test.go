@@ -19,7 +19,7 @@ import (
 
 func absentUser() *executor.Mock { m := executor.NewMock(); m.SetUsername("root"); return m }
 func userOpts(value string) NonInteractiveOptions {
-	return NonInteractiveOptions{UserID: value, UserIDSet: true}
+	return NonInteractiveOptions{Values: map[string]any{"user_id": value}}
 }
 func configBytes(t *testing.T) []byte {
 	t.Helper()
@@ -72,6 +72,55 @@ func TestUserIDLifetime(t *testing.T) {
 		t.Fatalf("installer persistence: %+v %v", got, err)
 	}
 }
+
+func TestUserIDConfigureValues(t *testing.T) {
+	t.Run("community preferences with identical identity", func(t *testing.T) {
+		withHome(t)
+		if err := runConfigureNonInteractive(userOpts("abc"), absentUser()); err != nil {
+			t.Fatal(err)
+		}
+		opts := userOpts(" abc ")
+		opts.Values["color_mode"] = "never"
+		opts.Values["enable_npm_scan"] = false
+		if err := runConfigureNonInteractive(opts, executor.NewMock()); err != nil {
+			t.Fatal(err)
+		}
+		got, err := readExistingStrict()
+		if err != nil || got.UserID != "abc" || got.ColorMode != "never" || got.EnableNPMScan == nil || *got.EnableNPMScan {
+			t.Fatalf("preferences with same ID: %+v, %v", got, err)
+		}
+	})
+	for _, key := range []string{"user_id", "device_id"} {
+		for _, value := range []any{nil, "", "bad/id", "root", "abc\n", 7} {
+			t.Run(fmt.Sprintf("%s/%v", key, value), func(t *testing.T) {
+				withHome(t)
+				seedUserConfig(t)
+				before := configBytes(t)
+				opts := NonInteractiveOptions{Values: map[string]any{key: value, "color_mode": "never"}}
+				if err := runConfigureNonInteractive(opts, absentUser()); err == nil {
+					t.Fatal("accepted invalid identity through configure values")
+				}
+				if !bytes.Equal(before, configBytes(t)) {
+					t.Fatal("rejected identity changed config")
+				}
+			})
+		}
+	}
+	t.Run("normalized mutable device", func(t *testing.T) {
+		withHome(t)
+		seedUserConfig(t)
+		for _, id := range []string{"device-1", " device-2 "} {
+			opts := NonInteractiveOptions{Values: map[string]any{"device_id": id}}
+			if err := runConfigureNonInteractive(opts, absentUser()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := readExistingStrict()
+		if err != nil || got.UserID != "abc" || got.DeviceID != "device-2" {
+			t.Fatalf("mutable device: %+v, %v", got, err)
+		}
+	})
+}
 func TestUserIDEligibility(t *testing.T) {
 	for _, source := range []string{"username", "USER_EMAIL", "DEVELOPER_EMAIL", "STEPSEC_DEVELOPER_EMAIL"} {
 		t.Run(source, func(t *testing.T) {
@@ -123,7 +172,10 @@ func TestUserIDImport(t *testing.T) {
 			if err := os.WriteFile(from, []byte(raw), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			opts := NonInteractiveOptions{FromFile: from, UserID: tc.cli, UserIDSet: tc.cli != ""}
+			opts := NonInteractiveOptions{FromFile: from}
+			if tc.cli != "" {
+				opts.Values = map[string]any{"user_id": tc.cli}
+			}
 			err := runConfigureNonInteractive(opts, absentUser())
 			if (err == nil) != tc.ok {
 				t.Fatalf("success=%v want %v: %v", err == nil, tc.ok, err)
@@ -157,7 +209,7 @@ func TestUserIDAssignmentFromFileAndCredentialFailure(t *testing.T) {
 	t.Run("missing_credentials", func(t *testing.T) {
 		withHome(t)
 		opts := userOpts("abc")
-		opts.CustomerID = "customer"
+		opts.Values["customer_id"] = "customer"
 		if err := runConfigureNonInteractive(opts, absentUser()); err == nil {
 			t.Fatal("accepted partial enrollment")
 		}
@@ -201,7 +253,7 @@ func TestUserIDFailsClosed(t *testing.T) {
 func TestUserIDUnrelatedAndInteractiveConfigure(t *testing.T) {
 	withHome(t)
 	seedUserConfig(t)
-	if err := runConfigureNonInteractive(NonInteractiveOptions{ScanFrequency: "8"}, absentUser()); err != nil {
+	if err := runConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"scan_frequency_hours": "8"}}, absentUser()); err != nil {
 		t.Fatal(err)
 	}
 	previous := os.Stdin
