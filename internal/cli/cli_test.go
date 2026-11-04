@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -453,22 +454,23 @@ func TestParse_ConfigureDeviceIDAndRetireOnUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ConfigDeviceID != "{hostname}-{user}" {
-		t.Errorf("ConfigDeviceID = %q", cfg.ConfigDeviceID)
+	if cfg.ConfigValues["device_id"] != "{hostname}-{user}" {
+		t.Errorf("device_id = %v", cfg.ConfigValues["device_id"])
 	}
-	if cfg.ConfigRetireOnUninstall == nil || !*cfg.ConfigRetireOnUninstall {
-		t.Errorf("bare --retire-on-uninstall must mean true, got %v", cfg.ConfigRetireOnUninstall)
+	if cfg.ConfigValues["retire_on_uninstall"] != true {
+		t.Errorf("bare --retire-on-uninstall must save true, got %v", cfg.ConfigValues["retire_on_uninstall"])
 	}
 
 	cfg, err = Parse([]string{"configure", "--device-id=asset-1", "--retire-on-uninstall=false"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ConfigDeviceID != "asset-1" {
-		t.Errorf("ConfigDeviceID = %q", cfg.ConfigDeviceID)
+	if cfg.ConfigValues["device_id"] != "asset-1" {
+		t.Errorf("device_id = %v", cfg.ConfigValues["device_id"])
 	}
-	if cfg.ConfigRetireOnUninstall == nil || *cfg.ConfigRetireOnUninstall {
-		t.Errorf("--retire-on-uninstall=false must mean false, got %v", cfg.ConfigRetireOnUninstall)
+	// false is the default: saved as null so the key is dropped from the file.
+	if v, ok := cfg.ConfigValues["retire_on_uninstall"]; !ok || v != nil {
+		t.Errorf("--retire-on-uninstall=false must save null, got %v (present %v)", v, ok)
 	}
 
 	// The MSI passes an empty property verbatim: empty means "unchanged".
@@ -476,11 +478,21 @@ func TestParse_ConfigureDeviceIDAndRetireOnUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ConfigDeviceID != "" {
-		t.Errorf("empty --device-id must stay empty, got %q", cfg.ConfigDeviceID)
+	for _, key := range []string{"device_id", "retire_on_uninstall"} {
+		if _, ok := cfg.ConfigValues[key]; ok {
+			t.Errorf("empty --%s= must leave the setting unchanged, got %v", strings.ReplaceAll(key, "_", "-"), cfg.ConfigValues[key])
+		}
 	}
-	if cfg.ConfigRetireOnUninstall != nil {
-		t.Errorf("empty --retire-on-uninstall= must leave the setting unchanged (nil), got %v", *cfg.ConfigRetireOnUninstall)
+
+	// "-" clears: saved as "" so the key is dropped from the file.
+	cfg, err = Parse([]string{"configure", "--device-id=-", "--device-tag", "-"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"device_id", "device_tag"} {
+		if v, ok := cfg.ConfigValues[key]; !ok || v != "" {
+			t.Errorf("\"-\" must save an empty %s, got %v (present %v)", key, v, ok)
+		}
 	}
 
 	if _, err := Parse([]string{"configure", "--retire-on-uninstall=maybe"}); err == nil {
@@ -490,12 +502,8 @@ func TestParse_ConfigureDeviceIDAndRetireOnUninstall(t *testing.T) {
 		t.Error("expected error for --device-id without a value")
 	}
 	cfg, err = Parse([]string{"configure", "--device-tag", "avd-pool-eu"})
-	if err != nil || cfg.ConfigDeviceTag != "avd-pool-eu" {
-		t.Errorf("--device-tag VALUE: cfg=%+v err=%v", cfg, err)
-	}
-	cfg, err = Parse([]string{"configure", "--device-tag=-"})
-	if err != nil || cfg.ConfigDeviceTag != "-" {
-		t.Errorf("--device-tag=- must carry the clear marker: cfg=%+v err=%v", cfg, err)
+	if err != nil || cfg.ConfigValues["device_tag"] != "avd-pool-eu" {
+		t.Errorf("--device-tag VALUE: values=%v err=%v", cfg.ConfigValues, err)
 	}
 	if _, err := Parse([]string{"configure", "--device-tag"}); err == nil {
 		t.Error("expected error for --device-tag without a value")
@@ -530,10 +538,69 @@ func TestParse_ConfigureAutoUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ConfigAutoUpdate == nil || *cfg.ConfigAutoUpdate {
-		t.Fatalf("ConfigAutoUpdate = %v", cfg.ConfigAutoUpdate)
+	if v, ok := cfg.ConfigValues["auto_update"]; !ok || v != false {
+		t.Fatalf("auto_update = %v (set=%v)", v, ok)
 	}
 	if _, err := Parse([]string{"configure", "--auto-update=maybe"}); err == nil {
 		t.Fatal("invalid --auto-update accepted")
+	}
+}
+
+func TestParse_ConfigureSettingFlags(t *testing.T) {
+	cfg, err := Parse([]string{"configure",
+		"--device-id", "dev-1",
+		"--max-execution-duration=2h",
+		"--update-mirror-url", "https://mirror.example.com",
+		"--update-lag-behind=2",
+		"--update-cooldown-hours", "24",
+		"--color=auto",
+		"--html", "r.html",
+		"--search-dirs", "/a", "/b",
+		"--disable-brew-scan",
+		"--log-level=WARNING",
+		"--customer-id=",               // empty leaves the setting unchanged
+		"--api-key", "k", "--api-key=", // the last occurrence wins, even empty
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"device_id":              "dev-1",
+		"max_execution_duration": "2h",
+		"update_mirror_url":      "https://mirror.example.com",
+		"update_lag_behind":      2,
+		"update_cooldown_hours":  24,
+		"color_mode":             "",
+		"output_format":          "html",
+		"html_output_file":       "r.html",
+		"search_dirs":            []string{"/a", "/b"},
+		"enable_brew_scan":       false,
+		"log_level":              "warn",
+	}
+	if !reflect.DeepEqual(cfg.ConfigValues, want) {
+		t.Errorf("ConfigValues =\n%#v\nwant\n%#v", cfg.ConfigValues, want)
+	}
+
+	cfg, err = Parse([]string{"configure", "--verbose", "--install-dir="})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.ConfigValues) != 0 {
+		t.Errorf("runtime-only flags saved config values: %v", cfg.ConfigValues)
+	}
+}
+
+func TestParse_ConfigureSettingFlagErrors(t *testing.T) {
+	for _, args := range [][]string{
+		{"configure", "--device-id"},
+		{"configure", "--max-execution-duration"},
+		{"configure", "--update-mirror-url"},
+		{"configure", "--update-lag-behind"},
+		{"configure", "--update-lag-behind=-1"},
+		{"configure", "--update-cooldown-hours", "soon"},
+	} {
+		if _, err := Parse(args); err == nil {
+			t.Errorf("Parse(%v) accepted", args)
+		}
 	}
 }

@@ -2,6 +2,11 @@ package detector
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -64,5 +69,38 @@ func TestPythonProjectDetector_PipEmptyAndFailure(t *testing.T) {
 				t.Fatalf("packages=%v nil=%v, want failure=%v", got, got == nil, tc.failed)
 			}
 		})
+	}
+}
+
+func TestPythonGlobalDiskScanReportsAllInstallationPaths(t *testing.T) {
+	home := t.TempDir()
+	mock := executor.NewMock()
+	mock.SetHomeDir(home)
+	roots := []string{filepath.Join(home, ".local", "lib", "python3.11", "site-packages"), filepath.Join(home, ".local", "lib", "python3.12", "site-packages")}
+	for _, root := range roots {
+		mustWriteMeta(t, mock, filepath.Join(root, "requests-2.31.0.dist-info", "METADATA"), sampleMetadata)
+		info, err := os.Stat(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mock.SetFileInfo(root, info)
+	}
+	results := NewPythonScanner(mock, progress.NewNoop()).ScanGlobalPackagesFromDisk(context.Background(), nil)
+	if len(results) != 1 {
+		t.Fatalf("results: %+v", results)
+	}
+	raw, err := base64.StdEncoding.DecodeString(results[0].RawStdoutBase64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries []struct {
+		Name         string   `json:"name"`
+		InstallPaths []string `json:"install_paths"`
+	}
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || !reflect.DeepEqual(entries[0].InstallPaths, roots) {
+		t.Fatalf("entries = %s, want both roots %v", raw, roots)
 	}
 }

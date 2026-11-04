@@ -17,15 +17,20 @@ func withHome(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir) // Windows
+	// Elevated on Windows, save() writes the machine-wide config; never
+	// clobber a real install's.
+	if !strings.HasPrefix(WriteConfigFilePath(), dir) {
+		t.Skip("config writes outside the temp HOME (elevated Windows)")
+	}
 	return dir
 }
 
 func TestRunConfigureNonInteractive_RequiresAPIKey(t *testing.T) {
 	withHome(t)
-	err := RunConfigureNonInteractive(NonInteractiveOptions{
-		CustomerID:  "cust-1",
-		APIEndpoint: "https://api.example.com",
-	})
+	err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id":  "cust-1",
+		"api_endpoint": "https://api.example.com",
+	}})
 	if err == nil || !strings.Contains(err.Error(), "api_key is required") {
 		t.Fatalf("expected api_key required error, got %v", err)
 	}
@@ -33,10 +38,10 @@ func TestRunConfigureNonInteractive_RequiresAPIKey(t *testing.T) {
 
 func TestRunConfigureNonInteractive_RequiresCustomerID(t *testing.T) {
 	withHome(t)
-	err := RunConfigureNonInteractive(NonInteractiveOptions{
-		APIKey:      "sk-1",
-		APIEndpoint: "https://api.example.com",
-	})
+	err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"api_key":      "sk-1",
+		"api_endpoint": "https://api.example.com",
+	}})
 	if err == nil || !strings.Contains(err.Error(), "customer_id is required") {
 		t.Fatalf("expected customer_id required error, got %v", err)
 	}
@@ -44,10 +49,10 @@ func TestRunConfigureNonInteractive_RequiresCustomerID(t *testing.T) {
 
 func TestRunConfigureNonInteractive_RequiresAPIEndpoint(t *testing.T) {
 	withHome(t)
-	err := RunConfigureNonInteractive(NonInteractiveOptions{
-		APIKey:     "sk-1",
-		CustomerID: "cust-1",
-	})
+	err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"api_key":     "sk-1",
+		"customer_id": "cust-1",
+	}})
 	if err == nil || !strings.Contains(err.Error(), "api_endpoint is required") {
 		t.Fatalf("expected api_endpoint required error, got %v", err)
 	}
@@ -55,13 +60,13 @@ func TestRunConfigureNonInteractive_RequiresAPIEndpoint(t *testing.T) {
 
 func TestRunConfigureNonInteractive_Inline(t *testing.T) {
 	withHome(t)
-	err := RunConfigureNonInteractive(NonInteractiveOptions{
-		CustomerID:    "cust-1",
-		APIEndpoint:   "https://api.example.com",
-		APIKey:        "sk-abcdef",
-		ScanFrequency: "6",
-		SearchDirs:    []string{"/opt", "/usr/local"},
-	})
+	err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id":          "cust-1",
+		"api_endpoint":         "https://api.example.com",
+		"api_key":              "sk-abcdef",
+		"scan_frequency_hours": "6",
+		"search_dirs":          []string{"/opt", "/usr/local"},
+	}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -128,7 +133,7 @@ func TestRunConfigureNonInteractive_InlineOverridesFromFile(t *testing.T) {
 	// customers inject per-tenant keys without committing them).
 	err := RunConfigureNonInteractive(NonInteractiveOptions{
 		FromFile: srcPath,
-		APIKey:   "sk-inline-wins",
+		Values:   map[string]any{"api_key": "sk-inline-wins"},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -147,8 +152,8 @@ func TestNonInteractiveOptions_HasAny(t *testing.T) {
 	if (NonInteractiveOptions{}).HasAny() {
 		t.Error("empty opts should not report HasAny")
 	}
-	if !(NonInteractiveOptions{APIKey: "x"}).HasAny() {
-		t.Error("APIKey alone should be enough")
+	if !(NonInteractiveOptions{Values: map[string]any{"api_key": "x"}}).HasAny() {
+		t.Error("one value alone should be enough")
 	}
 	if !(NonInteractiveOptions{FromFile: "p"}).HasAny() {
 		t.Error("FromFile alone should be enough")
@@ -157,14 +162,13 @@ func TestNonInteractiveOptions_HasAny(t *testing.T) {
 
 func TestRunConfigureNonInteractive_DeviceIDAndRetireFlags(t *testing.T) {
 	withHome(t)
-	retire := true
-	err := RunConfigureNonInteractive(NonInteractiveOptions{
-		CustomerID:        "cust-1",
-		APIEndpoint:       "https://api.example.com",
-		APIKey:            "sk-abcdef",
-		DeviceID:          " {hostname}-{user} ",
-		RetireOnUninstall: &retire,
-	})
+	err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id":         "cust-1",
+		"api_endpoint":        "https://api.example.com",
+		"api_key":             "sk-abcdef",
+		"device_id":           " {hostname}-{user} ",
+		"retire_on_uninstall": true,
+	}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -182,9 +186,9 @@ func TestRunConfigureNonInteractive_DeviceIDAndRetireFlags(t *testing.T) {
 		}
 	}
 
-	// Omitted = unchanged; "-" clears the template; false drops the retire key.
-	off := false
-	if err := RunConfigureNonInteractive(NonInteractiveOptions{APIKey: "sk-2", RetireOnUninstall: &off}); err != nil {
+	// Omitted = unchanged; false (saved as null by the flag) drops the retire
+	// key; "" (what "-" saves) clears the template.
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"api_key": "sk-2", "retire_on_uninstall": nil}}); err != nil {
 		t.Fatalf("second configure: %v", err)
 	}
 	cfg = loadExisting()
@@ -194,11 +198,11 @@ func TestRunConfigureNonInteractive_DeviceIDAndRetireFlags(t *testing.T) {
 	if cfg.RetireOnUninstall != nil {
 		t.Errorf("retire_on_uninstall=false must be omitted from the file, got %v", *cfg.RetireOnUninstall)
 	}
-	if err := RunConfigureNonInteractive(NonInteractiveOptions{DeviceID: "-"}); err != nil {
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_id": ""}}); err != nil {
 		t.Fatalf("third configure: %v", err)
 	}
 	if cfg = loadExisting(); cfg.DeviceID != "" {
-		t.Errorf("\"-\" must clear the template, got %q", cfg.DeviceID)
+		t.Errorf("an empty device_id must clear the template, got %q", cfg.DeviceID)
 	}
 }
 
@@ -233,10 +237,10 @@ func TestValidDeviceTag(t *testing.T) {
 
 func TestRunConfigureNonInteractive_DeviceTag(t *testing.T) {
 	withHome(t)
-	if err := RunConfigureNonInteractive(NonInteractiveOptions{
-		CustomerID: "cust-1", APIEndpoint: "https://api.example.com", APIKey: "sk-abcdef",
-		DeviceTag: " avd-pool-eu ",
-	}); err != nil {
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id": "cust-1", "api_endpoint": "https://api.example.com", "api_key": "sk-abcdef",
+		"device_tag": " avd-pool-eu ",
+	}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	cfg := loadExisting()
@@ -248,25 +252,25 @@ func TestRunConfigureNonInteractive_DeviceTag(t *testing.T) {
 		t.Errorf("config.json missing device_tag:\n%s", raw)
 	}
 	// Omitted = unchanged.
-	if err := RunConfigureNonInteractive(NonInteractiveOptions{APIKey: "sk-2"}); err != nil {
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"api_key": "sk-2"}}); err != nil {
 		t.Fatalf("second configure: %v", err)
 	}
 	if cfg = loadExisting(); cfg.DeviceTag != "avd-pool-eu" {
 		t.Errorf("omitted --device-tag must keep the tag, got %q", cfg.DeviceTag)
 	}
 	// Invalid = rejected, file untouched.
-	if err := RunConfigureNonInteractive(NonInteractiveOptions{DeviceTag: "avd pool"}); err == nil {
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_tag": "avd pool"}}); err == nil {
 		t.Error("a tag with a space must be rejected")
 	}
 	if cfg = loadExisting(); cfg.DeviceTag != "avd-pool-eu" {
 		t.Errorf("a rejected tag must not change the file, got %q", cfg.DeviceTag)
 	}
-	// "-" clears.
-	if err := RunConfigureNonInteractive(NonInteractiveOptions{DeviceTag: "-"}); err != nil {
+	// "" (what "-" saves) clears.
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_tag": ""}}); err != nil {
 		t.Fatalf("third configure: %v", err)
 	}
 	if cfg = loadExisting(); cfg.DeviceTag != "" {
-		t.Errorf("\"-\" must clear the tag, got %q", cfg.DeviceTag)
+		t.Errorf("an empty device_tag must clear the tag, got %q", cfg.DeviceTag)
 	}
 }
 
@@ -298,22 +302,6 @@ func TestLoad_DeviceTag(t *testing.T) {
 	Load()
 	if DeviceTag != "" {
 		t.Fatalf("an invalid device_tag must be ignored, got %q", DeviceTag)
-	}
-}
-
-func TestHasAny_DeviceIDAndRetire(t *testing.T) {
-	if (NonInteractiveOptions{}).HasAny() {
-		t.Fatal("empty options report HasAny")
-	}
-	if !(NonInteractiveOptions{DeviceID: "x"}).HasAny() {
-		t.Fatal("DeviceID alone must count as an inline value")
-	}
-	if !(NonInteractiveOptions{DeviceTag: "x"}).HasAny() {
-		t.Fatal("DeviceTag alone must count as an inline value")
-	}
-	v := false
-	if !(NonInteractiveOptions{RetireOnUninstall: &v}).HasAny() {
-		t.Fatal("RetireOnUninstall alone must count as an inline value")
 	}
 }
 
@@ -351,11 +339,10 @@ func TestLoad_DeviceIDAndRetireOnUninstall(t *testing.T) {
 
 func TestShowConfigure_PrintsDeviceIdentity(t *testing.T) {
 	withHome(t)
-	retire := true
-	if err := RunConfigureNonInteractive(NonInteractiveOptions{
-		CustomerID: "c", APIEndpoint: "https://e", APIKey: "sk-abcdef",
-		DeviceID: "{hostname}", RetireOnUninstall: &retire,
-	}); err != nil {
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id": "c", "api_endpoint": "https://e", "api_key": "sk-abcdef",
+		"device_id": "{hostname}", "retire_on_uninstall": true,
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	out := captureStdout(t, func() { ShowConfigure("avd-host-07 (source: config)") })
@@ -372,7 +359,7 @@ func TestShowConfigure_PrintsDeviceIdentity(t *testing.T) {
 	if strings.Contains(out, "resolves now to") {
 		t.Errorf("empty resolved line must be omitted:\n%s", out)
 	}
-	if err := RunConfigureNonInteractive(NonInteractiveOptions{DeviceID: "-"}); err != nil {
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_id": ""}}); err != nil {
 		t.Fatal(err)
 	}
 	out = captureStdout(t, func() { ShowConfigure("") })
@@ -417,10 +404,10 @@ func captureStdout(t *testing.T, fn func()) string {
 func TestRunConfigureNonInteractive_FromFileMerges(t *testing.T) {
 	optOut := false
 	withHome(t)
-	if err := RunConfigureNonInteractive(NonInteractiveOptions{
-		CustomerID: "cust", APIEndpoint: "https://old.example.com", APIKey: "sk-old",
-		AutoUpdate: &optOut,
-	}); err != nil {
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id": "cust", "api_endpoint": "https://old.example.com", "api_key": "sk-old",
+		"auto_update": optOut,
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	path := ConfigFilePath()
@@ -455,5 +442,72 @@ func TestRunConfigureNonInteractive_FromFileMerges(t *testing.T) {
 	raw, _ = os.ReadFile(path)
 	if !strings.Contains(string(raw), `"future_key"`) {
 		t.Fatalf("unknown key dropped:\n%s", raw)
+	}
+}
+
+// Flag values merge key by key: "" clears a string setting (how the CLI
+// stores the "auto"/"pretty" defaults), keys not passed are kept.
+func TestRunConfigureNonInteractive_ValuesMerge(t *testing.T) {
+	withHome(t)
+	creds := map[string]any{"customer_id": "c", "api_endpoint": "https://e", "api_key": "k"}
+	with := func(kv map[string]any) NonInteractiveOptions {
+		m := map[string]any{}
+		for k, v := range creds {
+			m[k] = v
+		}
+		for k, v := range kv {
+			m[k] = v
+		}
+		return NonInteractiveOptions{Values: m}
+	}
+	if err := RunConfigureNonInteractive(with(map[string]any{
+		"color_mode": "never", "output_format": "json", "update_lag_behind": 3, "enable_brew_scan": false,
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunConfigureNonInteractive(with(map[string]any{"color_mode": "", "output_format": ""})); err != nil {
+		t.Fatal(err)
+	}
+	cfg := loadExisting()
+	if cfg.ColorMode != "" || cfg.OutputFormat != "" {
+		t.Errorf("defaults not cleared: color=%q format=%q", cfg.ColorMode, cfg.OutputFormat)
+	}
+	if cfg.UpdateLagBehind != 3 || cfg.EnableBrewScan == nil || *cfg.EnableBrewScan {
+		t.Errorf("unpassed keys not kept: lag=%d brew=%v", cfg.UpdateLagBehind, cfg.EnableBrewScan)
+	}
+}
+
+// A community install (no credentials) can change preferences without
+// prompts; anything touching credentials, a --from-file, or a bare
+// --non-interactive (an MSI with empty credential properties) still needs
+// all three.
+func TestRunConfigureNonInteractive_CredentialsRequirement(t *testing.T) {
+	tests := []struct {
+		name    string
+		opts    NonInteractiveOptions
+		wantErr string
+	}{
+		{"preferences only", NonInteractiveOptions{Values: map[string]any{"color_mode": "never", "enable_brew_scan": false}}, ""},
+		{"bare non-interactive", NonInteractiveOptions{}, "api_key is required"},
+		{"partial credentials", NonInteractiveOptions{Values: map[string]any{"customer_id": "c", "color_mode": "never"}}, "api_key is required"},
+		{"env api key only", NonInteractiveOptions{Values: map[string]any{"api_key": "k"}}, "customer_id is required"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			withHome(t)
+			err := RunConfigureNonInteractive(tc.opts)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if cfg := loadExisting(); cfg.ColorMode != "never" || cfg.EnableBrewScan == nil || *cfg.EnableBrewScan {
+					t.Errorf("preferences not saved: %+v", cfg)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want %q", err, tc.wantErr)
+			}
+		})
 	}
 }

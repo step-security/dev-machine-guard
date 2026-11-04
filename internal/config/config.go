@@ -988,25 +988,12 @@ func isPlaceholder(v string) bool {
 
 // NonInteractiveOptions captures every input the non-interactive configure
 // path accepts. Populated by main.go from cli.Config plus the DMG_API_KEY
-// env var fallback. Empty fields preserve the existing on-disk value
-// (merge semantics — same as the interactive prompt's "press Enter to keep").
+// env var fallback. Keys absent from Values preserve the existing on-disk
+// value (merge semantics — same as the interactive prompt's "press Enter
+// to keep").
 type NonInteractiveOptions struct {
-	FromFile      string   // path to a complete ConfigFile JSON; wins over inline values
-	CustomerID    string   // --customer-id
-	APIEndpoint   string   // --api-endpoint
-	APIKey        string   // --api-key (or DMG_API_KEY env)
-	ScanFrequency string   // --scan-frequency (hours, as string)
-	SearchDirs    []string // --search-dirs (re-used from scan flag; empty = unchanged)
-	// DeviceID is --device-id: the identity template (literal or tokens).
-	// Empty = unchanged, like every other field; "-" clears it back to the
-	// hardware serial so an MSI property can reset a previously set template.
-	DeviceID string
-	// DeviceTag is --device-tag: the dashboard label. Empty = unchanged; "-"
-	// clears it; anything else must satisfy ValidDeviceTag.
-	DeviceTag string
-	// RetireOnUninstall is --retire-on-uninstall[=true|false]; nil = unchanged.
-	RetireOnUninstall *bool
-	AutoUpdate        *bool // --auto-update=true|false (nil = unchanged)
+	FromFile string         // path to a ConfigFile JSON; Values override it
+	Values   map[string]any // config.json key -> value, from the CLI flags
 }
 
 // HasAny reports whether the caller supplied any inline value. Used by
@@ -1014,16 +1001,22 @@ type NonInteractiveOptions struct {
 // even without the explicit --non-interactive flag (e.g. an MSI that only
 // passes --from-file).
 func (o NonInteractiveOptions) HasAny() bool {
-	return o.FromFile != "" ||
-		o.CustomerID != "" ||
-		o.APIEndpoint != "" ||
-		o.APIKey != "" ||
-		o.ScanFrequency != "" ||
-		len(o.SearchDirs) > 0 ||
-		o.DeviceID != "" ||
-		o.DeviceTag != "" ||
-		o.RetireOnUninstall != nil ||
-		o.AutoUpdate != nil
+	return o.FromFile != "" || len(o.Values) > 0
+}
+
+// preferencesOnly reports whether o only changes settings other than the
+// enterprise credentials. A bare --non-interactive (e.g. an MSI whose
+// credential properties were empty) and --from-file are bootstraps.
+func (o NonInteractiveOptions) preferencesOnly() bool {
+	if o.FromFile != "" || len(o.Values) == 0 {
+		return false
+	}
+	for _, k := range []string{"customer_id", "api_endpoint", "api_key"} {
+		if _, ok := o.Values[k]; ok {
+			return false
+		}
+	}
+	return true
 }
 
 // RunConfigureNonInteractive applies the supplied options to the existing
@@ -1037,7 +1030,7 @@ func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
 
 	// --from-file merges: keys the file carries override the existing
 	// config (credential rotation), keys it omits are kept (an AUTOUPDATE=0
-	// opt-out, unknown keys). Inline flags still override individual fields
+	// opt-out, unknown keys). Inline flags still override individual keys
 	// below, so customers can ship a base config via the file and inject
 	// the per-tenant API key via an env var on the command line.
 	if opts.FromFile != "" {
@@ -1054,62 +1047,45 @@ func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
 		}
 	}
 
-	if opts.CustomerID != "" {
-		existing.CustomerID = opts.CustomerID
-	}
-	if opts.APIEndpoint != "" {
-		existing.APIEndpoint = opts.APIEndpoint
-	}
-	if opts.APIKey != "" {
-		existing.APIKey = opts.APIKey
-	}
-	if opts.ScanFrequency != "" {
-		existing.ScanFrequencyHours = opts.ScanFrequency
-	}
-	if len(opts.SearchDirs) > 0 {
-		existing.SearchDirs = opts.SearchDirs
-	}
-	switch v := strings.TrimSpace(opts.DeviceID); v {
-	case "":
-		// unchanged
-	case "-":
-		existing.DeviceID = ""
-	default:
-		existing.DeviceID = v
-	}
-	switch v := strings.TrimSpace(opts.DeviceTag); v {
-	case "":
-		// unchanged
-	case "-":
-		existing.DeviceTag = ""
-	default:
-		if !ValidDeviceTag(v) {
-			return deviceTagError(v)
+	// Flag values merge the same way, over the file.
+	if len(opts.Values) > 0 {
+		data, err := json.Marshal(opts.Values)
+		if err != nil {
+			return fmt.Errorf("encoding configure flags: %w", err)
 		}
-		existing.DeviceTag = v
-	}
-	if opts.RetireOnUninstall != nil {
-		if *opts.RetireOnUninstall {
-			existing.RetireOnUninstall = opts.RetireOnUninstall
-		} else {
-			existing.RetireOnUninstall = nil // false is the default; keep the file minimal
+		if err := json.Unmarshal(data, existing); err != nil {
+			return fmt.Errorf("applying configure flags: %w", err)
 		}
 	}
-	if opts.AutoUpdate != nil {
-		existing.AutoUpdate = opts.AutoUpdate
+
+	// Settings with a shape the JSON merge cannot check. The identity
+	// template is trimmed, the tag must satisfy ValidDeviceTag (the agent
+	// ignores an invalid one at load time, so reject it where it can be
+	// fixed), and a false retire_on_uninstall is the default, so the key is
+	// dropped to keep the file minimal.
+	existing.DeviceID = strings.TrimSpace(existing.DeviceID)
+	if existing.DeviceTag = strings.TrimSpace(existing.DeviceTag); existing.DeviceTag != "" && !ValidDeviceTag(existing.DeviceTag) {
+		return deviceTagError(existing.DeviceTag)
+	}
+	if existing.RetireOnUninstall != nil && !*existing.RetireOnUninstall {
+		existing.RetireOnUninstall = nil
 	}
 
 	// Validation: an MSI deploy with no creds is almost certainly a bug.
 	// Fail loud so the MSI transaction rolls back instead of silently
-	// installing a half-configured agent.
-	if existing.APIKey == "" {
-		return fmt.Errorf("api_key is required (pass --api-key, --from-file, or DMG_API_KEY env var)")
-	}
-	if existing.CustomerID == "" {
-		return fmt.Errorf("customer_id is required (pass --customer-id or --from-file)")
-	}
-	if existing.APIEndpoint == "" {
-		return fmt.Errorf("api_endpoint is required (pass --api-endpoint or --from-file)")
+	// installing a half-configured agent. A preference-only update
+	// (`configure --color=never`) needs no credentials, so a community
+	// install can use it.
+	if !opts.preferencesOnly() {
+		if existing.APIKey == "" {
+			return fmt.Errorf("api_key is required (pass --api-key, --from-file, or DMG_API_KEY env var)")
+		}
+		if existing.CustomerID == "" {
+			return fmt.Errorf("customer_id is required (pass --customer-id or --from-file)")
+		}
+		if existing.APIEndpoint == "" {
+			return fmt.Errorf("api_endpoint is required (pass --api-endpoint or --from-file)")
+		}
 	}
 
 	if err := save(existing); err != nil {
