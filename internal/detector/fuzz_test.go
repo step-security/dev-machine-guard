@@ -241,3 +241,80 @@ func FuzzCondaMetadata(f *testing.F) {
 		}
 	})
 }
+
+func FuzzMavenMetadata(f *testing.F) {
+	for _, s := range []string{
+		mavenTestPOM("org.example", "app", "1.0"),
+		`<project><parent><groupId>g</groupId><artifactId>p</artifactId><version>1</version></parent><artifactId>a</artifactId>` +
+			`<dependencies><dependency><groupId>g</groupId><artifactId>d</artifactId><version>https://u:p@h/x</version><classifier/></dependency></dependencies>` +
+			`<build><plugins><plugin><artifactId>m</artifactId><dependencies><dependency><groupId>g</groupId><artifactId>pd</artifactId></dependency></dependencies></plugin></plugins></build>` +
+			`<profiles><profile><id>ci</id><dependencies><dependency><groupId>${g}</groupId><artifactId>x</artifactId></dependency></dependencies></profile></profiles></project>`,
+		"org.example:a:1.0=compileClasspath,runtimeClasspath\nempty=annotationProcessor\n",
+		"[versions]\nv = { strictly = \"[1,2)\" }\n[libraries]\na = { module = \"g:a\", version.ref = \"v\" }\nb = \"g:b:1\"\n",
+		`<verification-metadata><configuration><verify-metadata>true</verify-metadata></configuration><components><component group="g" name="a" version="1">` +
+			`<artifact name="a-1.jar"><sha256 value="` + mavenSHA256A + `"><also-trust value="` + mavenSHA256B + `"/></sha256></artifact></component></components></verification-metadata>`,
+		`<ivy-module version="2.0"><info organisation="g" module="a" revision="1"/></ivy-module>`,
+		"distributionUrl=https\\://u\\:p@h/x.zip\nwrapperSha256Sum=\\u0041\n",
+		"", "<", "\xff\x00", `<!DOCTYPE x [<!ENTITY a "b">]><project/>`,
+	} {
+		f.Add([]byte(s))
+	}
+	check := func(t *testing.T, ds []mavenDeclaration) {
+		t.Helper()
+		for _, d := range ds {
+			if mavenCoordinate(d.group) != "" || mavenCoordinate(d.artifact) != "" {
+				t.Fatalf("invalid declaration identity %+v", d)
+			}
+		}
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 16*1024 {
+			t.Skip()
+		}
+		before := bytes.Clone(data)
+		pom, err := parseMavenPOM(data)
+		if pom2, err2 := parseMavenPOM(data); !reflect.DeepEqual(pom, pom2) || (err == nil) != (err2 == nil) {
+			t.Fatal("POM parse is not deterministic")
+		}
+		if err == nil {
+			check(t, pom.declarations)
+		}
+		catalog, err := parseGradleCatalog(data)
+		if catalog2, err2 := parseGradleCatalog(data); !reflect.DeepEqual(catalog, catalog2) || (err == nil) != (err2 == nil) {
+			t.Fatal("catalog parse is not deterministic")
+		}
+		if err == nil {
+			check(t, catalog.declarations)
+		}
+		for _, legacy := range []string{"", "compileClasspath"} {
+			if lock, err := parseGradleLock(data, legacy); err == nil {
+				for _, e := range lock.entries {
+					if mavenCoordinate(e.group) != "" || mavenCoordinate(e.artifact) != "" || !mavenVersion(e.version) {
+						t.Fatalf("invalid lock entry %+v", e)
+					}
+				}
+			}
+		}
+		if refs, _, _, err := parseGradleVerification(data); err == nil {
+			for _, r := range refs {
+				if len(r.checksums) > maxMavenChecksums {
+					t.Fatalf("%d checksums", len(r.checksums))
+				}
+				for _, h := range r.checksums {
+					if len(h.value) != mavenHexLengths[h.algorithm] || strings.Trim(h.value, "0123456789abcdef") != "" {
+						t.Fatalf("invalid checksum %+v", h)
+					}
+				}
+			}
+		}
+		mavenIvyMatches(data, "g", "a", "1")
+		_, _, _, _ = mavenPOMIdentity(data)
+		props, _ := configaudit.ParseJavaProperties(data)
+		if len(props) > 4096 {
+			t.Fatalf("%d properties", len(props))
+		}
+		if !bytes.Equal(data, before) {
+			t.Fatal("parser mutated input")
+		}
+	})
+}
