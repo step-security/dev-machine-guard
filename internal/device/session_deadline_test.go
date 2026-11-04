@@ -28,11 +28,22 @@ func (e *stalledSessionExecutor) LoggedInUserContext(ctx context.Context) (*user
 	return nil, ctx.Err()
 }
 
+func (e *stalledSessionExecutor) Run(ctx context.Context, name string, args ...string) (string, string, int, error) {
+	if err := ctx.Err(); err != nil {
+		return "", "", -1, err
+	}
+	return e.Mock.Run(ctx, name, args...)
+}
+
 func TestGatherSessionRespectsCallerDeadline(t *testing.T) {
 	for _, configured := range []bool{false, true} {
 		t.Run(map[bool]string{false: "email", true: "configured"}[configured], func(t *testing.T) {
+			ResetIDCache()
+			t.Cleanup(ResetIDCache)
 			previous := config.UserID
-			t.Cleanup(func() { config.UserID = previous })
+			previousDeviceID := config.DeviceID
+			t.Cleanup(func() { config.UserID, config.DeviceID = previous, previousDeviceID })
+			config.DeviceID = ""
 			config.UserID = ""
 			if configured {
 				config.UserID = "configured-user"
@@ -41,6 +52,7 @@ func TestGatherSessionRespectsCallerDeadline(t *testing.T) {
 			mock.SetGOOS(model.PlatformDarwin)
 			mock.SetIsRoot(true)
 			mock.SetEnv("USER_EMAIL", "email@example.com")
+			mock.SetCommand(`"IOPlatformSerialNumber" = "HARDWARE-123"`, "", 0, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
 			blocked := &stalledSessionExecutor{Mock: mock, release: make(chan struct{})}
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 			defer cancel()
@@ -56,6 +68,9 @@ func TestGatherSessionRespectsCallerDeadline(t *testing.T) {
 				}
 				if dev.UserIdentity != want || !dev.NoUserLoggedIn {
 					t.Fatalf("attribution/session after timeout: %+v", dev)
+				}
+				if dev.SerialNumber != "HARDWARE-123" || ID(dev) != "HARDWARE-123" {
+					t.Fatalf("session timeout lost available hardware identity: %+v", dev)
 				}
 			case <-time.After(500 * time.Millisecond):
 				t.Fatal("session lookup ignored the caller's deadline")

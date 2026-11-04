@@ -412,11 +412,14 @@ func RunConfigure() error {
 
 	deviceID := promptValue(reader, "Device ID (optional; default = machine serial)", existing.DeviceID)
 	if deviceID != existing.DeviceID {
-		normalized, err := identity.Normalize(deviceID, "device")
-		if err != nil {
-			return err
+		// A dash explicitly resets the optional override to machine identity.
+		if deviceID != "" {
+			deviceID, err = identity.Normalize(deviceID, "device")
+			if err != nil {
+				return err
+			}
 		}
-		existing.DeviceID = normalized
+		existing.DeviceID = deviceID
 	}
 	existing.CustomerID = promptValue(reader, "Customer ID", existing.CustomerID)
 	existing.APIEndpoint = promptValue(reader, "API Endpoint", existing.APIEndpoint)

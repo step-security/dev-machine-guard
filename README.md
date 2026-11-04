@@ -272,7 +272,8 @@ config JSON, set **Device ID** through `configure`, or pass
 `configure --device-id my-device-123`. The override is also
 supported in JSON supplied to `configure --from-file`. Explicit device-ID inputs
 must follow the ID format above; empty or whitespace-only inputs are rejected.
-An absent or empty saved override uses the machine serial as before. The agent continues
+An absent or empty saved override uses the machine serial as before. To reset an
+existing override, enter `-` at the interactive Device ID prompt. The agent continues
 reporting the actual machine serial in `serial_number`. WSL guest scans derive
 separate IDs from the host ID and distro ID.
 

@@ -279,6 +279,36 @@ func TestUserIDUnrelatedAndInteractiveConfigure(t *testing.T) {
 	}
 }
 
+func TestUserIDInteractiveDeviceClear(t *testing.T) {
+	withHome(t)
+	seedUserConfig(t)
+	opts := NonInteractiveOptions{Values: map[string]any{"device_id": "custom-device"}}
+	if err := runConfigureNonInteractive(opts, absentUser()); err != nil {
+		t.Fatal(err)
+	}
+	input, err := os.CreateTemp(t.TempDir(), "stdin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	if _, err := input.WriteString("-\n" + strings.Repeat("\n", 30)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := input.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	previous := os.Stdin
+	t.Cleanup(func() { os.Stdin = previous })
+	os.Stdin = input
+	if err := RunConfigure(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readExistingStrict()
+	if err != nil || got.DeviceID != "" || got.UserID != "abc" || got.InstallDir != "/preserved" {
+		t.Fatalf("device reset must preserve user ID and other settings: %+v, %v", got, err)
+	}
+}
+
 // Helper runs in a fresh OS process so global state and the process lock really
 // are independent. stdin is an explicit start barrier; stdout reports readiness.
 func TestUserIDProcessHelper(t *testing.T) {

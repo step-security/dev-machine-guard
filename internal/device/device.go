@@ -39,13 +39,14 @@ func IDForGuest(dev model.Device, hostDeviceID, distroID string) string {
 // Gather collects device information (hostname, serial, OS version, user identity).
 func Gather(ctx context.Context, exec executor.Executor) model.Device {
 	platform := exec.GOOS()
+	// Session lookup can exhaust the hook deadline; resolve device identity first.
+	serial := SerialNumber(ctx, exec)
 	hostname := getHostname(ctx, exec, platform)
 	userIdentity, noUserLoggedIn := identity.DetectUserSession(ctx, exec)
 	if config.UserID != "" {
 		userIdentity = config.UserID
 	}
 
-	serial := SerialNumber(ctx, exec)
 	var osVersion string
 	switch platform {
 	case model.PlatformWindows:
