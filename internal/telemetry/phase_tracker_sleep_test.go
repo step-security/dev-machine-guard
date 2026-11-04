@@ -100,19 +100,24 @@ func TestPhaseTracker_SleepSpanningRun(t *testing.T) {
 	}
 }
 
-// A wall clock that still carries a monotonic reading must not hide a sleep:
-// the tracker strips it before differencing.
-func TestPhaseTracker_IgnoresMonotonicReadingOnWallStamps(t *testing.T) {
-	base := time.Now() // carries a monotonic reading
-	wall := base
-	awake := time.Duration(0)
-	pt := newPhaseTrackerWithClocks(func() time.Time { return wall }, func() time.Duration { return awake })
-	pt.Start("ide_scan")
-	wall = base.Add(30 * time.Minute) // Add keeps the monotonic reading in step
-	awake += 5 * time.Minute
-	pc, _ := pt.Finish()
-	if got, want := pc.SleptMs, (25 * time.Minute).Milliseconds(); got != want {
-		t.Errorf("slept_ms = %d, want %d", got, want)
+// Wall stamps are differenced without their monotonic reading: with it, Sub
+// would use the monotonic clock, which stops during a sleep, and hide the
+// gap. A fabricated stamp cannot carry a diverging monotonic reading, so the
+// normalization is asserted directly on the helper both calculations use.
+func TestWallStamp_StripsMonotonicReading(t *testing.T) {
+	now := time.Now()
+	if !strings.Contains(now.String(), " m=") {
+		t.Skip("time.Now() carries no monotonic reading on this platform")
+	}
+	stamp := wallStamp(now)
+	if strings.Contains(stamp.String(), " m=") {
+		t.Fatalf("wallStamp kept the monotonic reading: %s", stamp)
+	}
+	if !stamp.Equal(now) {
+		t.Fatalf("wallStamp changed the wall time: %s vs %s", stamp, now)
+	}
+	if wallStamp(now.Add(time.Hour)).Sub(stamp) != time.Hour {
+		t.Fatal("stripped stamps must difference on wall time")
 	}
 }
 

@@ -59,6 +59,12 @@ type RunStatusInfo struct {
 // relative to the awake clock; a genuine sleep is minutes.
 const minReportedSleep = 60 * time.Second
 
+// wallStamp strips the monotonic reading from a wall-clock stamp. Sub on two
+// stamps that both carry one uses the monotonic clock, which stops during a
+// sleep, and would hide exactly the gap the tracker reports; both the phase
+// and the run calculation difference wall stamps through this.
+func wallStamp(t time.Time) time.Time { return t.Round(0) }
+
 // sleptDuration returns how long the system was suspended during an
 // interval, given the interval measured on the wall clock and on the awake
 // clock. Divergence below minReportedSleep, including the equal-inputs case
@@ -166,7 +172,7 @@ func (t *PhaseTracker) finishLocked() (PhaseCompletion, bool) {
 	if work < 0 {
 		work = 0
 	}
-	wall := finishedAt.Round(0).Sub(t.phaseStartedAt.Round(0))
+	wall := wallStamp(finishedAt).Sub(wallStamp(t.phaseStartedAt))
 	pc := PhaseCompletion{
 		Name:       t.currentPhase,
 		FinishedAt: finishedAt.Unix(),
@@ -230,7 +236,7 @@ func (t *PhaseTracker) Snapshot() RunStatusInfo {
 		ElapsedMs:    elapsed.Milliseconds(),
 		// Run-level sleep, measured from run start so it also covers sleep
 		// landing between phases (per-phase SleptMs can't see those gaps).
-		SleptMs: sleptDuration(now.Round(0).Sub(t.startedAt.Round(0)), elapsed).Milliseconds(),
+		SleptMs: sleptDuration(wallStamp(now).Sub(wallStamp(t.startedAt)), elapsed).Milliseconds(),
 	}
 	if len(t.completed) > 0 {
 		out.PhasesCompleted = make([]PhaseCompletion, len(t.completed))
