@@ -662,7 +662,7 @@ if isConfigured(ctx, exec) {
   `device.ResolveIdentity` (identity.go) layers the configured identity on top:
   `STEPSEC_DEVICE_ID` > `config.DeviceID` (config.json `device_id`) > automatic per-user template on
   a shared Windows host (multiuser.go: sticky marker, multi-session edition or 2+ scanning users;
-  the switch retires the old serial row once, reason `identity_changed`) > machine identity; a literal or
+  the switch removes the old serial row once, retire reason `identity_changed`) > machine identity; a literal or
   a template over `{serial}` `{hostname}` `{user}`; template expansions are sanitized (a literal id is used as given)
   (`device.SanitizeDeviceID`), the machine-identity path is byte-identical. `Gather` stores the
   result on `Device.DeviceID`/`DeviceIDSource`; `Device.SerialNumber` stays the machine identity.

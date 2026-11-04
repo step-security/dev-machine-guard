@@ -23,9 +23,13 @@ const identitySwitchBudget = 5 * time.Second
 // retireSerialRowOnIdentitySwitch finishes the one-time switch to the
 // automatic per-user identity: the host used to report under its machine
 // identity (serial), that row would otherwise linger as a stale seat, so it
-// is retired once with reason identity_changed. Best effort: a failure is a
-// warning, the backend's auto-retire or an admin can still remove the row,
-// and the marker keeps the retire from being re-attempted once it succeeds.
+// is removed once through the retire API with reason identity_changed. The
+// backend treats that reason as a removal, not a soft retire: the row is
+// hidden everywhere at once (a "retired" twin of a live per-user device
+// would only confuse) and purged on the next sweep. Best effort: a failure
+// is a warning, the backend's auto-retire or an admin can still remove the
+// row, and the marker keeps the call from being re-attempted once it
+// succeeds.
 // Never runs for WSL guests (their identity is the host's) or when no
 // enterprise config exists.
 func retireSerialRowOnIdentitySwitch(ctx context.Context, exec executor.Executor, log *progress.Logger, dev *model.Device, wslGuest *model.WSLGuest) {
@@ -53,13 +57,13 @@ func retireSerialRowOnIdentitySwitch(ctx context.Context, exec executor.Executor
 	err := retire.Post(rctx, config.APIEndpoint, config.APIKey, config.CustomerID, dev.SerialNumber,
 		buildinfo.Version, exec.GOOS(), retire.ReasonIdentityChanged)
 	if err != nil {
-		log.Warn("identity switch: could not retire the previous device row %s: %v (auto-retire or the dashboard can still remove it)", dev.SerialNumber, err)
+		log.Warn("identity switch: could not remove the previous device row %s: %v (auto-retire or the dashboard can still remove it)", dev.SerialNumber, err)
 		return
 	}
 	if merr := device.MarkSerialRowRetired(dev.SerialNumber); merr != nil {
 		log.Debug("identity switch: could not record the retire: %v", merr)
 	}
-	log.Progress("Identity switch: this host is now multi-user; retired its previous device row %s (reason identity_changed)", dev.SerialNumber)
+	log.Progress("Identity switch: this host is now multi-user; removed its previous device row %s (reason identity_changed)", dev.SerialNumber)
 }
 
 // machineLastRunDeviceID is the device id the machine-wide last-run.json last

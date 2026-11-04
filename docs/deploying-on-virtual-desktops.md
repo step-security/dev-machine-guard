@@ -123,13 +123,17 @@ first scan, with no provisioning change at all.
 
 **The one-time switch.** When a host that already reported under its
 hardware serial becomes multi-user (a second person logs in), the next scan
-retires the old serial-based device through the retire API with reason
+removes the old serial-based device through the retire API with reason
 `identity_changed` before it uploads under the new identity, so no stale
-duplicate seat is left behind. The retire is best effort (a failure is a
-warning and is retried on the next run), happens at most once, and is also
-performed for a host that was upgraded from an older agent and still shows
-its serial in the machine-wide `last-run.json`. A host that was multi-session
-from the start never had a serial row and retires nothing.
+duplicate seat is left behind. The backend treats that reason as a removal:
+the old device disappears from every list at once, is not shown under
+Retired either (the host is now its per-user devices, and a "retired" twin of
+a live user would only confuse), and is purged on the next daily sweep. The
+call is best effort (a failure is a warning and is retried on the next run),
+happens at most once, and is also performed for a host that was upgraded from
+an older agent and still shows its serial in the machine-wide
+`last-run.json`. A host that was multi-session from the start never had a
+serial row and removes nothing.
 
 Limits in this version: automatic mode is Windows-only (macOS and Linux keep
 the hardware serial unless a template is configured) and needs the
@@ -228,7 +232,7 @@ at least the inactive threshold. Retired devices are purged 30 days later.
 | Symptom | Check |
 |---------|-------|
 | Device missing after a scan | `configure show` → *resolves now to*; a `{user}` template under SYSTEM reads *incomplete* and the run is skipped |
-| A host suddenly has per-user devices and its old device is retired | automatic mode kicked in (`multi-user.json` under `C:\ProgramData\StepSecurity` says why); the old row was retired with reason `identity_changed`. Configure `{serial}` to opt out |
+| A host suddenly has per-user devices and its old device is gone | automatic mode kicked in (`multi-user.json` under `C:\ProgramData\StepSecurity` says why); the old row was removed through the retire API with reason `identity_changed` (hidden at once, purged by the next sweep). Configure `{serial}` to opt out |
 | Is this a VM? | the device sheet shows the virtualization type and vendor; the agent logs `Virtualization: virtual (azure, imds)` or `physical` on every scan |
 | Two rows for one host after a rebuild | the template is not set, or `STEPSEC_DEVICE_ID` differs between the image and the running host |
 | Only one user's inventory on a shared host | the template lacks `{user}`; with it, look for `users\<user>\last-run.json` under the install dir |
