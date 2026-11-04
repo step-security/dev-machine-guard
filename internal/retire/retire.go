@@ -195,7 +195,7 @@ func CollectIdentities(ctx context.Context, exec executor.Executor, log *progres
 	// runs kept their state: an MSI uninstall custom action runs as SYSTEM,
 	// whose own home is the systemprofile folder, while the elevated install
 	// writes everything under C:\ProgramData\StepSecurity. Search both.
-	for _, id := range collectCachedIDs(stateRoots()) {
+	for _, id := range collectCachedIDs(ctx, stateRoots()) {
 		add(id)
 	}
 	return capIDs(ids)
@@ -230,10 +230,20 @@ func stateRoots() []string {
 	return roots
 }
 
+// Bounds on identity collection: the users tree and the per-user caches are
+// user-writable, so neither the number of files read per root nor the size
+// of one may depend on what a user planted there.
+const (
+	maxCachedIDFiles     = 64
+	maxCachedIDFileBytes = 64 * 1024
+)
+
 // collectCachedIDs reads the run-gate cache of every state file under the
 // roots: last-run.json at the top level and users/*/last-run.json for
 // per-user identities. Order is deterministic (roots in order, users sorted).
-func collectCachedIDs(roots []string) []string {
+// Stops at the uninstall budget (ctx), reads at most maxCachedIDFiles files
+// per root and skips any larger than maxCachedIDFileBytes.
+func collectCachedIDs(ctx context.Context, roots []string) []string {
 	var ids []string
 	for _, root := range roots {
 		var files []string
@@ -244,7 +254,16 @@ func collectCachedIDs(roots []string) []string {
 			sort.Strings(matches)
 			files = append(files, matches...)
 		}
+		if len(files) > maxCachedIDFiles {
+			files = files[:maxCachedIDFiles]
+		}
 		for _, f := range files {
+			if ctx.Err() != nil {
+				return ids
+			}
+			if st, err := os.Stat(f); err != nil || !st.Mode().IsRegular() || st.Size() > maxCachedIDFileBytes {
+				continue
+			}
 			rec, err := heartbeat.Load(f)
 			if err != nil || rec == nil || rec.RunGate == nil {
 				continue

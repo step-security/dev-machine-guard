@@ -486,6 +486,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	}()
 	log.Progress("Lock acquired (PID: %d)", os.Getpid())
 
+	// A run under the machine identity that waited in the gate or on the
+	// lock may have been overtaken by another user's switch to per-user
+	// identities; its upload would restore the row that switch just retired.
+	if serialRunSuperseded(exec, ident, wslGuest) {
+		log.Progress("Identity switch: this host became multi-user while this run was waiting; skipping this run under the machine identity %s (the next run reports per user)", deviceID)
+		return nil
+	}
+
 	// Scheduler info — first tracked phase. Gathers launchd/schtasks/systemd
 	// state (interval, last/next run, RunAtLoad, last exit, missed runs) for
 	// troubleshooting; see docs/launchd-troubleshooting.md. Best-effort —

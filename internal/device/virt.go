@@ -253,7 +253,12 @@ var imdsProbe = probeIMDS
 func probeIMDS(ctx context.Context, cloud string) bool {
 	ctx, cancel := context.WithTimeout(ctx, imdsTimeout)
 	defer cancel()
-	client := &http.Client{Timeout: imdsTimeout}
+	// Link-local metadata requests must never go through a configured proxy
+	// (HTTP_PROXY on enterprise VMs): the proxy would refuse or answer for
+	// the wrong host, and the verdict would be wrong either way.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	client := &http.Client{Timeout: imdsTimeout, Transport: transport}
 	get := func(method, url string, headers map[string]string) (string, bool) {
 		req, err := http.NewRequestWithContext(ctx, method, url, nil)
 		if err != nil {

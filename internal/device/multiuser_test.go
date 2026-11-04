@@ -244,3 +244,31 @@ func TestSerialRowRetirePending_AndMark(t *testing.T) {
 		t.Error("retire must happen once")
 	}
 }
+
+func TestAutoIdentitySuperseded(t *testing.T) {
+	dir := withMachineStateDir(t, "Professional", false)
+	withConfigDeviceID(t, "")
+	mock := windowsMock(`AVD-HOST-07\jdoe`)
+	// The snapshot of a single-user host: machine identity.
+	if tpl, _ := autoIdentity(mock); tpl != "" {
+		t.Fatalf("single-user host must snapshot the machine identity, got %q", tpl)
+	}
+	if AutoIdentitySuperseded(mock) {
+		t.Fatal("no switch happened yet")
+	}
+	// Another user's run flips the host after the snapshot was taken.
+	if err := writeMultiUserMarker(dir, multiUserMarker{Since: 1, Reason: autoReasonUsers}); err != nil {
+		t.Fatal(err)
+	}
+	if !AutoIdentitySuperseded(mock) {
+		t.Fatal("a marker written after a serial-mode snapshot must supersede it")
+	}
+	// A snapshot already in automatic mode is never superseded.
+	ResetAutoIdentityForTest()
+	if tpl, _ := autoIdentity(mock); tpl == "" {
+		t.Fatal("the marker must switch a fresh snapshot")
+	}
+	if AutoIdentitySuperseded(mock) {
+		t.Fatal("an automatic-mode snapshot is not superseded")
+	}
+}

@@ -195,6 +195,15 @@ func Uninstall(exec executor.Executor, log *progress.Logger) error {
 }
 
 func doUninstall(ctx context.Context, exec executor.Executor, log *progress.Logger) error {
+	// Stop running instances first: /delete removes the definition but
+	// leaves a scan that is already running, and its upload would restore
+	// the device right after `uninstall --retire` has retired it. Best
+	// effort: "no running instance" is a non-zero exit, ignored.
+	for _, name := range []string{taskName, logonTaskName} {
+		if _, estderr, eexit, eerr := exec.Run(ctx, "schtasks", "/end", "/tn", name); eerr != nil || eexit != 0 {
+			log.Debug("schtasks /end %q: exit_code=%d err=%v stderr=%q (ignored)", name, eexit, eerr, strings.TrimSpace(estderr))
+		}
+	}
 	_, stderr, exitCode, err := exec.Run(ctx, "schtasks", "/delete", "/tn", taskName, "/f")
 	log.Debug("schtasks /delete %q: exit_code=%d err=%v", taskName, exitCode, err)
 	if err != nil {

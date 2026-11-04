@@ -341,17 +341,20 @@ func SanitizeDeviceID(s string) string {
 
 // ResolvedDeviceID resolves the identity without a full Gather: the machine
 // identity comes from SerialNumber (cached per process, so a second caller
-// pays nothing) and only when the template needs it; hostname and user are
-// cheap. Used by the run gate ahead of the device_info phase and by
-// `uninstall --retire`.
+// pays nothing) and only when the template needs it (the machine identity
+// itself, {serial}, or {hostname} on a host without a usable name); hostname
+// and user are cheap. Used by the run gate ahead of the device_info phase and
+// by `uninstall --retire`.
 func ResolvedDeviceID(ctx context.Context, exec executor.Executor) Identity {
 	template, _ := IdentityTemplate(exec)
-	serial := ""
-	if template == "" || strings.Contains(strings.ToLower(template), TokenSerial) {
-		serial = SerialNumber(ctx, exec)
-	}
+	lower := strings.ToLower(template)
 	hostname := getHostname(ctx, exec, exec.GOOS())
 	user := getDeveloperIdentity(exec)
+	serial := ""
+	if template == "" || strings.Contains(lower, TokenSerial) ||
+		(strings.Contains(lower, TokenHostname) && hostnameToken(hostname, "") == "") {
+		serial = SerialNumber(ctx, exec)
+	}
 	id := ResolveIdentity(exec, serial, hostname, user)
 	if serial == "" && id.Source == IdentitySourceSerial {
 		// The template fell back to the machine identity (an unknown token,
@@ -364,12 +367,18 @@ func ResolvedDeviceID(ctx context.Context, exec executor.Executor) Identity {
 }
 
 // IdentityUserScope returns the per-user state scope for this run: the
-// sanitized {user} token when the identity template contains it and the
-// current user is a real developer, else "". It probes nothing (no serial, no
-// hostname) so main can call it before any state path is touched.
+// sanitized {user} token when the identity template contains it, the template
+// is one the resolver accepts, and the current user is a real developer, else
+// "". It probes nothing (no serial, no hostname) so main can call it before
+// any state path is touched.
 func IdentityUserScope(exec executor.Executor) string {
 	template, _ := IdentityTemplate(exec)
 	if !strings.Contains(strings.ToLower(template), TokenUser) {
+		return ""
+	}
+	// A template the resolver rejects (an unknown token) falls back to the
+	// shared machine identity, which must keep the shared state and lock.
+	if _, issue, _ := expandIdentityTemplate(template, "", "", "", exec.GOOS(), false); issue != "" {
 		return ""
 	}
 	return SanitizeDeviceID(userToken(exec.GOOS(), exec.IsRoot(), getDeveloperIdentity(exec)))

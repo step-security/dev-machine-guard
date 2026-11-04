@@ -171,6 +171,30 @@ func autoIdentityUncached(exec executor.Executor) (template, reason string) {
 	return AutoIdentityTemplate, autoReasonDisplay(why)
 }
 
+// AutoIdentitySuperseded reports whether a process that snapshotted the
+// machine identity (automatic mode off at startup) has since been overtaken:
+// another user's run switched the host to per-user identities and wrote the
+// sticky marker while this one was waiting for the run gate or the instance
+// lock. Such a run must not proceed under the machine identity, or its upload
+// would restore the serial row the switch just retired, and the marker would
+// then keep that row from being retired again. Only a serial-mode snapshot
+// can be superseded; a configured template, or a snapshot already in
+// automatic mode, never is.
+func AutoIdentitySuperseded(exec executor.Executor) bool {
+	autoDecision.mu.Lock()
+	done, snapshot := autoDecision.done, autoDecision.template
+	autoDecision.mu.Unlock()
+	if !done || snapshot != "" || exec.GOOS() != model.PlatformWindows {
+		return false
+	}
+	dir := machineStateDir()
+	if dir == "" {
+		return false
+	}
+	_, exists := readMultiUserMarker(dir)
+	return exists
+}
+
 // AutoIdentityReason returns the human-readable reason the automatic
 // per-user identity is in force on this host, or "" when it is not.
 func AutoIdentityReason(exec executor.Executor) string {

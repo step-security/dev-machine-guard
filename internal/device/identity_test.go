@@ -307,3 +307,32 @@ func TestIdentityUserScope(t *testing.T) {
 		t.Fatalf("a service account has no scope, got %q", got)
 	}
 }
+
+// {hostname} on a host without a usable name falls back to the machine
+// identity, so the serial is probed although the template has no {serial}.
+func TestResolvedDeviceID_NamelessHostProbesSerial(t *testing.T) {
+	withConfigDeviceID(t, "{hostname}-{user}")
+	ResetIDCache()
+	t.Cleanup(ResetIDCache)
+	mock := executor.NewMock()
+	mock.SetGOOS("darwin")
+	mock.SetHostname("localhost")
+	mock.SetUsername("jdoe")
+	mock.SetCommand(`"IOPlatformSerialNumber" = "PROBED"`, "", 0, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
+	id := ResolvedDeviceID(context.Background(), mock)
+	if id.Incomplete || id.DeviceID != "PROBED-jdoe" || id.Source != IdentitySourceConfig {
+		t.Fatalf("a nameless host must resolve {hostname} through the serial: %+v", id)
+	}
+}
+
+// A template the resolver rejects falls back to the shared machine identity,
+// so it must not select a per-user state scope either.
+func TestIdentityUserScope_UnknownTokenKeepsSharedState(t *testing.T) {
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	mock.SetUsername(`CONTOSO\JDoe`)
+	withConfigDeviceID(t, "{hostname}-{user}-{site}")
+	if got := IdentityUserScope(mock); got != "" {
+		t.Fatalf("unknown token: scope = %q, want none", got)
+	}
+}

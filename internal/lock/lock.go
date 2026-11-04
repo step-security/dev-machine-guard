@@ -73,13 +73,21 @@ func (l *Lock) Release() {
 }
 
 // unscopedTarget undoes scopedTarget: the shared target a scoped one came from.
+// The scope may contain dots (j.doe), so the suffix is looked for before any
+// extension is split off: filepath.Ext would otherwise take ".doe" for one.
 func unscopedTarget(target, scope string) string {
 	if scope == "" {
 		return target
 	}
+	if strings.HasSuffix(target, "-"+scope) {
+		return strings.TrimSuffix(target, "-"+scope)
+	}
 	ext := filepath.Ext(target)
 	stem := strings.TrimSuffix(target, ext)
-	return strings.TrimSuffix(stem, "-"+scope) + ext
+	if strings.HasSuffix(stem, "-"+scope) {
+		return strings.TrimSuffix(stem, "-"+scope) + ext
+	}
+	return target
 }
 
 // scopedTarget suffixes a lock target (a file path on Unix, a mutex name on
@@ -87,7 +95,7 @@ func unscopedTarget(target, scope string) string {
 // /tmp/x.flock + "dev1" -> /tmp/x-dev1.flock; "Name" + "dev1" -> "Name-dev1".
 // An empty scope or an already-suffixed target is returned unchanged.
 func scopedTarget(base, scope string) string {
-	if scope == "" {
+	if scope == "" || strings.HasSuffix(base, "-"+scope) {
 		return base
 	}
 	ext := filepath.Ext(base)

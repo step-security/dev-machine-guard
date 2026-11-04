@@ -24,9 +24,10 @@ const identitySwitchBudget = 5 * time.Second
 // automatic per-user identity: the host used to report under its machine
 // identity (serial), that row would otherwise linger as a stale seat, so it
 // is removed once through the retire API with reason identity_changed. The
-// backend treats that reason as a removal, not a soft retire: the row is
-// hidden everywhere at once (a "retired" twin of a live per-user device
-// would only confuse) and purged on the next sweep. Best effort: a failure
+// backend treats that reason as a removal from the customer's view: the row
+// is hidden everywhere at once (a "retired" twin of a live per-user device
+// would only confuse) and purged after the standard retention; the reason is
+// accepted only for the machine-identity row. Best effort: a failure
 // is a warning, the backend's auto-retire or an admin can still remove the
 // row, and the marker keeps the call from being re-attempted once it
 // succeeds.
@@ -85,4 +86,14 @@ func machineLastRunDeviceID() string {
 		return ""
 	}
 	return rec.RunGate.DeviceID
+}
+
+// serialRunSuperseded reports whether this run, which resolved the machine
+// identity before taking the instance lock, was overtaken by another user's
+// switch to per-user identities meanwhile (device.AutoIdentitySuperseded).
+// Such a run is skipped: its upload would restore the serial row the switch
+// just retired, and the marker would then keep that row from being retired
+// again. WSL guests report under their host's identity and are never skipped.
+func serialRunSuperseded(exec executor.Executor, ident device.Identity, wslGuest *model.WSLGuest) bool {
+	return wslGuest == nil && ident.Source == device.IdentitySourceSerial && device.AutoIdentitySuperseded(exec)
 }

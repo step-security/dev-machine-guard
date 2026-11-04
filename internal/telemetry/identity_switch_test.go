@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/heartbeat"
@@ -167,5 +168,35 @@ func TestRetireSerialRowOnIdentitySwitch_FailureIsNotRecorded(t *testing.T) {
 	retireSerialRowOnIdentitySwitch(context.Background(), exec, progress.NewNoop(), autoDevice("SER1"), nil)
 	if !device.SerialRowRetirePending("SER1", "") {
 		t.Error("a failed retire must stay pending for the next run")
+	}
+}
+
+// A run that snapshotted the machine identity and then waited (gate, lock)
+// while another user's run switched the host is skipped; per-user runs and
+// WSL guests never are.
+func TestSerialRunSuperseded(t *testing.T) {
+	dir := t.TempDir()
+	t.Cleanup(device.SetMachineStateDirForTest(dir))
+	savedID := config.DeviceID
+	config.DeviceID = ""
+	t.Cleanup(func() { config.DeviceID = savedID })
+	exec := executor.NewMock()
+	exec.SetGOOS(model.PlatformWindows)
+	exec.SetUsername(`AVD\dev1`)
+	serial := device.Identity{Source: device.IdentitySourceSerial, DeviceID: "SER1"}
+	device.IdentityTemplate(exec) // the snapshot: no marker, machine identity
+	if serialRunSuperseded(exec, serial, nil) {
+		t.Fatal("no switch happened")
+	}
+	writeMarker(t, dir, "users")
+	if !serialRunSuperseded(exec, serial, nil) {
+		t.Fatal("a switch after the snapshot must skip the serial-mode run")
+	}
+	if serialRunSuperseded(exec, serial, &model.WSLGuest{}) {
+		t.Fatal("WSL guests are never skipped")
+	}
+	auto := device.Identity{Source: device.IdentitySourceAuto, DeviceID: "host-dev1"}
+	if serialRunSuperseded(exec, auto, nil) {
+		t.Fatal("a per-user run is not superseded")
 	}
 }

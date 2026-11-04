@@ -226,12 +226,38 @@ func TestCollectCachedIDs_SearchesEveryRoot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got := collectCachedIDs([]string{empty, machine})
+	got := collectCachedIDs(context.Background(), []string{empty, machine})
 	want := []string{"host-dev1", "host-dev2"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("collectCachedIDs = %v, want %v", got, want)
 	}
-	if got := collectCachedIDs([]string{""}); len(got) != 0 {
+	if got := collectCachedIDs(context.Background(), []string{""}); len(got) != 0 {
 		t.Fatalf("empty root must yield nothing, got %v", got)
+	}
+}
+
+// Identity collection is bounded: an oversized state file is skipped without
+// being read, and a cancelled budget stops the walk.
+func TestCollectCachedIDs_BoundsFilesAndBudget(t *testing.T) {
+	root := t.TempDir()
+	put := func(user, body string) {
+		t.Helper()
+		dir := filepath.Join(root, "users", user)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, heartbeat.Filename), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("big", `{"schema_version":1,"run_gate":{"device_id":"host-big","pad":"`+strings.Repeat("x", maxCachedIDFileBytes)+`"}}`)
+	put("ok", `{"schema_version":1,"run_gate":{"device_id":"host-ok"}}`)
+	if got := collectCachedIDs(context.Background(), []string{root}); strings.Join(got, ",") != "host-ok" {
+		t.Fatalf("collectCachedIDs = %v, want [host-ok] (oversized file skipped)", got)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := collectCachedIDs(ctx, []string{root}); len(got) != 0 {
+		t.Fatalf("a spent budget must stop the collection, got %v", got)
 	}
 }
