@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -104,6 +105,15 @@ func TestFlagTable_EveryKeyReachesConfigFile(t *testing.T) {
 		// never clobber a real install's.
 		if !strings.HasPrefix(config.WriteConfigFilePath(), home) {
 			t.Skip("config writes outside the temp HOME (elevated Windows)")
+		}
+		// A persisted identical user ID exercises flag persistence without depending on the host login.
+		if f.name == "--user-id" {
+			if err := os.MkdirAll(filepath.Dir(config.WriteConfigFilePath()), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(config.WriteConfigFilePath(), []byte(`{"user_id":"7"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
 		}
 		args := append([]string{"configure", "--customer-id", "c", "--api-endpoint", "https://e", "--api-key", "k"}, sampleArgs(f)...)
 		cfg, err := Parse(args)

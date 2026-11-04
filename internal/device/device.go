@@ -8,6 +8,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/identity"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/wslguest"
 	"howett.net/plist"
@@ -38,10 +39,14 @@ func IDForGuest(dev model.Device, hostDeviceID, distroID string) string {
 // Gather collects device information (hostname, serial, OS version, user identity).
 func Gather(ctx context.Context, exec executor.Executor) model.Device {
 	platform := exec.GOOS()
-	hostname := getHostname(ctx, exec, platform)
-	userIdentity := getDeveloperIdentity(exec)
-
+	// Session lookup can exhaust the hook deadline; resolve device identity first.
 	serial := SerialNumber(ctx, exec)
+	hostname := getHostname(ctx, exec, platform)
+	userIdentity, noUserLoggedIn := identity.DetectUserSession(ctx, exec)
+	if config.UserID != "" {
+		userIdentity = config.UserID
+	}
+
 	var osVersion string
 	switch platform {
 	case model.PlatformWindows:
@@ -53,12 +58,13 @@ func Gather(ctx context.Context, exec executor.Executor) model.Device {
 	}
 
 	return model.Device{
-		Hostname:     hostname,
-		SerialNumber: serial,
-		OSVersion:    osVersion,
-		Platform:     platform,
-		UserIdentity: userIdentity,
-		Resources:    gatherResources(ctx, exec),
+		Hostname:       hostname,
+		SerialNumber:   serial,
+		OSVersion:      osVersion,
+		Platform:       platform,
+		UserIdentity:   userIdentity,
+		NoUserLoggedIn: noUserLoggedIn,
+		Resources:      gatherResources(ctx, exec),
 	}
 }
 
@@ -278,19 +284,4 @@ func getOSVersionLinux(ctx context.Context, exec executor.Executor) string {
 	default:
 		return "unknown"
 	}
-}
-
-func getDeveloperIdentity(exec executor.Executor) string {
-	// Check environment variables in order of preference
-	for _, key := range []string{"USER_EMAIL", "DEVELOPER_EMAIL", "STEPSEC_DEVELOPER_EMAIL"} {
-		if v := exec.Getenv(key); v != "" {
-			return v
-		}
-	}
-	// Fallback to logged-in username (detects console user when running as root)
-	u, err := exec.LoggedInUser()
-	if err == nil {
-		return u.Username
-	}
-	return "unknown"
 }

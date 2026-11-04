@@ -613,7 +613,7 @@ default:     return output.Pretty(os.Stdout, result, cfg.ColorMode)
   `config.json` (a `config.ConfigFile` field) MUST be settable by a flag, because MDM/MSI/CI deploys
   can't drive a prompt. Declare the key in the row's `saves` and call `cfg.save(key, v)` in its `set`.
   `configure` merges `cfg.ConfigValues` into config.json, so no other wiring is needed. Reuse an existing
-  scan/output flag for the setting if there is one. An empty value means "unchanged". Add a row to the
+  scan/output flag for the setting if there is one. An empty value means "unchanged", except explicit user/device IDs, which must pass identity validation. Add a row to the
   README's non-interactive flag table. `TestFlagTable_CoversEveryConfigKey` and
   `TestFlagTable_EveryKeyReachesConfigFile` fail until the flag exists and reaches the file.
 - **Exit-code contract** (scheduler-facing — use these, don't invent new ones): `0` success ·

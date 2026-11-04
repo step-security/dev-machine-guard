@@ -336,8 +336,11 @@ func (e *UserAwareExecutor) EvalSymlinks(path string) (string, error) {
 	return e.inner.EvalSymlinks(path)
 }
 func (e *UserAwareExecutor) Readlink(path string) (string, error) { return e.inner.Readlink(path) }
-func (e *UserAwareExecutor) LoggedInUser() (*user.User, error)    { return e.inner.LoggedInUser() }
-func (e *UserAwareExecutor) GOOS() string                         { return e.inner.GOOS() }
+func (e *UserAwareExecutor) LoggedInUserContext(ctx context.Context) (*user.User, error) {
+	return e.inner.LoggedInUserContext(ctx)
+}
+func (e *UserAwareExecutor) LoggedInUser() (*user.User, error) { return e.inner.LoggedInUser() }
+func (e *UserAwareExecutor) GOOS() string                      { return e.inner.GOOS() }
 func (e *UserAwareExecutor) IsAppleCLTStub(ctx context.Context, binPath string) bool {
 	return e.inner.IsAppleCLTStub(ctx, binPath)
 }

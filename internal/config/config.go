@@ -8,12 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/atomicfile"
+	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/identity"
 )
 
 // Default placeholders (replaced by backend for enterprise installation scripts).
@@ -75,6 +75,9 @@ var (
 // telemetry.ExecutionDeadline.
 var MaxExecutionDuration string
 
+// UserID is attribution, independent of the OS execution account.
+var UserID string
+
 // Windows self-update settings (internal/selfupdate), read from the
 // machine config the SYSTEM updater trusts. AutoUpdate nil means the
 // default (on for MSI installs); `configure --auto-update=false` (the MSI
@@ -89,6 +92,7 @@ var (
 
 // ConfigFile is the JSON structure persisted to ~/.stepsecurity/config.json.
 type ConfigFile struct {
+	UserID                string   `json:"user_id,omitempty"`
 	DeviceID              string   `json:"device_id,omitempty"`
 	CustomerID            string   `json:"customer_id,omitempty"`
 	APIEndpoint           string   `json:"api_endpoint,omitempty"`
@@ -138,16 +142,23 @@ var retiredConfigKeys = map[string]bool{"use_legacy_package_scan": true}
 // c's values as they are (configure --from-file relies on this to merge),
 // and unknown keys are kept for MarshalJSON.
 func (c *ConfigFile) UnmarshalJSON(data []byte) error {
+	fields, err := explicitIdentities(data, false)
+	if err != nil {
+		return err
+	}
 	type plain ConfigFile
 	if err := json.Unmarshal(data, (*plain)(c)); err != nil {
 		return err
+	}
+	if id, present := fields["user"]; present {
+		c.UserID = id
 	}
 	var all map[string]json.RawMessage
 	if err := json.Unmarshal(data, &all); err != nil {
 		return err
 	}
 	for k, v := range all {
-		if knownConfigKeys[k] || retiredConfigKeys[k] {
+		if knownConfigKeys[k] || retiredConfigKeys[k] || strings.EqualFold(k, "user_id") || strings.EqualFold(k, "device_id") {
 			continue
 		}
 		if c.extra == nil {
@@ -212,7 +223,7 @@ func SetFileOverride(path string) { fileOverride = strings.TrimSpace(path) }
 
 func readConfigDir() string {
 	if mcd := machineConfigDir(); mcd != "" {
-		if _, err := os.Stat(filepath.Join(mcd, "config.json")); err == nil {
+		if _, err := os.Stat(filepath.Join(mcd, "config.json")); !os.IsNotExist(err) {
 			return mcd
 		}
 	}
@@ -294,6 +305,9 @@ func Load() {
 		return
 	}
 	cfg := *cfgPtr
+	if UserID == "" && cfg.UserID != "" {
+		UserID = cfg.UserID
+	}
 
 	if id := strings.TrimSpace(cfg.DeviceID); id != "" && DeviceID == "" {
 		DeviceID = id
@@ -380,7 +394,15 @@ func RunConfigure() error {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Load existing config to show current values
-	existing := loadForConfigure()
+	release, err := lockConfig()
+	if err != nil {
+		return err
+	}
+	defer release()
+	existing, err := readExistingStrict()
+	if err != nil {
+		return err
+	}
 
 	fmt.Println("StepSecurity Dev Machine Guard — Configuration")
 	fmt.Println()
@@ -388,7 +410,17 @@ func RunConfigure() error {
 	fmt.Println("To clear a value, enter a single dash (-).")
 	fmt.Println()
 
-	existing.DeviceID = promptValue(reader, "Device ID (optional; default = machine serial)", existing.DeviceID)
+	deviceID := promptValue(reader, "Device ID (optional; default = machine serial)", existing.DeviceID)
+	if deviceID != existing.DeviceID {
+		// A dash explicitly resets the optional override to machine identity.
+		if deviceID != "" {
+			deviceID, err = identity.Normalize(deviceID, "device")
+			if err != nil {
+				return err
+			}
+		}
+		existing.DeviceID = deviceID
+	}
 	existing.CustomerID = promptValue(reader, "Customer ID", existing.CustomerID)
 	existing.APIEndpoint = promptValue(reader, "API Endpoint", existing.APIEndpoint)
 	existing.APIKey = promptSecret(reader, "API Key", existing.APIKey)
@@ -643,20 +675,6 @@ func loadExisting() *ConfigFile {
 	return cfg
 }
 
-// loadForConfigure is readExisting for explicit `configure` runs: the operator
-// is supplying fresh values, so a corrupt file is backed up and replaced
-// rather than blocking recovery.
-func loadForConfigure() *ConfigFile {
-	cfg, err := readExisting()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: ignoring existing config (%v)\n", err)
-		if bak, bErr := atomicfile.TakeBackup(ConfigFilePath(), time.Now()); bErr == nil && bak != "" {
-			fmt.Fprintf(os.Stderr, "Warning: previous config saved to %s\n", bak)
-		}
-	}
-	return cfg
-}
-
 // NormalizeAPIEndpoint strips trailing slashes and surrounding whitespace
 // from an API endpoint URL. Every callsite in the agent composes URLs as
 // fmt.Sprintf("%s/v1/...", APIEndpoint, ...) — a trailing slash on the
@@ -696,33 +714,7 @@ func save(cfg *ConfigFile) error {
 	}
 
 	configPath := filepath.Join(dir, "config.json")
-	prev, _ := os.Stat(configPath)
-	if err := atomicfile.Replace(configPath, data, atomicfile.PickMode(configPath, fileMode)); err != nil {
-		// Windows refuses the rename while another process holds config.json
-		// open without delete sharing; fall back to the in-place write. Any
-		// earlier failure (e.g. disk full) must leave the original intact.
-		if runtime.GOOS != "windows" || !errors.Is(err, atomicfile.ErrRename) {
-			return err
-		}
-		if werr := os.WriteFile(configPath, data, fileMode); werr != nil {
-			return err
-		}
-	}
-	if prev != nil {
-		preserveOwner(configPath, prev)
-	}
-
-	if machineWide {
-		// Best-effort ACL hardening. Failure does not block the install — the
-		// config is still functional, just inheriting default ProgramData ACLs.
-		// Note: api_key persists in plaintext on disk. On multi-user dev
-		// machines this is a known tradeoff, documented in deploying-via-sccm.md.
-		// Customers needing stronger isolation should use the --from-file
-		// bootstrap pattern and lock down the bootstrap file separately.
-		_ = hardenMachineConfigACL(configPath)
-	}
-
-	return nil
+	return writeAtomic(configPath, data, atomicfile.PickMode(configPath, fileMode), machineWide)
 }
 
 // ShowConfigure prints the current configuration to stdout.
@@ -733,6 +725,7 @@ func ShowConfigure() {
 	}
 
 	fmt.Printf("Configuration (%s):\n\n", ConfigFilePath())
+	fmt.Printf("  %-24s %s\n", "User ID:", displayValue(cfg.UserID))
 	fmt.Printf("  %-24s %s\n", "Device ID:", displayDeviceID(cfg.DeviceID))
 	fmt.Printf("  %-24s %s\n", "Customer ID:", displayValue(cfg.CustomerID))
 	fmt.Printf("  %-24s %s\n", "API Endpoint:", displayValue(cfg.APIEndpoint))
@@ -919,7 +912,35 @@ func (o NonInteractiveOptions) preferencesOnly() bool {
 // C:\ProgramData\StepSecurity where the scheduled task (running as the
 // logged-in user) can read it.
 func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
-	existing := loadForConfigure()
+	return runConfigureNonInteractive(opts, executor.NewReal())
+}
+func runConfigureNonInteractive(opts NonInteractiveOptions, exec executor.Executor) error {
+	release, err := lockConfig()
+	if err != nil {
+		return err
+	}
+	defer release()
+	existing, err := readExistingStrict()
+	if err != nil {
+		return err
+	}
+	storedID := existing.UserID
+	var valuesData []byte
+	var requestedID string
+	var explicitID bool
+	identityOnlyImport := false
+	var inlineIDs map[string]string
+	if len(opts.Values) > 0 {
+		valuesData, err = json.Marshal(opts.Values)
+		if err != nil {
+			return fmt.Errorf("encoding configure flags: %w", err)
+		}
+		inlineIDs, err = explicitIdentities(valuesData, true)
+		if err != nil {
+			return fmt.Errorf("applying configure flags: %w", err)
+		}
+		requestedID, explicitID = inlineIDs["user"]
+	}
 
 	// --from-file merges: keys the file carries override the existing
 	// config (credential rotation), keys it omits are kept (an AUTOUPDATE=0
@@ -935,20 +956,57 @@ func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
 		if err := json.Unmarshal(data, &fromFile); err != nil {
 			return fmt.Errorf("parsing --from-file %q: %w", opts.FromFile, err)
 		}
+		ids, err := explicitIdentities(data, true)
+		if err != nil {
+			return fmt.Errorf("parsing --from-file %q: %w", opts.FromFile, err)
+		}
+		if id, present := ids["user"]; present {
+			if explicitID && requestedID != id {
+				return fmt.Errorf("conflicting user IDs in --user-id and --from-file")
+			}
+			requestedID, explicitID = id, true
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			return err
+		}
+		identityOnlyImport = explicitID && len(fields) == 1 && fromFile.UserID != ""
 		if err := json.Unmarshal(data, existing); err != nil {
 			return fmt.Errorf("parsing --from-file %q: %w", opts.FromFile, err)
 		}
+		// Restore the trusted original until the immutable-ID transition is checked.
+		existing.UserID = storedID
+		if id, present := ids["device"]; present {
+			existing.DeviceID = id
+		}
 	}
 
-	// Flag values merge the same way, over the file.
-	if len(opts.Values) > 0 {
-		data, err := json.Marshal(opts.Values)
-		if err != nil {
-			return fmt.Errorf("encoding configure flags: %w", err)
-		}
-		if err := json.Unmarshal(data, existing); err != nil {
+	// Validate identities before merging flags, then check the immutable transition.
+	if len(valuesData) > 0 {
+		if err := json.Unmarshal(valuesData, existing); err != nil {
 			return fmt.Errorf("applying configure flags: %w", err)
 		}
+		existing.UserID = storedID
+		if id, present := inlineIDs["device"]; present {
+			existing.DeviceID = id
+		}
+	}
+
+	if explicitID {
+		if storedID != "" {
+			if requestedID != storedID {
+				return fmt.Errorf("User ID is already set and cannot be changed. Existing configuration was preserved.") //nolint:staticcheck // ST1005: preserve the approved CLI diagnostic.
+			}
+		} else if !identity.MissingUser(identity.DetectUser(exec)) {
+			return fmt.Errorf("A user identity was already detected; --user-id can only be used when no user identity is available.") //nolint:staticcheck // ST1005: preserve the approved CLI diagnostic.
+		}
+		existing.UserID = requestedID
+	}
+	onlyUserFlags := len(opts.Values) == 0 || (len(opts.Values) == 1 && inlineIDs["user"] != "")
+	idOnly := explicitID && (opts.FromFile == "" || identityOnlyImport) && onlyUserFlags
+	if idOnly && storedID == requestedID {
+		fmt.Println("User ID is already configured with this value; no changes made.")
+		return nil
 	}
 
 	// Validation: an MSI deploy with no creds is almost certainly a bug.
@@ -956,7 +1014,7 @@ func RunConfigureNonInteractive(opts NonInteractiveOptions) error {
 	// installing a half-configured agent. A preference-only update
 	// (`configure --color=never`) needs no credentials, so a community
 	// install can use it.
-	if !opts.preferencesOnly() {
+	if !idOnly && !opts.preferencesOnly() {
 		if existing.APIKey == "" {
 			return fmt.Errorf("api_key is required (pass --api-key, --from-file, or DMG_API_KEY env var)")
 		}
@@ -990,7 +1048,12 @@ func PersistMaxExecutionDuration(value string) error {
 	if value == "" {
 		return nil
 	}
-	existing, err := readExisting()
+	release, err := lockConfig()
+	if err != nil {
+		return err
+	}
+	defer release()
+	existing, err := readExistingStrict()
 	if err != nil {
 		return err
 	}

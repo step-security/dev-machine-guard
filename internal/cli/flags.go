@@ -31,13 +31,14 @@ const (
 // --help, and which config.json keys `configure` saves, so a flag can't be
 // parsed without being documented or persisted without being declared.
 type flagSpec struct {
-	name    string
-	kind    flagKind
-	missing string   // error when the value is absent; "" = "<name> requires a value"
-	saves   []string // config.json keys `configure` persists from this flag
-	set     func(cfg *Config, v string) error
-	section helpSection
-	help    string // verbatim --help lines
+	name        string
+	kind        flagKind
+	strictValue bool     // reject a following flag as a missing value
+	missing     string   // error when the value is absent; "" = "<name> requires a value"
+	saves       []string // config.json keys `configure` persists from this flag
+	set         func(cfg *Config, v string) error
+	section     helpSection
+	help        string // verbatim --help lines
 }
 
 // save records a config.json value for `configure` to persist.
@@ -145,9 +146,9 @@ var flagTable = []flagSpec{
 		saves: []string{"search_dirs"}, section: helpOptions,
 		help: "  --search-dirs DIR [DIR...]  Search DIRs instead of $HOME (replaces default; repeatable)",
 		set: func(c *Config, v string) error {
-			if !c.searchDirsSet {
+			if !c.SearchDirsSet {
 				c.SearchDirs = nil
-				c.searchDirsSet = true
+				c.SearchDirsSet = true
 			}
 			c.SearchDirs = append(c.SearchDirs, v)
 			c.save("search_dirs", c.SearchDirs)
@@ -269,8 +270,18 @@ var flagTable = []flagSpec{
 		"  --api-endpoint URL            StepSecurity backend URL"),
 	configFlag("--api-key", "api_key",
 		"  --api-key KEY                 Authentication key (or set DMG_API_KEY env var)"),
-	configFlag("--device-id", "device_id",
-		"  --device-id ID                Custom device identifier (default: machine serial)"),
+	{name: "--user-id", kind: flagValue, strictValue: true, saves: []string{"user_id"}, section: helpConfigure,
+		help: "  --user-id ID                  Set user identity once, only when none is detected",
+		set: func(c *Config, v string) error {
+			if _, present := c.ConfigValues["user_id"]; present {
+				return fmt.Errorf("--user-id may only be specified once")
+			}
+			c.save("user_id", v)
+			return nil
+		}},
+	{name: "--device-id", kind: flagValue, saves: []string{"device_id"}, section: helpConfigure,
+		help: "  --device-id ID                Custom device identifier (default: machine serial)",
+		set:  func(c *Config, v string) error { c.save("device_id", v); return nil }},
 	func() flagSpec {
 		f := configFlag("--scan-frequency", "scan_frequency_hours",
 			"  --scan-frequency HOURS        Scheduled scan frequency")
@@ -364,7 +375,7 @@ func parseFlag(cfg *Config, args []string, i int) (next int, ok bool, err error)
 		}
 		return i, true, nil
 	default: // flagValue / flagSpaced without "="
-		if i+1 >= len(args) {
+		if i+1 >= len(args) || (f.strictValue && strings.HasPrefix(args[i+1], "--")) {
 			return i + 1, true, missing()
 		}
 		return i + 2, true, f.set(cfg, args[i+1])

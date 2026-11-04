@@ -1,0 +1,80 @@
+package device
+
+import (
+	"context"
+	"os/user"
+	"testing"
+	"time"
+
+	"github.com/step-security/dev-machine-guard/internal/config"
+	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/model"
+)
+
+type stalledSessionExecutor struct {
+	*executor.Mock
+	release chan struct{}
+}
+
+func (e *stalledSessionExecutor) LoggedInUser() (*user.User, error) {
+	<-e.release
+	return nil, context.DeadlineExceeded
+}
+
+// Extra method before the fix, and the bounded interface after it. The legacy
+// method models a session probe that ignores cancellation entirely.
+func (e *stalledSessionExecutor) LoggedInUserContext(ctx context.Context) (*user.User, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (e *stalledSessionExecutor) Run(ctx context.Context, name string, args ...string) (string, string, int, error) {
+	if err := ctx.Err(); err != nil {
+		return "", "", -1, err
+	}
+	return e.Mock.Run(ctx, name, args...)
+}
+
+func TestGatherSessionRespectsCallerDeadline(t *testing.T) {
+	for _, configured := range []bool{false, true} {
+		t.Run(map[bool]string{false: "email", true: "configured"}[configured], func(t *testing.T) {
+			ResetIDCache()
+			t.Cleanup(ResetIDCache)
+			previous := config.UserID
+			previousDeviceID := config.DeviceID
+			t.Cleanup(func() { config.UserID, config.DeviceID = previous, previousDeviceID })
+			config.DeviceID = ""
+			config.UserID = ""
+			if configured {
+				config.UserID = "configured-user"
+			}
+			mock := executor.NewMock()
+			mock.SetGOOS(model.PlatformDarwin)
+			mock.SetIsRoot(true)
+			mock.SetEnv("USER_EMAIL", "email@example.com")
+			mock.SetCommand(`"IOPlatformSerialNumber" = "HARDWARE-123"`, "", 0, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
+			blocked := &stalledSessionExecutor{Mock: mock, release: make(chan struct{})}
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+			defer cancel()
+			result := make(chan model.Device, 1)
+			finished := make(chan struct{})
+			go func() { defer close(finished); result <- Gather(ctx, blocked) }()
+			defer func() { close(blocked.release); <-finished }()
+			select {
+			case dev := <-result:
+				want := "email@example.com"
+				if configured {
+					want = "configured-user"
+				}
+				if dev.UserIdentity != want || !dev.NoUserLoggedIn {
+					t.Fatalf("attribution/session after timeout: %+v", dev)
+				}
+				if dev.SerialNumber != "HARDWARE-123" || ID(dev) != "HARDWARE-123" {
+					t.Fatalf("session timeout lost available hardware identity: %+v", dev)
+				}
+			case <-time.After(500 * time.Millisecond):
+				t.Fatal("session lookup ignored the caller's deadline")
+			}
+		})
+	}
+}

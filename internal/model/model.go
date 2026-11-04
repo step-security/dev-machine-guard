@@ -63,12 +63,13 @@ type ScanResult struct {
 }
 
 type Device struct {
-	Hostname     string           `json:"hostname"`
-	SerialNumber string           `json:"serial_number"`
-	OSVersion    string           `json:"os_version"`
-	Platform     string           `json:"platform"`
-	UserIdentity string           `json:"user_identity"`
-	Resources    MachineResources `json:"resources"`
+	NoUserLoggedIn bool             `json:"-"` // session state is independent of attribution
+	Hostname       string           `json:"hostname"`
+	SerialNumber   string           `json:"serial_number"`
+	OSVersion      string           `json:"os_version"`
+	Platform       string           `json:"platform"`
+	UserIdentity   string           `json:"user_identity"`
+	Resources      MachineResources `json:"resources"`
 	// WSL reports Windows Subsystem for Linux on a Windows host. Nil on every
 	// other platform, and nil on Windows unless the WSL-detection feature gate
 	// is on — so `omitempty` drops it entirely rather than emitting a zero

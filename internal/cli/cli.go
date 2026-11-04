@@ -108,7 +108,7 @@ type Config struct {
 	// (flagSpec.saves), for `configure` to persist. Scan runs ignore it.
 	ConfigValues map[string]any
 
-	searchDirsSet bool // a --search-dirs replaced the $HOME default
+	SearchDirsSet bool `json:"-"` // a --search-dirs replaced the $HOME default
 
 	// IgnoreTelemetryError opts the `install` subcommand into treating an
 	// initial-telemetry POST failure as a warning rather than a fatal exit.
@@ -226,6 +226,10 @@ func Parse(args []string) (*Config, error) {
 			continue
 		}
 		i++
+	}
+
+	if _, present := cfg.ConfigValues["user_id"]; present && cfg.Command != "configure" {
+		return nil, fmt.Errorf("--user-id is only supported with configure")
 	}
 
 	if onlyCount := boolCount(cfg.NPMRCOnly, cfg.PipConfigOnly, cfg.PnpmRCOnly, cfg.BunfigOnly, cfg.YarnRCOnly); onlyCount > 1 {
