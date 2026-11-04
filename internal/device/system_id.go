@@ -32,7 +32,10 @@ type systemIDCache struct {
 // (systemMachineID). {user} has no expansion under SYSTEM, so such a template
 // yields "" (incomplete) and device-scoped posts are skipped rather than sent
 // under a literal or a guessed id; the scan reports under each user's id.
-// Only a hardware or configured result is cached. "" when nothing is usable.
+// Only a hardware result or a literal configured id is cached: a template's
+// expansion is recomputed from the hardware cache each time, so a later probe
+// failure never leaves SYSTEM with an id the user scans do not use. "" when
+// nothing is usable.
 func SystemID(ctx context.Context, exec executor.Executor, cachePath string, probeTimeout time.Duration) string {
 	template := strings.TrimSpace(config.DeviceID)
 	if template != "" && !strings.Contains(template, "{") {
@@ -66,7 +69,6 @@ func SystemID(ctx context.Context, exec executor.Executor, cachePath string, pro
 	if id.Incomplete || id.DeviceID == "" {
 		return ""
 	}
-	writeSystemIDCache(exec, cachePath, id.DeviceID, "configured")
 	return id.DeviceID
 }
 
