@@ -48,24 +48,32 @@ func TestPluginOutputStatesAndEscaping(t *testing.T) {
 	}
 }
 
-func TestCopilotPluginDisplayName(t *testing.T) {
-	result := &model.ScanResult{AgentPlugins: &model.AgentPlugins{Contexts: []model.AgentPluginContext{{Agent: model.AgentCopilot}}}}
-	var pretty bytes.Buffer
-	if err := Pretty(&pretty, result, "never"); err != nil {
-		t.Fatal(err)
+func TestPluginAgentDisplayName(t *testing.T) {
+	tests := []struct{ name, agent, want, unwanted string }{
+		{"copilot", model.AgentCopilot, "GitHub Copilot", "GitHub Copilot CLI"},
+		{"pi", model.AgentPi, "Pi — marketplaces", "pi — marketplaces"},
 	}
-	file := filepath.Join(t.TempDir(), "report.html")
-	if err := HTML(file, result); err != nil {
-		t.Fatal(err)
-	}
-	html, err := os.ReadFile(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, text := range []string{pretty.String(), string(html)} {
-		if !strings.Contains(text, "GitHub Copilot") || strings.Contains(text, "GitHub Copilot CLI") {
-			t.Error("plugin output must use the shared GitHub Copilot label")
-		}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := &model.ScanResult{AgentPlugins: &model.AgentPlugins{Contexts: []model.AgentPluginContext{{Agent: tc.agent}}}}
+			var pretty bytes.Buffer
+			if err := Pretty(&pretty, result, "never"); err != nil {
+				t.Fatal(err)
+			}
+			file := filepath.Join(t.TempDir(), "report.html")
+			if err := HTML(file, result); err != nil {
+				t.Fatal(err)
+			}
+			html, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, text := range []string{pretty.String(), string(html)} {
+				if !strings.Contains(text, tc.want) || strings.Contains(text, tc.unwanted) {
+					t.Errorf("plugin output must use the %q label", tc.want)
+				}
+			}
+		})
 	}
 }
 

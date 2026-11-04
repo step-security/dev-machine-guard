@@ -231,6 +231,18 @@ This interactively prompts for all configurable settings:
 | HTML Output File   | Default path for HTML reports               | _(not set)_     |
 | Log Level          | Logging verbosity                           | `error`         |
 
+On an ephemeral device with no detected user identity (empty, `unknown`, or `root`), assign one once:
+
+```bash
+./stepsecurity-dev-machine-guard configure --non-interactive --user-id employee-123
+```
+
+This does not require enterprise credentials. The ID uses 1–256 ASCII letters, digits, or `@ . _ + -`; surrounding whitespace is trimmed, control characters are rejected, and `unknown`/`root` are reserved regardless of case. An ID-only JSON import such as `{"user_id":"employee-123"}` also works through `configure --from-file PATH`.
+
+An existing detected email or regular OS username prevents assignment. Once assigned, scans and hooks use the stored ID even if automatic detection changes. Repeating the same value succeeds; replacing or clearing it fails without changing configuration. Other configure operations preserve it. The guarantee applies to the existing configuration scope; the config file owner can still edit or remove files directly. Provision after cloning an ephemeral image to avoid copying an assigned identity to every clone.
+
+When no user identity is available, scanning continues as `unknown` with a warning and remains eligible for later assignment. Enterprise telemetry includes explicit `user_id_missing` and `device_id_missing` booleans based on the resolved identities, including `false` values. OS login state (`no_user_logged_in`) is detected independently of attribution. Backend handling of missing device IDs requires deployment verification.
+
 View current settings:
 
 ```bash
@@ -255,15 +267,76 @@ Configuration (~/.stepsecurity/config.json):
 
 Configuration is saved to `~/.stepsecurity/config.json` with `0600` permissions (owner read/write only).
 
+To label a device for the dashboard, add `"device_tag": "avd-pool-eu"` to the
+config JSON, pass `configure --device-tag avd-pool-eu`, or use the MSI
+`DEVICETAG` property. The tag is set in the agent configuration only (the
+dashboard shows it and never edits it). In the dashboard's Device activity
+settings an admin can limit retirement (on uninstall, on the automatic
+identity switch, by inactivity and from the dashboard) to devices carrying
+chosen tags; the default applies it to all devices.
+
 To use a custom device ID, add `"device_id": "my-device-123"` to the existing
-config JSON, or set **Device ID** through `configure`. The override is also
-supported in JSON supplied to `configure --from-file`. An omitted, empty, or
-whitespace-only value uses the machine serial as before. The agent continues
+config JSON, set **Device ID** through `configure`, or pass
+`configure --device-id my-device-123`. The override is also
+supported in JSON supplied to `configure --from-file`. A literal device ID
+must follow the ID format above; empty or whitespace-only inputs are rejected.
+An absent saved override uses the machine serial as before. To reset an
+existing override, enter `-` at the interactive Device ID prompt or pass
+`--device-id -`. The agent continues
 reporting the actual machine serial in `serial_number`. WSL guest scans derive
 separate IDs from the host ID and distro ID.
 
 Choose an ID unique within your customer and keep it stable: changing the ID
 registers a separate device in the backend; it does not migrate existing history.
+
+The value may also be a template over `{serial}`, `{hostname}` and `{user}`
+(for example `{hostname}-{user}` on pooled virtual desktops, so each person on a
+shared host is their own device), and the `STEPSEC_DEVICE_ID` environment
+variable overrides it at run time. With nothing configured, a shared Windows
+host (a multi-session edition, or one scanned by two or more developers)
+switches to `{hostname}-{user}` automatically and removes its old serial-based
+device once (the dashboard hides it immediately and purges it after the
+standard 30-day retention); configure `{serial}` to opt out. Every scan also
+reports whether
+the machine is virtual or physical and on which hypervisor or cloud. See
+[docs/deploying-on-virtual-desktops.md](docs/deploying-on-virtual-desktops.md).
+
+Every setting can also be written without prompts, which is how MDM, MSI and
+CI deployments configure the agent. Any setting flag passed to `configure`
+selects the no-prompt path; settings you don't pass keep their current value.
+Credentials are required only when the command sets one of them, passes
+`--from-file`, or sets nothing at all, so a community install can change
+preferences (`configure --color=never`) without them:
+
+```bash
+./stepsecurity-dev-machine-guard configure --non-interactive \
+  --customer-id my-company --api-endpoint https://api.stepsecurity.io \
+  --device-id my-device-123 --scan-frequency 4 --search-dirs /Volumes/code \
+  --disable-brew-scan --log-level=info
+```
+
+| Setting                 | `configure` flag                                     |
+| ----------------------- | ---------------------------------------------------- |
+| User ID (one-time)      | `--user-id ID` (only when no usable identity is detected) |
+| Device ID               | `--device-id VALUE` (a literal, or a template over `{serial}` `{hostname}` `{user}`; `-` clears) |
+| Device tag              | `--device-tag TAG` (`-` clears)                      |
+| Retire on uninstall     | `--retire-on-uninstall[=BOOL]`                        |
+| Customer ID             | `--customer-id ID`                                   |
+| API Endpoint            | `--api-endpoint URL`                                 |
+| API Key                 | `--api-key KEY` (or `DMG_API_KEY` env var)           |
+| Scan Frequency          | `--scan-frequency HOURS`                             |
+| Max Execution Duration  | `--max-execution-duration 2h` (`off` to disable)     |
+| Search Directories      | `--search-dirs DIR...`                               |
+| NPM / Brew / Python / runtime scan | `--enable-<x>-scan` / `--disable-<x>-scan` |
+| Node / Python scanner   | `--legacy-node-scan` / `--disk-node-scan`, `--legacy-python-scan` / `--disk-python-scan` |
+| macOS TCC-protected dirs | `--include-tcc-protected` / `--no-include-tcc-protected` |
+| macOS network volumes   | `--include-network-volumes` / `--no-include-network-volumes` |
+| Color Mode              | `--color=auto\|always\|never`                         |
+| Output Format / HTML file | `--pretty`, `--json`, `--html FILE`                |
+| Log Level               | `--log-level=LEVEL`                                  |
+| Install Directory       | `--install-dir DIR`                                  |
+| Self-update             | `--auto-update=BOOL`, `--update-mirror-url URL`, `--update-lag-behind N`, `--update-cooldown-hours N` |
+| Everything at once      | `--from-file config.json` (flags override the file)  |
 
 **CLI flags always override config file values** — this matches the shell script behavior. For example, if your config has `output_format: json`, running `./stepsecurity-dev-machine-guard --pretty` uses pretty output. To clear a value during configuration, enter a single dash (`-`).
 
@@ -297,8 +370,8 @@ See [SCAN_COVERAGE.md](SCAN_COVERAGE.md) for the full catalog of supported detec
 | AI CLI Tools         | Claude Code, Codex, Gemini CLI, Kiro CLI, GitHub Copilot CLI, Aider, OpenCode, Cursor Agent, Pi, Factory Droid, Amp, Grok Build, Kimi Code, Muse Code, Hermes Agent, Oh My Pi |
 | AI Agents            | Claude Cowork, OpenClaw, ClawdBot, GPT-Engineer                                          |
 | AI Frameworks        | Ollama, LM Studio, LocalAI, Text Generation WebUI                                        |
-| MCP Server Configs   | Claude Desktop, Claude Code, Cursor, Windsurf, Antigravity, Zed, Open Interpreter, Codex, OpenCode, GitHub Copilot |
-| Agent Plugins & Skills | Claude Code, Codex and GitHub Copilot (CLI, standalone app and VS Code) plugin installations, declared components, standalone Claude commands, and recorded skill-use counters |
+| MCP Server Configs   | Claude Desktop, Claude Code, Cursor, Windsurf, Antigravity, Zed, Open Interpreter, Codex, OpenCode, GitHub Copilot, Pi |
+| Agent Plugins & Skills | Claude Code, Codex and GitHub Copilot (CLI, standalone app and VS Code) plugin installations, Pi packages and extensions, declared components, standalone Claude commands, and recorded skill-use counters |
 | IDE Extensions       | VS Code, Cursor, Windsurf, Antigravity, JetBrains, Eclipse, Xcode, Android Studio        |
 | Browser Extensions   | Google Chrome, Microsoft Edge, Mozilla Firefox                                           |
 | Node.js Packages     | npm, yarn, pnpm, bun (opt-in)                                                            |
@@ -311,7 +384,7 @@ See [SCAN_COVERAGE.md](SCAN_COVERAGE.md) for the full catalog of supported detec
 | .NET Packages        | MSBuild project and `packages.config` references, `packages.lock.json`, `project.assets.json` restores, global package cache, .NET tools, templates and `.deps.json` (enterprise) |
 | Conda Packages       | `environment.yml` declarations, `@EXPLICIT`, conda-lock and pixi locks, `conda-meta` receipts in every environment, extracted package caches and `.condarc` configuration (enterprise) |
 | Java/JVM Packages    | Maven `pom.xml` and Gradle version-catalog declarations, Gradle lockfiles and verification metadata, Maven local repository and Gradle module cache files, with Maven and Gradle configuration (enterprise) |
-| Package Configs      | npm (`.npmrc`), pnpm, bun (`bunfig.toml`), yarn classic & berry (`.yarnrc`/`.yarnrc.yml`), pip (`pip.conf`) — effective registry, cooldown policy, and auth surface across every scope |
+| Package Configs      | npm (`.npmrc`), pnpm (`.npmrc`, `config.yaml`, `pnpm-workspace.yaml`), bun (`bunfig.toml`), yarn classic & berry (`.yarnrc`/`.yarnrc.yml`), pip (`pip.conf`) — effective registry, cooldown policy, and auth surface across every scope |
 | Suspicious Files     | Malicious-file IOCs from StepSecurity-maintained rules — e.g. `binding.gyp` that runs during `npm install`, and editor/AI-tool config files that auto-execute on project open |
 
 ## Package Configs & Suspicious Files

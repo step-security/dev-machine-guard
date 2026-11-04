@@ -51,11 +51,21 @@ var userEnvironmentKeys = []string{
 	"GOENV",
 	"GOPROXY",
 	"NETRC",
+	"NPM_CONFIG_GLOBALCONFIG",
+	"NPM_CONFIG_MINIMUM_RELEASE_AGE",
+	"NPM_CONFIG_USERCONFIG",
+	"PNPM_CONFIG_MINIMUM_RELEASE_AGE",
+	"PNPM_CONFIG_MINIMUM_RELEASE_AGE_EXCLUDE",
+	"PNPM_CONFIG_MINIMUM_RELEASE_AGE_IGNORE_MISSING_TIME",
+	"PNPM_CONFIG_MINIMUM_RELEASE_AGE_STRICT",
+	"PNPM_CONFIG_NPMRC_AUTH_FILE",
+	"PNPM_CONFIG_USERCONFIG",
 	"PIP_CONFIG_FILE",
 	"PIP_EXTRA_INDEX_URL",
 	"PIP_FIND_LINKS",
 	"PIP_INDEX_URL",
 	"PIP_NO_INDEX",
+	"PI_CODING_AGENT_DIR",
 	"TMPDIR",
 	"UV_CONFIG_FILE",
 	"UV_DEFAULT_INDEX",
@@ -70,6 +80,19 @@ var userEnvironmentKeys = []string{
 	"VSCODE_PORTABLE",
 	"VIRTUAL_ENV",
 	"XDG_CONFIG_HOME",
+	"YARN_NPM_MINIMAL_AGE_GATE",
+	"YARN_NPM_PREAPPROVED_PACKAGES",
+	"YARN_RC_FILENAME",
+	"npm_config_globalconfig",
+	"npm_config_minimum_release_age",
+	"npm_config_userconfig",
+	"pnpm_config_minimum_release_age",
+	"pnpm_config_minimum_release_age_exclude",
+	"pnpm_config_minimum_release_age_ignore_missing_time",
+	"pnpm_config_minimum_release_age_strict",
+	"pnpm_config_npmrc_auth_file",
+	"pnpm_config_userconfig",
+	"yarn_rc_filename",
 }
 
 // NewUserAwareExecutor returns a wrapped executor that runs commands through the
@@ -336,8 +359,11 @@ func (e *UserAwareExecutor) EvalSymlinks(path string) (string, error) {
 	return e.inner.EvalSymlinks(path)
 }
 func (e *UserAwareExecutor) Readlink(path string) (string, error) { return e.inner.Readlink(path) }
-func (e *UserAwareExecutor) LoggedInUser() (*user.User, error)    { return e.inner.LoggedInUser() }
-func (e *UserAwareExecutor) GOOS() string                         { return e.inner.GOOS() }
+func (e *UserAwareExecutor) LoggedInUserContext(ctx context.Context) (*user.User, error) {
+	return e.inner.LoggedInUserContext(ctx)
+}
+func (e *UserAwareExecutor) LoggedInUser() (*user.User, error) { return e.inner.LoggedInUser() }
+func (e *UserAwareExecutor) GOOS() string                      { return e.inner.GOOS() }
 func (e *UserAwareExecutor) IsAppleCLTStub(ctx context.Context, binPath string) bool {
 	return e.inner.IsAppleCLTStub(ctx, binPath)
 }

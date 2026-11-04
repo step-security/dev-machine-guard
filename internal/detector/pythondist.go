@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 
@@ -102,10 +103,14 @@ func venvSitePackages(venvPath string) []string {
 // A successful empty walk returns a non-nil slice. A walk failure returns nil
 // so delta cannot replace previously uploaded inventory with a partial result.
 func (d *PythonDistDetector) ScanRoots(ctx context.Context, roots []string) []model.PackageDetail {
+	return d.scanRoots(ctx, roots, false)
+}
+
+func (d *PythonDistDetector) scanRoots(ctx context.Context, roots []string, includePaths bool) []model.PackageDetail {
 	if len(roots) == 0 {
 		return nil
 	}
-	seen := make(map[string]struct{})
+	seen := make(map[string]int)
 	pkgs := []model.PackageDetail{}
 	walkFailed := false
 
@@ -134,17 +139,27 @@ func (d *PythonDistDetector) ScanRoots(ctx context.Context, roots []string) []mo
 				return nil
 			}
 			key := strings.ToLower(name) + "\x00" + version
-			if _, dup := seen[key]; dup {
-				return nil
+			index, dup := seen[key]
+			if !dup {
+				index = len(pkgs)
+				seen[key] = index
+				pkgs = append(pkgs, model.PackageDetail{Name: name, Version: version})
 			}
-			seen[key] = struct{}{}
-			pkgs = append(pkgs, model.PackageDetail{Name: name, Version: version})
+			if includePaths {
+				location := filepath.Dir(filepath.Dir(path))
+				if !slices.Contains(pkgs[index].InstallPaths, location) {
+					pkgs[index].InstallPaths = append(pkgs[index].InstallPaths, location)
+				}
+			}
 			return nil
 		})
 	}
 
 	if walkFailed {
 		return nil
+	}
+	for i := range pkgs {
+		sort.Strings(pkgs[i].InstallPaths)
 	}
 	sort.Slice(pkgs, func(i, j int) bool {
 		if pkgs[i].Name == pkgs[j].Name {
@@ -161,7 +176,7 @@ func (d *PythonDistDetector) ScanGlobalPackages(ctx context.Context) []model.Pyt
 	details := d.ScanRoots(ctx, GlobalPythonRoots(d.exec, d.log))
 	out := make([]model.PythonPackage, len(details))
 	for i, p := range details {
-		out[i] = model.PythonPackage(p)
+		out[i] = model.PythonPackage{Name: p.Name, Version: p.Version}
 	}
 	return out
 }

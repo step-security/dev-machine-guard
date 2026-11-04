@@ -8,22 +8,27 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/identity"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/wslguest"
 	"howett.net/plist"
 )
 
-// ID returns the configured device identity, falling back to the machine
-// serial, or "" when neither is usable (never a placeholder like "unknown").
-// Keep SerialNumber separate so telemetry retains the hardware identity.
+// ID returns the device identity every backend call uses: the identity
+// Gather resolved (a configured template or literal, else the machine
+// identity), or "" when none is usable (never a placeholder like "unknown").
+// A Device not produced by Gather falls back to the configured literal (or
+// template, expanded from the Device's own fields) and then its serial. Keep
+// SerialNumber separate so telemetry retains the hardware identity.
 func ID(dev model.Device) string {
-	if id := strings.TrimSpace(config.DeviceID); id != "" {
-		return id
+	if dev.DeviceID != "" {
+		return dev.DeviceID
 	}
-	if usableSerial(dev.SerialNumber) {
-		return dev.SerialNumber
+	if dev.IdentityIncomplete {
+		return ""
 	}
-	return ""
+	return resolveWith(strings.TrimSpace(config.DeviceID), IdentitySourceConfig,
+		dev.SerialNumber, dev.Hostname, dev.UserIdentity, dev.Platform, false).DeviceID
 }
 
 // IDForGuest gives the host/distro identity precedence over an inherited host
@@ -35,13 +40,26 @@ func IDForGuest(dev model.Device, hostDeviceID, distroID string) string {
 	return ID(dev)
 }
 
-// Gather collects device information (hostname, serial, OS version, user identity).
+// Gather collects device information (hostname, serial, OS version, user
+// identity) and resolves the device identity (DeviceID) from the configured
+// template or, by default, the machine identity. See identity.go. It does
+// not probe virtualization: hooks and policy lanes call Gather on a budget of
+// a second and never report it; the scan paths attach DetectVirtualization.
 func Gather(ctx context.Context, exec executor.Executor) model.Device {
 	platform := exec.GOOS()
-	hostname := getHostname(ctx, exec, platform)
-	userIdentity := getDeveloperIdentity(exec)
-
+	// Session lookup can exhaust the hook deadline; resolve device identity first.
 	serial := SerialNumber(ctx, exec)
+	hostname := getHostname(ctx, exec, platform)
+	userIdentity, noUserLoggedIn := identity.DetectUserSession(ctx, exec)
+	// Windows service accounts (SYSTEM, LOCAL SERVICE, the NT SERVICE\ virtual
+	// accounts, machine accounts) are sessions without a developer too.
+	if !noUserLoggedIn && isServiceAccount(platform, exec.IsRoot(), userIdentity) {
+		noUserLoggedIn = true
+	}
+	if config.UserID != "" {
+		userIdentity = config.UserID
+	}
+
 	var osVersion string
 	switch platform {
 	case model.PlatformWindows:
@@ -52,14 +70,31 @@ func Gather(ctx context.Context, exec executor.Executor) model.Device {
 		osVersion = getOSVersionLinux(ctx, exec)
 	}
 
-	return model.Device{
-		Hostname:     hostname,
-		SerialNumber: serial,
-		OSVersion:    osVersion,
-		Platform:     platform,
-		UserIdentity: userIdentity,
-		Resources:    gatherResources(ctx, exec),
+	dev := model.Device{
+		Hostname:       hostname,
+		SerialNumber:   serial,
+		OSVersion:      osVersion,
+		Platform:       platform,
+		UserIdentity:   userIdentity,
+		NoUserLoggedIn: noUserLoggedIn,
+		Resources:      gatherResources(ctx, exec),
 	}
+	AttachIdentity(exec, &dev)
+	return dev
+}
+
+// developerIdentity is the user the {user} identity token and the per-user
+// state scope derive from: the provisioned user_id when one was configured
+// (an ephemeral device with no detectable user, see configure --user-id),
+// else the detected session user (the USER_EMAIL family of overrides, then
+// the logged-in user), "unknown" when there is none. Gather applies the same
+// rule to UserIdentity, so the id and the attribution never disagree.
+func developerIdentity(ctx context.Context, exec executor.Executor) string {
+	if id := strings.TrimSpace(config.UserID); id != "" {
+		return id
+	}
+	u, _ := identity.DetectUserSession(ctx, exec)
+	return u
 }
 
 var (
@@ -278,19 +313,4 @@ func getOSVersionLinux(ctx context.Context, exec executor.Executor) string {
 	default:
 		return "unknown"
 	}
-}
-
-func getDeveloperIdentity(exec executor.Executor) string {
-	// Check environment variables in order of preference
-	for _, key := range []string{"USER_EMAIL", "DEVELOPER_EMAIL", "STEPSEC_DEVELOPER_EMAIL"} {
-		if v := exec.Getenv(key); v != "" {
-			return v
-		}
-	}
-	// Fallback to logged-in username (detects console user when running as root)
-	u, err := exec.LoggedInUser()
-	if err == nil {
-		return u.Username
-	}
-	return "unknown"
 }

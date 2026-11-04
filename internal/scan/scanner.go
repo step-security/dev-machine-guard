@@ -16,6 +16,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/featuregate"
+	"github.com/step-security/dev-machine-guard/internal/identity"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/output"
 	"github.com/step-security/dev-machine-guard/internal/procusage"
@@ -64,6 +65,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	log.StepStart("Gathering device information")
 	start := time.Now()
 	dev := device.Gather(ctx, exec)
+	dev.Virtualization = device.DetectVirtualization(ctx, exec)
+	if identity.MissingUser(dev.UserIdentity) {
+		log.Warn(identity.MissingUserWarning)
+	}
 	log.StepDone(time.Since(start))
 
 	// WSL detection — host-side "is WSL present and actively used" on Windows.

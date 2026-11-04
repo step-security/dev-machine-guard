@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
+	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
@@ -435,5 +436,78 @@ func TestEvaluateRevalidatesCachedDeviceID(t *testing.T) {
 	st, ok := readState()
 	if !ok || st.DeviceID != "HW-NEW" || st.LastFullRunAt != 0 {
 		t.Fatalf("state = %+v, want reset to HW-NEW", st)
+	}
+}
+
+// withTemplate sets the config.json device identity template for a test.
+func withTemplate(t *testing.T, v string) {
+	t.Helper()
+	prev := config.DeviceID
+	config.DeviceID = v
+	t.Cleanup(func() { config.DeviceID = prev })
+}
+
+// identityMock is a Windows-flavoured mock whose serial probe would fail: the
+// tests below must resolve the id without ever probing.
+func identityMock(user string) *executor.Mock {
+	m := executor.NewMock()
+	m.SetGOOS("windows")
+	m.SetHostname("AVD-HOST-07")
+	m.SetUsername(user)
+	return m
+}
+
+func TestEvaluate_TemplateIdentityKeepsMatchingCache(t *testing.T) {
+	withTempState(t)
+	withTemplate(t, "{hostname}-{user}")
+	t.Cleanup(device.ResetIDCache)
+	d := Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}
+	if err := recordCheckin("avd-host-07-jdoe", d, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := StampLastFullRun("avd-host-07-jdoe", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	gateServer(t, http.StatusServiceUnavailable, "")
+
+	res := Evaluate(context.Background(), identityMock(`CONTOSO\JDoe`), progress.NewNoop(), false, "")
+	if !res.Skip {
+		t.Fatalf("a matching cache with a fresh full run must skip offline: %+v", res)
+	}
+}
+
+func TestEvaluate_IdentityIncompleteSkipsWithoutCheckin(t *testing.T) {
+	withTempState(t)
+	withTemplate(t, "{hostname}-{user}")
+	t.Cleanup(device.ResetIDCache)
+	hits := gateServer(t, 0, `{`+fullDirective+`}`)
+
+	for _, force := range []bool{false, true} {
+		res := Evaluate(context.Background(), identityMock(`NT AUTHORITY\SYSTEM`), progress.NewNoop(), force, "")
+		if !res.Skip || res.Reason != ReasonIdentityIncomplete {
+			t.Fatalf("force=%v: result = %+v, want identity_incomplete skip", force, res)
+		}
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("an incomplete identity must never check in, hits = %d", hits.Load())
+	}
+}
+
+func TestEvaluate_RecordsTemplateResolvedID(t *testing.T) {
+	withTempState(t)
+	withTemplate(t, "{serial}-{user}")
+	t.Cleanup(device.ResetIDCache)
+	gateServer(t, 0, `{`+fullDirective+`}`)
+	m := identityMock(`CONTOSO\JDoe`)
+	m.SetGOOS("linux")
+	m.SetFile("/sys/class/dmi/id/product_serial", []byte("LNX-77\n"))
+
+	res := Evaluate(context.Background(), m, progress.NewNoop(), false, "")
+	if res.Skip {
+		t.Fatalf("full directive must proceed: %+v", res)
+	}
+	st, ok := readState()
+	if !ok || st.DeviceID != "LNX-77-jdoe" {
+		t.Fatalf("state = %+v (ok=%v), want device id LNX-77-jdoe", st, ok)
 	}
 }

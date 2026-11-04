@@ -160,6 +160,7 @@ jobs:
             "APIENDPOINT=https://api.invalid.example",
             "APIKEY=ci-test-fake-api-key",
             "SCANFREQUENCY=4",
+            "DEVICEID={hostname}",
             "AUTOUPDATE=0",
             "/l*v", "dist\dmg-install.log"
           ) -Wait -PassThru
@@ -289,10 +290,18 @@ jobs:
           $rv = (Get-ItemProperty -Path 'HKLM:\Software\StepSecurity' -Name RunningVersion -ErrorAction SilentlyContinue).RunningVersion
           Check ($rv -eq $ver) "RunningVersion = $ver, set by adopt-seed with current ($rv)"
 
-          # 4. Machine-wide config with our values; installed with AUTOUPDATE=0.
+          # 4. Machine-wide config with our values; installed with AUTOUPDATE=0
+          # and DEVICEID={hostname} (persisted as the device_id template).
           $content = Get-Content $cfg -Raw
           Check ($content -match '"customer_id"\s*:\s*"ci-smoke"' -and $content -match '"api_key"\s*:\s*"ci-test-fake-api-key"') "config written with expected values"
           Check ($content -match '"auto_update"\s*:\s*false') "AUTOUPDATE=0 wrote auto_update false"
+          Check ($content -match '"device_id"\s*:\s*"\{hostname\}"') "DEVICEID wrote the device_id template"
+
+          # 4b. configure show reports the template and resolves it to the
+          # lower-cased hostname, the identity every backend call uses.
+          $show = & "$seed\stepsecurity-dev-machine-guard.exe" configure show 2>&1 | Out-String
+          $hostLower = $env:COMPUTERNAME.ToLower()
+          Check ($show -match 'Device ID:\s*\{hostname\}' -and $show -match "resolves now to:\s*$([regex]::Escape($hostLower)) \(source: config\)") "configure show resolves the device identity template to $hostLower`n  got: $show"
 
           # 5. config.json ACL hardening: Users R, Admins + SYSTEM F.
           $acl = & icacls $cfg | Out-String

@@ -1,0 +1,943 @@
+{
+  "npmrc_audit": {
+    "npm_available": true,
+    "npm_version": "11.21.1",
+    "npm_path": "/opt/npm/bin/npm",
+    "files": [
+      {
+        "path": "/fixture/home/.npmrc",
+        "scope": "user",
+        "exists": true,
+        "readable": true,
+        "size_bytes": 312,
+        "mtime_unix": 1700000000,
+        "mode": "0644",
+        "owner_uid": 1000,
+        "owner_name": "tester",
+        "group_gid": 1000,
+        "group_name": "staff",
+        "sha256": "ebaf332f431b07afc0c4af8deb51f4aa7eb156330b35aef897597fc59e50897f",
+        "entries": [
+          {
+            "key": "registry",
+            "display_value": "https://***@r.example/",
+            "line_num": 1,
+            "value_sha256": "5d9e9768a0d1f0c0601d3d9590712ccec2a164d3f72b12e4b90ac4c1e1fe25ca",
+            "has_literal_auth": true
+          },
+          {
+            "key": "//r.example/:_authToken",
+            "display_value": "***0001",
+            "line_num": 2,
+            "is_auth": true,
+            "value_sha256": "4acb6cd6a8c33a066990de226901b3d14444b22356b28dc4318587ba14327276",
+            "has_literal_auth": true
+          },
+          {
+            "key": "//r.example/:_password",
+            "display_value": "${PW:-***}",
+            "line_num": 3,
+            "is_auth": true,
+            "is_env_ref": true,
+            "env_ref_vars": [
+              "PW"
+            ],
+            "value_sha256": "7563ee39838b694d3ca8b04b56088c43d891ed4d099e27b0ddeda93dead9bf90",
+            "has_literal_auth": true
+          },
+          {
+            "key": "proxy",
+            "display_value": "http://***@proxy.example/",
+            "line_num": 4,
+            "is_env_ref": true,
+            "env_ref_vars": [
+              "U"
+            ],
+            "value_sha256": "3dd46ce8a2e409b8a2fa6be4eacd835ce617eff5fe32e0cfab2636018023e842",
+            "has_literal_auth": true
+          },
+          {
+            "key": "https-proxy",
+            "display_value": "http://***@proxy.example/",
+            "line_num": 5,
+            "value_sha256": "1f3786bfe374fe49b30f2dbbbac1889ded54d826f78eed6b12acf3a9ff8fa5b3",
+            "has_literal_auth": true
+          },
+          {
+            "key": "key",
+            "display_value": "***----",
+            "line_num": 6,
+            "is_auth": true,
+            "value_sha256": "182bdd3ff4a88fdf18c70da5b856e3b1d7847481db6bcd3e9a6321cfe1fa5e7c",
+            "quoted": true,
+            "has_literal_auth": true
+          },
+          {
+            "key": "min-release-age",
+            "display_value": "7",
+            "line_num": 7,
+            "value_sha256": "7902699be42c8a8e46fbbb4501726517e86b22c56a189f7625a6da49081b2451"
+          }
+        ],
+        "format": "ini",
+        "runtime_applicability": "applicable"
+      }
+    ],
+    "effective": {
+      "source_by_key": {
+        "registry": "/fixture/home/.npmrc"
+      },
+      "config": {
+        "min-release-age": null,
+        "registry": "https://***@r.example/"
+      },
+      "capture_directory": "/fixture/home"
+    },
+    "env": [
+      {
+        "name": "NPM_TOKEN",
+        "set": true,
+        "display_value": "***ok01",
+        "value_sha256": "554c7164d19a919168b0ffd85096ea1496aeb7391aaa3f0443b6a6f48d271c70"
+      },
+      {
+        "name": "NPM_CONFIG_USERCONFIG",
+        "set": false
+      },
+      {
+        "name": "npm_config_userconfig",
+        "set": false
+      },
+      {
+        "name": "NPM_CONFIG_GLOBALCONFIG",
+        "set": false
+      },
+      {
+        "name": "npm_config_globalconfig",
+        "set": false
+      },
+      {
+        "name": "NPM_CONFIG_REGISTRY",
+        "set": true,
+        "display_value": "https://***@r.example/",
+        "value_sha256": "f4ca81705361f030c5544067767512cfe437b3ea947726fc880c8c3552dc9bd3"
+      },
+      {
+        "name": "npm_config_registry",
+        "set": false
+      },
+      {
+        "name": "npm_config__authToken",
+        "set": false
+      },
+      {
+        "name": "npm_config__auth",
+        "set": false
+      },
+      {
+        "name": "NODE_OPTIONS",
+        "set": false
+      },
+      {
+        "name": "NODE_TLS_REJECT_UNAUTHORIZED",
+        "set": false
+      }
+    ],
+    "config_audit_version": 2
+  },
+  "pnpm_audit": {
+    "pnpm_available": true,
+    "pnpm_version": "11.22.0",
+    "pnpm_path": "/opt/pnpm/bin/pnpm",
+    "files": [
+      {
+        "path": "/fixture/home/.config/pnpm/rc",
+        "scope": "global",
+        "exists": false,
+        "readable": false,
+        "format": "ini",
+        "runtime_applicability": "ignored"
+      },
+      {
+        "path": "/fixture/home/.config/pnpm/config.yaml",
+        "scope": "global",
+        "exists": true,
+        "readable": true,
+        "size_bytes": 138,
+        "mtime_unix": 1700000000,
+        "mode": "0644",
+        "owner_uid": 1000,
+        "owner_name": "tester",
+        "group_gid": 1000,
+        "group_name": "staff",
+        "sha256": "2b14c3e62327515d3901c9b2bc434db611fec1480bc33b76326587d1cdc4aeb5",
+        "entries": [
+          {
+            "key": "minimumReleaseAge",
+            "display_value": "null",
+            "line_num": 1,
+            "value_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+          },
+          {
+            "key": "registries.@s",
+            "display_value": "https://***@r.example/",
+            "line_num": 3,
+            "value_sha256": "86cb19af724414e16b175eb407fe53cf9882a8a620d1aab002c12feb921c7ca1",
+            "has_literal_auth": true
+          },
+          {
+            "key": "_auth.https://r.example/.authToken",
+            "display_value": "***0001",
+            "line_num": 6,
+            "is_auth": true,
+            "value_sha256": "078132e13955b24ecf295e8cdc78e717019f1b237688b6e8ec51171f26a27ddd",
+            "has_literal_auth": true
+          }
+        ],
+        "format": "yaml",
+        "runtime_applicability": "applicable"
+      },
+      {
+        "path": "/fixture/home/.config/pnpm/auth.ini",
+        "scope": "global",
+        "exists": false,
+        "readable": false,
+        "format": "ini",
+        "runtime_applicability": "applicable"
+      },
+      {
+        "path": "/fixture/home/.npmrc",
+        "scope": "user",
+        "exists": true,
+        "readable": true,
+        "size_bytes": 312,
+        "mtime_unix": 1700000000,
+        "mode": "0644",
+        "owner_uid": 1000,
+        "owner_name": "tester",
+        "group_gid": 1000,
+        "group_name": "staff",
+        "sha256": "ebaf332f431b07afc0c4af8deb51f4aa7eb156330b35aef897597fc59e50897f",
+        "entries": [
+          {
+            "key": "registry",
+            "display_value": "https://***@r.example/",
+            "line_num": 1,
+            "value_sha256": "5d9e9768a0d1f0c0601d3d9590712ccec2a164d3f72b12e4b90ac4c1e1fe25ca",
+            "has_literal_auth": true
+          },
+          {
+            "key": "//r.example/:_authToken",
+            "display_value": "***0001",
+            "line_num": 2,
+            "is_auth": true,
+            "value_sha256": "4acb6cd6a8c33a066990de226901b3d14444b22356b28dc4318587ba14327276",
+            "has_literal_auth": true
+          },
+          {
+            "key": "//r.example/:_password",
+            "display_value": "${PW:-***}",
+            "line_num": 3,
+            "is_auth": true,
+            "is_env_ref": true,
+            "env_ref_vars": [
+              "PW"
+            ],
+            "value_sha256": "7563ee39838b694d3ca8b04b56088c43d891ed4d099e27b0ddeda93dead9bf90",
+            "has_literal_auth": true
+          },
+          {
+            "key": "proxy",
+            "display_value": "http://***@proxy.example/",
+            "line_num": 4,
+            "is_env_ref": true,
+            "env_ref_vars": [
+              "U"
+            ],
+            "value_sha256": "3dd46ce8a2e409b8a2fa6be4eacd835ce617eff5fe32e0cfab2636018023e842",
+            "has_literal_auth": true
+          },
+          {
+            "key": "https-proxy",
+            "display_value": "http://***@proxy.example/",
+            "line_num": 5,
+            "value_sha256": "1f3786bfe374fe49b30f2dbbbac1889ded54d826f78eed6b12acf3a9ff8fa5b3",
+            "has_literal_auth": true
+          },
+          {
+            "key": "key",
+            "display_value": "***----",
+            "line_num": 6,
+            "is_auth": true,
+            "value_sha256": "182bdd3ff4a88fdf18c70da5b856e3b1d7847481db6bcd3e9a6321cfe1fa5e7c",
+            "quoted": true,
+            "has_literal_auth": true
+          },
+          {
+            "key": "min-release-age",
+            "display_value": "7",
+            "line_num": 7,
+            "value_sha256": "7902699be42c8a8e46fbbb4501726517e86b22c56a189f7625a6da49081b2451"
+          }
+        ],
+        "format": "ini",
+        "runtime_applicability": "applicable"
+      },
+      {
+        "path": "/fixture/code/app/pnpm-workspace.yaml",
+        "scope": "project",
+        "exists": true,
+        "readable": true,
+        "size_bytes": 53,
+        "mtime_unix": 1700000000,
+        "mode": "0644",
+        "owner_uid": 1000,
+        "owner_name": "tester",
+        "group_gid": 1000,
+        "group_name": "staff",
+        "sha256": "3afcaac895d71ab73a6dcbaba9401eb11757042e28532fc79ca29d373b8849c4",
+        "entries": [
+          {
+            "key": "minimumReleaseAge",
+            "display_value": "1440",
+            "line_num": 1,
+            "value_sha256": "a4ff3ad278c7b0575a8e32ae08eebfb327e37762cb1a2caa793c431b9b2ca2c6"
+          }
+        ],
+        "format": "yaml",
+        "runtime_applicability": "unknown"
+      }
+    ],
+    "effective": {
+      "config": {
+        "httpsProxy": "http://***@p.example/",
+        "minimumReleaseAge": null,
+        "registries": {
+          "default": "https://***@r.example/"
+        }
+      },
+      "capture_directory": "/fixture/home"
+    },
+    "env": [
+      {
+        "name": "PNPM_HOME",
+        "set": false
+      },
+      {
+        "name": "PNPM_CONFIG_REGISTRY",
+        "set": false
+      },
+      {
+        "name": "PNPM_CONFIG_USERCONFIG",
+        "set": false
+      },
+      {
+        "name": "pnpm_config_userconfig",
+        "set": false
+      },
+      {
+        "name": "PNPM_CONFIG_NPMRC_AUTH_FILE",
+        "set": false
+      },
+      {
+        "name": "pnpm_config_npmrc_auth_file",
+        "set": false
+      },
+      {
+        "name": "PNPM_CONFIG_GLOBALCONFIG",
+        "set": false
+      },
+      {
+        "name": "PNPM_CONFIG_STORE_DIR",
+        "set": false
+      },
+      {
+        "name": "PNPM_CONFIG_VIRTUAL_STORE_DIR",
+        "set": false
+      },
+      {
+        "name": "PNPM_CONFIG_MIN_RELEASE_AGE",
+        "set": false
+      },
+      {
+        "name": "PNPM_CONFIG_MINIMUM_RELEASE_AGE",
+        "set": false
+      },
+      {
+        "name": "pnpm_config_minimum_release_age",
+        "set": false
+      },
+      {
+        "name": "PNPM_CONFIG_MINIMUM_RELEASE_AGE_EXCLUDE",
+        "set": false
+      },
+      {
+        "name": "pnpm_config_minimum_release_age_exclude",
+        "set": false
+      },
+      {
+        "name": "PNPM_CONFIG_MINIMUM_RELEASE_AGE_STRICT",
+        "set": false
+      },
+      {
+        "name": "pnpm_config_minimum_release_age_strict",
+        "set": false
+      },
+      {
+        "name": "PNPM_CONFIG_MINIMUM_RELEASE_AGE_IGNORE_MISSING_TIME",
+        "set": false
+      },
+      {
+        "name": "pnpm_config_minimum_release_age_ignore_missing_time",
+        "set": false
+      },
+      {
+        "name": "NPM_CONFIG_MINIMUM_RELEASE_AGE",
+        "set": false
+      },
+      {
+        "name": "npm_config_minimum_release_age",
+        "set": false
+      },
+      {
+        "name": "NPM_CONFIG_USERCONFIG",
+        "set": false
+      },
+      {
+        "name": "npm_config_userconfig",
+        "set": false
+      },
+      {
+        "name": "NPM_TOKEN",
+        "set": true,
+        "display_value": "***ok01",
+        "value_sha256": "554c7164d19a919168b0ffd85096ea1496aeb7391aaa3f0443b6a6f48d271c70"
+      },
+      {
+        "name": "NPM_CONFIG_REGISTRY",
+        "set": true,
+        "display_value": "https://***@r.example/",
+        "value_sha256": "f4ca81705361f030c5544067767512cfe437b3ea947726fc880c8c3552dc9bd3"
+      },
+      {
+        "name": "npm_config_registry",
+        "set": false
+      },
+      {
+        "name": "npm_config__authToken",
+        "set": false
+      },
+      {
+        "name": "COREPACK_ENABLE_STRICT",
+        "set": false
+      },
+      {
+        "name": "COREPACK_HOME",
+        "set": false
+      },
+      {
+        "name": "NODE_OPTIONS",
+        "set": false
+      },
+      {
+        "name": "NODE_TLS_REJECT_UNAUTHORIZED",
+        "set": false
+      }
+    ],
+    "config_audit_version": 2
+  },
+  "yarn_audit": {
+    "yarn_available": true,
+    "yarn_version": "4.18.1",
+    "yarn_path": "/opt/yarn/bin/yarn",
+    "flavor": "berry",
+    "files": [
+      {
+        "path": "/fixture/home/.yarnrc",
+        "scope": "user",
+        "flavor": "classic",
+        "exists": true,
+        "readable": true,
+        "size_bytes": 46,
+        "mtime_unix": 1700000000,
+        "mode": "0644",
+        "owner_uid": 1000,
+        "owner_name": "tester",
+        "group_gid": 1000,
+        "group_name": "staff",
+        "sha256": "195d0d2b6dd18e48a9054cb82dbe532bb71941fd61e8d3be56bbe782ad2ab04b",
+        "entries": [
+          {
+            "key": "//r.example/:_authToken",
+            "display_value": "***0001",
+            "line_num": 1,
+            "is_auth": true,
+            "value_sha256": "c940fc3b47e0a27f857aaf00d3b8c090b4a61ad34a65b63a8785505207f08e87",
+            "quoted": true,
+            "has_literal_auth": true
+          }
+        ],
+        "runtime_applicability": "ignored"
+      },
+      {
+        "path": "/fixture/home/.yarnrc.yml",
+        "scope": "user",
+        "flavor": "berry",
+        "exists": true,
+        "readable": true,
+        "size_bytes": 113,
+        "mtime_unix": 1700000000,
+        "mode": "0644",
+        "owner_uid": 1000,
+        "owner_name": "tester",
+        "group_gid": 1000,
+        "group_name": "staff",
+        "sha256": "b84612e75354d1bc0252ad2fb0662aa6fc71c4d1e1bc4a1c2412ac9fff9085b7",
+        "entries": [
+          {
+            "key": "npmAuthToken",
+            "display_value": "${T:-***}",
+            "is_auth": true,
+            "is_env_ref": true,
+            "env_ref_vars": [
+              "T"
+            ],
+            "value_sha256": "a54c7b4a13f2b6d24664f0aba79ec4a2ca3716b6501406a764a6fc675c1e2e5e",
+            "quoted": true,
+            "has_literal_auth": true
+          },
+          {
+            "key": "npmMinimalAgeGate",
+            "display_value": "3d",
+            "value_sha256": "da0568a25209c76552026c3b87ac374acd8e8aeafc061e04ac55fac18c45cb2d",
+            "quoted": true
+          },
+          {
+            "key": "npmRegistryServer",
+            "display_value": "https://***@r.example/",
+            "value_sha256": "2ee32c2698b8c4fd1b7594653f075672f3a7c95416ba71270fe5e73c7250a123",
+            "quoted": true,
+            "has_literal_auth": true
+          }
+        ],
+        "runtime_applicability": "applicable"
+      },
+      {
+        "path": "/fixture/code/app/.yarnrc.yml",
+        "scope": "project",
+        "flavor": "berry",
+        "exists": true,
+        "readable": true,
+        "size_bytes": 13,
+        "mtime_unix": 1700000000,
+        "mode": "0644",
+        "owner_uid": 1000,
+        "owner_name": "tester",
+        "group_gid": 1000,
+        "group_name": "staff",
+        "sha256": "2efe2b1eadb06edf9d9842a42dd76dcd3f0000aa2bd10fa0fbbfa63eda9471f9",
+        "parse_error": "invalid yaml",
+        "runtime_applicability": "unknown"
+      }
+    ],
+    "npmrc_files": [
+      {
+        "path": "/fixture/home/.npmrc",
+        "scope": "user",
+        "exists": true,
+        "readable": true,
+        "size_bytes": 312,
+        "mtime_unix": 1700000000,
+        "mode": "0644",
+        "owner_uid": 1000,
+        "owner_name": "tester",
+        "group_gid": 1000,
+        "group_name": "staff",
+        "sha256": "ebaf332f431b07afc0c4af8deb51f4aa7eb156330b35aef897597fc59e50897f",
+        "entries": [
+          {
+            "key": "registry",
+            "display_value": "https://***@r.example/",
+            "line_num": 1,
+            "value_sha256": "5d9e9768a0d1f0c0601d3d9590712ccec2a164d3f72b12e4b90ac4c1e1fe25ca",
+            "has_literal_auth": true
+          },
+          {
+            "key": "//r.example/:_authToken",
+            "display_value": "***0001",
+            "line_num": 2,
+            "is_auth": true,
+            "value_sha256": "4acb6cd6a8c33a066990de226901b3d14444b22356b28dc4318587ba14327276",
+            "has_literal_auth": true
+          },
+          {
+            "key": "//r.example/:_password",
+            "display_value": "${PW:-***}",
+            "line_num": 3,
+            "is_auth": true,
+            "is_env_ref": true,
+            "env_ref_vars": [
+              "PW"
+            ],
+            "value_sha256": "7563ee39838b694d3ca8b04b56088c43d891ed4d099e27b0ddeda93dead9bf90",
+            "has_literal_auth": true
+          },
+          {
+            "key": "proxy",
+            "display_value": "http://***@proxy.example/",
+            "line_num": 4,
+            "is_env_ref": true,
+            "env_ref_vars": [
+              "U"
+            ],
+            "value_sha256": "3dd46ce8a2e409b8a2fa6be4eacd835ce617eff5fe32e0cfab2636018023e842",
+            "has_literal_auth": true
+          },
+          {
+            "key": "https-proxy",
+            "display_value": "http://***@proxy.example/",
+            "line_num": 5,
+            "value_sha256": "1f3786bfe374fe49b30f2dbbbac1889ded54d826f78eed6b12acf3a9ff8fa5b3",
+            "has_literal_auth": true
+          },
+          {
+            "key": "key",
+            "display_value": "***----",
+            "line_num": 6,
+            "is_auth": true,
+            "value_sha256": "182bdd3ff4a88fdf18c70da5b856e3b1d7847481db6bcd3e9a6321cfe1fa5e7c",
+            "quoted": true,
+            "has_literal_auth": true
+          },
+          {
+            "key": "min-release-age",
+            "display_value": "7",
+            "line_num": 7,
+            "value_sha256": "7902699be42c8a8e46fbbb4501726517e86b22c56a189f7625a6da49081b2451"
+          }
+        ],
+        "format": "ini",
+        "runtime_applicability": "ignored"
+      }
+    ],
+    "env": [
+      {
+        "name": "YARN_REGISTRY",
+        "set": false
+      },
+      {
+        "name": "YARN_NPM_REGISTRY_SERVER",
+        "set": false
+      },
+      {
+        "name": "YARN_NPM_AUTH_TOKEN",
+        "set": false
+      },
+      {
+        "name": "YARN_NPM_AUTH_IDENT",
+        "set": false
+      },
+      {
+        "name": "YARN_NPM_ALWAYS_AUTH",
+        "set": false
+      },
+      {
+        "name": "YARN_ENABLE_STRICT_SSL",
+        "set": false
+      },
+      {
+        "name": "YARN_ENABLE_SCRIPTS",
+        "set": false
+      },
+      {
+        "name": "YARN_ENABLE_IMMUTABLE_INSTALLS",
+        "set": false
+      },
+      {
+        "name": "YARN_HTTP_PROXY",
+        "set": false
+      },
+      {
+        "name": "YARN_HTTPS_PROXY",
+        "set": false
+      },
+      {
+        "name": "YARN_UNSAFE_HTTP_WHITELIST",
+        "set": false
+      },
+      {
+        "name": "YARN_NPM_MINIMAL_AGE_GATE",
+        "set": false
+      },
+      {
+        "name": "YARN_NPM_PREAPPROVED_PACKAGES",
+        "set": false
+      },
+      {
+        "name": "YARN_RC_FILENAME",
+        "set": false
+      },
+      {
+        "name": "NPM_TOKEN",
+        "set": true,
+        "display_value": "***ok01",
+        "value_sha256": "554c7164d19a919168b0ffd85096ea1496aeb7391aaa3f0443b6a6f48d271c70"
+      },
+      {
+        "name": "NPM_CONFIG_REGISTRY",
+        "set": true,
+        "display_value": "https://***@r.example/",
+        "value_sha256": "f4ca81705361f030c5544067767512cfe437b3ea947726fc880c8c3552dc9bd3"
+      },
+      {
+        "name": "NODE_OPTIONS",
+        "set": false
+      },
+      {
+        "name": "NODE_TLS_REJECT_UNAUTHORIZED",
+        "set": false
+      }
+    ],
+    "context_directory": "/fixture/home",
+    "config_audit_version": 2
+  },
+  "bun_audit": {
+    "bun_available": true,
+    "bun_version": "1.4.4",
+    "bun_path": "/opt/bun/bin/bun",
+    "files": [
+      {
+        "path": "/fixture/home/.bunfig.toml",
+        "scope": "user",
+        "exists": true,
+        "readable": true,
+        "size_bytes": 186,
+        "mtime_unix": 1700000000,
+        "mode": "0644",
+        "owner_uid": 1000,
+        "owner_name": "tester",
+        "group_gid": 1000,
+        "group_name": "staff",
+        "sha256": "10e6214e31904e37d4f39d8ea2dd38e1c83fe1f22a4188b84f07163e11a38d01",
+        "sections": [
+          {
+            "name": "install",
+            "entries": [
+              {
+                "key": "minimumReleaseAge",
+                "display_value": "259200",
+                "line_num": 0,
+                "value_sha256": "fe18391088b515c4daa36b296bedd192275202402821cf745ecc180f764938ce",
+                "quoted": true
+              }
+            ]
+          },
+          {
+            "name": "install.registry",
+            "entries": [
+              {
+                "key": "token",
+                "display_value": "***en01",
+                "line_num": 0,
+                "is_auth": true,
+                "value_sha256": "3a476a4e98d8b058e6fd66512d57e18904176d208473adef9e0e264cc1a43a47",
+                "quoted": true,
+                "has_literal_auth": true
+              },
+              {
+                "key": "url",
+                "display_value": "https://***@r.example/",
+                "line_num": 0,
+                "value_sha256": "a8a2212d85fb9e758846b47cb2f50d8c2d210b7debb5cacab9b2163624ee0b53",
+                "quoted": true,
+                "has_literal_auth": true
+              }
+            ]
+          },
+          {
+            "name": "install.scopes",
+            "entries": [
+              {
+                "key": "inline",
+                "display_value": "https://***@r.example/",
+                "line_num": 0,
+                "value_sha256": "e8f569c970e254a56cdf50bab5a96015ba82d3558d8405a588a57836cacf975a",
+                "quoted": true,
+                "has_literal_auth": true
+              }
+            ]
+          }
+        ],
+        "runtime_applicability": "applicable"
+      },
+      {
+        "path": "/fixture/code/app/bunfig.toml",
+        "scope": "project",
+        "exists": true,
+        "readable": true,
+        "size_bytes": 28,
+        "mtime_unix": 1700000000,
+        "mode": "0644",
+        "owner_uid": 1000,
+        "owner_name": "tester",
+        "group_gid": 1000,
+        "group_name": "staff",
+        "sha256": "7aa977040de3e330ddecabae9e9e0b0cc8f6f0eadec3dc021ab148949cc7a8d7",
+        "parse_error": "invalid toml",
+        "runtime_applicability": "unknown"
+      }
+    ],
+    "npmrc_files": [
+      {
+        "path": "/fixture/home/.npmrc",
+        "scope": "user",
+        "exists": true,
+        "readable": true,
+        "size_bytes": 312,
+        "mtime_unix": 1700000000,
+        "mode": "0644",
+        "owner_uid": 1000,
+        "owner_name": "tester",
+        "group_gid": 1000,
+        "group_name": "staff",
+        "sha256": "ebaf332f431b07afc0c4af8deb51f4aa7eb156330b35aef897597fc59e50897f",
+        "entries": [
+          {
+            "key": "registry",
+            "display_value": "https://***@r.example/",
+            "line_num": 1,
+            "value_sha256": "5d9e9768a0d1f0c0601d3d9590712ccec2a164d3f72b12e4b90ac4c1e1fe25ca",
+            "has_literal_auth": true
+          },
+          {
+            "key": "//r.example/:_authToken",
+            "display_value": "***0001",
+            "line_num": 2,
+            "is_auth": true,
+            "value_sha256": "4acb6cd6a8c33a066990de226901b3d14444b22356b28dc4318587ba14327276",
+            "has_literal_auth": true
+          },
+          {
+            "key": "//r.example/:_password",
+            "display_value": "${PW:-***}",
+            "line_num": 3,
+            "is_auth": true,
+            "is_env_ref": true,
+            "env_ref_vars": [
+              "PW"
+            ],
+            "value_sha256": "7563ee39838b694d3ca8b04b56088c43d891ed4d099e27b0ddeda93dead9bf90",
+            "has_literal_auth": true
+          },
+          {
+            "key": "proxy",
+            "display_value": "http://***@proxy.example/",
+            "line_num": 4,
+            "is_env_ref": true,
+            "env_ref_vars": [
+              "U"
+            ],
+            "value_sha256": "3dd46ce8a2e409b8a2fa6be4eacd835ce617eff5fe32e0cfab2636018023e842",
+            "has_literal_auth": true
+          },
+          {
+            "key": "https-proxy",
+            "display_value": "http://***@proxy.example/",
+            "line_num": 5,
+            "value_sha256": "1f3786bfe374fe49b30f2dbbbac1889ded54d826f78eed6b12acf3a9ff8fa5b3",
+            "has_literal_auth": true
+          },
+          {
+            "key": "key",
+            "display_value": "***----",
+            "line_num": 6,
+            "is_auth": true,
+            "value_sha256": "182bdd3ff4a88fdf18c70da5b856e3b1d7847481db6bcd3e9a6321cfe1fa5e7c",
+            "quoted": true,
+            "has_literal_auth": true
+          },
+          {
+            "key": "min-release-age",
+            "display_value": "7",
+            "line_num": 7,
+            "value_sha256": "7902699be42c8a8e46fbbb4501726517e86b22c56a189f7625a6da49081b2451"
+          }
+        ],
+        "format": "ini",
+        "runtime_applicability": "applicable"
+      }
+    ],
+    "env": [
+      {
+        "name": "BUN_CONFIG_REGISTRY",
+        "set": false
+      },
+      {
+        "name": "BUN_CONFIG_TOKEN",
+        "set": false
+      },
+      {
+        "name": "BUN_INSTALL",
+        "set": false
+      },
+      {
+        "name": "BUN_INSTALL_BIN",
+        "set": false
+      },
+      {
+        "name": "BUN_INSTALL_CACHE_DIR",
+        "set": false
+      },
+      {
+        "name": "BUN_INSTALL_GLOBAL_DIR",
+        "set": false
+      },
+      {
+        "name": "BUN_CONFIG_NO_CLEAR_TERMINAL_ON_RELOAD",
+        "set": false
+      },
+      {
+        "name": "NPM_CONFIG_REGISTRY",
+        "set": true,
+        "display_value": "https://***@r.example/",
+        "value_sha256": "f4ca81705361f030c5544067767512cfe437b3ea947726fc880c8c3552dc9bd3"
+      },
+      {
+        "name": "npm_config_registry",
+        "set": false
+      },
+      {
+        "name": "NPM_CONFIG_TOKEN",
+        "set": false
+      },
+      {
+        "name": "npm_config_token",
+        "set": false
+      },
+      {
+        "name": "NPM_CONFIG_USERCONFIG",
+        "set": false
+      },
+      {
+        "name": "npm_config_userconfig",
+        "set": false
+      },
+      {
+        "name": "NPM_TOKEN",
+        "set": true,
+        "display_value": "***ok01",
+        "value_sha256": "554c7164d19a919168b0ffd85096ea1496aeb7391aaa3f0443b6a6f48d271c70"
+      },
+      {
+        "name": "NODE_OPTIONS",
+        "set": false
+      },
+      {
+        "name": "NODE_TLS_REJECT_UNAUTHORIZED",
+        "set": false
+      }
+    ],
+    "context_directory": "/fixture/home",
+    "config_audit_version": 2
+  }
+}

@@ -597,21 +597,25 @@ default:     return output.Pretty(os.Stdout, result, cfg.ColorMode)
   `switch cfg.Command` and immediately calls into a package. Work functions take the uniform
   signature **`Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config)`** and read `cfg.*`
   directly — don't thread individual flag values as separate params.
-- **Hand-rolled parser in `internal/cli` — no `flag`, no `cobra`.** Parsing is a manual
-  `for i < len(args) { switch … }` loop. Verbs set `cfg.Command` to a canonical string; two-word verbs
-  (`configure show`, `hooks install`) peek at `args[i+1]`.
-- **Add-a-flag recipe:** (1) add a field to `cli.Config` with a doc comment naming the flag; (2) add
-  the parse `case` (support both `--x val` and `--x=val` for value flags); (3) read `cfg.X` in the work
-  package; (4) add a `--help` line + a `TestParse_*` test. Dev-only flags also get an env fallback and
-  are omitted from `--help`. Optional on/off flags are `*bool` (nil = auto).
-```go
-case arg == "--api-key":
-    i++
-    if i >= len(args) { return nil, fmt.Errorf("--api-key requires a value") }
-    cfg.ConfigAPIKey = args[i]
-case strings.HasPrefix(arg, "--api-key="):
-    cfg.ConfigAPIKey = strings.TrimPrefix(arg, "--api-key=")
-```
+- **Hand-rolled, table-driven parser in `internal/cli` — no `flag`, no `cobra`.** Verbs (`install`,
+  `configure`, `configure show`, `version`, `help`) are matched in `Parse`; every `--flag` is a
+  `flagSpec` row in `flagTable` (`internal/cli/flags.go`), the single source for parsing, `--help`, and
+  which config.json keys `configure` saves. Two-word verbs peek at `args[i+1]`.
+- **Add-a-flag recipe:** (1) add a field to `cli.Config` with a doc comment naming the flag; (2) add a
+  `flagTable` row in `--help` order, using a helper (`switchFlag`, `triFlag`, `stringFlag`, `configFlag`,
+  `intConfigFlag`) where one fits. Pick the `kind` (`flagValue` accepts both `--x val` and `--x=val`;
+  use it for new value flags), a `missing` message if the default "requires a value" isn't enough,
+  and the verbatim `help` lines, or `helpHidden` with no help for dev-only flags (those also get an env
+  fallback); (3) read `cfg.X` in the work package; (4) add a `TestParse_*` test and rerun the goldens
+  (`go test ./internal/cli -run Golden -update`), then review the diff. Optional on/off flags are `*bool`
+  (nil = auto). A golden diff is a user-visible CLI change.
+- **Every config setting gets a non-interactive `configure` flag.** Anything an admin can set in
+  `config.json` (a `config.ConfigFile` field) MUST be settable by a flag, because MDM/MSI/CI deploys
+  can't drive a prompt. Declare the key in the row's `saves` and call `cfg.save(key, v)` in its `set`.
+  `configure` merges `cfg.ConfigValues` into config.json, so no other wiring is needed. Reuse an existing
+  scan/output flag for the setting if there is one. An empty value means "unchanged", except explicit user/device IDs, which must pass identity validation. Add a row to the
+  README's non-interactive flag table. `TestFlagTable_CoversEveryConfigKey` and
+  `TestFlagTable_EveryKeyReachesConfigFile` fail until the flag exists and reaches the file.
 - **Exit-code contract** (scheduler-facing — use these, don't invent new ones): `0` success ·
   `1` generic failure/usage/config error · `2` execution-watchdog hard timeout (and `--exec` launcher
   misuse) · `130` SIGINT/SIGTERM. **The hidden `_hook` path MUST exit `0` even on bad args** (agents
@@ -652,7 +656,34 @@ if isConfigured(ctx, exec) {
   re-derive elevation. Install layout forks on it (system-wide vs per-user).
 - **Never hardcode a path — ask `internal/paths`.** Resolution precedence: `--install-dir` >
   `config.InstallDir` > `$STEPSECURITY_HOME` > `~/.stepsecurity`. A `""` return means output is
-  **disabled** — callers MUST skip writing.
+  **disabled** — callers MUST skip writing. Per-run state files (`last-run.json`,
+  `scan-state.json`, `node-scan-cache.json`, `run-metrics.jsonl`) go through `paths.StateDir()`,
+  which is `Home()` or `Home()/users/<user>` when the device identity is per-user.
+- **Device identity is one call: `device.ID(dev)` (or `device.IDForGuest`) on a `device.Gather`
+  result; the run gate uses `device.ResolvedDeviceID`.** Two layers: `device.SerialNumber` resolves
+  the MACHINE identity once per process (hardware serial, else the machine-wide id file root wrote,
+  else a generated and persisted id; placeholder serials rejected by `usableSerial`), and
+  `device.ResolveIdentity` (identity.go) layers the configured identity on top:
+  `STEPSEC_DEVICE_ID` > `config.DeviceID` (config.json `device_id`) > automatic per-user template on
+  a shared Windows host (multiuser.go: sticky marker, multi-session edition or 2+ scanning users;
+  the switch removes the old serial row once, retire reason `identity_changed`) > machine identity; a literal or
+  a template over `{serial}` `{hostname}` `{user}`; template expansions are sanitized (a literal id is used as given)
+  (`device.SanitizeDeviceID`), the machine-identity path is byte-identical. `Gather` stores the
+  result on `Device.DeviceID`/`DeviceIDSource`; `Device.SerialNumber` stays the machine identity.
+- **Virtualization is one call: `device.DetectVirtualization`** (virt.go; memoized per process on
+  its own context). Evidence order: cloud metadata service (probed only when SMBIOS/DMI already
+  names that cloud's hypervisor family), SMBIOS/DMI vendor strings, macOS `kern.hv_vmm_present`,
+  `systemd-detect-virt --vm`, cpuinfo `hypervisor`. Never the CPUID hypervisor bit on Windows
+  (Hyper-V/VBS hosts set it). Reported as `Device.Virtualization` (type virtual|physical|unknown,
+  vendor, source); "physical" means no hypervisor was detected, never a proof.
+  Never read the serial as the id anywhere else. An `IdentityIncomplete` identity ({user} under a
+  service account) skips the run — no beacon, no upload, no phantom row.
+  `device.IsServiceAccount` is the single no-user predicate.
+- **Uninstall collects, tears down, then retires.** `uninstall` collects the identities to retire
+  while the state files exist, removes the scheduler (so no scan can report afterwards), then calls
+  `internal/retire` (best-effort, bounded) when `--retire` or config `retire_on_uninstall` says so; `--no-retire`
+  suppresses it (the MSI skips the uninstall CA entirely on a major upgrade, so an upgrade never
+  retires). A failure is a warning, never an exit code.
 - **Config: build-time values win.** Enterprise config globals start as `"{{PLACEHOLDER}}"` strings the
   installer substitutes; `config.Load()` applies a `config.json` field **only if the in-memory value is
   still a placeholder/empty**. `Load` tolerates a missing/garbage file (returns, leaving defaults).

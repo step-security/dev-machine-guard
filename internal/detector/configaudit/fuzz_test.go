@@ -17,7 +17,8 @@ func FuzzNPMRCSecrets(f *testing.F) {
 		if len(data) > 8192 {
 			t.Skip()
 		}
-		for _, e := range parseNPMRC(data) {
+		parsed, _ := parseNPMRC(data)
+		for _, e := range parsed {
 			if e.IsAuth && !e.IsEnvRef && e.ValueSHA256 != "" && (!strings.HasPrefix(e.DisplayValue, "***") || len(e.DisplayValue) > 7) {
 				t.Fatal("auth entry exposes an unredacted value")
 			}
@@ -29,7 +30,7 @@ func FuzzNPMRCSecrets(f *testing.F) {
 		}
 		// Encode arbitrary bytes into a synthetic, single-line literal credential.
 		token := "fuzz-token-" + hex.EncodeToString(data)
-		entries := parseNPMRC([]byte("//registry.example/:_authToken=" + token + "\n_auth=${DMG_FUZZ_TOKEN}\n"))
+		entries, _ := parseNPMRC([]byte("//registry.example/:_authToken=" + token + "\n_auth=${DMG_FUZZ_TOKEN}\n"))
 		if len(entries) != 2 {
 			t.Fatal("lost controlled auth entries")
 		}

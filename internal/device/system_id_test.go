@@ -132,3 +132,32 @@ func TestSystemIDDropsStaleConfiguredCache(t *testing.T) {
 		t.Fatalf("SystemID = %q, want the chain past the stale configured id", got)
 	}
 }
+
+// A configured template is expanded under SYSTEM the way the scan expands
+// it; {user} has no expansion there and yields no id.
+func TestSystemIDExpandsTemplate(t *testing.T) {
+	old := config.DeviceID
+	t.Cleanup(func() { config.DeviceID = old })
+	m := systemMock()
+	m.SetHostname("AVD-HOST-07")
+	stubProbe(t, "HW-1", true)
+	cache := `C:\x\device-id`
+	config.DeviceID = "{hostname}"
+	if got := SystemID(context.Background(), m, cache, SystemProbeTimeout); got != "avd-host-07" {
+		t.Fatalf("{hostname}: SystemID = %q", got)
+	}
+	config.DeviceID = "{serial}-vdi"
+	if got := SystemID(context.Background(), m, cache, SystemProbeTimeout); got != "HW-1-vdi" {
+		t.Fatalf("{serial}: SystemID = %q", got)
+	}
+	config.DeviceID = "{hostname}-{user}"
+	if got := SystemID(context.Background(), m, cache, SystemProbeTimeout); got != "" {
+		t.Fatalf("{user} under SYSTEM: SystemID = %q, want none", got)
+	}
+	// A nameless host falls back to the machine identity for {hostname}.
+	m.SetHostname("localhost")
+	config.DeviceID = "{hostname}"
+	if got := SystemID(context.Background(), m, cache, SystemProbeTimeout); got != "HW-1" {
+		t.Fatalf("nameless host: SystemID = %q", got)
+	}
+}

@@ -34,6 +34,9 @@ var yarnEnvVars = []string{
 	"YARN_HTTP_PROXY",
 	"YARN_HTTPS_PROXY",
 	"YARN_UNSAFE_HTTP_WHITELIST",
+	"YARN_NPM_MINIMAL_AGE_GATE",
+	"YARN_NPM_PREAPPROVED_PACKAGES",
+	"YARN_RC_FILENAME",
 	"NPM_TOKEN",
 	"NPM_CONFIG_REGISTRY",
 	"NODE_OPTIONS",
@@ -83,17 +86,23 @@ func (d *YarnDetector) WithSkipper(s *tcc.Skipper) *YarnDetector {
 // Detect runs the full yarn audit.
 func (d *YarnDetector) Detect(ctx context.Context, searchDirs []string, loggedInUser *user.User) model.YarnAudit {
 	audit := model.YarnAudit{
-		Files:      []model.YarnConfigFile{},
-		NPMRCFiles: []model.NPMRCFile{},
-		Env:        d.collectEnv(),
+		Files:              []model.YarnConfigFile{},
+		NPMRCFiles:         []model.NPMRCFile{},
+		Env:                collectEnvVars(d.exec, yarnEnvVars),
+		ConfigAuditVersion: jsConfigAuditVersion,
 	}
+	homeDir := homeOf(loggedInUser)
 
 	if path, err := d.exec.LookPath("yarn"); err == nil {
 		audit.Available = true
 		audit.YarnPath = path
-		audit.YarnVersion = d.yarnVersion(ctx)
+		audit.YarnVersion = d.yarnVersion(ctx, homeDir)
 		audit.Flavor = yarnFlavorFromVersion(audit.YarnVersion)
+		audit.ContextDirectory = homeDir
 	}
+	// Modern Yarn looks for a custom rc filename in the project and its
+	// ancestors; the home rc is always .yarnrc.yml.
+	rcName := firstEnv(d.exec, "YARN_RC_FILENAME", "yarn_rc_filename")
 
 	files := make([]model.YarnConfigFile, 0, 4)
 	seen := make(map[string]bool)
@@ -108,43 +117,62 @@ func (d *YarnDetector) Detect(ctx context.Context, searchDirs []string, loggedIn
 			return
 		}
 		seen[path] = true
-		files = append(files, d.collectFile(ctx, path, scope, flavor))
+		f := d.collectFile(ctx, path, scope, flavor)
+		f.RuntimeApplicability = yarnApplicability(audit.Flavor, f, rcName)
+		files = append(files, f)
 	}
 
-	homeDir := ""
-	if loggedInUser != nil {
-		homeDir = loggedInUser.HomeDir
-	}
-	if homeDir == "" {
-		if h, err := os.UserHomeDir(); err == nil {
-			homeDir = h
-		}
-	}
 	if homeDir != "" {
 		add("user", "classic", filepath.Join(homeDir, ".yarnrc"))
 		add("user", "berry", filepath.Join(homeDir, ".yarnrc.yml"))
+		// Yarn run from home (the capture context) reads the custom name
+		// there too, whatever the search roots are.
+		if rcName != "" {
+			add("user", "berry", filepath.Join(homeDir, rcName))
+		}
 	}
 
 	for _, dir := range searchDirs {
-		for _, p := range d.findProjectYarnConfigs(ctx, dir) {
+		for _, p := range d.findProjectYarnConfigs(ctx, dir, rcName) {
 			if len(files) >= maxYarnFiles {
 				break
 			}
 			scope := "project"
-			flavor := yarnFlavorFromFilename(filepath.Base(p))
+			flavor := yarnFlavorFromFilename(filepath.Base(p), rcName)
 			add(scope, flavor, p)
 		}
 	}
 
 	audit.Files = files
-	audit.NPMRCFiles = d.discoverAuthSideChannel(ctx, searchDirs, loggedInUser)
+	audit.NPMRCFiles = d.discoverAuthSideChannel(ctx, searchDirs, loggedInUser, audit.Flavor)
 	return audit
 }
 
+// yarnApplicability: a Yarn binary reads only its own flavor's files —
+// Classic reads .yarnrc (and .npmrc), Modern reads .yarnrc.yml, or the
+// YARN_RC_FILENAME name in projects. The home binary decides user files;
+// a project can select another Yarn (Corepack, yarnPath), so its files stay
+// unknown unless no Yarn would read them.
+func yarnApplicability(binFlavor string, f model.YarnConfigFile, rcName string) string {
+	switch {
+	case f.Scope != "user":
+		if f.Flavor == "berry" && rcName != "" && filepath.Base(f.Path) != rcName {
+			return "ignored"
+		}
+		return "unknown"
+	case binFlavor != "classic" && binFlavor != "berry":
+		return "unknown"
+	case f.Flavor != binFlavor:
+		return "ignored"
+	}
+	return "applicable"
+}
+
 // discoverAuthSideChannel reuses the npmrc walker for any .npmrc yarn reads
-// for auth. builtin/global belong to npm proper and are dropped. See the
-// bun-side note about overlapping work — same caveat applies.
-func (d *YarnDetector) discoverAuthSideChannel(ctx context.Context, searchDirs []string, loggedInUser *user.User) []model.NPMRCFile {
+// for auth. builtin/global belong to npm proper and are dropped. Only
+// Classic reads .npmrc; Modern Yarn ignores it. See the bun-side note about
+// overlapping work — same caveat applies.
+func (d *YarnDetector) discoverAuthSideChannel(ctx context.Context, searchDirs []string, loggedInUser *user.User, flavor string) []model.NPMRCFile {
 	side := NewNPMRCDetector(d.exec)
 	side.skipper = d.skipper
 	side.ownerLookup = d.ownerLookup
@@ -156,18 +184,46 @@ func (d *YarnDetector) discoverAuthSideChannel(ctx context.Context, searchDirs [
 		if f.Scope == "builtin" || f.Scope == "global" {
 			continue
 		}
+		switch {
+		case f.Scope != "user":
+		case flavor == "berry":
+			f.RuntimeApplicability = "ignored"
+		case flavor != "classic":
+			f.RuntimeApplicability = "unknown"
+		}
 		out = append(out, f)
 	}
 	return out
 }
 
-// findProjectYarnConfigs walks dir for both `.yarnrc` and `.yarnrc.yml`,
-// applying the same skip rules as the npmrc walker.
-func (d *YarnDetector) findProjectYarnConfigs(ctx context.Context, dir string) []string {
+// findProjectYarnConfigs walks dir for `.yarnrc`, `.yarnrc.yml` and any
+// custom rc filename, applying the same skip rules as the npmrc walker.
+// Yarn also reads these names in every ancestor of a project, so existing
+// ones above dir are included.
+func (d *YarnDetector) findProjectYarnConfigs(ctx context.Context, dir, rcName string) []string {
 	if dir == "" {
 		return nil
 	}
+	isRC := func(name string) bool {
+		return name == ".yarnrc" || name == ".yarnrc.yml" || (rcName != "" && name == rcName)
+	}
 	var results []string
+	if abs, err := filepath.Abs(dir); err == nil {
+		for p := filepath.Dir(abs); ; p = filepath.Dir(p) {
+			if ctx.Err() != nil {
+				return nil
+			}
+			for _, name := range []string{".yarnrc", ".yarnrc.yml", rcName} {
+				c := filepath.Join(p, name)
+				if info, err := os.Lstat(c); name != "" && err == nil && !info.IsDir() {
+					results = append(results, c)
+				}
+			}
+			if filepath.Dir(p) == p {
+				break
+			}
+		}
+	}
 	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
 			return filepath.SkipAll
@@ -184,7 +240,7 @@ func (d *YarnDetector) findProjectYarnConfigs(ctx context.Context, dir string) [
 			}
 			return nil
 		}
-		if entry.Name() == ".yarnrc" || entry.Name() == ".yarnrc.yml" {
+		if isRC(entry.Name()) {
 			if abs, err := filepath.Abs(path); err == nil {
 				results = append(results, abs)
 			} else {
@@ -259,7 +315,7 @@ func (d *YarnDetector) collectFile(ctx context.Context, path, scope, flavor stri
 	case "berry":
 		entries, perr := parseYarnBerry(data)
 		if perr != nil {
-			f.ParseError = perr.Error()
+			f.ParseError = "invalid yaml" // decoder text can quote secrets
 		}
 		f.Entries = entries
 	default:
@@ -276,7 +332,9 @@ func (d *YarnDetector) collectFile(ctx context.Context, path, scope, flavor stri
 }
 
 // yarnVersion returns the yarn CLI's version string, "unknown" on failure.
-func (d *YarnDetector) yarnVersion(ctx context.Context) string {
+// The exec fallback runs from home so Corepack and version managers resolve
+// the developer's default Yarn, not a project pin in the agent's cwd.
+func (d *YarnDetector) yarnVersion(ctx context.Context, home string) string {
 	// Static-first, exec-last (AGENTS.md §3.4): classic yarn is an npm
 	// package whose manifest carries the version; a corepack shim's manifest
 	// won't match "yarn" and falls through to exec.
@@ -294,8 +352,11 @@ func (d *YarnDetector) yarnVersion(ctx context.Context) string {
 		}
 		target = path
 	}
+	if home == "" {
+		return "unknown"
+	}
 	d.log.Progress("exec fallback: running %s --version (no metadata version source)", target)
-	stdout, _, exit, _ := d.exec.RunWithTimeout(ctx, 5*time.Second, target, "--version")
+	stdout, _, exit, _ := d.exec.RunInDir(ctx, home, 5*time.Second, target, "--version")
 	if exit != 0 {
 		return "unknown"
 	}
@@ -325,28 +386,11 @@ func yarnFlavorFromVersion(v string) string {
 	return "unknown"
 }
 
-// yarnFlavorFromFilename returns "berry" for `.yarnrc.yml`, "classic" otherwise.
-func yarnFlavorFromFilename(name string) string {
-	if name == ".yarnrc.yml" {
+// yarnFlavorFromFilename returns "berry" for `.yarnrc.yml` or the custom
+// YARN_RC_FILENAME, "classic" otherwise.
+func yarnFlavorFromFilename(name, rcName string) string {
+	if name == ".yarnrc.yml" || (rcName != "" && name == rcName) {
 		return "berry"
 	}
 	return "classic"
-}
-
-func (d *YarnDetector) collectEnv() []model.NPMRCEnvVar {
-	out := make([]model.NPMRCEnvVar, 0, len(yarnEnvVars))
-	for _, name := range yarnEnvVars {
-		v := d.exec.Getenv(name)
-		ev := model.NPMRCEnvVar{Name: name, Set: v != ""}
-		if v != "" {
-			ev.ValueSHA256 = sha256Hex(v)
-			if secretEnvNamePattern.MatchString(name) {
-				ev.DisplayValue = redactSecret(v)
-			} else {
-				ev.DisplayValue = v
-			}
-		}
-		out = append(out, ev)
-	}
-	return out
 }

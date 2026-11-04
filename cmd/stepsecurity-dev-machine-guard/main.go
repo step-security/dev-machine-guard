@@ -31,6 +31,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 	"github.com/step-security/dev-machine-guard/internal/progress/filelog"
+	"github.com/step-security/dev-machine-guard/internal/retire"
 	"github.com/step-security/dev-machine-guard/internal/rungate"
 	"github.com/step-security/dev-machine-guard/internal/scan"
 	"github.com/step-security/dev-machine-guard/internal/schtasks"
@@ -99,7 +100,7 @@ func main() {
 
 	// Apply saved config values if CLI didn't explicitly override them.
 	// CLI flags always win over config file values (same as the shell script).
-	if len(config.SearchDirs) > 0 && len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME" {
+	if !cfg.SearchDirsSet && len(config.SearchDirs) > 0 && len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME" {
 		cfg.SearchDirs = config.SearchDirs
 	}
 	if cfg.EnableNPMScan == nil && config.EnableNPMScan != nil {
@@ -169,6 +170,19 @@ func main() {
 			paths.SetOverride(cfg.InstallDir)
 		}
 	}
+	// Per-user state: when the device identity template contains {user},
+	// each logged-in user of this machine is a separate device, so the
+	// run-gate cache, delta scan state, node cache and run metrics live under
+	// <install dir>/users/<user>. Set before the heartbeat below stamps
+	// last-run.json. Probes nothing (no serial), so it is free here.
+	// A scan first records who is running it in the machine-wide state: a
+	// second developer on the same host is what flips it to automatic
+	// per-user identities (device/multiuser.go), and that must be known
+	// before the scope below is chosen.
+	if cfg.Command == "send-telemetry" {
+		device.RecordScanUser(exec)
+	}
+	paths.SetUserScope(device.IdentityUserScope(exec))
 	installDir := paths.Home() // "" when SetDisabled or home unresolved
 	logFilePath := ""
 	if installDir != "" {
@@ -241,38 +255,37 @@ func main() {
 		// through the no-prompt code path. This is how MSI/SCCM/Intune
 		// custom actions drive configuration — they can't talk to stdin.
 		opts := config.NonInteractiveOptions{
-			FromFile:      cfg.ConfigFromFile,
-			CustomerID:    cfg.ConfigCustomerID,
-			APIEndpoint:   cfg.ConfigAPIEndpoint,
-			APIKey:        cfg.ConfigAPIKey,
-			ScanFrequency: cfg.ConfigScanFrequency,
-			AutoUpdate:    cfg.ConfigAutoUpdate,
+			FromFile: cfg.ConfigFromFile,
+			Values:   cfg.ConfigValues,
 		}
-		if opts.APIKey == "" {
+		if _, ok := opts.Values["api_key"]; !ok {
 			// Env-var fallback keeps the secret off the msiexec command
 			// line (which lands in AppEnforce.log on every endpoint).
-			opts.APIKey = os.Getenv("DMG_API_KEY")
-		}
-		// Only forward --search-dirs to configure when the user actually
-		// passed it on this invocation. (cli.Parse defaults SearchDirs to
-		// ["$HOME"] for the scan path, which we must not persist here.)
-		if len(cfg.SearchDirs) > 0 && !(len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME") {
-			opts.SearchDirs = cfg.SearchDirs
+			if key := os.Getenv("DMG_API_KEY"); key != "" {
+				if opts.Values == nil {
+					opts.Values = map[string]any{}
+				}
+				opts.Values["api_key"] = key
+			}
 		}
 		if cfg.NonInteractive || opts.HasAny() {
 			if err := config.RunConfigureNonInteractive(opts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				// os.Exit skips defers; drain the stderr tee so configure errors are visible.
+				_ = capture.Stop()
 				os.Exit(1)
 			}
 		} else {
 			if err := config.RunConfigure(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				// os.Exit skips defers; drain the stderr tee so configure errors are visible.
+				_ = capture.Stop()
 				os.Exit(1)
 			}
 		}
 
 	case "configure show":
-		config.ShowConfigure()
+		config.ShowConfigure(resolvedIdentityLine(exec))
 
 	case "send-telemetry":
 		// Stamp the local heartbeat first — before the enterprise gate and
@@ -438,6 +451,16 @@ func main() {
 
 	case "uninstall":
 		_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
+		// Collect the identities to retire while config.json and the
+		// per-user state files are still on disk (the MSI removes nothing
+		// before this custom action, but a teardown script may wipe the
+		// install dir right after), tear the scheduler down so no scan can
+		// start or finish reporting, and only then retire: a scan that
+		// reported after the retire would have restored the device. A
+		// failed teardown exits below and leaves the device registered,
+		// since the agent is still in place. Best-effort by contract: a
+		// dead network must never leave the scheduler job behind.
+		retireIDs := retireCandidatesOnUninstall(exec, log, cfg)
 		switch runtime.GOOS {
 		case model.PlatformWindows:
 			if err := schtasks.Uninstall(exec, log); err != nil {
@@ -458,6 +481,7 @@ func main() {
 			log.Error("Scheduled installation is not supported on %s", runtime.GOOS)
 			os.Exit(1)
 		}
+		retireDevicesOnUninstall(exec, log, retireIDs)
 
 	case "hooks install":
 		if !featuregate.IsEnabled(featuregate.FeatureAIAgentHooks) {
@@ -748,6 +772,83 @@ func gateSkipsRun(exec executor.Executor, log *progress.Logger, cfg *cli.Config)
 func writeHeartbeat(exec executor.Executor, command string, log *progress.Logger) {
 	if err := heartbeat.Write(paths.HeartbeatFile(), command, telemetry.DetectInvocationMethod(exec, log)); err != nil {
 		log.Debug("heartbeat: failed to write %s: %v", paths.HeartbeatFile(), err)
+	}
+}
+
+// resolvedIdentityLine renders "<id> (source: env|config|serial)" for
+// `configure show`, or the reason the template cannot be completed here. It
+// lives in main because the device package depends on config, so config
+// cannot resolve the identity itself.
+func resolvedIdentityLine(exec executor.Executor) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	id := device.ResolvedDeviceID(ctx, exec)
+	if id.Incomplete {
+		return fmt.Sprintf("(incomplete: template %q needs a logged-in user; this context has none)", id.Template)
+	}
+	line := fmt.Sprintf("%s (source: %s)", id.DeviceID, id.Source)
+	switch id.Source {
+	case device.IdentitySourceEnv:
+		line += " via " + device.EnvDeviceID
+	case device.IdentitySourceAuto:
+		line = fmt.Sprintf("%s (source: auto, %s)", id.DeviceID, id.AutoReason)
+	}
+	if id.Issue != "" {
+		line += " — " + id.Issue
+	}
+	return line
+}
+
+// retireCandidatesOnUninstall decides whether `uninstall` retires this device
+// (`--retire` / `--no-retire`, else config.json's retire_on_uninstall, written
+// at provisioning time so a plain `msiexec /x` needs no extra arguments) and
+// collects every identity to retire while the state is still on disk: the
+// resolved one plus each cached per-user id, which is how an MSI custom
+// action running as SYSTEM retires a {user}-template fleet's rows. Nil when
+// nothing is to be retired.
+func retireCandidatesOnUninstall(exec executor.Executor, log *progress.Logger, cfg *cli.Config) []string {
+	retireWanted := cfg.UninstallRetire || (config.RetireOnUninstall && !cfg.UninstallNoRetire)
+	if !retireWanted {
+		return nil
+	}
+	if !config.IsEnterpriseMode() {
+		log.Debug("retire: skipped (no enterprise config)")
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), retire.TotalBudget)
+	defer cancel()
+	ids := retire.CollectIdentities(ctx, exec, log)
+	if len(ids) == 0 {
+		log.Warn("retire: no device id could be resolved; the device stays registered until it is retired from the dashboard or by inactivity")
+	}
+	return ids
+}
+
+// retireDevicesOnUninstall posts the retire for each collected identity once
+// the scheduler is gone, so nothing can report under them afterwards. A
+// failure is a warning, never an exit code.
+func retireDevicesOnUninstall(exec executor.Executor, log *progress.Logger, ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), retire.TotalBudget)
+	defer cancel()
+	for _, id := range ids {
+		status, err := retire.Post(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, id, buildinfo.Version, exec.GOOS(), retire.ReasonUninstall)
+		switch {
+		case err == nil && status == retire.StatusOutOfScope:
+			// The tenant limits retirement to chosen device tags (Settings,
+			// Device activity) and this device is not among them.
+			log.Progress("Device %s is outside the dashboard's retirement scope; left registered", id)
+		case err == nil && status == retire.StatusUnknownDevice:
+			log.Debug("retire: %s is not registered in the dashboard; nothing to retire", id)
+		case err == nil:
+			log.Progress("Retired device %s in the dashboard", id)
+		case errors.Is(err, retire.ErrNotSupported):
+			log.Warn("retire: the dashboard backend does not support device retirement yet; %s stays registered (retire it from the dashboard or let inactivity retire it)", id)
+		default:
+			log.Warn("retire %s: %v", id, err)
+		}
 	}
 }
 

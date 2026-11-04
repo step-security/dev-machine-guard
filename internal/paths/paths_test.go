@@ -246,3 +246,77 @@ func TestHome_DotComponentsCanonicalised(t *testing.T) {
 		t.Errorf("Home() = %q, want /opt/sec (Clean must collapse . and ..)", got)
 	}
 }
+
+// withUserScope sets the per-user state scope for a test and restores it.
+func withUserScope(t *testing.T, s string) {
+	t.Helper()
+	prev := userScope
+	SetUserScope(s)
+	t.Cleanup(func() { userScope = prev })
+}
+
+func TestStateDir_NoScopeIsHome(t *testing.T) {
+	dir := t.TempDir()
+	withOverride(t, dir)
+	withUserScope(t, "")
+	if got := StateDir(); got != filepath.Clean(dir) {
+		t.Fatalf("StateDir() = %q, want %q", got, dir)
+	}
+	if got := HeartbeatFile(); got != filepath.Join(dir, "last-run.json") {
+		t.Fatalf("HeartbeatFile() = %q", got)
+	}
+}
+
+func TestStateDir_UserScopeSubdir(t *testing.T) {
+	dir := t.TempDir()
+	withOverride(t, dir)
+	withUserScope(t, "jdoe")
+	want := filepath.Join(dir, "users", "jdoe")
+	if got := StateDir(); got != want {
+		t.Fatalf("StateDir() = %q, want %q", got, want)
+	}
+	if st, err := os.Stat(want); err != nil || !st.IsDir() {
+		t.Fatalf("scoped state dir not created: %v", err)
+	}
+	for name, fn := range map[string]func() string{
+		"scan-state.json":   ScanStateFile,
+		"last-run.json":     HeartbeatFile,
+		"run-metrics.jsonl": RunMetricsFile,
+	} {
+		if got := fn(); got != filepath.Join(want, name) {
+			t.Errorf("%s = %q, want under %q", name, got, want)
+		}
+	}
+	// The install dir itself (logs, config lookups) is unchanged.
+	if got := Home(); got != filepath.Clean(dir) {
+		t.Fatalf("Home() = %q, want %q", got, dir)
+	}
+	if UserScope() != "jdoe" {
+		t.Fatalf("UserScope() = %q", UserScope())
+	}
+}
+
+func TestStateDir_RejectsEscapingScopes(t *testing.T) {
+	dir := t.TempDir()
+	withOverride(t, dir)
+	for _, bad := range []string{".", "..", "a/b", `a\b`, " .. "} {
+		withUserScope(t, bad)
+		if got := StateDir(); got != filepath.Clean(dir) {
+			t.Errorf("scope %q: StateDir() = %q, want home", bad, got)
+		}
+		if UserScope() != "" {
+			t.Errorf("scope %q was accepted as %q", bad, UserScope())
+		}
+	}
+}
+
+func TestStateDir_DisabledStaysDisabled(t *testing.T) {
+	withDisabled(t)
+	withUserScope(t, "jdoe")
+	if got := StateDir(); got != "" {
+		t.Fatalf("StateDir() = %q, want empty when the install dir is disabled", got)
+	}
+	if got := ScanStateFile(); got != "" {
+		t.Fatalf("ScanStateFile() = %q, want empty", got)
+	}
+}
