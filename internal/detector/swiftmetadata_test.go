@@ -431,6 +431,13 @@ func TestSwiftOrigin(t *testing.T) {
 		{"remoteSourceControl", "relative/repo", model.SwiftOrigin{Kind: "unknown"}, "origin_unresolved"},
 		{"remoteSourceControl", "https://example.invalid/x.git?token=CANARY", model.SwiftOrigin{Kind: "unknown"}, "origin_unresolved"},
 		{"fileSystem", "https://example.invalid/x.git", model.SwiftOrigin{Kind: "unknown"}, "origin_unresolved"},
+		// A file URL is validated before it becomes a path: a user, remote
+		// host or query makes it unknown; an encoded "@" is a filename.
+		{"remoteSourceControl", "file:///src/lib.git?token=CANARY", model.SwiftOrigin{Kind: "unknown"}, "origin_unresolved"},
+		{"remoteSourceControl", "file://user@remote/lib.git", model.SwiftOrigin{Kind: "unknown"}, "origin_unresolved"},
+		{"remoteSourceControl", "file://remote/lib.git", model.SwiftOrigin{Kind: "unknown"}, "origin_unresolved"},
+		{"remoteSourceControl", "file://localhost/src/lib.git", model.SwiftOrigin{Kind: "path", Path: "/src/lib.git"}, ""},
+		{"remoteSourceControl", "file:///tmp/pkg%40developer.git", model.SwiftOrigin{Kind: "path", Path: "/tmp/pkg@developer.git"}, ""},
 		// Userinfo never survives into an origin.
 		{"remoteSourceControl", "https://user:CANARY@example.invalid/x.git", model.SwiftOrigin{Kind: "git", URL: "https://example.invalid/x.git"}, ""},
 	} {

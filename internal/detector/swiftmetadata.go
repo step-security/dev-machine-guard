@@ -49,6 +49,18 @@ func swiftIdentityFromLocation(location string) (string, bool) {
 	return id, swiftText(id, 512)
 }
 
+// swiftExplicitIdentity checks a recorded identity. SwiftPM derives it from
+// the location's last component, so one equal to a component that
+// sanitizing changes or rejects repeats the location's credential. A
+// mirror or local name that differs from its location is kept.
+func swiftExplicitIdentity(identity, kind, location string) bool {
+	if kind == "registry" || identity != swiftLastComponent(location) {
+		return swiftText(identity, 512)
+	}
+	_, ok := swiftIdentityFromLocation(location)
+	return ok
+}
+
 func swiftLastComponent(location string) string {
 	s := strings.TrimRight(location, `/\`)
 	if i := strings.LastIndexAny(s, `/\`); i >= 0 {
@@ -68,17 +80,19 @@ func swiftOrigin(kind, location string) (model.SwiftOrigin, string) {
 	case "registry", "root":
 		return unknown, ""
 	}
-	if location == "" {
+	display, _, ok := configaudit.SwiftURL(location)
+	if !ok {
 		return unknown, "origin_unresolved"
 	}
-	if p, local := composerLocalURL(location, ""); local {
+	// Convert only a validated location: a file URL with a user, remote
+	// host or query is not a known local path.
+	if p, local := composerLocalURL(display, ""); local {
 		if configaudit.SwiftAbsPath(p) && composerText(p, 4096) {
 			return model.SwiftOrigin{Kind: "path", Path: p}, ""
 		}
 		return unknown, "origin_unresolved"
 	}
-	display, _, ok := configaudit.SwiftURL(location)
-	if !ok || kind == "fileSystem" || kind == "localSourceControl" {
+	if kind == "fileSystem" || kind == "localSourceControl" {
 		return unknown, "origin_unresolved"
 	}
 	return model.SwiftOrigin{Kind: "git", URL: display}, ""
@@ -224,7 +238,7 @@ func swiftResolvedPin(version int, raw json.RawMessage) (swiftPin, bool) {
 	default:
 		return swiftPin{}, false // a branch needs its revision; no state is invalid
 	}
-	ok := swiftText(pin.identity, 512) && composerText(pin.location, 4096)
+	ok := swiftExplicitIdentity(pin.identity, pin.kind, pin.location) && composerText(pin.location, 4096)
 	return pin, ok && okO && okR && okV && okB
 }
 
@@ -337,7 +351,7 @@ func swiftRef(version int, r *swiftWorkspaceRef) (identity, kind, location strin
 	case "registry":
 		ok = true
 	}
-	return identity, kind, location, ok && swiftText(identity, 512) && composerText(location, 4096)
+	return identity, kind, location, ok && swiftExplicitIdentity(identity, kind, location) && composerText(location, 4096)
 }
 
 func swiftWorkspaceDependency(version int, raw json.RawMessage, top bool) (swiftDependency, bool) {

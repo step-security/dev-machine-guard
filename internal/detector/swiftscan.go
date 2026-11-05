@@ -125,7 +125,7 @@ func (s *SwiftScanner) Scan(ctx context.Context, target *user.User, searchDirs [
 		c.degrade(nil, r)
 	}
 	c.guard = c.config.ContentGuard
-	c.libGuard = configaudit.SwiftLibraryGuard(c.guard, volume, c.libRoots)
+	c.libGuard = c.config.LibraryGuard
 	c.files = s.exec.GuardedFiles(c.roots, c.guard, maxSwiftMetadataBytes)
 	// Register every known tool-state location before the walk so it is
 	// pruned, not walked: its checkouts hold manifests that are not projects.
@@ -523,6 +523,11 @@ func (c *swiftScan) walk(root string, src *model.SwiftSource) {
 			c.discovery(src, c.reason(err, d.path))
 			continue
 		}
+		// A selected bundle is the project itself; the walk never enters one.
+		if ext := filepath.Ext(root); d.depth == 0 && (ext == ".xcodeproj" || ext == ".xcworkspace") && !swiftAuxiliaryWorkspace(root) {
+			c.xcode(root, ext == ".xcodeproj", src)
+			return
+		}
 		budget -= len(entries)
 		if more {
 			c.discovery(src, "entry_limit")
@@ -562,6 +567,13 @@ func (c *swiftScan) walk(root string, src *model.SwiftSource) {
 			return
 		}
 	}
+}
+
+// swiftAuxiliaryWorkspace reports a workspace that belongs to another
+// project: one embedded in an Xcode project or generated for a package.
+func swiftAuxiliaryWorkspace(path string) bool {
+	parent := filepath.Dir(path)
+	return filepath.Ext(parent) == ".xcodeproj" || filepath.Base(parent) == "xcode" && filepath.Base(filepath.Dir(parent)) == ".swiftpm"
 }
 
 func swiftManifest(name string) bool {

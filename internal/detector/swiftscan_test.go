@@ -577,6 +577,92 @@ func TestSwiftScanUnsafeLockURL(t *testing.T) {
 	}
 }
 
+// A recorded identity equal to a credential-bearing location's last
+// component is dropped from every evidence kind. A mirror identity that
+// differs from its location and a local name with spaces stay.
+func TestSwiftScanCredentialIdentity(t *testing.T) {
+	home := goTestHome(t)
+	root := filepath.Join(home, "src")
+	app := filepath.Join(root, "app")
+	goWrite(t, filepath.Join(app, "Package.swift"), "", 0o600)
+	bad := `{"identity":"review_canary@example.invalid","kind":"remoteSourceControl","location":"https://REVIEW_CANARY@example.invalid/"}`
+	mirror := `{"identity":"swift-algorithms","kind":"remoteSourceControl","location":"https://mirror.example.invalid/renamed.git"}`
+	local := `{"identity":"local library","kind":"fileSystem","location":"/src/Local Library"}`
+	goWrite(t, filepath.Join(app, "Package.resolved"), `{"version":3,"pins":[`+
+		`{"identity":"review_canary@example.invalid","kind":"remoteSourceControl","location":"https://REVIEW_CANARY@example.invalid/","state":{"version":"1.0.0","revision":"r"}},`+
+		`{"identity":"swift-algorithms","kind":"remoteSourceControl","location":"https://mirror.example.invalid/renamed.git","state":{"version":"1.2.0","revision":"r2"}}]}`, 0o600)
+	checkout := `"state":{"name":"sourceControlCheckout","checkoutState":{"revision":"r","version":"1.0.0"}},"subpath":"x"`
+	goWrite(t, filepath.Join(app, ".build", "workspace-state.json"), `{"version":7,"object":{"dependencies":[`+
+		`{"basedOn":null,"packageRef":`+bad+`,`+checkout+`},{"basedOn":null,"packageRef":`+mirror+`,`+checkout+`},`+
+		`{"basedOn":null,"packageRef":`+local+`,"state":{"name":"fileSystem","path":"/src/Local Library"},"subpath":"local library"}],`+
+		`"artifacts":[{"packageRef":`+bad+`,"targetName":"Bin","path":"/opt/Bin.xcframework","source":{"type":"local"},"kind":"xcframework"}],"prebuilts":[]}}`, 0o600)
+	scanner, _ := swiftTestScanner(t, home, model.PlatformLinux)
+	inv, audit := scanner.Scan(context.Background(), goTestTarget(home), []string{root}, nil)
+	swiftAssertRefs(t, inv)
+	if raw := swiftJSON(t, inv, audit); strings.Contains(strings.ToLower(raw), "canary") {
+		t.Fatalf("canary reached the wire: %s", raw)
+	}
+	for _, tc := range []struct{ evidence, name string }{
+		{"locked_package", "swift-algorithms"}, {"managed_dependency", "swift-algorithms"}, {"managed_dependency", "local library"},
+	} {
+		if len(swiftPackages(inv, tc.evidence, tc.name)) != 1 {
+			t.Errorf("%s %s missing: %+v", tc.evidence, tc.name, inv.Packages)
+		}
+	}
+	if len(inv.Packages) != 3 {
+		t.Errorf("packages = %+v", inv.Packages)
+	}
+	for _, kind := range []string{"lockfile", "workspace_state"} {
+		for _, s := range inv.Sources {
+			if s.Kind == kind && !slices.Contains(s.Reasons, "parse_error") {
+				t.Errorf("%s = %+v", kind, s)
+			}
+		}
+	}
+}
+
+// Selecting an Xcode bundle directly finds what scanning its parent finds.
+// A workspace embedded in a project or generated for a package is not a
+// project of its own.
+func TestSwiftScanSelectedBundle(t *testing.T) {
+	lock := `{"version":3,"pins":[{"identity":"safe","kind":"remoteSourceControl","location":"https://example.invalid/safe.git","state":{"version":"1.0.0","revision":"r"}}]}`
+	for _, ext := range []string{".xcworkspace", ".xcodeproj"} {
+		t.Run(ext, func(t *testing.T) {
+			home := goTestHome(t)
+			root := filepath.Join(home, "src")
+			bundle := filepath.Join(root, "app"+ext)
+			base := bundle
+			if ext == ".xcodeproj" {
+				base = filepath.Join(bundle, "project.xcworkspace")
+			}
+			goWrite(t, filepath.Join(base, "xcshareddata", "swiftpm", "Package.resolved"), lock, 0o600)
+			scanner, _ := swiftTestScanner(t, home, model.PlatformDarwin)
+			for _, dir := range []string{root, bundle} {
+				inv, _ := scanner.Scan(context.Background(), goTestTarget(home), []string{dir}, nil)
+				swiftAssertRefs(t, inv)
+				if len(inv.Projects) != 1 || inv.Projects[0].ProjectPath != bundle || len(inv.Packages) != 1 || inv.Packages[0].ProjectPath != bundle {
+					t.Errorf("scan of %s: projects = %+v packages = %+v", dir, inv.Projects, inv.Packages)
+				}
+			}
+		})
+	}
+	t.Run("auxiliary", func(t *testing.T) {
+		home := goTestHome(t)
+		aux := []string{
+			filepath.Join(home, "src", "app.xcodeproj", "project.xcworkspace"),
+			filepath.Join(home, "src", "pkg", ".swiftpm", "xcode", "package.xcworkspace"),
+		}
+		for _, dir := range aux {
+			swiftDir(t, filepath.Join(dir, "xcshareddata", "swiftpm"))
+		}
+		scanner, _ := swiftTestScanner(t, home, model.PlatformDarwin)
+		inv, _ := scanner.Scan(context.Background(), goTestTarget(home), aux, nil)
+		if len(inv.Projects) != 0 {
+			t.Errorf("projects = %+v", inv.Projects)
+		}
+	})
+}
+
 // The Library exception admits SwiftPM's roots for readers rooted there. A
 // link out of a root, an alias elsewhere in ~/Library and the walk itself
 // stay refused, and a network volume is refused first.
@@ -630,6 +716,46 @@ func TestSwiftScanLibraryBoundary(t *testing.T) {
 			t.Errorf("network cache = %+v", src)
 		}
 	})
+}
+
+// Inventory readers under ~/Library keep SwiftPM's security folder
+// existence-only, whether a build-directory lead names it directly or a
+// metadata link reaches its relocated target.
+func TestSwiftScanLibrarySecurity(t *testing.T) {
+	for _, mode := range []string{"direct", "relocated"} {
+		t.Run(mode, func(t *testing.T) {
+			relocated := mode == "relocated"
+			home := goTestHome(t)
+			lib := filepath.Join(home, "Library", "org.swift.swiftpm")
+			security := filepath.Join(lib, "security")
+			scanner, x := swiftTestScanner(t, home, model.PlatformDarwin)
+			scanner.protection = swiftTCC(home)
+			target, lead := security, security
+			if relocated {
+				target, lead = filepath.Join(lib, "history"), filepath.Join(lib, "scratch")
+				swiftDir(t, target)
+				swiftDir(t, lead)
+				if err := os.Symlink(target, security); err != nil {
+					t.Skip("symlinks unavailable:", err)
+				}
+				if err := os.Symlink(filepath.Join(target, "workspace-state.json"), filepath.Join(lead, "workspace-state.json")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			x.env["SWIFTPM_BUILD_DIR"] = lead
+			file := filepath.Join(target, "workspace-state.json")
+			swiftCopy(t, "workspace-macos.json", file, filepath.Join(home, "lab"))
+			allowed := filepath.Join(lib, "configuration", "mirrors.json")
+			goWrite(t, allowed, `{"object":[],"version":1}`, 0o600)
+			inv, audit := scanner.Scan(context.Background(), goTestTarget(home), nil, nil)
+			if x.reads[file] != 0 || len(inv.Packages) != 0 {
+				t.Errorf("security metadata reads = %d packages = %+v", x.reads[file], inv.Packages)
+			}
+			if x.reads[allowed] != 1 || !slices.ContainsFunc(audit.Files, func(f model.RubyConfigFile) bool { return f.Path == allowed && f.Status == "present" }) {
+				t.Errorf("allowed Library config reads = %d files = %+v", x.reads[allowed], audit.Files)
+			}
+		})
+	}
 }
 
 // Linux reads ~/.cache plus a verified XDG_CACHE_HOME lead; the ~/.swiftpm

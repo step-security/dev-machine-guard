@@ -330,7 +330,7 @@ func (a *SwiftConfigSnapshot) legacy(dir, root string) []*model.RubyConfigFile {
 	}
 	files := a.exec.GuardedFiles([]string{dir}, a.ContentGuard, 0)
 	if root != "" {
-		files = a.exec.GuardedFiles([]string{root}, a.libraryGuard, 0)
+		files = a.exec.GuardedFiles([]string{root}, a.LibraryGuard, 0)
 	}
 	entries, more, err := files.ReadDirLimit(dir, swiftListLimit)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -391,7 +391,9 @@ func (a *SwiftConfigSnapshot) credentialGuard(path string) string {
 	return ""
 }
 
-func (a *SwiftConfigSnapshot) libraryGuard(path string) string {
+// LibraryGuard is the guard for readers rooted at the ~/Library roots:
+// credential paths stay existence-only before the roots are admitted.
+func (a *SwiftConfigSnapshot) LibraryGuard(path string) string {
 	if reason := a.credentialGuard(path); reason != "" {
 		return reason
 	}
@@ -498,7 +500,7 @@ func (a *SwiftConfigSnapshot) readFile(scope, p string, parse func(*model.RubyCo
 	}
 	files := a.exec.GuardedFiles([]string{filepath.Dir(p), p}, a.ContentGuard, swiftConfigBytes)
 	if root := a.libraryRoot(p); root != "" {
-		files = a.exec.GuardedFiles([]string{root}, a.libraryGuard, swiftConfigBytes)
+		files = a.exec.GuardedFiles([]string{root}, a.LibraryGuard, swiftConfigBytes)
 	}
 	info, err := files.Stat(p)
 	if errors.Is(err, fs.ErrNotExist) {
