@@ -827,6 +827,10 @@ type identityView struct {
 func printIdentity(exec executor.Executor, cfg *cli.Config) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	// Answer what a scan would do: a scan records today's visit before it
+	// decides the automatic mode (main's send-telemetry order), so the
+	// diagnostic query assumes that visit without recording it.
+	device.ProspectiveScanUser(exec)
 	id := device.ResolvedDeviceID(ctx, exec)
 	if cfg.OutputFormat == "json" {
 		enc := json.NewEncoder(os.Stdout)

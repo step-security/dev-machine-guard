@@ -26,7 +26,7 @@ literal text and these tokens:
 |-------|------------|
 | `{serial}` | the machine identity: the hardware serial, or on Linux user runs the machine-wide id file root wrote (`/etc/stepsecurity/device-id`), or a generated id persisted when no source answers |
 | `{hostname}` | the machine name, lower-cased |
-| `{user}` | the signed-in user: the short name (an email's local part, `DOMAIN\` stripped, lower-cased) plus a six-character fingerprint of the whole account name, for example `jdoe-8c4e2c` for `CONTOSO\JDoe`. Two accounts that share a short name (`CORP\alice` and `HOST\alice`, `alice@a.example` and `alice@b.example`) therefore never share a device, state or lock, and a name with no Latin characters still yields `user-<fingerprint>` |
+| `{user}` | the signed-in user: the short name (an email's local part, `DOMAIN\` stripped, lower-cased) plus a twelve-character fingerprint of the whole account name, for example `jdoe-8c4e2cb3a1d7` for `CONTOSO\JDoe`. Two accounts that share a short name (`CORP\alice` and `HOST\alice`, `alice@a.example` and `alice@b.example`) therefore never share a device, state or lock, and a name with no Latin characters still yields `user-<fingerprint>` |
 
 ### Which template?
 
@@ -77,7 +77,7 @@ one object, which is what the loaders read to report under the agent's id):
 ```
 stepsecurity-dev-machine-guard configure show
   Device ID:               {hostname}-{user}
-    resolves now to:       avd-host-07-jdoe-8c4e2c (source: config)
+    resolves now to:       avd-host-07-jdoe-8c4e2cb3a1d7 (source: config)
   Retire On Uninstall:     true (uninstall retires this device in the dashboard)
 ```
 

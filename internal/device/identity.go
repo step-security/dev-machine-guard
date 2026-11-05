@@ -44,8 +44,10 @@ const (
 	longIDPrefixLen     = 115
 	longIDHashSuffixLen = 12
 	// UserTokenFingerprintLen is the length of the sha256 hex fingerprint of
-	// the full principal appended to the {user} token (see userToken).
-	UserTokenFingerprintLen = 6
+	// the full principal appended to the {user} token (see userToken): 48
+	// bits, so two accounts sharing a short name on one host cannot be made
+	// to collide by chance or by choosing a domain name.
+	UserTokenFingerprintLen = 12
 )
 
 // Identity is the resolved device identity for this run.

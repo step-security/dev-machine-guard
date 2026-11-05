@@ -13,6 +13,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
@@ -210,6 +211,11 @@ func AutoIdentitySuperseded(exec executor.Executor) bool {
 	if !done || snapshot != "" || exec.GOOS() != model.PlatformWindows {
 		return false
 	}
+	// With detection off the marker is history: the documented opt-out must
+	// restore machine-level scanning, not skip every run.
+	if config.MultiUserDetectionMode() == config.MultiUserDetectionOff {
+		return false
+	}
 	dir := machineStateDir()
 	if dir == "" {
 		return false
@@ -268,6 +274,40 @@ func RecordScanUser(exec executor.Executor) {
 		return
 	}
 	_ = appendSeenUser(dir, token)
+}
+
+// pendingVisit is a visit the `identity` verb assumes without recording it:
+// a scan records its user before the automatic-mode decision is taken, so
+// the answer a diagnostic query gives must include today's visit of the
+// querying user, or it could report the machine identity on the very scan
+// that establishes the second developer.
+var pendingVisit struct {
+	mu    sync.Mutex
+	token string
+	day   int64
+}
+
+// ProspectiveScanUser makes the automatic-mode decision of this process
+// count the current user's visit today as a scan would, without writing it:
+// for `identity`, which must answer what send-telemetry would do.
+func ProspectiveScanUser(exec executor.Executor) {
+	if machineStateDir() == "" || exec.GOOS() != model.PlatformWindows || config.MultiUserDetectionMode() != config.MultiUserDetectionUsers {
+		return
+	}
+	token := SanitizeDeviceID(userToken(exec.GOOS(), exec.IsRoot(), developerIdentity(context.Background(), exec)))
+	if token == "" {
+		return
+	}
+	pendingVisit.mu.Lock()
+	pendingVisit.token, pendingVisit.day = token, seenUserDay()
+	pendingVisit.mu.Unlock()
+}
+
+// resetPendingVisitForTest clears the prospective visit. Tests only.
+func resetPendingVisitForTest() {
+	pendingVisit.mu.Lock()
+	pendingVisit.token, pendingVisit.day = "", 0
+	pendingVisit.mu.Unlock()
 }
 
 // seenUser is one line of seen-users.txt: a developer token and the UTC day
@@ -364,15 +404,41 @@ func readSeenUserRecords(dir string) []seenUser {
 }
 
 // establishedSeenUsers returns the tokens the users rule counts: developers
-// seen scanning on seenUserDaysNeeded different days.
+// seen scanning on seenUserDaysNeeded different days, the prospective visit
+// of this process (ProspectiveScanUser) included.
 func establishedSeenUsers(dir string) []string {
+	records := readSeenUserRecords(dir)
+	pendingVisit.mu.Lock()
+	token, day := pendingVisit.token, pendingVisit.day
+	pendingVisit.mu.Unlock()
+	if token != "" {
+		records = withVisit(records, token, day)
+	}
 	var out []string
-	for _, u := range readSeenUserRecords(dir) {
+	for _, u := range records {
 		if u.established() {
 			out = append(out, u.token)
 		}
 	}
 	return out
+}
+
+// withVisit returns records with a visit of token on day added (the legacy
+// visit carried along as appendSeenUser would).
+func withVisit(records []seenUser, token string, day int64) []seenUser {
+	out := make([]seenUser, len(records))
+	copy(out, records)
+	for i := range out {
+		if out[i].token == token {
+			out[i].days = appendDay(append([]int64(nil), out[i].days...), day)
+			return out
+		}
+	}
+	days := []int64{}
+	if legacyVisitCarriable(records, token) {
+		days = append(days, legacySeenDay)
+	}
+	return append(out, seenUser{token: token, days: appendDay(days, day)})
 }
 
 // readBounded reads at most limit bytes of a shared-host file and reports
@@ -410,52 +476,145 @@ func readSeenUsers(dir string) []string {
 	return users
 }
 
-// appendSeenUser records token as seen today (seenUserDay). A token already
-// recorded for today is left alone; a new token, or a known one on a new
-// day, rewrites the file atomically (every user's run writes it).
+// appendSeenUser records token as seen today (seenUserDay). The file is
+// append-only: every user's run writes it, before the instance lock, so a
+// rewrite could drop a visit another session appended meanwhile, while an
+// O_APPEND write of one short line is atomic. A token already recorded for
+// today, or already established, appends nothing. A developer whose visits
+// an earlier agent recorded under the bare short name (legacyVisitCarriable)
+// gets that visit carried over first. An oversized file is compacted under
+// the machine-wide lock (compactSeenUsers).
 func appendSeenUser(dir, token string) error {
 	token = strings.ToLower(strings.TrimSpace(token))
 	if token == "" {
 		return nil
 	}
 	day := seenUserDay()
-	users := readSeenUserRecords(dir)
-	found := false
-	for i := range users {
-		if users[i].token != token {
+	records := readSeenUserRecords(dir)
+	var lines []string
+	known := false
+	for _, u := range records {
+		if u.token != token {
 			continue
 		}
-		found = true
-		before := len(users[i].days)
-		users[i].days = appendDay(users[i].days, day)
-		if len(users[i].days) == before {
+		known = true
+		if u.established() || hasDay(u.days, day) {
 			return nil
 		}
 	}
-	if !found {
-		users = append(users, seenUser{token: token, days: []int64{day}})
+	if !known && legacyVisitCarriable(records, token) {
+		lines = append(lines, formatVisit(token, legacySeenDay))
 	}
+	lines = append(lines, formatVisit(token, day))
 	if err := os.MkdirAll(dir, 0o755); err != nil { // #nosec G301 -- shared install dir
 		return err
 	}
-	path := filepath.Join(dir, seenUsersFile)
-	tmp, err := os.CreateTemp(dir, ".seen-users-*.tmp")
+	f, err := os.OpenFile(filepath.Join(dir, seenUsersFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644) // #nosec G302 G304 -- readable by every user's run
 	if err != nil {
 		return err
 	}
-	if _, err := tmp.WriteString(formatSeenUsers(users)); err != nil {
+	_, err = f.WriteString(strings.Join(lines, ""))
+	_ = f.Close()
+	if err != nil {
+		return err
+	}
+	compactSeenUsersIfLarge(dir)
+	return nil
+}
+
+func formatVisit(token string, day int64) string {
+	return token + " " + strconv.FormatInt(day, 10) + "\n"
+}
+
+func hasDay(days []int64, day int64) bool {
+	for _, d := range days {
+		if d == day {
+			return true
+		}
+	}
+	return false
+}
+
+// tokenShortName returns the readable part of a fingerprinted user token
+// ("jdoe" for "jdoe-<12 hex>"), "" for any other token.
+func tokenShortName(token string) string {
+	if len(token) <= UserTokenFingerprintLen+1 || token[len(token)-UserTokenFingerprintLen-1] != '-' {
+		return ""
+	}
+	fp := token[len(token)-UserTokenFingerprintLen:]
+	for _, r := range fp {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return ""
+		}
+	}
+	return token[:len(token)-UserTokenFingerprintLen-1]
+}
+
+// legacyVisitCarriable reports whether a visit an earlier agent recorded
+// under the bare short name of token can be credited to token: exactly one
+// such legacy record exists and no other fingerprinted token shares the
+// short name, so the legacy visit cannot belong to someone else. Anything
+// ambiguous is not carried; those developers start over.
+func legacyVisitCarriable(records []seenUser, token string) bool {
+	short := tokenShortName(token)
+	if short == "" {
+		return false
+	}
+	legacy := 0
+	for _, u := range records {
+		switch {
+		case u.token == short:
+			for _, d := range u.days {
+				if d != legacySeenDay {
+					return false
+				}
+			}
+			legacy++
+		case u.token != token && tokenShortName(u.token) == short:
+			return false
+		}
+	}
+	return legacy == 1
+}
+
+// compactSeenUsersBytes is the size past which the append-only file is
+// rewritten as one line per token, well under the read bound.
+const compactSeenUsersBytes = maxSeenUsersBytes / 2
+
+// compactSeenUsersIfLarge rewrites an oversized seen-users file as one line
+// per token, under the machine-wide lock so no concurrent append is lost;
+// a held lock means another run is scanning and the compaction waits for a
+// later run. Best effort.
+func compactSeenUsersIfLarge(dir string) {
+	path := filepath.Join(dir, seenUsersFile)
+	info, err := os.Stat(path)
+	if err != nil || info.Size() <= compactSeenUsersBytes {
+		return
+	}
+	held, err := lock.AcquireMachineWide()
+	if err != nil {
+		return
+	}
+	defer held.Release()
+	records := readSeenUserRecords(dir)
+	if records == nil {
+		return
+	}
+	tmp, err := os.CreateTemp(dir, ".seen-users-*.tmp")
+	if err != nil {
+		return
+	}
+	if _, err := tmp.WriteString(formatSeenUsers(records)); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmp.Name())
-		return err
+		return
 	}
 	_ = tmp.Close()
 	_ = os.Chmod(tmp.Name(), 0o644) // #nosec G302 -- readable by every user's run
 	_ = os.Remove(path)             // Windows Rename won't overwrite; no-op on POSIX
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		_ = os.Remove(tmp.Name())
-		return err
 	}
-	return nil
 }
 
 // readMultiUserMarker returns the sticky marker when a valid one exists.

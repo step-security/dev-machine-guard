@@ -3,12 +3,15 @@ package device
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/paths"
 )
 
 // withMachineStateDir points the shared-host files at a temp dir and stubs
@@ -225,31 +228,151 @@ func TestAutoIdentity_DetectionModes(t *testing.T) {
 	}
 }
 
-// seen-users.txt written by an earlier agent has no day stamps: such a line
-// counts as one day, so one more day establishes the developer.
-func TestSeenUsers_LegacyLineCountsAsOneDay(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, seenUsersFile), []byte("jdoe\n"), 0o600); err != nil {
+// seen-users.txt written by an earlier agent holds bare short names. A
+// returning developer's new, fingerprinted token inherits that visit when it
+// is unambiguous (one legacy line, no other fingerprinted account with the
+// same short name), so one more day establishes them; an ambiguous legacy
+// name is never credited to anyone.
+func TestRecordScanUser_CarriesAnUnambiguousLegacyVisit(t *testing.T) {
+	dir := withMachineStateDir(t, "Professional", false)
+	withMultiUserDetection(t, config.MultiUserDetectionUsers)
+	if err := os.WriteFile(filepath.Join(dir, seenUsersFile), []byte("jdoe\nasmith\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := establishedSeenUsers(dir); len(got) != 0 {
-		t.Fatalf("a legacy line alone is one day, got %v", got)
+		t.Fatalf("legacy lines alone are one visit each, got %v", got)
 	}
 	withSeenUserDay(t, 200)
-	if err := appendSeenUser(dir, "jdoe"); err != nil {
+	RecordScanUser(windowsMock(`CONTOSO\JDoe`))
+	jdoe := "jdoe-" + UserTokenFingerprint(`contoso\jdoe`)
+	if got := establishedSeenUsers(dir); strings.Join(got, ",") != jdoe {
+		t.Fatalf("established = %v, want [%s] (legacy visit carried over)", got, jdoe)
+	}
+	// A third day appends nothing: the token is established.
+	withSeenUserDay(t, 201)
+	RecordScanUser(windowsMock(`CONTOSO\JDoe`))
+	data, _ := os.ReadFile(filepath.Join(dir, seenUsersFile))
+	if want := "jdoe\nasmith\n" + jdoe + " 0\n" + jdoe + " 200\n"; string(data) != want {
+		t.Fatalf("file = %q, want %q", data, want)
+	}
+	// The first fingerprinted "asmith" to appear inherits the legacy visit
+	// (nothing else can claim it then); once it exists the legacy name is
+	// ambiguous and a second "asmith" account starts over.
+	other := "asmith-" + UserTokenFingerprint(`other\asmith`)
+	if err := appendSeenUser(dir, other); err != nil {
 		t.Fatal(err)
 	}
-	if got := establishedSeenUsers(dir); strings.Join(got, ",") != "jdoe" {
-		t.Fatalf("established = %v, want [jdoe]", got)
+	RecordScanUser(windowsMock(`CONTOSO\ASmith`))
+	contoso := "asmith-" + UserTokenFingerprint(`contoso\asmith`)
+	for _, u := range readSeenUserRecords(dir) {
+		switch u.token {
+		case other:
+			if !hasDay(u.days, legacySeenDay) {
+				t.Fatalf("the first fingerprinted account inherits the legacy visit: %v", u.days)
+			}
+		case contoso:
+			if hasDay(u.days, legacySeenDay) {
+				t.Fatalf("a second account with the same short name must not inherit it: %v", u.days)
+			}
+		}
 	}
-	// A third day changes nothing; the second recorded day stays.
-	withSeenUserDay(t, 201)
-	if err := appendSeenUser(dir, "jdoe"); err != nil {
+}
+
+// Two sessions recording their visits at the same moment never lose one:
+// the file is append-only.
+func TestSeenUsers_ConcurrentAppendsKeepEveryVisit(t *testing.T) {
+	dir := t.TempDir()
+	withSeenUserDay(t, 300)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_ = appendSeenUser(dir, "user"+strconv.Itoa(i)+"-0123456789ab")
+		}(i)
+	}
+	wg.Wait()
+	if got := len(readSeenUsers(dir)); got != 8 {
+		t.Fatalf("recorded %d of 8 concurrent visits", got)
+	}
+}
+
+// An oversized append-only file is compacted to one line per token, keeping
+// every token's days.
+func TestSeenUsers_CompactsWhenLarge(t *testing.T) {
+	dir := t.TempDir()
+	paths.SetOverride(dir)
+	t.Cleanup(func() { paths.SetOverride("") })
+	var b strings.Builder
+	for b.Len() <= compactSeenUsersBytes {
+		b.WriteString("jdoe-0123456789ab 100\njdoe-0123456789ab 101\n")
+	}
+	if err := os.WriteFile(filepath.Join(dir, seenUsersFile), []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	withSeenUserDay(t, 102)
+	if err := appendSeenUser(dir, "asmith-0123456789ab"); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, seenUsersFile))
-	if string(data) != "jdoe 0,200\n" {
-		t.Fatalf("file = %q, want the legacy visit plus the first real day only", data)
+	if string(data) != "jdoe-0123456789ab 100,101\nasmith-0123456789ab 102\n" {
+		t.Fatalf("compacted file = %q", data)
+	}
+}
+
+// Turning detection off on a host that already switched must restore
+// machine-level scanning, not skip every run because the marker exists.
+func TestAutoIdentitySuperseded_OffNeverSkips(t *testing.T) {
+	dir := withMachineStateDir(t, "Professional", false)
+	withConfigDeviceID(t, "")
+	withMultiUserDetection(t, config.MultiUserDetectionOff)
+	if err := writeMultiUserMarker(dir, multiUserMarker{Since: 1, Reason: autoReasonEdition, RetiredSerialID: "SER1"}); err != nil {
+		t.Fatal(err)
+	}
+	mock := windowsMock(`HOST\jdoe`)
+	if tpl, _ := autoIdentity(mock); tpl != "" {
+		t.Fatalf("off must snapshot the machine identity, got %q", tpl)
+	}
+	if AutoIdentitySuperseded(mock) {
+		t.Fatal("off must never supersede a run")
+	}
+	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\jdoe`); id.Source != IdentitySourceSerial || id.DeviceID != "SER1" {
+		t.Fatalf("off must report the machine identity: %+v", id)
+	}
+}
+
+// `identity` must answer what the scan that follows would do: on the day the
+// second developer becomes established, the scan records today's visit before
+// deciding, so the diagnostic query assumes that visit without recording it.
+func TestProspectiveScanUser_MatchesTheScanDecision(t *testing.T) {
+	dir := withMachineStateDir(t, "Professional", false)
+	withConfigDeviceID(t, "")
+	withMultiUserDetection(t, config.MultiUserDetectionUsers)
+	t.Cleanup(resetPendingVisitForTest)
+	jdoe := "jdoe-" + UserTokenFingerprint(`host\jdoe`)
+	asmith := "asmith-" + UserTokenFingerprint(`host\asmith`)
+	if err := os.WriteFile(filepath.Join(dir, seenUsersFile), []byte(jdoe+" 100\n"+jdoe+" 101\n"+asmith+" 100\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	withSeenUserDay(t, 101)
+	mock := windowsMock(`HOST\asmith`)
+	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\asmith`); id.Source != IdentitySourceSerial {
+		t.Fatalf("without today's visit asmith is not established yet: %+v", id)
+	}
+	ResetAutoIdentityForTest()
+	ProspectiveScanUser(mock)
+	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\asmith`); id.Source != IdentitySourceAuto || id.DeviceID != "host-"+asmith {
+		t.Fatalf("the prospective visit must give the scan's answer: %+v", id)
+	}
+	if data, _ := os.ReadFile(filepath.Join(dir, seenUsersFile)); strings.Count(string(data), "\n") != 3 {
+		t.Fatalf("a prospective visit must not be recorded:\n%s", data)
+	}
+	// The scan itself records the visit and reaches the same answer.
+	resetPendingVisitForTest()
+	ResetAutoIdentityForTest()
+	RecordScanUser(mock)
+	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\asmith`); id.Source != IdentitySourceAuto {
+		t.Fatalf("the scan must flip: %+v", id)
 	}
 }
 

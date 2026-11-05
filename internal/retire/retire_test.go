@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -278,5 +279,37 @@ func TestBudgetFor(t *testing.T) {
 	}
 	if got := BudgetFor(MaxIdentities); got != MaxBudget {
 		t.Errorf("BudgetFor(%d) = %v, want the cap %v", MaxIdentities, got, MaxBudget)
+	}
+}
+
+// A shared host at the identity cap (one root, many users) has every per-user
+// cache read: the file cap covers MaxIdentities caches plus the top-level
+// heartbeat.
+func TestCollectIdentities_ManyUsersInOneRoot(t *testing.T) {
+	home := t.TempDir()
+	paths.SetOverride(home)
+	t.Cleanup(func() { paths.SetOverride("") })
+	prev := config.DeviceID
+	config.DeviceID = "{hostname}-{user}"
+	t.Cleanup(func() { config.DeviceID = prev })
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	mock.SetUsername(`NT AUTHORITY\SYSTEM`)
+	if err := os.WriteFile(filepath.Join(home, heartbeat.Filename), []byte(`{"schema_version":1,"run_gate":{"device_id":"SER-1"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const users = 70
+	for i := 0; i < users; i++ {
+		dir := filepath.Join(home, "users", "u"+strconv.Itoa(i))
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, heartbeat.Filename), []byte(`{"schema_version":1,"run_gate":{"device_id":"host-u`+strconv.Itoa(i)+`"}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := CollectIdentities(context.Background(), mock, progress.NewNoop())
+	if len(ids) != users+1 {
+		t.Fatalf("collected %d ids, want %d per-user ids plus the machine row", len(ids), users+1)
 	}
 }

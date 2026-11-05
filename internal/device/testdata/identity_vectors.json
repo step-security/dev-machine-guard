@@ -33,7 +33,7 @@
     "hostname": "AVD-HOST-07",
     "user": "CONTOSO\\JDoe",
     "goos": "windows",
-    "expect_id": "avd-host-07-jdoe-8c4e2c"
+    "expect_id": "avd-host-07-jdoe-8c4e2c054b47"
   },
   {
     "name": "user_email_local_part",
@@ -42,7 +42,7 @@
     "hostname": "h",
     "user": "J.Doe@Example.com",
     "goos": "windows",
-    "expect_id": "j.doe-94deda"
+    "expect_id": "j.doe-94deda8cbfff"
   },
   {
     "name": "user_azuread",
@@ -51,7 +51,7 @@
     "hostname": "h",
     "user": "AzureAD\\JDoe",
     "goos": "windows",
-    "expect_id": "vdi-jdoe-2da05b"
+    "expect_id": "vdi-jdoe-2da05b561bbc"
   },
   {
     "name": "serial_token_kept_verbatim_then_sanitized",
@@ -69,7 +69,7 @@
     "hostname": "h",
     "user": "jdoe",
     "goos": "darwin",
-    "expect_id": "ABC123~jdoe-d30a5f"
+    "expect_id": "ABC123~jdoe-d30a5f57532a"
   },
   {
     "name": "token_case_insensitive",
@@ -87,7 +87,7 @@
     "hostname": "h1",
     "user": "a b",
     "goos": "linux",
-    "expect_id": "pool-east-h1-a-b-c8687a"
+    "expect_id": "pool-east-h1-a-b-c8687a08aa5d"
   },
   {
     "name": "collapse_and_trim",
@@ -159,7 +159,7 @@
     "hostname": "h",
     "user": "bbbbbbbbbbbbbbbbbbbb",
     "goos": "linux",
-    "expect_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-f0025a7861af"
+    "expect_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-fe95f2a058fb"
   },
   {
     "name": "unknown_hostname_falls_back_to_serial",
@@ -168,7 +168,7 @@
     "hostname": "unknown",
     "user": "jdoe",
     "goos": "windows",
-    "expect_id": "SER1-jdoe-d30a5f"
+    "expect_id": "SER1-jdoe-d30a5f57532a"
   },
   {
     "name": "empty_hostname_and_unusable_serial_is_incomplete",
@@ -186,7 +186,7 @@
     "hostname": "h1",
     "user": "CORP\\alice",
     "goos": "windows",
-    "expect_id": "h1-alice-ca09d3"
+    "expect_id": "h1-alice-ca09d31dd750"
   },
   {
     "name": "domain_qualified_host_alice_differs",
@@ -195,7 +195,7 @@
     "hostname": "h1",
     "user": "HOST\\alice",
     "goos": "windows",
-    "expect_id": "h1-alice-93f0dc"
+    "expect_id": "h1-alice-93f0dc3dc514"
   },
   {
     "name": "principal_case_insensitive",
@@ -204,7 +204,7 @@
     "hostname": "h1",
     "user": "Corp\\Alice",
     "goos": "windows",
-    "expect_id": "h1-alice-ca09d3"
+    "expect_id": "h1-alice-ca09d31dd750"
   },
   {
     "name": "email_domain_a",
@@ -213,7 +213,7 @@
     "hostname": "h1",
     "user": "alice@a.example",
     "goos": "darwin",
-    "expect_id": "alice-e5147e"
+    "expect_id": "alice-e5147e059919"
   },
   {
     "name": "email_domain_b_differs",
@@ -222,7 +222,7 @@
     "hostname": "h1",
     "user": "alice@b.example",
     "goos": "darwin",
-    "expect_id": "alice-d64b1e"
+    "expect_id": "alice-d64b1e94245c"
   },
   {
     "name": "non_latin_user_keeps_a_user_part",
@@ -231,6 +231,6 @@
     "hostname": "h1",
     "user": "AVD\\张三",
     "goos": "windows",
-    "expect_id": "h1-user-bcf93b"
+    "expect_id": "h1-user-bcf93b356c94"
   }
 ]

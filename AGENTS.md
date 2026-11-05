@@ -668,7 +668,7 @@ if isConfigured(ctx, exec) {
   a shared Windows host (multiuser.go: sticky marker; multi-session edition, or with
   `config.MultiUserDetection` = users two developers seen on two days each; the switch removes the old
   serial row once, retire reason `identity_changed`) > machine identity; a literal or
-  a template over `{serial}` `{hostname}` `{user}`; `{user}` = short name + 6-hex sha256 fingerprint of the
+  a template over `{serial}` `{hostname}` `{user}`; `{user}` = short name + 12-hex sha256 fingerprint of the
   full principal (`device.UserTokenFingerprint`, mirrored by every loader) so principals sharing a short name
   never collide; template expansions are sanitized (a literal id is used as given)
   (`device.SanitizeDeviceID`), the machine-identity path is byte-identical. `Gather` stores the

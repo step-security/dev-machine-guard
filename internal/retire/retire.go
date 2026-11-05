@@ -254,7 +254,9 @@ func stateRoots() []string {
 // user-writable, so neither the number of files read per root nor the size
 // of one may depend on what a user planted there.
 const (
-	maxCachedIDFiles     = 64
+	// maxCachedIDFiles covers every per-user cache a host at MaxIdentities
+	// can have, plus the top-level heartbeat of the same root.
+	maxCachedIDFiles     = MaxIdentities + 1
 	maxCachedIDFileBytes = 64 * 1024
 )
 
