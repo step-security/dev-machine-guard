@@ -156,7 +156,7 @@ func runSelfUpdate(args []string) int {
 			HTTP: httpClient, APIEndpoint: config.APIEndpoint, CustomerID: config.CustomerID,
 			APIKey: config.APIKey, AgentVersion: buildinfo.Version, Arch: selfupdate.NativeArch(),
 			LagBehind: config.UpdateLagBehind, CooldownHours: config.UpdateCooldownHours,
-			MirrorURL: config.UpdateMirrorURL,
+			MirrorURL: config.UpdateMirrorURL, DeviceID: deviceID,
 		},
 		AutoUpdate:      config.AutoUpdate == nil || *config.AutoUpdate,
 		VerifyPublisher: func(p string) error { return authenticode.SamePublisher(p, selfExe) },

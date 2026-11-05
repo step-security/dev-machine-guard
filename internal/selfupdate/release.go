@@ -80,6 +80,8 @@ type Client struct {
 	LagBehind     int
 	CooldownHours int
 	MirrorURL     string // optional HTTPS mirror (config update_mirror_url)
+	// DeviceID names the device on update checks (backend per-device log).
+	DeviceID func() string
 	// ReleaseBaseURL and SigningKey default to the GitHub releases and the
 	// pinned release key; only tests and selfupdate_testkeys builds change them.
 	ReleaseBaseURL string
@@ -147,13 +149,35 @@ type latestBinaryResponse struct {
 // ErrCheck wraps every latest-binary failure (update_check_failed).
 var ErrCheck = errors.New("latest-binary check failed")
 
-// Latest resolves the target from one windows latest-binary response:
+// Reasons an update tick checks for a target, sent as latest-binary's reason
+// so the backend can log each check per device.
+const (
+	CheckInvalidCurrent  = "invalid_current"
+	CheckFirst           = "first_check"
+	CheckClockSkew       = "clock_skew"
+	CheckProbationClosed = "probation_closed"
+	CheckInterval        = "interval"
+)
+
+// CheckInfo describes an update check: the state's current version and why
+// this tick checked. The zero value sends neither.
+type CheckInfo struct {
+	Current string
+	Reason  string
+}
+
+// Latest is LatestFor without check details.
+func (c *Client) Latest(ctx context.Context) (*Release, error) {
+	return c.LatestFor(ctx, CheckInfo{})
+}
+
+// LatestFor resolves the target from one windows latest-binary response:
 // agent, launcher and dmg-linux all come from the same resolution, so they
 // always name one version. A missing checksum or signature for any asset is
 // left empty for VerifySignatures to reject (update_verify_failed) before
 // anything is downloaded.
-func (c *Client) Latest(ctx context.Context) (*Release, error) {
-	win, err := c.fetch(ctx, "windows")
+func (c *Client) LatestFor(ctx context.Context, info CheckInfo) (*Release, error) {
+	win, err := c.fetch(ctx, "windows", info)
 	if err != nil {
 		return nil, err
 	}
@@ -172,10 +196,21 @@ func (c *Client) Latest(ctx context.Context) (*Release, error) {
 	}}, nil
 }
 
-func (c *Client) fetch(ctx context.Context, goos string) (*latestBinaryResponse, error) {
+func (c *Client) fetch(ctx context.Context, goos string, info CheckInfo) (*latestBinaryResponse, error) {
 	q := url.Values{}
 	q.Set("os", goos)
 	q.Set("arch", c.Arch)
+	if info.Reason != "" {
+		q.Set("reason", info.Reason)
+		if info.Current != "" {
+			q.Set("current", info.Current)
+		}
+		if c.DeviceID != nil {
+			if id := c.DeviceID(); id != "" {
+				q.Set("device_id", id)
+			}
+		}
+	}
 	if c.LagBehind > 0 || c.CooldownHours > 0 {
 		q.Set("lag_behind", fmt.Sprint(c.LagBehind))
 		q.Set("cooldown_hours", fmt.Sprint(c.CooldownHours))
@@ -191,6 +226,7 @@ func (c *Client) fetch(ctx context.Context, goos string) (*latestBinaryResponse,
 	}
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	req.Header.Set("X-Agent-Version", c.AgentVersion)
+	req.Header.Set("User-Agent", "dmg/"+c.AgentVersion+" (updater)")
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrCheck, err)
