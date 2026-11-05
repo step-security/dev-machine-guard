@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/awakeclock"
 	"github.com/step-security/dev-machine-guard/internal/procusage"
 )
 
@@ -19,6 +20,12 @@ type PhaseCompletion struct {
 	// equivalent: peak RSS is a lifetime high-water mark and cannot be
 	// differenced across phase boundaries.
 	CPUMs int64 `json:"cpu_ms,omitempty"`
+	// SleptMs is how long the system was suspended while this phase ran:
+	// wall-clock elapsed minus awake elapsed (internal/awakeclock: the
+	// monotonic clock on macOS and Linux, QueryUnbiasedInterruptTime on
+	// Windows). DurationMs is awake time, the actual work, so a phase that
+	// spanned a laptop nap reports both honestly.
+	SleptMs int64 `json:"slept_ms,omitempty"`
 }
 
 // RunStatusInfo is the structured progress snapshot sent on each phase
@@ -41,6 +48,33 @@ type RunStatusInfo struct {
 	// rapidly. Backend handlers must tolerate this field being absent on
 	// any given snapshot.
 	LogTailGzipBase64 string `json:"log_tail_gzip_b64,omitempty"`
+	// SleptMs is the run-level counterpart of PhaseCompletion.SleptMs,
+	// measured from run start so it also covers sleep that lands between
+	// phases. ElapsedMs is awake time; the two add up to wall-clock time.
+	SleptMs int64 `json:"slept_ms,omitempty"`
+}
+
+// minReportedSleep is the smallest wall-vs-awake divergence reported as
+// system sleep. NTP steps and slews move the wall clock a few seconds
+// relative to the awake clock; a genuine sleep is minutes.
+const minReportedSleep = 60 * time.Second
+
+// wallStamp strips the monotonic reading from a wall-clock stamp. Sub on two
+// stamps that both carry one uses the monotonic clock, which stops during a
+// sleep, and would hide exactly the gap the tracker reports; both the phase
+// and the run calculation difference wall stamps through this.
+func wallStamp(t time.Time) time.Time { return t.Round(0) }
+
+// sleptDuration returns how long the system was suspended during an
+// interval, given the interval measured on the wall clock and on the awake
+// clock. Divergence below minReportedSleep, including the equal-inputs case
+// a single test clock produces, reports zero. Never negative.
+func sleptDuration(wallElapsed, awakeElapsed time.Duration) time.Duration {
+	d := wallElapsed - awakeElapsed
+	if d < minReportedSleep {
+		return 0
+	}
+	return d
 }
 
 // PhaseTracker accumulates phase lifecycle events for a single telemetry
@@ -50,26 +84,47 @@ type RunStatusInfo struct {
 type PhaseTracker struct {
 	mu                 sync.Mutex
 	startedAt          time.Time
+	startedAwake       time.Duration
 	phaseStartedAt     time.Time
+	phaseStartedAwake  time.Duration
 	phaseStartedCPUMs  int64
 	currentPhase       string
 	currentPhaseDetail string
 	completed          []PhaseCompletion
-	now                func() time.Time // overridable for tests
-	cpuMs              func() int64     // overridable for tests
+	now                func() time.Time     // wall clock; overridable for tests
+	awake              func() time.Duration // awake clock; nil derives it from now (tests)
+	cpuMs              func() int64         // overridable for tests
 }
 
 // NewPhaseTracker constructs a tracker anchored at the current time.
 func NewPhaseTracker() *PhaseTracker {
-	return newPhaseTrackerWithClock(time.Now)
+	return newPhaseTrackerWithClocks(awakeclock.System.Wall, awakeclock.System.Awake)
 }
 
+// newPhaseTrackerWithClock drives both readings from one clock, so wall and
+// awake time never diverge and every phase reports zero sleep.
 func newPhaseTrackerWithClock(now func() time.Time) *PhaseTracker {
-	return &PhaseTracker{
-		startedAt: now(),
-		now:       now,
-		cpuMs:     procusage.CPUMillis,
+	return newPhaseTrackerWithClocks(now, nil)
+}
+
+func newPhaseTrackerWithClocks(now func() time.Time, awake func() time.Duration) *PhaseTracker {
+	t := &PhaseTracker{now: now, awake: awake, cpuMs: procusage.CPUMillis}
+	t.startedAt = now()
+	if awake != nil {
+		t.startedAwake = awake()
 	}
+	return t
+}
+
+// readClocks takes one wall reading and the matching awake reading. With no
+// awake source the awake time is derived from the same wall stamp, so the
+// single-clock tests see identical deltas and no sleep.
+func (t *PhaseTracker) readClocks() (time.Time, time.Duration) {
+	now := t.now()
+	if t.awake == nil {
+		return now, now.Sub(t.startedAt)
+	}
+	return now, t.awake()
 }
 
 // Start records the beginning of a new phase. Calling Start while another
@@ -86,37 +141,49 @@ func (t *PhaseTracker) Start(phase string) {
 	}
 	t.currentPhase = phase
 	t.currentPhaseDetail = ""
-	t.phaseStartedAt = t.now()
+	t.phaseStartedAt, t.phaseStartedAwake = t.readClocks()
 	t.phaseStartedCPUMs = t.cpuMs()
 }
 
-// Finish records completion of the current phase. No-op when nothing is
-// in flight — safe to defer.
-func (t *PhaseTracker) Finish() {
+// Finish records completion of the current phase and returns it. The bool
+// is false when nothing was in flight — safe to defer and to call in
+// statement position.
+func (t *PhaseTracker) Finish() (PhaseCompletion, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.finishLocked()
+	return t.finishLocked()
 }
 
-func (t *PhaseTracker) finishLocked() {
+func (t *PhaseTracker) finishLocked() (PhaseCompletion, bool) {
 	if t.currentPhase == "" {
-		return
+		return PhaseCompletion{}, false
 	}
-	finishedAt := t.now()
+	finishedAt, finishedAwake := t.readClocks()
 	// CPU counters are monotonic, but clamp anyway: a swapped-in reader
 	// or a failed getrusage returning 0 must not emit a negative cost.
 	cpuDelta := t.cpuMs() - t.phaseStartedCPUMs
 	if cpuDelta < 0 {
 		cpuDelta = 0
 	}
-	t.completed = append(t.completed, PhaseCompletion{
+	// Work time is awake time. Round(0) strips any monotonic reading from
+	// the stamps so the second difference is pure wall clock; the gap
+	// between the two is time spent asleep.
+	work := finishedAwake - t.phaseStartedAwake
+	if work < 0 {
+		work = 0
+	}
+	wall := wallStamp(finishedAt).Sub(wallStamp(t.phaseStartedAt))
+	pc := PhaseCompletion{
 		Name:       t.currentPhase,
 		FinishedAt: finishedAt.Unix(),
-		DurationMs: finishedAt.Sub(t.phaseStartedAt).Milliseconds(),
+		DurationMs: work.Milliseconds(),
 		CPUMs:      cpuDelta,
-	})
+		SleptMs:    sleptDuration(wall, work).Milliseconds(),
+	}
+	t.completed = append(t.completed, pc)
 	t.currentPhase = ""
 	t.currentPhaseDetail = ""
+	return pc, true
 }
 
 // UpdateDetail sets a free-form sub-progress string for the current
@@ -159,9 +226,17 @@ func (t *PhaseTracker) Snapshot() RunStatusInfo {
 		current = current + " (" + t.currentPhaseDetail + ")"
 	}
 
+	now, awakeNow := t.readClocks()
+	elapsed := awakeNow - t.startedAwake
+	if elapsed < 0 {
+		elapsed = 0
+	}
 	out := RunStatusInfo{
 		CurrentPhase: current,
-		ElapsedMs:    t.now().Sub(t.startedAt).Milliseconds(),
+		ElapsedMs:    elapsed.Milliseconds(),
+		// Run-level sleep, measured from run start so it also covers sleep
+		// landing between phases (per-phase SleptMs can't see those gaps).
+		SleptMs: sleptDuration(wallStamp(now).Sub(wallStamp(t.startedAt)), elapsed).Milliseconds(),
 	}
 	if len(t.completed) > 0 {
 		out.PhasesCompleted = make([]PhaseCompletion, len(t.completed))

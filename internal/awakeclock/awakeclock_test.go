@@ -1,6 +1,7 @@
 package awakeclock
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -76,5 +77,13 @@ func TestSystemClockAdvances(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if System.Awake() <= a {
 		t.Fatal("awake clock did not advance")
+	}
+}
+
+// Wall stamps must not carry a monotonic reading: Sub would then use the
+// monotonic clock and a sleep could never show up on macOS or Linux.
+func TestSystemWallHasNoMonotonicReading(t *testing.T) {
+	if s := System.Wall().String(); strings.Contains(s, " m=") {
+		t.Fatalf("System.Wall() keeps a monotonic reading: %s", s)
 	}
 }
