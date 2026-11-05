@@ -159,7 +159,12 @@ func (r *runtime) acquire(name string) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+	fd := f.Fd()
+	if fd > uintptr(1<<(strconv.IntSize-1)-1) {
+		_ = f.Close()
+		return nil, fmt.Errorf("file descriptor exceeds platform integer range")
+	}
+	if err = unix.Flock(int(fd), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		_ = f.Close()
 		return nil, err
 	}
