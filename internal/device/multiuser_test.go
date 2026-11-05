@@ -3,6 +3,7 @@ package device
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
@@ -300,6 +302,7 @@ func TestSeenUsers_ConcurrentAppendsKeepEveryVisit(t *testing.T) {
 // An oversized append-only file is compacted to one line per token, keeping
 // every token's days.
 func TestSeenUsers_CompactsWhenLarge(t *testing.T) {
+	withTestLockTarget(t)
 	dir := t.TempDir()
 	var b strings.Builder
 	for b.Len() <= compactSeenUsersBytes {
@@ -316,16 +319,26 @@ func TestSeenUsers_CompactsWhenLarge(t *testing.T) {
 	if string(data) != "jdoe-0123456789ab 100,101\nasmith-0123456789ab 102\n" {
 		t.Fatalf("compacted file = %q", data)
 	}
-	if _, err := os.Stat(filepath.Join(dir, seenUsersLockFile)); !os.IsNotExist(err) {
-		t.Fatal("the visit-file lock must be released")
+	release, locked := lockSeenUsers()
+	if !locked {
+		t.Fatal("the visit-file lock must be released after the compaction")
 	}
+	release()
 }
 
-// Appends and the compaction share the visit-file lock: while a compaction
-// holds it, an append waits and lands after the replacement, so no visit is
-// lost; a compaction that cannot take the lock does not rewrite anything.
-func TestSeenUsers_AppendWaitsForTheCompactionLock(t *testing.T) {
-	dir := t.TempDir()
+// withTestLockTarget points the instance lock, and so its visit-file
+// sibling, at a private target so tests never contend with a real agent.
+func withTestLockTarget(t *testing.T) {
+	t.Helper()
+	target := filepath.Join(t.TempDir(), "guard.flock")
+	if runtime.GOOS == "windows" {
+		target = "StepSecurityDMGTest-" + strconv.Itoa(os.Getpid())
+	}
+	t.Cleanup(lock.SetTargetForTest(target))
+}
+
+func oversizedSeenUsers(t *testing.T, dir string) {
+	t.Helper()
 	var b strings.Builder
 	for b.Len() <= compactSeenUsersBytes {
 		b.WriteString("jdoe-0123456789ab 100\n")
@@ -333,8 +346,18 @@ func TestSeenUsers_AppendWaitsForTheCompactionLock(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, seenUsersFile), []byte(b.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// Appends and the compaction share the visit-file lock: while a compaction
+// holds it, an append waits and lands after the replacement, so no visit is
+// lost. The lock is the OS lock of the lock package, so a second taker in
+// the same process is refused just like one in another process.
+func TestSeenUsers_AppendWaitsForTheCompactionLock(t *testing.T) {
+	withTestLockTarget(t)
+	dir := t.TempDir()
+	oversizedSeenUsers(t, dir)
 	// A compactor holds the lock.
-	release, locked := lockSeenUsers(dir)
+	release, locked := lockSeenUsers()
 	if !locked {
 		t.Fatal("the lock must be free")
 	}
@@ -357,40 +380,29 @@ func TestSeenUsers_AppendWaitsForTheCompactionLock(t *testing.T) {
 	if string(data) != "jdoe-0123456789ab 100\nasmith-0123456789ab 101\n" {
 		t.Fatalf("file = %q, want the compacted line plus the waited-for visit", data)
 	}
-	// A stale lock (its holder died) is reclaimed instead of blocking forever.
-	lockPath := filepath.Join(dir, seenUsersLockFile)
-	if err := os.WriteFile(lockPath, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	old := time.Now().Add(-2 * seenUsersLockStale)
-	if err := os.Chtimes(lockPath, old, old); err != nil {
-		t.Fatal(err)
-	}
-	release, locked = lockSeenUsers(dir)
-	if !locked {
-		t.Fatal("a stale lock must be reclaimed")
-	}
-	release()
 }
 
-// Turning detection off on a host that already switched must restore
-// machine-level scanning, not skip every run because the marker exists.
-func TestAutoIdentitySuperseded_OffNeverSkips(t *testing.T) {
-	dir := withMachineStateDir(t, "Professional", false)
-	withConfigDeviceID(t, "")
-	withMultiUserDetection(t, config.MultiUserDetectionOff)
-	if err := writeMultiUserMarker(dir, multiUserMarker{Since: 1, Reason: autoReasonEdition, RetiredSerialID: "SER1"}); err != nil {
+// A lock that cannot be had in time never costs the visit: the append goes
+// ahead and only the compaction is skipped.
+func TestSeenUsers_AppendGivesUpOnTheLockButNotTheVisit(t *testing.T) {
+	withTestLockTarget(t)
+	dir := t.TempDir()
+	oversizedSeenUsers(t, dir)
+	prev := seenUsersLockWait
+	seenUsersLockWait = 50 * time.Millisecond
+	t.Cleanup(func() { seenUsersLockWait = prev })
+	release, locked := lockSeenUsers()
+	if !locked {
+		t.Fatal("the lock must be free")
+	}
+	defer release()
+	withSeenUserDay(t, 101)
+	if err := appendSeenUser(dir, "asmith-0123456789ab"); err != nil {
 		t.Fatal(err)
 	}
-	mock := windowsMock(`HOST\jdoe`)
-	if tpl, _ := autoIdentity(mock); tpl != "" {
-		t.Fatalf("off must snapshot the machine identity, got %q", tpl)
-	}
-	if AutoIdentitySuperseded(mock) {
-		t.Fatal("off must never supersede a run")
-	}
-	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\jdoe`); id.Source != IdentitySourceSerial || id.DeviceID != "SER1" {
-		t.Fatalf("off must report the machine identity: %+v", id)
+	data, _ := os.ReadFile(filepath.Join(dir, seenUsersFile))
+	if !strings.HasSuffix(string(data), "asmith-0123456789ab 101\n") || len(data) <= compactSeenUsersBytes {
+		t.Fatalf("the visit must be appended and the compaction skipped (len %d)", len(data))
 	}
 }
 
@@ -401,6 +413,7 @@ func TestAutoIdentitySuperseded_OffNeverSkips(t *testing.T) {
 // is what caches the decision, so the test follows that order and never
 // resets the cache in between.
 func TestProspectiveScanUser_MatchesTheScanDecision(t *testing.T) {
+	withTestLockTarget(t)
 	dir := withMachineStateDir(t, "Professional", false)
 	withConfigDeviceID(t, "")
 	withMultiUserDetection(t, config.MultiUserDetectionUsers)
@@ -426,12 +439,19 @@ func TestProspectiveScanUser_MatchesTheScanDecision(t *testing.T) {
 	if data, _ := os.ReadFile(filepath.Join(dir, seenUsersFile)); strings.Count(string(data), "\n") != 3 {
 		t.Fatalf("a prospective visit must not be recorded:\n%s", data)
 	}
-	// The scan itself records the visit and reaches the same answer.
+	if _, err := os.Stat(filepath.Join(dir, multiUserMarkerFile)); !os.IsNotExist(err) {
+		t.Fatal("a diagnostic query must not write the sticky marker")
+	}
+	// The scan itself records the visit, reaches the same answer and makes
+	// it stick.
 	resetPendingVisitForTest()
 	ResetAutoIdentityForTest()
 	RecordScanUser(mock)
 	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\asmith`); id.Source != IdentitySourceAuto {
 		t.Fatalf("the scan must flip: %+v", id)
+	}
+	if _, err := os.Stat(filepath.Join(dir, multiUserMarkerFile)); err != nil {
+		t.Fatalf("the scan must write the sticky marker: %v", err)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
@@ -187,9 +188,11 @@ func autoIdentityUncached(exec executor.Executor) (template, reason string) {
 	}
 	if exists {
 		why = marker.Reason
-	} else {
+	} else if !prospectiveQuery() {
 		// Best effort: a failed write just means the rule is re-evaluated
-		// next run, which yields the same answer.
+		// next run, which yields the same answer. A diagnostic query keeps
+		// its decision to itself: the scan that follows writes the marker
+		// from the visits it records.
 		_ = writeMultiUserMarker(dir, multiUserMarker{Since: time.Now().Unix(), Reason: why})
 	}
 	return AutoIdentityTemplate, autoReasonDisplay(why)
@@ -282,15 +285,25 @@ func RecordScanUser(exec executor.Executor) {
 // querying user, or it could report the machine identity on the very scan
 // that establishes the second developer.
 var pendingVisit struct {
-	mu    sync.Mutex
-	token string
-	day   int64
+	mu          sync.Mutex
+	prospective bool // this process is a diagnostic query; its decision is never persisted
+	token       string
+	day         int64
+}
+
+func prospectiveQuery() bool {
+	pendingVisit.mu.Lock()
+	defer pendingVisit.mu.Unlock()
+	return pendingVisit.prospective
 }
 
 // ProspectiveScanUser makes the automatic-mode decision of this process
 // count the current user's visit today as a scan would, without writing it:
 // for `identity`, which must answer what send-telemetry would do.
 func ProspectiveScanUser(exec executor.Executor) {
+	pendingVisit.mu.Lock()
+	pendingVisit.prospective = true
+	pendingVisit.mu.Unlock()
 	if machineStateDir() == "" || exec.GOOS() != model.PlatformWindows || config.MultiUserDetectionMode() != config.MultiUserDetectionUsers {
 		return
 	}
@@ -306,7 +319,7 @@ func ProspectiveScanUser(exec executor.Executor) {
 // resetPendingVisitForTest clears the prospective visit. Tests only.
 func resetPendingVisitForTest() {
 	pendingVisit.mu.Lock()
-	pendingVisit.token, pendingVisit.day = "", 0
+	pendingVisit.prospective, pendingVisit.token, pendingVisit.day = false, "", 0
 	pendingVisit.mu.Unlock()
 }
 
@@ -513,7 +526,7 @@ func appendSeenUser(dir, token string) error {
 	// replaces the file with a snapshot that misses this visit. A lock that
 	// cannot be had in time does not lose the visit either: the append goes
 	// ahead, and only the compaction insists on the lock.
-	release, locked := lockSeenUsers(dir)
+	release, locked := lockSeenUsers()
 	f, err := os.OpenFile(filepath.Join(dir, seenUsersFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644) // #nosec G302 G304 -- readable by every user's run
 	if err != nil {
 		release()
@@ -532,40 +545,25 @@ func appendSeenUser(dir, token string) error {
 	return nil
 }
 
-// seenUsersLockFile is the cross-process lock every writer of
-// seen-users.txt holds: created exclusively, removed on release, and
-// reclaimed when its holder has evidently died (seenUsersLockStale).
-const (
-	seenUsersLockFile  = "seen-users.lock"
-	seenUsersLockWait  = 2 * time.Second
-	seenUsersLockStale = 10 * time.Second
-)
+// seenUsersLockName names the visit-file lock: a sibling of the instance
+// lock (lock.AcquireSibling), so it is an OS lock the kernel drops with its
+// holder and there is never a stale lock to reclaim.
+const seenUsersLockName = "visits"
+
+// seenUsersLockWait bounds how long a writer waits for the visit-file lock.
+var seenUsersLockWait = 2 * time.Second
 
 // lockSeenUsers takes the visit-file lock, waiting up to seenUsersLockWait.
 // The release func is always safe to call; locked reports whether the lock
-// was actually held.
-func lockSeenUsers(dir string) (release func(), locked bool) {
-	path := filepath.Join(dir, seenUsersLockFile)
+// is actually held.
+func lockSeenUsers() (release func(), locked bool) {
 	deadline := time.Now().Add(seenUsersLockWait)
 	for {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644) // #nosec G302 G304 -- every user's run may take it
+		held, err := lock.AcquireSibling(seenUsersLockName)
 		if err == nil {
-			_ = f.Close()
-			return func() { _ = os.Remove(path) }, true
+			return held.Release, true
 		}
-		if !errors.Is(err, os.ErrExist) {
-			return func() {}, false
-		}
-		if info, serr := os.Stat(path); serr == nil && time.Since(info.ModTime()) > seenUsersLockStale {
-			// The holder died. A rename is atomic, so exactly one waiter
-			// reclaims the stale lock; the others retry and race for it.
-			stale := path + "." + strconv.Itoa(os.Getpid()) + ".stale"
-			if os.Rename(path, stale) == nil {
-				_ = os.Remove(stale)
-			}
-			continue
-		}
-		if time.Now().After(deadline) {
+		if !errors.Is(err, lock.ErrHeld) || time.Now().After(deadline) {
 			return func() {}, false
 		}
 		time.Sleep(10 * time.Millisecond)
