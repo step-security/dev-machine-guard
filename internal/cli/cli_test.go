@@ -607,3 +607,33 @@ func TestParse_ConfigureSettingFlagErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestParse_MultiUserDetection(t *testing.T) {
+	cfg, err := Parse([]string{"configure", "--multi-user-detection", "Users"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ConfigValues["multi_user_detection"] != "users" {
+		t.Errorf("multi_user_detection = %v, want users (lower-cased)", cfg.ConfigValues["multi_user_detection"])
+	}
+	cfg, err = Parse([]string{"configure", "--multi-user-detection=-"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := cfg.ConfigValues["multi_user_detection"]; !ok || v != "" {
+		t.Errorf("\"-\" must save an empty multi_user_detection (the clear), got %v (present %v)", v, ok)
+	}
+	if _, err := Parse([]string{"configure", "--multi-user-detection", "sometimes"}); err == nil {
+		t.Error("an unknown mode must be rejected")
+	}
+}
+
+func TestParse_IdentityVerb(t *testing.T) {
+	cfg, err := Parse([]string{"identity", "--json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Command != "identity" || cfg.OutputFormat != "json" {
+		t.Fatalf("identity --json parsed as %+v", cfg)
+	}
+}

@@ -99,6 +99,10 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 		if id.Issue != "" {
 			log.Warn("run-gate: %s", id.Issue)
 		}
+		if id.AutoFallback {
+			log.Progress("Run gate: automatic per-user identity %q applies to user sessions; this service-account run reports under the machine identity %s",
+				id.Template, id.DeviceID)
+		}
 		if id.Incomplete {
 			// Skipped regardless of --force-scan: there is no identity to
 			// force a run under. main logs the skip; this is its only trace.

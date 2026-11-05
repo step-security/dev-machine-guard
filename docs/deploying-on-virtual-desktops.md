@@ -26,7 +26,7 @@ literal text and these tokens:
 |-------|------------|
 | `{serial}` | the machine identity: the hardware serial, or on Linux user runs the machine-wide id file root wrote (`/etc/stepsecurity/device-id`), or a generated id persisted when no source answers |
 | `{hostname}` | the machine name, lower-cased |
-| `{user}` | the logged-in user: email local part, `DOMAIN\` stripped, lower-cased |
+| `{user}` | the signed-in user: the short name (an email's local part, `DOMAIN\` stripped, lower-cased) plus a six-character fingerprint of the whole account name, for example `jdoe-8c4e2c` for `CONTOSO\JDoe`. Two accounts that share a short name (`CORP\alice` and `HOST\alice`, `alice@a.example` and `alice@b.example`) therefore never share a device, state or lock, and a name with no Latin characters still yields `user-<fingerprint>` |
 
 ### Which template?
 
@@ -71,12 +71,13 @@ Precedence, highest first:
 }
 ```
 
-Check what a machine resolves to:
+Check what a machine resolves to (`identity --json` prints the same facts as
+one object, which is what the loaders read to report under the agent's id):
 
 ```
 stepsecurity-dev-machine-guard configure show
   Device ID:               {hostname}-{user}
-    resolves now to:       avd-host-07-jdoe (source: config)
+    resolves now to:       avd-host-07-jdoe-8c4e2c (source: config)
   Retire On Uninstall:     true (uninstall retires this device in the dashboard)
 ```
 
@@ -91,8 +92,15 @@ stepsecurity-dev-machine-guard configure show
   the dashboard can show that a configured identity was reused on new
   hardware (a rebuilt host).
 * **`{user}` under a service account** (`NT AUTHORITY\SYSTEM`, `LOCAL
-  SERVICE`, a machine account) cannot be completed. The run is **skipped**
-  with a log line rather than reporting under a made-up id. The MSI's own
+  SERVICE`, a machine account) cannot be completed. With a configured
+  template the run is **skipped** with a log line rather than reporting under
+  a made-up id. In automatic mode (nothing configured, see below) such a run
+  reports under the hardware serial, exactly as it did before per-user
+  identities existed, until the host's user sessions have performed the
+  one-time switch; from then on it is skipped, since a serial upload would
+  restore the row the switch removed. A device-context loader install
+  therefore keeps producing machine-level telemetry after an agent upgrade
+  and moves to per-user devices once its tasks run per session. The MSI's own
   install step already runs as SYSTEM and defers the first scan to the
   scheduled task, which fires as the logged-in user.
 * An **unknown token** (`{site}`) logs a warning and falls back to the
@@ -112,8 +120,13 @@ state dir, so the ids never flip back):
   Enterprise multi-session (`EditionID` = `EnterpriseMultiSession`, the
   Azure Virtual Desktop image) or the Server RDSH SKU, or the Remote Desktop
   Session Host role is installed;
-* two or more different developers have run scans on it (every scan records
-  its user in `seen-users.txt` in the machine-wide state dir).
+* with `multi_user_detection: users` in config.json (`configure
+  --multi-user-detection users`): two or more developers have each run scans
+  on it on two different days (every scan records its user and the day in
+  `seen-users.txt` in the machine-wide state dir). A single visit never
+  counts, so a technician's one-off session cannot change a workstation's
+  identity. The default, `edition`, applies only the first rule; `off` never
+  switches.
 
 On a multi-user host the agent applies `{hostname}-{user}` exactly as if it
 had been configured (`device_id_source` reports `auto`; `configure show`
@@ -140,7 +153,7 @@ Limits in this version: automatic mode is Windows-only (macOS and Linux keep
 the hardware serial unless a template is configured) and needs the
 machine-wide state dir of an elevated install (`C:\ProgramData\StepSecurity`).
 To force serial-only identities on a shared host, configure the explicit
-template `{serial}`.
+template `{serial}` or set `multi_user_detection: off`.
 
 ### Per-user state on shared hosts
 
@@ -243,7 +256,7 @@ at least the inactive threshold. Retired devices are purged 30 days later.
 
 | Symptom | Check |
 |---------|-------|
-| Device missing after a scan | `configure show` → *resolves now to*; a `{user}` template under SYSTEM reads *incomplete* and the run is skipped |
+| Device missing after a scan | `configure show` → *resolves now to*; a configured `{user}` template under SYSTEM reads *incomplete* and the run is skipped (automatic mode resolves to the hardware serial there until the host has switched) |
 | A host suddenly has per-user devices and its old device is gone | automatic mode kicked in (`multi-user.json` under `C:\ProgramData\StepSecurity` says why); the old row was removed through the retire API with reason `identity_changed` (hidden at once, purged after the standard retention). Configure `{serial}` to opt out |
 | Is this a VM? | the device sheet shows the virtualization type and vendor; the agent logs `Virtualization: virtual (azure, imds)` or `physical` on every scan |
 | Two rows for one host after a rebuild | the template is not set, or `STEPSEC_DEVICE_ID` differs between the image and the running host |

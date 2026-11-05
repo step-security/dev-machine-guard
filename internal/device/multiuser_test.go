@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
@@ -20,6 +21,22 @@ func withMachineStateDir(t *testing.T, edition string, tsAppCompat bool) string 
 	probeWindowsEdition = func() (string, bool) { return edition, tsAppCompat }
 	t.Cleanup(func() { restore(); probeWindowsEdition = prevProbe })
 	return dir
+}
+
+// withMultiUserDetection sets config.MultiUserDetection for the test.
+func withMultiUserDetection(t *testing.T, mode string) {
+	t.Helper()
+	prev := config.MultiUserDetection
+	config.MultiUserDetection = mode
+	t.Cleanup(func() { config.MultiUserDetection = prev })
+}
+
+// withSeenUserDay pins the day RecordScanUser stamps.
+func withSeenUserDay(t *testing.T, day int64) {
+	t.Helper()
+	prev := seenUserDay
+	seenUserDay = func() int64 { return day }
+	t.Cleanup(func() { seenUserDay = prev })
 }
 
 func windowsMock(username string) *executor.Mock {
@@ -37,20 +54,22 @@ func TestMultiUserHost(t *testing.T) {
 		tsAppCompat bool
 		seen        []string
 		marker      bool
+		usersRule   bool
 		want        bool
 		wantReason  string
 	}{
-		{"plain pro, one user", "Professional", false, []string{"jdoe"}, false, false, ""},
-		{"plain pro, nobody seen", "Professional", false, nil, false, false, ""},
-		{"enterprise multi-session", "EnterpriseMultiSession", false, nil, false, true, "edition"},
-		{"server rdsh, case-insensitive", "serverrdsh", false, nil, false, true, "edition"},
-		{"rd session host role", "ServerStandard", true, nil, false, true, "edition"},
-		{"second user seen", "Professional", false, []string{"jdoe", "asmith"}, false, true, "users"},
-		{"marker already set wins", "Professional", false, nil, true, true, "marker"},
+		{"plain pro, one user", "Professional", false, []string{"jdoe"}, false, true, false, ""},
+		{"plain pro, nobody seen", "Professional", false, nil, false, true, false, ""},
+		{"enterprise multi-session", "EnterpriseMultiSession", false, nil, false, false, true, "edition"},
+		{"server rdsh, case-insensitive", "serverrdsh", false, nil, false, false, true, "edition"},
+		{"rd session host role", "ServerStandard", true, nil, false, false, true, "edition"},
+		{"second established user, users rule on", "Professional", false, []string{"jdoe", "asmith"}, false, true, true, "users"},
+		{"second established user, users rule off", "Professional", false, []string{"jdoe", "asmith"}, false, false, false, ""},
+		{"marker already set wins", "Professional", false, nil, true, false, true, "marker"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, reason := multiUserHost(tc.edition, tc.tsAppCompat, tc.seen, tc.marker)
+			got, reason := multiUserHost(tc.edition, tc.tsAppCompat, tc.seen, tc.marker, tc.usersRule)
 			if got != tc.want || reason != tc.wantReason {
 				t.Errorf("multiUserHost() = %v, %q; want %v, %q", got, reason, tc.want, tc.wantReason)
 			}
@@ -114,7 +133,8 @@ func TestAutoIdentity_MultiSessionEditionFromFirstScan(t *testing.T) {
 	mock := windowsMock(`AVD-HOST-07\jdoe`)
 
 	id := ResolveIdentity(mock, "SER1", "AVD-HOST-07", `AVD-HOST-07\jdoe`)
-	if id.Source != IdentitySourceAuto || id.DeviceID != "avd-host-07-jdoe" || !id.PerUser || id.UserScope != "jdoe" {
+	jdoe := "jdoe-" + UserTokenFingerprint(`avd-host-07\jdoe`)
+	if id.Source != IdentitySourceAuto || id.DeviceID != "avd-host-07-"+jdoe || !id.PerUser || id.UserScope != jdoe {
 		t.Fatalf("auto identity = %+v", id)
 	}
 	if id.AutoReason != "multi-session edition" {
@@ -123,32 +143,44 @@ func TestAutoIdentity_MultiSessionEditionFromFirstScan(t *testing.T) {
 	if _, ok := readMultiUserMarker(dir); !ok {
 		t.Error("first positive decision must write the sticky marker")
 	}
-	if scope := IdentityUserScope(mock); scope != "jdoe" {
-		t.Errorf("IdentityUserScope = %q, want jdoe", scope)
+	if scope := IdentityUserScope(mock); scope != jdoe {
+		t.Errorf("IdentityUserScope = %q, want %q", scope, jdoe)
 	}
 	if reason := AutoIdentityReason(mock); reason != "multi-session edition" {
 		t.Errorf("AutoIdentityReason = %q", reason)
 	}
 }
 
+// With multi_user_detection = "users", two developers who have each scanned
+// on two different days flip an ordinary edition to per-user identities; the
+// decision then sticks.
 func TestAutoIdentity_SecondUserFlipsAndSticks(t *testing.T) {
 	dir := withMachineStateDir(t, "Professional", false)
 	withConfigDeviceID(t, "")
-
+	withMultiUserDetection(t, config.MultiUserDetectionUsers)
 	first := windowsMock(`HOST\jdoe`)
-	RecordScanUser(first)
-	if id := ResolveIdentity(first, "SER1", "HOST", `HOST\jdoe`); id.Source != IdentitySourceSerial || id.DeviceID != "SER1" {
+	second := windowsMock(`HOST\asmith`)
+	scan := func(m *executor.Mock, user string, day int64) Identity {
+		withSeenUserDay(t, day)
+		ResetAutoIdentityForTest()
+		RecordScanUser(m)
+		return ResolveIdentity(m, "SER1", "HOST", user)
+	}
+	// Day 1: both scan; neither is established yet.
+	if id := scan(first, `HOST\jdoe`, 100); id.Source != IdentitySourceSerial || id.DeviceID != "SER1" {
 		t.Fatalf("single user must keep the serial identity: %+v", id)
 	}
-
-	// The second developer's own run: it records itself before the mode is
-	// read (main's order), so it already flips.
-	ResetAutoIdentityForTest()
-	second := windowsMock(`HOST\asmith`)
-	RecordScanUser(second)
-	id := ResolveIdentity(second, "SER1", "HOST", `HOST\asmith`)
-	if id.Source != IdentitySourceAuto || id.DeviceID != "host-asmith" || id.AutoReason != "2+ users seen" {
-		t.Fatalf("second user must flip to per-user: %+v", id)
+	if id := scan(second, `HOST\asmith`, 100); id.Source != IdentitySourceSerial {
+		t.Fatalf("a second user's first visit must not flip the host: %+v", id)
+	}
+	// Day 2: jdoe is established, asmith's second day establishes them too.
+	if id := scan(first, `HOST\jdoe`, 101); id.Source != IdentitySourceSerial {
+		t.Fatalf("one established user is not enough: %+v", id)
+	}
+	id := scan(second, `HOST\asmith`, 101)
+	asmith := "asmith-" + UserTokenFingerprint(`host\asmith`)
+	if id.Source != IdentitySourceAuto || id.DeviceID != "host-"+asmith || id.AutoReason != "2+ users seen" {
+		t.Fatalf("second established user must flip to per-user: %+v", id)
 	}
 	m, ok := readMultiUserMarker(dir)
 	if !ok || m.Reason != autoReasonUsers {
@@ -160,8 +192,64 @@ func TestAutoIdentity_SecondUserFlipsAndSticks(t *testing.T) {
 		t.Fatal(err)
 	}
 	ResetAutoIdentityForTest()
-	if id := ResolveIdentity(first, "SER1", "HOST", `HOST\jdoe`); id.Source != IdentitySourceAuto || id.DeviceID != "host-jdoe" {
+	if id := ResolveIdentity(first, "SER1", "HOST", `HOST\jdoe`); id.Source != IdentitySourceAuto || id.DeviceID != "host-jdoe-"+UserTokenFingerprint(`host\jdoe`) {
 		t.Fatalf("marker must keep the host multi-user: %+v", id)
+	}
+}
+
+// The users rule is opt-in: with the default mode a second developer's scans
+// never change an ordinary workstation's identity, and "off" keeps even a
+// multi-session edition on the machine identity.
+func TestAutoIdentity_DetectionModes(t *testing.T) {
+	withMachineStateDir(t, "Professional", false)
+	withConfigDeviceID(t, "")
+	for _, day := range []int64{100, 101} {
+		withSeenUserDay(t, day)
+		for _, u := range []string{`HOST\jdoe`, `HOST\asmith`} {
+			ResetAutoIdentityForTest()
+			RecordScanUser(windowsMock(u))
+		}
+	}
+	ResetAutoIdentityForTest()
+	if id := ResolveIdentity(windowsMock(`HOST\asmith`), "SER1", "HOST", `HOST\asmith`); id.Source != IdentitySourceSerial {
+		t.Fatalf("default mode must ignore seen users: %+v", id)
+	}
+	if got := readSeenUsers(t.TempDir()); len(got) != 0 {
+		t.Fatalf("nothing recorded without the users rule, got %v", got)
+	}
+
+	withMachineStateDir(t, "EnterpriseMultiSession", false)
+	withMultiUserDetection(t, config.MultiUserDetectionOff)
+	if id := ResolveIdentity(windowsMock(`AVD\jdoe`), "SER1", "AVD", `AVD\jdoe`); id.Source != IdentitySourceSerial || id.DeviceID != "SER1" {
+		t.Fatalf("off must keep the machine identity even on a multi-session edition: %+v", id)
+	}
+}
+
+// seen-users.txt written by an earlier agent has no day stamps: such a line
+// counts as one day, so one more day establishes the developer.
+func TestSeenUsers_LegacyLineCountsAsOneDay(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, seenUsersFile), []byte("jdoe\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := establishedSeenUsers(dir); len(got) != 0 {
+		t.Fatalf("a legacy line alone is one day, got %v", got)
+	}
+	withSeenUserDay(t, 200)
+	if err := appendSeenUser(dir, "jdoe"); err != nil {
+		t.Fatal(err)
+	}
+	if got := establishedSeenUsers(dir); strings.Join(got, ",") != "jdoe" {
+		t.Fatalf("established = %v, want [jdoe]", got)
+	}
+	// A third day changes nothing; the second recorded day stays.
+	withSeenUserDay(t, 201)
+	if err := appendSeenUser(dir, "jdoe"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, seenUsersFile))
+	if string(data) != "jdoe 0,200\n" {
+		t.Fatalf("file = %q, want the legacy visit plus the first real day only", data)
 	}
 }
 
@@ -203,14 +291,15 @@ func TestAutoIdentity_OffOutsideWindowsAndWithoutMachineDir(t *testing.T) {
 
 func TestRecordScanUser_SkipsServiceAccounts(t *testing.T) {
 	dir := withMachineStateDir(t, "Professional", false)
+	withMultiUserDetection(t, config.MultiUserDetectionUsers)
 	RecordScanUser(windowsMock(`NT AUTHORITY\SYSTEM`))
 	RecordScanUser(windowsMock(`HOST\HOST$`))
 	if got := readSeenUsers(dir); len(got) != 0 {
 		t.Errorf("service accounts must not be recorded, got %v", got)
 	}
 	RecordScanUser(windowsMock(`CONTOSO\JDoe`))
-	if got := readSeenUsers(dir); strings.Join(got, ",") != "jdoe" {
-		t.Errorf("readSeenUsers = %v", got)
+	if got, want := strings.Join(readSeenUsers(dir), ","), "jdoe-"+UserTokenFingerprint(`contoso\jdoe`); got != want {
+		t.Errorf("readSeenUsers = %v, want %v", got, want)
 	}
 }
 

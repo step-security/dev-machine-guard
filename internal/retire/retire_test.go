@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
+	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/heartbeat"
 	"github.com/step-security/dev-machine-guard/internal/paths"
@@ -189,7 +190,7 @@ func TestCollectIdentities_FromUserStateDirs(t *testing.T) {
 	// As a real user the resolved identity comes first, then the cache.
 	mock.SetUsername(`CONTOSO\JDoe`)
 	ids = CollectIdentities(context.Background(), mock, progress.NewNoop())
-	if len(ids) != 3 || ids[0] != "avd-host-07-jdoe" {
+	if len(ids) != 4 || ids[0] != "avd-host-07-jdoe-"+device.UserTokenFingerprint(`contoso\jdoe`) {
 		t.Fatalf("resolved id must lead: %v", ids)
 	}
 }
@@ -259,5 +260,23 @@ func TestCollectCachedIDs_BoundsFilesAndBudget(t *testing.T) {
 	cancel()
 	if got := collectCachedIDs(ctx, []string{root}); len(got) != 0 {
 		t.Fatalf("a spent budget must stop the collection, got %v", got)
+	}
+}
+
+// The retire budget grows with the number of identities (one attempt plus
+// its retry each) and is capped so a host with many per-user rows still
+// uninstalls promptly.
+func TestBudgetFor(t *testing.T) {
+	if got := BudgetFor(0); got != TotalBudget {
+		t.Errorf("BudgetFor(0) = %v, want %v", got, TotalBudget)
+	}
+	if got := BudgetFor(1); got != TotalBudget {
+		t.Errorf("BudgetFor(1) = %v, want %v", got, TotalBudget)
+	}
+	if got, want := BudgetFor(5), TotalBudget+4*perIdentityBudget; got != want {
+		t.Errorf("BudgetFor(5) = %v, want %v", got, want)
+	}
+	if got := BudgetFor(MaxIdentities); got != MaxBudget {
+		t.Errorf("BudgetFor(%d) = %v, want the cap %v", MaxIdentities, got, MaxBudget)
 	}
 }

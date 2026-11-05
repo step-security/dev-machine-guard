@@ -462,10 +462,11 @@ func TestEvaluate_TemplateIdentityKeepsMatchingCache(t *testing.T) {
 	withTemplate(t, "{hostname}-{user}")
 	t.Cleanup(device.ResetIDCache)
 	d := Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}
-	if err := recordCheckin("avd-host-07-jdoe", d, time.Now()); err != nil {
+	jdoe := "avd-host-07-jdoe-" + device.UserTokenFingerprint(`contoso\jdoe`)
+	if err := recordCheckin(jdoe, d, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := StampLastFullRun("avd-host-07-jdoe", time.Now()); err != nil {
+	if err := StampLastFullRun(jdoe, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	gateServer(t, http.StatusServiceUnavailable, "")
@@ -507,7 +508,7 @@ func TestEvaluate_RecordsTemplateResolvedID(t *testing.T) {
 		t.Fatalf("full directive must proceed: %+v", res)
 	}
 	st, ok := readState()
-	if !ok || st.DeviceID != "LNX-77-jdoe" {
-		t.Fatalf("state = %+v (ok=%v), want device id LNX-77-jdoe", st, ok)
+	if want := "LNX-77-jdoe-" + device.UserTokenFingerprint(`contoso\jdoe`); !ok || st.DeviceID != want {
+		t.Fatalf("state = %+v (ok=%v), want device id %s", st, ok, want)
 	}
 }

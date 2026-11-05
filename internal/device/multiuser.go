@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,8 +27,12 @@ import (
 //  1. the Windows edition is multi-session (EnterpriseMultiSession, ServerRdsh)
 //     or the Remote Desktop Session Host role is installed (TSAppCompat=1);
 //  2. the marker file multi-user.json exists in the machine-wide state dir;
-//  3. two or more distinct developers have run scans here (seen-users.txt in
-//     the machine-wide state dir).
+//  3. with config multi_user_detection = "users": two or more distinct
+//     developers have each run scans here on two different days
+//     (seen-users.txt in the machine-wide state dir). A single visit (a
+//     technician, a one-off session) never counts, and the rule is opt-in
+//     because an ordinary workstation must not change identity because
+//     someone else signed in once; "off" disables automatic mode entirely.
 //
 // The machine-wide state dir is the elevated install dir
 // (C:\ProgramData\StepSecurity), shared by every user's scheduled run; on
@@ -49,6 +54,12 @@ const (
 
 	autoReasonEdition = "edition"
 	autoReasonUsers   = "users"
+	// seenUserDaysNeeded is how many distinct days a developer must have
+	// scanned on before the users rule counts them.
+	seenUserDaysNeeded = 2
+	// legacySeenDay stands for the unknown day of a token recorded by an
+	// earlier agent (a line without day stamps).
+	legacySeenDay = 0
 )
 
 // multiUserMarker is the sticky "this host is shared" record. RetiredSerialID
@@ -107,15 +118,17 @@ var probeWindowsEdition = readWindowsEdition
 
 // multiUserHost is the pure decision: any one rule makes the host shared.
 // The reason is "marker" when the sticky file already decided, else the rule
-// that fired now.
-func multiUserHost(edition string, tsAppCompat bool, seenUsers []string, markerExists bool) (bool, string) {
+// that fired now. establishedUsers are the developers the users rule counts
+// (seen on seenUserDaysNeeded different days); the rule applies only when
+// usersRule is set (config multi_user_detection = "users").
+func multiUserHost(edition string, tsAppCompat bool, establishedUsers []string, markerExists, usersRule bool) (bool, string) {
 	if markerExists {
 		return true, "marker"
 	}
 	if isMultiSessionEdition(edition) || tsAppCompat {
 		return true, autoReasonEdition
 	}
-	if len(seenUsers) >= 2 {
+	if usersRule && len(establishedUsers) >= 2 {
 		return true, autoReasonUsers
 	}
 	return false, ""
@@ -153,12 +166,21 @@ func autoIdentityUncached(exec executor.Executor) (template, reason string) {
 	if dir == "" || exec.GOOS() != model.PlatformWindows {
 		return "", ""
 	}
+	mode := config.MultiUserDetectionMode()
+	if mode == config.MultiUserDetectionOff {
+		return "", ""
+	}
 	marker, exists := readMultiUserMarker(dir)
 	edition, tsAppCompat := "", false
 	if !exists {
 		edition, tsAppCompat = probeWindowsEdition()
 	}
-	on, why := multiUserHost(edition, tsAppCompat, readSeenUsers(dir), exists)
+	usersRule := mode == config.MultiUserDetectionUsers
+	var established []string
+	if usersRule && !exists {
+		established = establishedSeenUsers(dir)
+	}
+	on, why := multiUserHost(edition, tsAppCompat, established, exists, usersRule)
 	if !on {
 		return "", ""
 	}
@@ -196,6 +218,23 @@ func AutoIdentitySuperseded(exec executor.Executor) bool {
 	return exists
 }
 
+// AutoSerialRowRetired reports whether the switch to automatic per-user
+// identities has already removed this host's machine-identity row (the
+// sticky marker records the retire). A service-account run in automatic mode
+// reports under the machine identity until then and is skipped afterwards
+// (Identity.AutoFallback).
+func AutoSerialRowRetired(exec executor.Executor) bool {
+	if exec.GOOS() != model.PlatformWindows {
+		return false
+	}
+	dir := machineStateDir()
+	if dir == "" {
+		return false
+	}
+	m, ok := readMultiUserMarker(dir)
+	return ok && m.RetiredSerialID != ""
+}
+
 // AutoIdentityReason returns the human-readable reason the automatic
 // per-user identity is in force on this host, or "" when it is not.
 func AutoIdentityReason(exec executor.Executor) string {
@@ -213,13 +252,15 @@ func autoReasonDisplay(reason string) string {
 	return reason
 }
 
-// RecordScanUser notes the developer running this scan in the machine-wide
-// seen-users file so a second person's scan can flip the host to per-user
-// identities. Service accounts are never recorded. No-op where the machine
-// dir is unavailable (non-Windows, per-user installs).
+// RecordScanUser notes the developer running this scan, and the day, in the
+// machine-wide seen-users file so the users rule can flip the host to
+// per-user identities once two developers have each scanned on two
+// different days. Only with config multi_user_detection = "users"; service
+// accounts are never recorded. No-op where the machine dir is unavailable
+// (non-Windows, per-user installs).
 func RecordScanUser(exec executor.Executor) {
 	dir := machineStateDir()
-	if dir == "" || exec.GOOS() != model.PlatformWindows {
+	if dir == "" || exec.GOOS() != model.PlatformWindows || config.MultiUserDetectionMode() != config.MultiUserDetectionUsers {
 		return
 	}
 	token := SanitizeDeviceID(userToken(exec.GOOS(), exec.IsRoot(), developerIdentity(context.Background(), exec)))
@@ -227,6 +268,111 @@ func RecordScanUser(exec executor.Executor) {
 		return
 	}
 	_ = appendSeenUser(dir, token)
+}
+
+// seenUser is one line of seen-users.txt: a developer token and the UTC day
+// numbers (unix seconds / 86400) of the first distinct days it scanned on,
+// at most seenUserDaysNeeded of them. A line with no days (written by an
+// earlier agent) counts as one visit on an unknown day (legacySeenDay).
+type seenUser struct {
+	token string
+	days  []int64
+}
+
+// seenUserDay is today's UTC day number; a var so tests can move the clock.
+var seenUserDay = func() int64 { return time.Now().Unix() / 86400 }
+
+// parseSeenUsers reads "<token> <day>[,<day>]" lines; tokens are lowercased
+// and deduplicated in first-seen order, unparsable days are dropped.
+func parseSeenUsers(data []byte) []seenUser {
+	index := map[string]int{}
+	var users []seenUser
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(strings.ToLower(line))
+		if len(fields) == 0 {
+			continue
+		}
+		token := fields[0]
+		var days []int64
+		if len(fields) > 1 {
+			for _, d := range strings.Split(fields[1], ",") {
+				if n, err := strconv.ParseInt(d, 10, 64); err == nil && n >= 0 {
+					days = appendDay(days, n)
+				}
+			}
+		}
+		if len(days) == 0 {
+			// A line written by an earlier agent: one visit on an unknown
+			// day, kept as day 0 so one real day establishes the token.
+			days = []int64{legacySeenDay}
+		}
+		if i, ok := index[token]; ok {
+			for _, d := range days {
+				users[i].days = appendDay(users[i].days, d)
+			}
+			continue
+		}
+		index[token] = len(users)
+		users = append(users, seenUser{token: token, days: days})
+	}
+	return users
+}
+
+// appendDay adds day to days unless present, keeping at most
+// seenUserDaysNeeded entries (more never changes the decision).
+func appendDay(days []int64, day int64) []int64 {
+	for _, d := range days {
+		if d == day {
+			return days
+		}
+	}
+	if len(days) >= seenUserDaysNeeded {
+		return days
+	}
+	return append(days, day)
+}
+
+func (u seenUser) established() bool { return len(u.days) >= seenUserDaysNeeded }
+
+func formatSeenUsers(users []seenUser) string {
+	var b strings.Builder
+	for _, u := range users {
+		b.WriteString(u.token)
+		if len(u.days) > 0 {
+			parts := make([]string, 0, len(u.days))
+			for _, d := range u.days {
+				parts = append(parts, strconv.FormatInt(d, 10))
+			}
+			b.WriteString(" " + strings.Join(parts, ","))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// readSeenUserRecords returns the seen-users records. An unreadable or
+// oversized file reads as empty.
+func readSeenUserRecords(dir string) []seenUser {
+	if dir == "" {
+		return nil
+	}
+	data, ok := readBounded(filepath.Join(dir, seenUsersFile), maxSeenUsersBytes)
+	if !ok {
+		return nil
+	}
+	return parseSeenUsers(data)
+}
+
+// establishedSeenUsers returns the tokens the users rule counts: developers
+// seen scanning on seenUserDaysNeeded different days.
+func establishedSeenUsers(dir string) []string {
+	var out []string
+	for _, u := range readSeenUserRecords(dir) {
+		if u.established() {
+			out = append(out, u.token)
+		}
+	}
+	return out
 }
 
 // readBounded reads at most limit bytes of a shared-host file and reports
@@ -250,49 +396,66 @@ func readBounded(path string, limit int64) ([]byte, bool) {
 }
 
 // readSeenUsers returns the distinct user tokens recorded so far, in first-seen
-// order. An unreadable or oversized file reads as empty.
+// order, whatever their day count. An unreadable or oversized file reads as
+// empty.
 func readSeenUsers(dir string) []string {
-	if dir == "" {
+	records := readSeenUserRecords(dir)
+	if records == nil {
 		return nil
 	}
-	data, ok := readBounded(filepath.Join(dir, seenUsersFile), maxSeenUsersBytes)
-	if !ok {
-		return nil
-	}
-	seen := map[string]bool{}
-	var users []string
-	for _, line := range strings.Split(string(data), "\n") {
-		u := strings.ToLower(strings.TrimSpace(line))
-		if u == "" || seen[u] {
-			continue
-		}
-		seen[u] = true
-		users = append(users, u)
+	users := make([]string, 0, len(records))
+	for _, u := range records {
+		users = append(users, u.token)
 	}
 	return users
 }
 
-// appendSeenUser adds token to the file unless it is already there.
+// appendSeenUser records token as seen today (seenUserDay). A token already
+// recorded for today is left alone; a new token, or a known one on a new
+// day, rewrites the file atomically (every user's run writes it).
 func appendSeenUser(dir, token string) error {
 	token = strings.ToLower(strings.TrimSpace(token))
 	if token == "" {
 		return nil
 	}
-	for _, u := range readSeenUsers(dir) {
-		if u == token {
+	day := seenUserDay()
+	users := readSeenUserRecords(dir)
+	found := false
+	for i := range users {
+		if users[i].token != token {
+			continue
+		}
+		found = true
+		before := len(users[i].days)
+		users[i].days = appendDay(users[i].days, day)
+		if len(users[i].days) == before {
 			return nil
 		}
+	}
+	if !found {
+		users = append(users, seenUser{token: token, days: []int64{day}})
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil { // #nosec G301 -- shared install dir
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, seenUsersFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644) // #nosec G302 G304 -- readable by every user's run
+	path := filepath.Join(dir, seenUsersFile)
+	tmp, err := os.CreateTemp(dir, ".seen-users-*.tmp")
 	if err != nil {
 		return err
 	}
-	defer func() { _ = f.Close() }()
-	_, err = f.WriteString(token + "\n")
-	return err
+	if _, err := tmp.WriteString(formatSeenUsers(users)); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	_ = tmp.Close()
+	_ = os.Chmod(tmp.Name(), 0o644) // #nosec G302 -- readable by every user's run
+	_ = os.Remove(path)             // Windows Rename won't overwrite; no-op on POSIX
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return nil
 }
 
 // readMultiUserMarker returns the sticky marker when a valid one exists.

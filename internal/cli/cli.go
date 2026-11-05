@@ -17,7 +17,7 @@ import (
 // failure, so the hot path bypasses cli.Parse entirely — see main.go's
 // early-return and internal/aiagents/cli.RunHook.
 type Config struct {
-	Command               string // "", "install", "uninstall", "send-telemetry", "configure", "configure show", "hooks install", "hooks uninstall"
+	Command               string // "", "install", "uninstall", "send-telemetry", "identity", "configure", "configure show", "hooks install", "hooks uninstall"
 	OutputFormat          string // "pretty", "json", "html"
 	OutputFormatSet       bool   // true if --pretty/--json/--html was explicitly passed (not persisted)
 	HTMLOutputFile        string // set by --html (not persisted)
@@ -206,6 +206,8 @@ func Parse(args []string) (*Config, error) {
 			cfg.Command = "uninstall"
 		case arg == "send-telemetry":
 			cfg.Command = "send-telemetry"
+		case arg == "identity":
+			cfg.Command = "identity"
 		case arg == "configure":
 			// Check for "configure show" subcommand
 			if i+1 < len(args) && args[i+1] == "show" {
@@ -390,6 +392,7 @@ Commands:
   install              Install scheduled scanning (enterprise)
   uninstall            Remove scheduled scanning (enterprise)
   send-telemetry       Upload scan results to the StepSecurity dashboard (enterprise)
+  identity             Show the device identity this machine reports under (--json for one object)
   hooks                Install/uninstall AI coding agent hooks (run '%s hooks --help')
 
 Output formats (community mode, mutually exclusive):

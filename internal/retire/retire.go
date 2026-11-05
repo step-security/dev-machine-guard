@@ -51,13 +51,33 @@ const (
 	attemptTimeout = 2 * time.Second
 	attempts       = 2
 	retryBackoff   = 300 * time.Millisecond
-	// TotalBudget caps the whole retire step across every identity, so a
-	// machine with many per-user state dirs still uninstalls promptly.
+	// TotalBudget caps collecting the identities, and is the floor of the
+	// budget for retiring them (BudgetFor).
 	TotalBudget = 10 * time.Second
+	// perIdentityBudget is what BudgetFor adds per identity beyond the
+	// first: one attempt plus its retry.
+	perIdentityBudget = 2*attemptTimeout + retryBackoff
+	// MaxBudget caps BudgetFor so a host with many per-user rows still
+	// uninstalls promptly; rows the budget leaves behind are covered by the
+	// dashboard's auto-retire.
+	MaxBudget = 60 * time.Second
 	// MaxIdentities caps how many ids CollectIdentities returns.
-	MaxIdentities = 20
+	MaxIdentities = 100
 	maxErrorBody  = 4 << 10
 )
+
+// BudgetFor is the time budget for retiring n identities: TotalBudget plus
+// perIdentityBudget for every identity beyond the first, capped at MaxBudget.
+func BudgetFor(n int) time.Duration {
+	budget := TotalBudget
+	if n > 1 {
+		budget += time.Duration(n-1) * perIdentityBudget
+	}
+	if budget > MaxBudget {
+		return MaxBudget
+	}
+	return budget
+}
 
 // ErrNotSupported is returned for a 404: the backend predates the retire
 // endpoint. Callers treat it as a warning, not a failure.

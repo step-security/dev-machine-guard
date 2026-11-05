@@ -287,6 +287,9 @@ func main() {
 	case "configure show":
 		config.ShowConfigure(resolvedIdentityLine(exec))
 
+	case "identity":
+		printIdentity(exec, cfg)
+
 	case "send-telemetry":
 		// Stamp the local heartbeat first — before the enterprise gate and
 		// the singleton lock inside telemetry.Run — so even runs that bail at
@@ -786,6 +789,9 @@ func resolvedIdentityLine(exec executor.Executor) string {
 	if id.Incomplete {
 		return fmt.Sprintf("(incomplete: template %q needs a logged-in user; this context has none)", id.Template)
 	}
+	if id.AutoFallback {
+		return fmt.Sprintf("%s (source: serial; automatic per-user identity %q applies to user sessions, this context has none)", id.DeviceID, id.Template)
+	}
 	line := fmt.Sprintf("%s (source: %s)", id.DeviceID, id.Source)
 	switch id.Source {
 	case device.IdentitySourceEnv:
@@ -797,6 +803,52 @@ func resolvedIdentityLine(exec executor.Executor) string {
 		line += " — " + id.Issue
 	}
 	return line
+}
+
+// identityView is the `identity --json` object: the id every backend call of
+// a run uses, where it came from and the per-user state scope. The loaders
+// read it to report run failures under the same id as the agent.
+type identityView struct {
+	DeviceID     string `json:"device_id"`
+	Source       string `json:"source"`
+	Template     string `json:"template,omitempty"`
+	PerUser      bool   `json:"per_user"`
+	UserScope    string `json:"user_scope,omitempty"`
+	Incomplete   bool   `json:"incomplete"`
+	AutoFallback bool   `json:"auto_fallback,omitempty"`
+	AutoReason   string `json:"auto_reason,omitempty"`
+	Serial       string `json:"serial,omitempty"`
+	Issue        string `json:"issue,omitempty"`
+}
+
+// printIdentity is the `identity` verb. It exits 0 even for an incomplete
+// identity: the output says so, and a caller that needs an id checks the
+// field rather than the exit code.
+func printIdentity(exec executor.Executor, cfg *cli.Config) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	id := device.ResolvedDeviceID(ctx, exec)
+	if cfg.OutputFormat == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.SetEscapeHTML(false)
+		_ = enc.Encode(identityView{DeviceID: id.DeviceID, Source: id.Source, Template: id.Template, PerUser: id.PerUser,
+			UserScope: id.UserScope, Incomplete: id.Incomplete, AutoFallback: id.AutoFallback, AutoReason: id.AutoReason,
+			Serial: id.Serial, Issue: id.Issue})
+		return
+	}
+	fmt.Printf("%-16s %s\n", "Device ID:", resolvedIdentityLine(exec))
+	fmt.Printf("%-16s %s\n", "Template:", displayOrNone(id.Template))
+	fmt.Printf("%-16s %v\n", "Per user:", id.PerUser)
+	fmt.Printf("%-16s %s\n", "User scope:", displayOrNone(id.UserScope))
+	fmt.Printf("%-16s %s\n", "Serial:", displayOrNone(id.Serial))
+}
+
+func displayOrNone(v string) string {
+	if v == "" {
+		return "(none)"
+	}
+	return v
 }
 
 // retireCandidatesOnUninstall decides whether `uninstall` retires this device
@@ -831,7 +883,7 @@ func retireDevicesOnUninstall(exec executor.Executor, log *progress.Logger, ids 
 	if len(ids) == 0 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), retire.TotalBudget)
+	ctx, cancel := context.WithTimeout(context.Background(), retire.BudgetFor(len(ids)))
 	defer cancel()
 	for _, id := range ids {
 		status, err := retire.Post(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, id, buildinfo.Version, exec.GOOS(), retire.ReasonUninstall)

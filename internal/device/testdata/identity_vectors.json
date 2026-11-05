@@ -33,7 +33,7 @@
     "hostname": "AVD-HOST-07",
     "user": "CONTOSO\\JDoe",
     "goos": "windows",
-    "expect_id": "avd-host-07-jdoe"
+    "expect_id": "avd-host-07-jdoe-8c4e2c"
   },
   {
     "name": "user_email_local_part",
@@ -42,7 +42,7 @@
     "hostname": "h",
     "user": "J.Doe@Example.com",
     "goos": "windows",
-    "expect_id": "j.doe"
+    "expect_id": "j.doe-94deda"
   },
   {
     "name": "user_azuread",
@@ -51,7 +51,7 @@
     "hostname": "h",
     "user": "AzureAD\\JDoe",
     "goos": "windows",
-    "expect_id": "vdi-jdoe"
+    "expect_id": "vdi-jdoe-2da05b"
   },
   {
     "name": "serial_token_kept_verbatim_then_sanitized",
@@ -69,7 +69,7 @@
     "hostname": "h",
     "user": "jdoe",
     "goos": "darwin",
-    "expect_id": "ABC123~jdoe"
+    "expect_id": "ABC123~jdoe-d30a5f"
   },
   {
     "name": "token_case_insensitive",
@@ -87,7 +87,7 @@
     "hostname": "h1",
     "user": "a b",
     "goos": "linux",
-    "expect_id": "pool-east-h1-a-b"
+    "expect_id": "pool-east-h1-a-b-c8687a"
   },
   {
     "name": "collapse_and_trim",
@@ -159,7 +159,7 @@
     "hostname": "h",
     "user": "bbbbbbbbbbbbbbbbbbbb",
     "goos": "linux",
-    "expect_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-74e82d78aed4"
+    "expect_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-f0025a7861af"
   },
   {
     "name": "unknown_hostname_falls_back_to_serial",
@@ -168,7 +168,7 @@
     "hostname": "unknown",
     "user": "jdoe",
     "goos": "windows",
-    "expect_id": "SER1-jdoe"
+    "expect_id": "SER1-jdoe-d30a5f"
   },
   {
     "name": "empty_hostname_and_unusable_serial_is_incomplete",
@@ -178,5 +178,59 @@
     "user": "jdoe",
     "goos": "linux",
     "expect_incomplete": true
+  },
+  {
+    "name": "domain_qualified_corp_alice",
+    "template": "{hostname}-{user}",
+    "serial": "SER1",
+    "hostname": "h1",
+    "user": "CORP\\alice",
+    "goos": "windows",
+    "expect_id": "h1-alice-ca09d3"
+  },
+  {
+    "name": "domain_qualified_host_alice_differs",
+    "template": "{hostname}-{user}",
+    "serial": "SER1",
+    "hostname": "h1",
+    "user": "HOST\\alice",
+    "goos": "windows",
+    "expect_id": "h1-alice-93f0dc"
+  },
+  {
+    "name": "principal_case_insensitive",
+    "template": "{hostname}-{user}",
+    "serial": "SER1",
+    "hostname": "h1",
+    "user": "Corp\\Alice",
+    "goos": "windows",
+    "expect_id": "h1-alice-ca09d3"
+  },
+  {
+    "name": "email_domain_a",
+    "template": "{user}",
+    "serial": "SER1",
+    "hostname": "h1",
+    "user": "alice@a.example",
+    "goos": "darwin",
+    "expect_id": "alice-e5147e"
+  },
+  {
+    "name": "email_domain_b_differs",
+    "template": "{user}",
+    "serial": "SER1",
+    "hostname": "h1",
+    "user": "alice@b.example",
+    "goos": "darwin",
+    "expect_id": "alice-d64b1e"
+  },
+  {
+    "name": "non_latin_user_keeps_a_user_part",
+    "template": "{hostname}-{user}",
+    "serial": "SER1",
+    "hostname": "h1",
+    "user": "AVD\\张三",
+    "goos": "windows",
+    "expect_id": "h1-user-bcf93b"
   }
 ]
