@@ -85,6 +85,8 @@ func TestCondaArtifactURL(t *testing.T) {
 		{name: "host directly above file has no channel", in: "https://host.example.invalid/zlib-1.2.11-h166bdaf_0.conda", display: "https://host.example.invalid/zlib-1.2.11-h166bdaf_0.conda", ok: true},
 		{name: "not an artifact", in: "https://conda.anaconda.org/conda-forge/linux-64/zlib", display: "https://conda.anaconda.org/conda-forge/linux-64/zlib"},
 		{name: "unsafe text", in: "https://x/\x00", display: condaRedacted},
+		{name: "one-character scheme is a url, not a drive", in: "0://host.example.invalid/t/CANARY-TOKEN/ch/linux-64/zlib-1.2.11-h166bdaf_0.conda", display: condaRedacted},
+		{name: "drive-letter scheme is a url, not a drive", in: "C://host.example.invalid/t/CANARY-TOKEN/ch/linux-64/zlib-1.2.11-h166bdaf_0.conda", display: "C://host.example.invalid/ch/linux-64/zlib-1.2.11-h166bdaf_0.conda", channel: "c://host.example.invalid/ch", subdir: "linux-64", ok: true},
 	} {
 		a := parseCondaArtifactURL(tc.in)
 		if a.display != tc.display || a.channel != tc.channel || a.subdir != tc.subdir || a.local != tc.local || a.wheel != tc.wheel || a.ok != tc.ok ||
