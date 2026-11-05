@@ -59,7 +59,7 @@ func runEarlyVerbs(args []string) {
 func resolveDeviceID(ctx context.Context) string {
 	ctx, cancel := context.WithTimeout(ctx, deviceProbeTimeout)
 	defer cancel()
-	return device.ID(model.Device{SerialNumber: device.SerialNumber(ctx, executor.NewReal())})
+	return device.ResolvedDeviceID(ctx, executor.NewReal()).DeviceID
 }
 
 // selfCheckDeviceID resolves the self-check's device id. As SYSTEM (the
@@ -74,7 +74,7 @@ func selfCheckDeviceID(ctx context.Context, exec executor.Executor, system bool,
 	}
 	ctx, cancel := context.WithTimeout(ctx, deviceProbeTimeout)
 	defer cancel()
-	return device.ID(model.Device{SerialNumber: device.SerialNumber(ctx, exec)})
+	return device.ResolvedDeviceID(ctx, exec).DeviceID
 }
 
 // runSelfCheck is `agent self-check`: the S5 smoke test run by the updater
@@ -93,6 +93,9 @@ func runSelfCheck() int {
 		}
 	}
 	sc.DeviceID = selfCheckDeviceID(context.Background(), executor.NewReal(), system, cachePath)
+	// A {user} template has no expansion as SYSTEM: report that explicitly so
+	// the smoke validator does not quarantine a healthy release over it.
+	sc.DeviceIDPerUser = system && sc.DeviceID == "" && strings.Contains(strings.ToLower(config.DeviceID), device.TokenUser)
 	if err := json.NewEncoder(os.Stdout).Encode(sc); err != nil {
 		return selfCheckExitFailed
 	}
@@ -186,6 +189,13 @@ func runSelfUpdate(args []string) int {
 		},
 		RefreshDeviceID: func(context.Context) { _ = deviceID() },
 		Send: func(ctx context.Context, ev updatestate.OutboxEvent) error {
+			if deviceID() == "" {
+				// A per-user identity template leaves SYSTEM without a device
+				// of its own (the scans report per user); there is no row to
+				// attribute the event to, so it is logged and dropped.
+				logf("self-update: event %s not posted: no device identity in the SYSTEM context", ev.Event)
+				return nil
+			}
 			err := telemetry.PostUpdateEvent(ctx, httpClient, telemetry.UpdateEvent{
 				ExecutionID: ev.ExecutionID, DeviceID: deviceID(), InstallChannel: installChannelMSI,
 				Event: ev.Event, From: ev.From, To: ev.To, Error: ev.Error,

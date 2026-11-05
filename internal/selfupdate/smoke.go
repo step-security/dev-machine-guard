@@ -29,6 +29,11 @@ type SelfCheck struct {
 	Version  string `json:"version"`
 	DeviceID string `json:"device_id"`
 	ConfigOK bool   `json:"config_ok"`
+	// DeviceIDPerUser is set when DeviceID is empty because the configured
+	// identity template has a {user} token, which has no expansion under
+	// SYSTEM: the scans report per user, the updater has no device-scoped id
+	// of its own, and that is not a failure of the staged binary.
+	DeviceIDPerUser bool `json:"device_id_per_user,omitempty"`
 }
 
 // limitedBuffer keeps at most max bytes. The buffer is a named field so no
@@ -85,7 +90,7 @@ func checkSelfCheck(out []byte, want updatestate.Version) error {
 		return fmt.Errorf("self-check reports version %q, want %s", sc.Version, want)
 	case !sc.ConfigOK:
 		return fmt.Errorf("self-check could not load the config")
-	case strings.TrimSpace(sc.DeviceID) == "" || sc.DeviceID == "unknown":
+	case strings.TrimSpace(sc.DeviceID) == "" && !sc.DeviceIDPerUser, sc.DeviceID == "unknown":
 		return fmt.Errorf("self-check resolved no device id")
 	}
 	return nil

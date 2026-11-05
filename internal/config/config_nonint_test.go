@@ -160,6 +160,246 @@ func TestNonInteractiveOptions_HasAny(t *testing.T) {
 	}
 }
 
+func TestRunConfigureNonInteractive_DeviceIDAndRetireFlags(t *testing.T) {
+	withHome(t)
+	err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id":         "cust-1",
+		"api_endpoint":        "https://api.example.com",
+		"api_key":             "sk-abcdef",
+		"device_id":           " {hostname}-{user} ",
+		"retire_on_uninstall": true,
+	}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cfg := loadExisting()
+	if cfg.DeviceID != "{hostname}-{user}" {
+		t.Errorf("DeviceID: got %q", cfg.DeviceID)
+	}
+	if cfg.RetireOnUninstall == nil || !*cfg.RetireOnUninstall {
+		t.Errorf("RetireOnUninstall: got %v", cfg.RetireOnUninstall)
+	}
+	raw, _ := os.ReadFile(filepath.Join(withHomeDir(t), ".stepsecurity", "config.json"))
+	for _, want := range []string{`"device_id": "{hostname}-{user}"`, `"retire_on_uninstall": true`} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("config.json missing %s:\n%s", want, raw)
+		}
+	}
+
+	// Omitted = unchanged; false (saved as null by the flag) drops the retire
+	// key; "-" clears the template (an explicit empty id is rejected).
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"api_key": "sk-2", "retire_on_uninstall": nil}}); err != nil {
+		t.Fatalf("second configure: %v", err)
+	}
+	cfg = loadExisting()
+	if cfg.DeviceID != "{hostname}-{user}" {
+		t.Errorf("omitted --device-id must keep the template, got %q", cfg.DeviceID)
+	}
+	if cfg.RetireOnUninstall != nil {
+		t.Errorf("retire_on_uninstall=false must be omitted from the file, got %v", *cfg.RetireOnUninstall)
+	}
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_id": ""}}); err == nil {
+		t.Error("an explicit empty device_id must be rejected")
+	}
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_id": "-"}}); err != nil {
+		t.Fatalf("third configure: %v", err)
+	}
+	if cfg = loadExisting(); cfg.DeviceID != "" {
+		t.Errorf("\"-\" must clear the template, got %q", cfg.DeviceID)
+	}
+}
+
+// withHomeDir returns the HOME withHome set (HOME is read back rather than
+// threaded through so the helper's signature stays the same).
+func withHomeDir(t *testing.T) string {
+	t.Helper()
+	return os.Getenv("HOME")
+}
+
+func TestValidDeviceTag(t *testing.T) {
+	cases := []struct {
+		tag  string
+		want bool
+	}{
+		{"avd-pool-eu", true},
+		{"pool_1.b:c/d", true},
+		{"a", true},
+		{strings.Repeat("x", 64), true},
+		{"", false},
+		{strings.Repeat("x", 65), false},
+		{"avd pool", false},
+		{"pool#1", false},
+		{"caf\u00e9", false},
+	}
+	for _, tc := range cases {
+		if got := ValidDeviceTag(tc.tag); got != tc.want {
+			t.Errorf("ValidDeviceTag(%q) = %v, want %v", tc.tag, got, tc.want)
+		}
+	}
+}
+
+func TestRunConfigureNonInteractive_DeviceTag(t *testing.T) {
+	withHome(t)
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id": "cust-1", "api_endpoint": "https://api.example.com", "api_key": "sk-abcdef",
+		"device_tag": " avd-pool-eu ",
+	}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cfg := loadExisting()
+	if cfg.DeviceTag != "avd-pool-eu" {
+		t.Errorf("DeviceTag: got %q", cfg.DeviceTag)
+	}
+	raw, _ := os.ReadFile(filepath.Join(withHomeDir(t), ".stepsecurity", "config.json"))
+	if !strings.Contains(string(raw), `"device_tag": "avd-pool-eu"`) {
+		t.Errorf("config.json missing device_tag:\n%s", raw)
+	}
+	// Omitted = unchanged.
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"api_key": "sk-2"}}); err != nil {
+		t.Fatalf("second configure: %v", err)
+	}
+	if cfg = loadExisting(); cfg.DeviceTag != "avd-pool-eu" {
+		t.Errorf("omitted --device-tag must keep the tag, got %q", cfg.DeviceTag)
+	}
+	// Invalid = rejected, file untouched.
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_tag": "avd pool"}}); err == nil {
+		t.Error("a tag with a space must be rejected")
+	}
+	if cfg = loadExisting(); cfg.DeviceTag != "avd-pool-eu" {
+		t.Errorf("a rejected tag must not change the file, got %q", cfg.DeviceTag)
+	}
+	// "" (what "-" saves) clears.
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_tag": ""}}); err != nil {
+		t.Fatalf("third configure: %v", err)
+	}
+	if cfg = loadExisting(); cfg.DeviceTag != "" {
+		t.Errorf("an empty device_tag must clear the tag, got %q", cfg.DeviceTag)
+	}
+}
+
+func TestLoad_DeviceTag(t *testing.T) {
+	dir := withHome(t)
+	cfgDir := filepath.Join(dir, ".stepsecurity")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(tag string) {
+		t.Helper()
+		content := `{"customer_id":"c","api_endpoint":"https://e","api_key":"k","device_tag":"` + tag + `"}`
+		if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prevTag, prevCust, prevEnd, prevKey := DeviceTag, CustomerID, APIEndpoint, APIKey
+	t.Cleanup(func() { DeviceTag, CustomerID, APIEndpoint, APIKey = prevTag, prevCust, prevEnd, prevKey })
+
+	write(" avd-pool-eu ")
+	DeviceTag = ""
+	Load()
+	if DeviceTag != "avd-pool-eu" {
+		t.Fatalf("DeviceTag = %q, want avd-pool-eu", DeviceTag)
+	}
+	// An invalid value in the file is ignored, never fatal.
+	write("avd pool")
+	DeviceTag = ""
+	Load()
+	if DeviceTag != "" {
+		t.Fatalf("an invalid device_tag must be ignored, got %q", DeviceTag)
+	}
+}
+
+func TestLoad_DeviceIDAndRetireOnUninstall(t *testing.T) {
+	dir := withHome(t)
+	cfgDir := filepath.Join(dir, ".stepsecurity")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"customer_id":"c","api_endpoint":"https://e","api_key":"k","device_id":" {hostname}-{user} ","retire_on_uninstall":true}`
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prevID, prevRetire := DeviceID, RetireOnUninstall
+	prevCust, prevEnd, prevKey := CustomerID, APIEndpoint, APIKey
+	DeviceID, RetireOnUninstall = "", false
+	t.Cleanup(func() {
+		DeviceID, RetireOnUninstall = prevID, prevRetire
+		CustomerID, APIEndpoint, APIKey = prevCust, prevEnd, prevKey
+	})
+	Load()
+	if DeviceID != "{hostname}-{user}" {
+		t.Fatalf("DeviceID = %q", DeviceID)
+	}
+	if !RetireOnUninstall {
+		t.Fatal("RetireOnUninstall not applied")
+	}
+	// An already-set (build-time) template wins over the file.
+	DeviceID = "pinned"
+	Load()
+	if DeviceID != "pinned" {
+		t.Fatalf("Load overrode an in-memory template: %q", DeviceID)
+	}
+}
+
+func TestShowConfigure_PrintsDeviceIdentity(t *testing.T) {
+	withHome(t)
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id": "c", "api_endpoint": "https://e", "api_key": "sk-abcdef",
+		"device_id": "{hostname}", "retire_on_uninstall": true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() { ShowConfigure("avd-host-07 (source: config)") })
+	for _, want := range []string{
+		"Device ID:               {hostname}",
+		"resolves now to:       avd-host-07 (source: config)",
+		"Retire On Uninstall:     true",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("configure show missing %q:\n%s", want, out)
+		}
+	}
+	out = captureStdout(t, func() { ShowConfigure("") })
+	if strings.Contains(out, "resolves now to") {
+		t.Errorf("empty resolved line must be omitted:\n%s", out)
+	}
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_id": "-"}}); err != nil {
+		t.Fatal(err)
+	}
+	out = captureStdout(t, func() { ShowConfigure("") })
+	if !strings.Contains(out, "auto (per-user on multi-session hosts, hardware serial elsewhere)") {
+		t.Errorf("default identity label missing:\n%s", out)
+	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := os.Stdout
+	os.Stdout = w
+	done := make(chan string)
+	go func() {
+		var b strings.Builder
+		buf := make([]byte, 4096)
+		for {
+			n, err := r.Read(buf)
+			b.Write(buf[:n])
+			if err != nil {
+				break
+			}
+		}
+		done <- b.String()
+	}()
+	fn()
+	os.Stdout = prev
+	_ = w.Close()
+	out := <-done
+	_ = r.Close()
+	return out
+}
+
 // SCCM e2e B1: an MSI upgrade's --from-file must merge into the machine
 // config, not replace it: an AUTOUPDATE=0 opt-out and unknown keys the
 // bootstrap file doesn't mention survive, while keys it does carry

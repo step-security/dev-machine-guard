@@ -39,6 +39,9 @@ func Pretty(w io.Writer, result *model.ScanResult, colorMode string) error {
 	fmt.Fprintf(w, "  %s%sDEVICE%s\n", c.purple, c.bold, c.reset)
 	fmt.Fprintf(w, "    %-16s %s\n", "Hostname", result.Device.Hostname)
 	fmt.Fprintf(w, "    %-16s %s\n", "Serial", result.Device.SerialNumber)
+	if v := result.Device.Virtualization; v != nil {
+		fmt.Fprintf(w, "    %-16s %s\n", "Virtualization", formatVirtualization(v))
+	}
 	osLabel := model.PlatformDisplayName(result.Device.Platform)
 	fmt.Fprintf(w, "    %-16s %s\n", osLabel, result.Device.OSVersion)
 	fmt.Fprintf(w, "    %-16s %s\n", "User", result.Device.UserIdentity)
@@ -884,8 +887,30 @@ func communityInventory(result *model.ScanResult) *model.ScanResult {
 }
 
 func pluginAgentDisplayName(agent string) string {
-	if agent == model.AgentCopilot {
+	switch agent {
+	case model.AgentCopilot:
 		return "GitHub Copilot"
+	case model.AgentPi:
+		return "Pi"
 	}
 	return agent
+}
+
+// formatVirtualization renders the classification: "virtual (azure, imds)",
+// "physical", "unknown".
+func formatVirtualization(v *model.Virtualization) string {
+	if v.Type != model.VirtualizationVirtual {
+		return v.Type
+	}
+	var parts []string
+	if v.Vendor != "" {
+		parts = append(parts, v.Vendor)
+	}
+	if v.Source != "" {
+		parts = append(parts, v.Source)
+	}
+	if len(parts) == 0 {
+		return v.Type
+	}
+	return v.Type + " (" + strings.Join(parts, ", ") + ")"
 }

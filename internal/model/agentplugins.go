@@ -22,6 +22,7 @@ const (
 	AgentClaudeCode = "claude-code"
 	AgentCodex      = "codex"
 	AgentCopilot    = "copilot"
+	AgentPi         = "pi"
 )
 
 // Coverage statuses. Each one answers whether an enumeration is the whole set for
@@ -110,6 +111,9 @@ const (
 	PluginEvidenceSkillDirectory  = "skill_directory"
 	PluginEvidenceSyncedDirectory = "synced_directory"
 	PluginEvidenceRemoteMarker    = "remote_marker"
+	// An entrypoint the agent loads from its extensions directory with no saved
+	// selection.
+	PluginEvidenceExtensionDirectory = "extension_directory"
 )
 
 // The manifest format actually selected for this package. A dual-format bundle
@@ -122,6 +126,7 @@ const (
 	PluginManifestCursor   = "cursor"
 	PluginManifestPortable = "portable"
 	PluginManifestCatalog  = "catalog"
+	PluginManifestPi       = "pi"
 	PluginManifestNone     = "none"
 	PluginManifestUnknown  = "unknown"
 )
@@ -138,6 +143,11 @@ const (
 	PluginComponentLSP     = "lsp"
 	PluginComponentApp     = "app"
 	PluginComponentRule    = "rule"
+	// Pi package resources. An extension is code the agent imports; its body is
+	// never read to infer tools or hooks.
+	PluginComponentExtension = "extension"
+	PluginComponentPrompt    = "prompt"
+	PluginComponentTheme     = "theme"
 )
 
 // Definition kinds for AgentSkill.DefinitionKind. Empty also denotes SKILL.md.
@@ -173,7 +183,7 @@ func (s *AgentPlugins) PluginCount() int {
 // not repeated for every discovered project.
 type AgentPluginContext struct {
 	ContextID  string `json:"context_id"`
-	Agent      string `json:"agent"`       // AgentClaudeCode | AgentCodex | AgentCopilot
+	Agent      string `json:"agent"`       // AgentClaudeCode | AgentCodex | AgentCopilot | AgentPi
 	ConfigRoot string `json:"config_root"` // observed, normalized; not an instruction to read it
 	PluginRoot string `json:"plugin_root"`
 	// Trusted existing inventory or passive metadata only. This collector never
@@ -345,6 +355,12 @@ type PluginComponent struct {
 	Command       *AgentCommandDefinition `json:"command,omitempty"`
 	MCPConfig     *MCPConfigEnterprise    `json:"mcp_config,omitempty"`
 	MCPEnablement []EnablementObservation `json:"mcp_enablement,omitempty"`
+
+	// Saved per-resource selection at the installation's own scope, and the
+	// scoped layers that stated one. Absent is unknown, not enabled; neither
+	// says the agent loaded the resource.
+	ConfiguredEnabled *bool                   `json:"configured_enabled,omitempty"`
+	Enablement        []EnablementObservation `json:"enablement,omitempty"`
 }
 
 // AgentCommandDefinition is a legacy command Markdown file — an actual file with

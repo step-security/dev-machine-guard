@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,13 +34,17 @@ var bunEnvVars = []string{
 	"BUN_CONFIG_NO_CLEAR_TERMINAL_ON_RELOAD",
 	"NPM_CONFIG_REGISTRY",
 	"npm_config_registry",
+	"NPM_CONFIG_TOKEN",
+	"npm_config_token",
+	"NPM_CONFIG_USERCONFIG",
+	"npm_config_userconfig",
 	"NPM_TOKEN",
 	"NODE_OPTIONS",
 	"NODE_TLS_REJECT_UNAUTHORIZED",
 }
 
-// BunDetector audits bun: bunfig.toml at user + XDG + project scopes, plus
-// any .npmrc bun would read as an auth side-channel.
+// BunDetector audits bun: the one global .bunfig.toml bun selects, project
+// bunfig.toml files, plus any .npmrc bun would read as an auth side-channel.
 type BunDetector struct {
 	exec    executor.Executor
 	skipper *tcc.Skipper
@@ -77,20 +82,23 @@ func (d *BunDetector) WithSkipper(s *tcc.Skipper) *BunDetector {
 // Detect runs the full bun audit.
 func (d *BunDetector) Detect(ctx context.Context, searchDirs []string, loggedInUser *user.User) model.BunAudit {
 	audit := model.BunAudit{
-		Files:      []model.BunConfigFile{},
-		NPMRCFiles: []model.NPMRCFile{},
-		Env:        d.collectEnv(),
+		Files:              []model.BunConfigFile{},
+		NPMRCFiles:         []model.NPMRCFile{},
+		Env:                collectEnvVars(d.exec, bunEnvVars),
+		ConfigAuditVersion: jsConfigAuditVersion,
 	}
+	homeDir := homeOf(loggedInUser)
 
 	if path, err := d.exec.LookPath("bun"); err == nil {
 		audit.Available = true
 		audit.BunPath = path
-		audit.BunVersion = d.bunVersion(ctx)
+		audit.BunVersion = d.bunVersion(ctx, homeDir)
+		audit.ContextDirectory = homeDir
 	}
 
 	files := make([]model.BunConfigFile, 0, 4)
 	seen := make(map[string]bool)
-	add := func(scope, path string) {
+	add := func(scope, path, applies string) {
 		if path == "" {
 			return
 		}
@@ -101,25 +109,23 @@ func (d *BunDetector) Detect(ctx context.Context, searchDirs []string, loggedInU
 			return
 		}
 		seen[path] = true
-		files = append(files, d.collectFile(ctx, path, scope))
+		f := d.collectFile(ctx, path, scope)
+		f.RuntimeApplicability = applies
+		files = append(files, f)
 	}
 
-	homeDir := ""
-	if loggedInUser != nil {
-		homeDir = loggedInUser.HomeDir
-	}
-	if homeDir == "" {
-		if h, err := os.UserHomeDir(); err == nil {
-			homeDir = h
-		}
+	// Bun loads exactly one global .bunfig.toml and never falls back when
+	// the selected file is missing: an absolute XDG_CONFIG_HOME wins; an
+	// empty or relative one is skipped from 1.4.4 but used by older bun.
+	xdg := d.exec.Getenv("XDG_CONFIG_HOME")
+	ver, known := semver3(audit.BunVersion)
+	useXDG := filepath.IsAbs(xdg) || (xdg != "" && known && slices.Compare(ver[:], []int{1, 4, 4}) < 0)
+	ambiguous := xdg != "" && !filepath.IsAbs(xdg) && !known
+	if xdg != "" {
+		add("user-xdg", filepath.Join(xdg, ".bunfig.toml"), applicability(!ambiguous, useXDG))
 	}
 	if homeDir != "" {
-		add("user", filepath.Join(homeDir, ".bunfig.toml"))
-		xdgHome := d.exec.Getenv("XDG_CONFIG_HOME")
-		if xdgHome == "" {
-			xdgHome = filepath.Join(homeDir, ".config")
-		}
-		add("user-xdg", filepath.Join(xdgHome, ".bunfig.toml"))
+		add("user", filepath.Join(homeDir, ".bunfig.toml"), applicability(!ambiguous, !useXDG))
 	}
 
 	for _, dir := range searchDirs {
@@ -127,35 +133,64 @@ func (d *BunDetector) Detect(ctx context.Context, searchDirs []string, loggedInU
 			if len(files) >= maxBunfigFiles {
 				break
 			}
-			add("project", p)
+			add("project", p, "unknown")
 		}
 	}
 
 	audit.Files = files
-	audit.NPMRCFiles = d.discoverAuthSideChannel(ctx, searchDirs, loggedInUser)
+	audit.NPMRCFiles = d.discoverAuthSideChannel(ctx, searchDirs, homeDir, xdg)
 	return audit
 }
 
-// discoverAuthSideChannel reuses the npmrc walker for any .npmrc bun reads
-// for registry auth. builtin/global belong to npm proper and are dropped;
-// only user + project scopes — the ones bun actually consumes — are kept.
+// discoverAuthSideChannel lists the .npmrc files bun reads for registry
+// auth, using bun's own selection rather than npm's: one user file
+// (NPM_CONFIG_USERCONFIG, else an existing $XDG_CONFIG_HOME/.npmrc, else
+// ~/.npmrc), then project files. Bun has no builtin/global npmrc.
 //
-// NB: this re-invokes the full NPMRCDetector (npm subprocess calls + a fresh
-// searchDirs walk). The .npmrc walk overlaps with the npm + pnpm audits; if
-// scan time becomes a concern, share results across detectors.
-func (d *BunDetector) discoverAuthSideChannel(ctx context.Context, searchDirs []string, loggedInUser *user.User) []model.NPMRCFile {
+// NB: the .npmrc walk overlaps with the npm + pnpm audits; if scan time
+// becomes a concern, share results across detectors.
+func (d *BunDetector) discoverAuthSideChannel(ctx context.Context, searchDirs []string, homeDir, xdg string) []model.NPMRCFile {
 	side := NewNPMRCDetector(d.exec)
 	side.skipper = d.skipper
 	side.ownerLookup = d.ownerLookup
 	side.gitTracked = d.gitTracked
 	side.inGitRepo = d.inGitRepo
-	audit := side.Detect(ctx, searchDirs, loggedInUser)
-	out := make([]model.NPMRCFile, 0, len(audit.Files))
-	for _, f := range audit.Files {
-		if f.Scope == "builtin" || f.Scope == "global" {
-			continue
+
+	out := []model.NPMRCFile{}
+	seen := map[string]bool{}
+	add := func(scope, path, applies string) {
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
 		}
-		out = append(out, f)
+		if key := pathKey(d.exec, path); !seen[key] {
+			seen[key] = true
+			f := side.collectFile(ctx, path, scope)
+			f.RuntimeApplicability = applies
+			out = append(out, f)
+		}
+	}
+
+	userConfig, applies := firstEnv(d.exec, "NPM_CONFIG_USERCONFIG", "npm_config_userconfig"), "applicable"
+	switch {
+	case userConfig != "":
+		if !filepath.IsAbs(userConfig) {
+			applies = "unknown" // bun resolves it against the project dir
+		}
+	case filepath.IsAbs(xdg) && d.exec.FileExists(filepath.Join(xdg, ".npmrc")):
+		userConfig = filepath.Join(xdg, ".npmrc")
+	case homeDir != "":
+		userConfig = filepath.Join(homeDir, ".npmrc")
+	}
+	if userConfig != "" {
+		add("user", userConfig, applies)
+	}
+	for _, dir := range searchDirs {
+		for _, p := range side.findProjectNPMRCs(ctx, dir) {
+			if len(out) >= maxNPMRCFiles {
+				break
+			}
+			add("project", p, "unknown")
+		}
 	}
 	return out
 }
@@ -257,7 +292,7 @@ func (d *BunDetector) collectFile(ctx context.Context, path, scope string) model
 
 	sections, perr := parseBunfig(data)
 	if perr != nil {
-		f.ParseError = perr.Error()
+		f.ParseError = "invalid toml" // decoder text can quote secrets
 	}
 	f.Sections = sections
 
@@ -271,7 +306,8 @@ func (d *BunDetector) collectFile(ctx context.Context, path, scope string) model
 }
 
 // bunVersion returns the bun CLI's version string, "unknown" on failure.
-func (d *BunDetector) bunVersion(ctx context.Context) string {
+// The exec fallback runs from home, like Yarn's.
+func (d *BunDetector) bunVersion(ctx context.Context, home string) string {
 	// Static-first, exec-last (AGENTS.md §3.4): bun's Homebrew install path
 	// encodes the version; other installs fall through to exec.
 	// Run the exact absolute path the guard assessed, not the bare name —
@@ -288,8 +324,11 @@ func (d *BunDetector) bunVersion(ctx context.Context) string {
 		}
 		target = path
 	}
+	if home == "" {
+		return "unknown"
+	}
 	d.log.Progress("exec fallback: running %s --version (no metadata version source)", target)
-	stdout, _, exit, _ := d.exec.RunWithTimeout(ctx, 5*time.Second, target, "--version")
+	stdout, _, exit, _ := d.exec.RunInDir(ctx, home, 5*time.Second, target, "--version")
 	if exit != 0 {
 		return "unknown"
 	}
@@ -298,22 +337,4 @@ func (d *BunDetector) bunVersion(ctx context.Context) string {
 		return "unknown"
 	}
 	return v
-}
-
-func (d *BunDetector) collectEnv() []model.NPMRCEnvVar {
-	out := make([]model.NPMRCEnvVar, 0, len(bunEnvVars))
-	for _, name := range bunEnvVars {
-		v := d.exec.Getenv(name)
-		ev := model.NPMRCEnvVar{Name: name, Set: v != ""}
-		if v != "" {
-			ev.ValueSHA256 = sha256Hex(v)
-			if secretEnvNamePattern.MatchString(name) {
-				ev.DisplayValue = redactSecret(v)
-			} else {
-				ev.DisplayValue = v
-			}
-		}
-		out = append(out, ev)
-	}
-	return out
 }

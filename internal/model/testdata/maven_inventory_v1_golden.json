@@ -1,0 +1,2049 @@
+{
+  "maven_inventory": {
+    "schema_version": 1,
+    "status": "partial",
+    "reasons": [
+      "checksum_invalid",
+      "parse_error",
+      "redacted_requirement",
+      "unresolved_coordinate",
+      "unsupported_layout"
+    ],
+    "sources": [
+      {
+        "source_id": "bc72b0bd4ed8cbe4cc1bbacfd0e5574863059cd102aad29b2b6d17e720c975da",
+        "kind": "gradle_cache",
+        "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "7ce4091703a041b9a56bc51b5bd5b8a8360994d6db4bc5efc8399b6ac0f6924c",
+          "dc0a3b0b99f25b5e13969a95d15361155d253176377b24993599357bc42f008d",
+          "f6f7036e842faf0e12a260aae48800c886a7462b81d42d216ff98d3a9b79ce10"
+        ]
+      },
+      {
+        "source_id": "7ce4091703a041b9a56bc51b5bd5b8a8360994d6db4bc5efc8399b6ac0f6924c",
+        "kind": "artifact_directory",
+        "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/com.ivy/thing/2.0",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "bc72b0bd4ed8cbe4cc1bbacfd0e5574863059cd102aad29b2b6d17e720c975da",
+        "discovered_sources": [
+          "456c028095902955dd749162622e80091eeb8b58e903361feced68e971425584",
+          "968a3797a7a84de2aca8cc091555fb43fbbca97022b7cb5d358d898279efc301"
+        ]
+      },
+      {
+        "source_id": "968a3797a7a84de2aca8cc091555fb43fbbca97022b7cb5d358d898279efc301",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/com.ivy/thing/2.0/0123456789abcdef0123456789abcdef01234567/ivy-2.0.xml",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "7ce4091703a041b9a56bc51b5bd5b8a8360994d6db4bc5efc8399b6ac0f6924c",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "456c028095902955dd749162622e80091eeb8b58e903361feced68e971425584",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/com.ivy/thing/2.0/123456789abcdef0123456789abcdef01234567/thing-2.0.jar",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "7ce4091703a041b9a56bc51b5bd5b8a8360994d6db4bc5efc8399b6ac0f6924c",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "f6f7036e842faf0e12a260aae48800c886a7462b81d42d216ff98d3a9b79ce10",
+        "kind": "artifact_directory",
+        "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/relocated/1.0",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "bc72b0bd4ed8cbe4cc1bbacfd0e5574863059cd102aad29b2b6d17e720c975da",
+        "discovered_sources": [
+          "d4b29b05c21c92c5757fe2ae4df14ab60194c1ed899bf5276599a456a66cfce8"
+        ]
+      },
+      {
+        "source_id": "d4b29b05c21c92c5757fe2ae4df14ab60194c1ed899bf5276599a456a66cfce8",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/relocated/1.0/0123456789abcdef0123456789abcdef01234567/relocated-1.0.pom",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "f6f7036e842faf0e12a260aae48800c886a7462b81d42d216ff98d3a9b79ce10",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "dc0a3b0b99f25b5e13969a95d15361155d253176377b24993599357bc42f008d",
+        "kind": "artifact_directory",
+        "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "bc72b0bd4ed8cbe4cc1bbacfd0e5574863059cd102aad29b2b6d17e720c975da",
+        "discovered_sources": [
+          "76502049827094bfb2d414b62e7a30ff47b43be727f95ea76231e93d7f9b7483",
+          "c1878307c62c6d8c6147d54f07a3a8ddcc5ce494ef800c44709fa2d6e6049b84",
+          "d3a8d8d4fdb9b5decf46c840e2e4e2255899f3292814417cd6207b654d8fccff",
+          "f4b534e7cd84ddf9dd78442e6e60027b02e8370be61ded9b4113f549bca558d8",
+          "feb3538b093b31f3309f94b258d87ab3d82281d980b2f9a56fd6b4146e2f62d2"
+        ]
+      },
+      {
+        "source_id": "d3a8d8d4fdb9b5decf46c840e2e4e2255899f3292814417cd6207b654d8fccff",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0/0123456789abcdef0123456789abcdef01234567/widgets-1.0.jar",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "dc0a3b0b99f25b5e13969a95d15361155d253176377b24993599357bc42f008d",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "f4b534e7cd84ddf9dd78442e6e60027b02e8370be61ded9b4113f549bca558d8",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0/123456789abcdef0123456789abcdef01234567/renamed.jar",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "dc0a3b0b99f25b5e13969a95d15361155d253176377b24993599357bc42f008d",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "76502049827094bfb2d414b62e7a30ff47b43be727f95ea76231e93d7f9b7483",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0/123456789abcdef0123456789abcdef01234567/widgets-1.0-test-fixtures.jar",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "dc0a3b0b99f25b5e13969a95d15361155d253176377b24993599357bc42f008d",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "c1878307c62c6d8c6147d54f07a3a8ddcc5ce494ef800c44709fa2d6e6049b84",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0/123456789abcdef0123456789abcdef01234567/widgets-1.0.module",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "dc0a3b0b99f25b5e13969a95d15361155d253176377b24993599357bc42f008d",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "feb3538b093b31f3309f94b258d87ab3d82281d980b2f9a56fd6b4146e2f62d2",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0/23456789abcdef0123456789abcdef01234567/widgets-1.0.pom",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "dc0a3b0b99f25b5e13969a95d15361155d253176377b24993599357bc42f008d",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "206ed10d07a0601182b05522976415e0d9505067476262c5421dacb61a43cb20",
+        "kind": "maven_repository",
+        "path": "/home/maven-fixture/.m2/repository",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "unsupported_layout"
+        ],
+        "discovered_sources": [
+          "4f0a0fed0daebdd826ff616f1bd6ead3116867e20ae4c46fbd2e19ff5f1c2fcd",
+          "593c7a6641094efb719111d2100ca4175b3b60a3af7ef7143bfedd2fe43c935f",
+          "610ad57f8d81a290156def0df30fe6f51673981d1fe7b8d7ab0b5a92b2c124d9",
+          "f75c8aaca924e51e22e01ee2d7aedae347fc812c0e587b03a2a24d6bf389a70e"
+        ]
+      },
+      {
+        "source_id": "593c7a6641094efb719111d2100ca4175b3b60a3af7ef7143bfedd2fe43c935f",
+        "kind": "artifact_directory",
+        "path": "/home/maven-fixture/.m2/repository/com/Example/Foo_2.13/2.0",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "206ed10d07a0601182b05522976415e0d9505067476262c5421dacb61a43cb20",
+        "discovered_sources": [
+          "200e4bab82b36ac5975e92642761e63788c3b678802277673235be00132c97d9"
+        ]
+      },
+      {
+        "source_id": "200e4bab82b36ac5975e92642761e63788c3b678802277673235be00132c97d9",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/.m2/repository/com/Example/Foo_2.13/2.0/Foo_2.13-2.0.pom",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "593c7a6641094efb719111d2100ca4175b3b60a3af7ef7143bfedd2fe43c935f",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "610ad57f8d81a290156def0df30fe6f51673981d1fe7b8d7ab0b5a92b2c124d9",
+        "kind": "artifact_directory",
+        "path": "/home/maven-fixture/.m2/repository/org/example/android/1.0",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "206ed10d07a0601182b05522976415e0d9505067476262c5421dacb61a43cb20",
+        "discovered_sources": [
+          "4ecd8ef0c9c87bd04510fa9073492bf2aab8dc7a34a29890b3731b2dae0c12bc"
+        ]
+      },
+      {
+        "source_id": "4ecd8ef0c9c87bd04510fa9073492bf2aab8dc7a34a29890b3731b2dae0c12bc",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/.m2/repository/org/example/android/1.0/android-1.0.aar",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "610ad57f8d81a290156def0df30fe6f51673981d1fe7b8d7ab0b5a92b2c124d9",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "f75c8aaca924e51e22e01ee2d7aedae347fc812c0e587b03a2a24d6bf389a70e",
+        "kind": "artifact_directory",
+        "path": "/home/maven-fixture/.m2/repository/org/example/snap/1.0-SNAPSHOT",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "206ed10d07a0601182b05522976415e0d9505067476262c5421dacb61a43cb20",
+        "discovered_sources": [
+          "bc149c3772643c82133a4244f3d4b1c6f17cc60047278dc943d982ab4d6b1586",
+          "e3915dc183aef3974635343a842ec464f38391fb45748f1b50dda53084cf0f29"
+        ]
+      },
+      {
+        "source_id": "e3915dc183aef3974635343a842ec464f38391fb45748f1b50dda53084cf0f29",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/.m2/repository/org/example/snap/1.0-SNAPSHOT/snap-1.0-20240101.120000-1.jar",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "f75c8aaca924e51e22e01ee2d7aedae347fc812c0e587b03a2a24d6bf389a70e",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "bc149c3772643c82133a4244f3d4b1c6f17cc60047278dc943d982ab4d6b1586",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/.m2/repository/org/example/snap/1.0-SNAPSHOT/snap-1.0-SNAPSHOT.pom",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "f75c8aaca924e51e22e01ee2d7aedae347fc812c0e587b03a2a24d6bf389a70e",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "4f0a0fed0daebdd826ff616f1bd6ead3116867e20ae4c46fbd2e19ff5f1c2fcd",
+        "kind": "artifact_directory",
+        "path": "/home/maven-fixture/.m2/repository/org/example/widgets/1.0",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "206ed10d07a0601182b05522976415e0d9505067476262c5421dacb61a43cb20",
+        "discovered_sources": [
+          "23c87839692682d4eef16139c26aafe805a01cf8f17c77ca3562986f6f52a38a",
+          "4bf789ea849b7aff6dbc8055fe88ee23623f2f469c6bd45c0f86d773ed1210df",
+          "5ea713a5eb385471a4a3cba7255336644ec25a84dcab889b5fab611fefb994d5"
+        ]
+      },
+      {
+        "source_id": "23c87839692682d4eef16139c26aafe805a01cf8f17c77ca3562986f6f52a38a",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/.m2/repository/org/example/widgets/1.0/widgets-1.0-sources.jar",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "4f0a0fed0daebdd826ff616f1bd6ead3116867e20ae4c46fbd2e19ff5f1c2fcd",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "5ea713a5eb385471a4a3cba7255336644ec25a84dcab889b5fab611fefb994d5",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/.m2/repository/org/example/widgets/1.0/widgets-1.0.jar",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "4f0a0fed0daebdd826ff616f1bd6ead3116867e20ae4c46fbd2e19ff5f1c2fcd",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "4bf789ea849b7aff6dbc8055fe88ee23623f2f469c6bd45c0f86d773ed1210df",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/.m2/repository/org/example/widgets/1.0/widgets-1.0.pom",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "4f0a0fed0daebdd826ff616f1bd6ead3116867e20ae4c46fbd2e19ff5f1c2fcd",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "50db0eb17ec822f14879a15f800eb310abf5666df2066eaa32338d720fe79cf8",
+        "kind": "maven_repository",
+        "path": "/home/maven-fixture/custom-repo",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "3f8ccc26e65d4177e5440e197e7dd211c2e0232754777706a497e2fd04b56bc3"
+        ]
+      },
+      {
+        "source_id": "3f8ccc26e65d4177e5440e197e7dd211c2e0232754777706a497e2fd04b56bc3",
+        "kind": "artifact_directory",
+        "path": "/home/maven-fixture/custom-repo/org/example/custom/1.0",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "50db0eb17ec822f14879a15f800eb310abf5666df2066eaa32338d720fe79cf8",
+        "discovered_sources": [
+          "a9382c75a677c7c2ace491f8d2cea7b90dd0c73728e1465385780adadd640716"
+        ]
+      },
+      {
+        "source_id": "a9382c75a677c7c2ace491f8d2cea7b90dd0c73728e1465385780adadd640716",
+        "kind": "cached_artifact",
+        "path": "/home/maven-fixture/custom-repo/org/example/custom/1.0/custom-1.0.jar",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "3f8ccc26e65d4177e5440e197e7dd211c2e0232754777706a497e2fd04b56bc3",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "878e00c6f4aa8c2e60c97a17f1d8122c686b3c837bcfe0f6773915b8325213e1",
+        "kind": "project_search_root",
+        "path": "/home/maven-fixture/projects",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "checksum_invalid",
+          "parse_error",
+          "redacted_requirement",
+          "unresolved_coordinate"
+        ],
+        "discovered_sources": [
+          "5b1a9104d8f70d1ec138a876aa32c500a763a0ddd8a76883dbe7102ace6b719b",
+          "b56ed847b4d76e4041c2b7e780dee48d50dbe45efc1a873033d1d0fff2300c0f",
+          "cfc3d942e10eccce7d76d21653de4a97bb28de5c6d73f2050d9ca70bc5bda4e8"
+        ]
+      },
+      {
+        "source_id": "5b1a9104d8f70d1ec138a876aa32c500a763a0ddd8a76883dbe7102ace6b719b",
+        "kind": "project",
+        "path": "/home/maven-fixture/projects/gradleapp",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "checksum_invalid",
+          "parse_error"
+        ],
+        "parent_source_id": "878e00c6f4aa8c2e60c97a17f1d8122c686b3c837bcfe0f6773915b8325213e1",
+        "discovered_sources": [
+          "4b9f19171c872247346cf3355b303d0025b38e4b6eee786de1f2b03e4fc6b0f9",
+          "57fd441ce0a94699204491de552ecc2776b8a091609dda58c707ff3a676bd954",
+          "6b2b8d89e2a002d502fdf6d10d39be1b0f72b05891c0988042399290aa806b01",
+          "c3b1b7f7377e49d2288b1162b44b40d8cf68790ba188ba3dc8fbd3f8a0219792",
+          "e946357419b7ffed27f98e77c3adc0d08633f3b3ccc6088b4417fcc224d717d8"
+        ]
+      },
+      {
+        "source_id": "c3b1b7f7377e49d2288b1162b44b40d8cf68790ba188ba3dc8fbd3f8a0219792",
+        "kind": "lockfile",
+        "path": "/home/maven-fixture/projects/gradleapp/gradle.lockfile",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "5b1a9104d8f70d1ec138a876aa32c500a763a0ddd8a76883dbe7102ace6b719b",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "4b9f19171c872247346cf3355b303d0025b38e4b6eee786de1f2b03e4fc6b0f9",
+        "kind": "lockfile",
+        "path": "/home/maven-fixture/projects/gradleapp/gradle/dependency-locks/legacyOnly.lockfile",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "5b1a9104d8f70d1ec138a876aa32c500a763a0ddd8a76883dbe7102ace6b719b",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "6b2b8d89e2a002d502fdf6d10d39be1b0f72b05891c0988042399290aa806b01",
+        "kind": "lockfile",
+        "path": "/home/maven-fixture/projects/gradleapp/gradle/dependency-locks/runtimeOnlyLegacy.lockfile",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "5b1a9104d8f70d1ec138a876aa32c500a763a0ddd8a76883dbe7102ace6b719b",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "e946357419b7ffed27f98e77c3adc0d08633f3b3ccc6088b4417fcc224d717d8",
+        "kind": "version_catalog",
+        "path": "/home/maven-fixture/projects/gradleapp/gradle/libs.versions.toml",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "parse_error"
+        ],
+        "parent_source_id": "5b1a9104d8f70d1ec138a876aa32c500a763a0ddd8a76883dbe7102ace6b719b",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "57fd441ce0a94699204491de552ecc2776b8a091609dda58c707ff3a676bd954",
+        "kind": "verification_metadata",
+        "path": "/home/maven-fixture/projects/gradleapp/gradle/verification-metadata.xml",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "checksum_invalid"
+        ],
+        "parent_source_id": "5b1a9104d8f70d1ec138a876aa32c500a763a0ddd8a76883dbe7102ace6b719b",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "cfc3d942e10eccce7d76d21653de4a97bb28de5c6d73f2050d9ca70bc5bda4e8",
+        "kind": "project",
+        "path": "/home/maven-fixture/projects/mixedapp",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "878e00c6f4aa8c2e60c97a17f1d8122c686b3c837bcfe0f6773915b8325213e1",
+        "discovered_sources": [
+          "a35a2be6de191697b5c4f4cdae8450f8207b6304b2d44f17dfebb6d8e18b343e"
+        ]
+      },
+      {
+        "source_id": "a35a2be6de191697b5c4f4cdae8450f8207b6304b2d44f17dfebb6d8e18b343e",
+        "kind": "manifest",
+        "path": "/home/maven-fixture/projects/mixedapp/pom.xml",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "cfc3d942e10eccce7d76d21653de4a97bb28de5c6d73f2050d9ca70bc5bda4e8",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "b56ed847b4d76e4041c2b7e780dee48d50dbe45efc1a873033d1d0fff2300c0f",
+        "kind": "project",
+        "path": "/home/maven-fixture/projects/mvnapp",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "redacted_requirement",
+          "unresolved_coordinate"
+        ],
+        "parent_source_id": "878e00c6f4aa8c2e60c97a17f1d8122c686b3c837bcfe0f6773915b8325213e1",
+        "discovered_sources": [
+          "5a75b65fe777ecf4f82b588e1f9e5ecced65bc6f27c88ff161fad13add9f16db"
+        ]
+      },
+      {
+        "source_id": "5a75b65fe777ecf4f82b588e1f9e5ecced65bc6f27c88ff161fad13add9f16db",
+        "kind": "manifest",
+        "path": "/home/maven-fixture/projects/mvnapp/pom.xml",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "redacted_requirement",
+          "unresolved_coordinate"
+        ],
+        "parent_source_id": "b56ed847b4d76e4041c2b7e780dee48d50dbe45efc1a873033d1d0fff2300c0f",
+        "discovered_sources": []
+      }
+    ],
+    "projects": [
+      {
+        "project_path": "/home/maven-fixture/projects/gradleapp",
+        "source_id": "5b1a9104d8f70d1ec138a876aa32c500a763a0ddd8a76883dbe7102ace6b719b",
+        "tool": "gradle"
+      },
+      {
+        "project_path": "/home/maven-fixture/projects/mixedapp",
+        "source_id": "cfc3d942e10eccce7d76d21653de4a97bb28de5c6d73f2050d9ca70bc5bda4e8",
+        "tool": "unknown"
+      },
+      {
+        "project_path": "/home/maven-fixture/projects/mvnapp",
+        "source_id": "b56ed847b4d76e4041c2b7e780dee48d50dbe45efc1a873033d1d0fff2300c0f",
+        "tool": "maven"
+      }
+    ],
+    "packages": [
+      {
+        "source_id": "968a3797a7a84de2aca8cc091555fb43fbbca97022b7cb5d358d898279efc301",
+        "source_path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/com.ivy/thing/2.0/0123456789abcdef0123456789abcdef01234567/ivy-2.0.xml",
+        "package_name": "com.ivy:thing",
+        "group_id": "com.ivy",
+        "artifact_id": "thing",
+        "evidence": "cached_artifact",
+        "tool": "gradle",
+        "scope": "user",
+        "version_status": "known",
+        "version": "2.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "ivy",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "ivy-2.0.xml",
+          "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/com.ivy/thing/2.0/0123456789abcdef0123456789abcdef01234567/ivy-2.0.xml",
+          "artifact_role": "metadata",
+          "size_bytes": 192,
+          "extension": "xml",
+          "content_key": "0123456789abcdef0123456789abcdef01234567"
+        }
+      },
+      {
+        "source_id": "456c028095902955dd749162622e80091eeb8b58e903361feced68e971425584",
+        "source_path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/com.ivy/thing/2.0/123456789abcdef0123456789abcdef01234567/thing-2.0.jar",
+        "package_name": "com.ivy:thing",
+        "group_id": "com.ivy",
+        "artifact_id": "thing",
+        "evidence": "cached_artifact",
+        "tool": "gradle",
+        "scope": "user",
+        "version_status": "known",
+        "version": "2.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "thing-2.0.jar",
+          "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/com.ivy/thing/2.0/123456789abcdef0123456789abcdef01234567/thing-2.0.jar",
+          "artifact_role": "payload",
+          "size_bytes": 10,
+          "extension": "jar",
+          "classifier": "",
+          "content_key": "123456789abcdef0123456789abcdef01234567"
+        }
+      },
+      {
+        "source_id": "d4b29b05c21c92c5757fe2ae4df14ab60194c1ed899bf5276599a456a66cfce8",
+        "source_path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/relocated/1.0/0123456789abcdef0123456789abcdef01234567/relocated-1.0.pom",
+        "package_name": "org.example:relocated",
+        "group_id": "org.example",
+        "artifact_id": "relocated",
+        "evidence": "cached_artifact",
+        "tool": "gradle",
+        "scope": "user",
+        "version_status": "known",
+        "version": "1.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "relocated-1.0.pom",
+          "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/relocated/1.0/0123456789abcdef0123456789abcdef01234567/relocated-1.0.pom",
+          "artifact_role": "metadata",
+          "size_bytes": 365,
+          "extension": "pom",
+          "classifier": "",
+          "content_key": "0123456789abcdef0123456789abcdef01234567"
+        }
+      },
+      {
+        "source_id": "d3a8d8d4fdb9b5decf46c840e2e4e2255899f3292814417cd6207b654d8fccff",
+        "source_path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0/0123456789abcdef0123456789abcdef01234567/widgets-1.0.jar",
+        "package_name": "org.example:widgets",
+        "group_id": "org.example",
+        "artifact_id": "widgets",
+        "evidence": "cached_artifact",
+        "tool": "gradle",
+        "scope": "user",
+        "version_status": "known",
+        "version": "1.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "widgets-1.0.jar",
+          "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0/0123456789abcdef0123456789abcdef01234567/widgets-1.0.jar",
+          "artifact_role": "payload",
+          "size_bytes": 10,
+          "extension": "jar",
+          "classifier": "",
+          "content_key": "0123456789abcdef0123456789abcdef01234567"
+        }
+      },
+      {
+        "source_id": "f4b534e7cd84ddf9dd78442e6e60027b02e8370be61ded9b4113f549bca558d8",
+        "source_path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0/123456789abcdef0123456789abcdef01234567/renamed.jar",
+        "package_name": "org.example:widgets",
+        "group_id": "org.example",
+        "artifact_id": "widgets",
+        "evidence": "cached_artifact",
+        "tool": "gradle",
+        "scope": "user",
+        "version_status": "known",
+        "version": "1.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "renamed.jar",
+          "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0/123456789abcdef0123456789abcdef01234567/renamed.jar",
+          "artifact_role": "payload",
+          "size_bytes": 10,
+          "extension": "jar",
+          "content_key": "123456789abcdef0123456789abcdef01234567"
+        }
+      },
+      {
+        "source_id": "76502049827094bfb2d414b62e7a30ff47b43be727f95ea76231e93d7f9b7483",
+        "source_path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0/123456789abcdef0123456789abcdef01234567/widgets-1.0-test-fixtures.jar",
+        "package_name": "org.example:widgets",
+        "group_id": "org.example",
+        "artifact_id": "widgets",
+        "evidence": "cached_artifact",
+        "tool": "gradle",
+        "scope": "user",
+        "version_status": "known",
+        "version": "1.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "widgets-1.0-test-fixtures.jar",
+          "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0/123456789abcdef0123456789abcdef01234567/widgets-1.0-test-fixtures.jar",
+          "artifact_role": "payload",
+          "size_bytes": 10,
+          "extension": "jar",
+          "classifier": "test-fixtures",
+          "content_key": "123456789abcdef0123456789abcdef01234567"
+        }
+      },
+      {
+        "source_id": "c1878307c62c6d8c6147d54f07a3a8ddcc5ce494ef800c44709fa2d6e6049b84",
+        "source_path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0/123456789abcdef0123456789abcdef01234567/widgets-1.0.module",
+        "package_name": "org.example:widgets",
+        "group_id": "org.example",
+        "artifact_id": "widgets",
+        "evidence": "cached_artifact",
+        "tool": "gradle",
+        "scope": "user",
+        "version_status": "known",
+        "version": "1.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "widgets-1.0.module",
+          "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0/123456789abcdef0123456789abcdef01234567/widgets-1.0.module",
+          "artifact_role": "metadata",
+          "size_bytes": 19,
+          "extension": "module",
+          "classifier": "",
+          "content_key": "123456789abcdef0123456789abcdef01234567"
+        }
+      },
+      {
+        "source_id": "feb3538b093b31f3309f94b258d87ab3d82281d980b2f9a56fd6b4146e2f62d2",
+        "source_path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0/23456789abcdef0123456789abcdef01234567/widgets-1.0.pom",
+        "package_name": "org.example:widgets",
+        "group_id": "org.example",
+        "artifact_id": "widgets",
+        "evidence": "cached_artifact",
+        "tool": "gradle",
+        "scope": "user",
+        "version_status": "known",
+        "version": "1.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "maven",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "widgets-1.0.pom",
+          "path": "/home/maven-fixture/.gradle/caches/modules-2/files-2.1/org.example/widgets/1.0/23456789abcdef0123456789abcdef01234567/widgets-1.0.pom",
+          "artifact_role": "metadata",
+          "size_bytes": 365,
+          "extension": "pom",
+          "classifier": "",
+          "content_key": "23456789abcdef0123456789abcdef01234567"
+        }
+      },
+      {
+        "source_id": "200e4bab82b36ac5975e92642761e63788c3b678802277673235be00132c97d9",
+        "source_path": "/home/maven-fixture/.m2/repository/com/Example/Foo_2.13/2.0/Foo_2.13-2.0.pom",
+        "package_name": "com.Example:Foo_2.13",
+        "group_id": "com.Example",
+        "artifact_id": "Foo_2.13",
+        "evidence": "cached_artifact",
+        "tool": "maven",
+        "scope": "user",
+        "version_status": "known",
+        "version": "2.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "maven",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "Foo_2.13-2.0.pom",
+          "path": "/home/maven-fixture/.m2/repository/com/Example/Foo_2.13/2.0/Foo_2.13-2.0.pom",
+          "artifact_role": "metadata",
+          "size_bytes": 366,
+          "extension": "pom",
+          "classifier": ""
+        }
+      },
+      {
+        "source_id": "4ecd8ef0c9c87bd04510fa9073492bf2aab8dc7a34a29890b3731b2dae0c12bc",
+        "source_path": "/home/maven-fixture/.m2/repository/org/example/android/1.0/android-1.0.aar",
+        "package_name": "org.example:android",
+        "group_id": "org.example",
+        "artifact_id": "android",
+        "evidence": "cached_artifact",
+        "tool": "maven",
+        "scope": "user",
+        "version_status": "known",
+        "version": "1.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "maven",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "android-1.0.aar",
+          "path": "/home/maven-fixture/.m2/repository/org/example/android/1.0/android-1.0.aar",
+          "artifact_role": "payload",
+          "size_bytes": 10,
+          "extension": "aar",
+          "classifier": ""
+        }
+      },
+      {
+        "source_id": "e3915dc183aef3974635343a842ec464f38391fb45748f1b50dda53084cf0f29",
+        "source_path": "/home/maven-fixture/.m2/repository/org/example/snap/1.0-SNAPSHOT/snap-1.0-20240101.120000-1.jar",
+        "package_name": "org.example:snap",
+        "group_id": "org.example",
+        "artifact_id": "snap",
+        "evidence": "cached_artifact",
+        "tool": "maven",
+        "scope": "user",
+        "version_status": "known",
+        "version": "1.0-SNAPSHOT",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "maven",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "snap-1.0-20240101.120000-1.jar",
+          "path": "/home/maven-fixture/.m2/repository/org/example/snap/1.0-SNAPSHOT/snap-1.0-20240101.120000-1.jar",
+          "artifact_role": "payload",
+          "size_bytes": 10,
+          "extension": "jar",
+          "classifier": "",
+          "base_version": "1.0-SNAPSHOT",
+          "file_version": "1.0-20240101.120000-1"
+        }
+      },
+      {
+        "source_id": "bc149c3772643c82133a4244f3d4b1c6f17cc60047278dc943d982ab4d6b1586",
+        "source_path": "/home/maven-fixture/.m2/repository/org/example/snap/1.0-SNAPSHOT/snap-1.0-SNAPSHOT.pom",
+        "package_name": "org.example:snap",
+        "group_id": "org.example",
+        "artifact_id": "snap",
+        "evidence": "cached_artifact",
+        "tool": "maven",
+        "scope": "user",
+        "version_status": "known",
+        "version": "1.0-SNAPSHOT",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "maven",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "snap-1.0-SNAPSHOT.pom",
+          "path": "/home/maven-fixture/.m2/repository/org/example/snap/1.0-SNAPSHOT/snap-1.0-SNAPSHOT.pom",
+          "artifact_role": "metadata",
+          "size_bytes": 371,
+          "extension": "pom",
+          "classifier": "",
+          "base_version": "1.0-SNAPSHOT"
+        }
+      },
+      {
+        "source_id": "23c87839692682d4eef16139c26aafe805a01cf8f17c77ca3562986f6f52a38a",
+        "source_path": "/home/maven-fixture/.m2/repository/org/example/widgets/1.0/widgets-1.0-sources.jar",
+        "package_name": "org.example:widgets",
+        "group_id": "org.example",
+        "artifact_id": "widgets",
+        "evidence": "cached_artifact",
+        "tool": "maven",
+        "scope": "user",
+        "version_status": "known",
+        "version": "1.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "maven",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "widgets-1.0-sources.jar",
+          "path": "/home/maven-fixture/.m2/repository/org/example/widgets/1.0/widgets-1.0-sources.jar",
+          "artifact_role": "payload",
+          "size_bytes": 10,
+          "extension": "jar",
+          "classifier": "sources"
+        }
+      },
+      {
+        "source_id": "5ea713a5eb385471a4a3cba7255336644ec25a84dcab889b5fab611fefb994d5",
+        "source_path": "/home/maven-fixture/.m2/repository/org/example/widgets/1.0/widgets-1.0.jar",
+        "package_name": "org.example:widgets",
+        "group_id": "org.example",
+        "artifact_id": "widgets",
+        "evidence": "cached_artifact",
+        "tool": "maven",
+        "scope": "user",
+        "version_status": "known",
+        "version": "1.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "maven",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "widgets-1.0.jar",
+          "path": "/home/maven-fixture/.m2/repository/org/example/widgets/1.0/widgets-1.0.jar",
+          "artifact_role": "payload",
+          "size_bytes": 10,
+          "extension": "jar",
+          "classifier": ""
+        }
+      },
+      {
+        "source_id": "4bf789ea849b7aff6dbc8055fe88ee23623f2f469c6bd45c0f86d773ed1210df",
+        "source_path": "/home/maven-fixture/.m2/repository/org/example/widgets/1.0/widgets-1.0.pom",
+        "package_name": "org.example:widgets",
+        "group_id": "org.example",
+        "artifact_id": "widgets",
+        "evidence": "cached_artifact",
+        "tool": "maven",
+        "scope": "user",
+        "version_status": "known",
+        "version": "1.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "maven",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "widgets-1.0.pom",
+          "path": "/home/maven-fixture/.m2/repository/org/example/widgets/1.0/widgets-1.0.pom",
+          "artifact_role": "metadata",
+          "size_bytes": 365,
+          "extension": "pom",
+          "classifier": "",
+          "local_install_marker_present": true
+        }
+      },
+      {
+        "source_id": "a9382c75a677c7c2ace491f8d2cea7b90dd0c73728e1465385780adadd640716",
+        "source_path": "/home/maven-fixture/custom-repo/org/example/custom/1.0/custom-1.0.jar",
+        "package_name": "org.example:custom",
+        "group_id": "org.example",
+        "artifact_id": "custom",
+        "evidence": "cached_artifact",
+        "tool": "maven",
+        "scope": "custom",
+        "version_status": "known",
+        "version": "1.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "maven",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "artifact": {
+          "filename": "custom-1.0.jar",
+          "path": "/home/maven-fixture/custom-repo/org/example/custom/1.0/custom-1.0.jar",
+          "artifact_role": "payload",
+          "size_bytes": 10,
+          "extension": "jar",
+          "classifier": ""
+        }
+      },
+      {
+        "source_id": "c3b1b7f7377e49d2288b1162b44b40d8cf68790ba188ba3dc8fbd3f8a0219792",
+        "source_path": "/home/maven-fixture/projects/gradleapp/gradle.lockfile",
+        "package_name": "com.squareup.okhttp3:okhttp",
+        "group_id": "com.squareup.okhttp3",
+        "artifact_id": "okhttp",
+        "evidence": "locked_package",
+        "project_path": "/home/maven-fixture/projects/gradleapp",
+        "tool": "gradle",
+        "scope": "project",
+        "version_status": "known",
+        "version": "4.12.0",
+        "requested_specs": [],
+        "configurations": [
+          "runtimeClasspath"
+        ],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "c3b1b7f7377e49d2288b1162b44b40d8cf68790ba188ba3dc8fbd3f8a0219792",
+        "source_path": "/home/maven-fixture/projects/gradleapp/gradle.lockfile",
+        "package_name": "org.example:widgets",
+        "group_id": "org.example",
+        "artifact_id": "widgets",
+        "evidence": "locked_package",
+        "project_path": "/home/maven-fixture/projects/gradleapp",
+        "tool": "gradle",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.0",
+        "requested_specs": [],
+        "configurations": [
+          "compileClasspath",
+          "runtimeClasspath",
+          "testCompileClasspath"
+        ],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "4b9f19171c872247346cf3355b303d0025b38e4b6eee786de1f2b03e4fc6b0f9",
+        "source_path": "/home/maven-fixture/projects/gradleapp/gradle/dependency-locks/legacyOnly.lockfile",
+        "package_name": "org.example:legacy",
+        "group_id": "org.example",
+        "artifact_id": "legacy",
+        "evidence": "locked_package",
+        "project_path": "/home/maven-fixture/projects/gradleapp",
+        "tool": "gradle",
+        "scope": "project",
+        "version_status": "known",
+        "version": "0.1",
+        "requested_specs": [],
+        "configurations": [
+          "legacyOnly"
+        ],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "e946357419b7ffed27f98e77c3adc0d08633f3b3ccc6088b4417fcc224d717d8",
+        "source_path": "/home/maven-fixture/projects/gradleapp/gradle/libs.versions.toml",
+        "package_name": "com.google.guava:guava",
+        "group_id": "com.google.guava",
+        "artifact_id": "guava",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/gradleapp",
+        "tool": "gradle",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [
+          "prefer=32.1.3-jre",
+          "reject=32.0.0",
+          "strictly=[32.0, 33.0)"
+        ],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "catalog_entry",
+        "declaration_context": "catalog:guava"
+      },
+      {
+        "source_id": "e946357419b7ffed27f98e77c3adc0d08633f3b3ccc6088b4417fcc224d717d8",
+        "source_path": "/home/maven-fixture/projects/gradleapp/gradle/libs.versions.toml",
+        "package_name": "com.squareup.okhttp3:okhttp",
+        "group_id": "com.squareup.okhttp3",
+        "artifact_id": "okhttp",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/gradleapp",
+        "tool": "gradle",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [
+          "4.12.0"
+        ],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "catalog_entry",
+        "declaration_context": "catalog:okhttp"
+      },
+      {
+        "source_id": "e946357419b7ffed27f98e77c3adc0d08633f3b3ccc6088b4417fcc224d717d8",
+        "source_path": "/home/maven-fixture/projects/gradleapp/gradle/libs.versions.toml",
+        "package_name": "junit:junit",
+        "group_id": "junit",
+        "artifact_id": "junit",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/gradleapp",
+        "tool": "gradle",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [
+          "4.13.2"
+        ],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "catalog_entry",
+        "declaration_context": "catalog:junit"
+      },
+      {
+        "source_id": "e946357419b7ffed27f98e77c3adc0d08633f3b3ccc6088b4417fcc224d717d8",
+        "source_path": "/home/maven-fixture/projects/gradleapp/gradle/libs.versions.toml",
+        "package_name": "org.example:missing",
+        "group_id": "org.example",
+        "artifact_id": "missing",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/gradleapp",
+        "tool": "gradle",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "catalog_entry",
+        "declaration_context": "catalog:missing"
+      },
+      {
+        "source_id": "e946357419b7ffed27f98e77c3adc0d08633f3b3ccc6088b4417fcc224d717d8",
+        "source_path": "/home/maven-fixture/projects/gradleapp/gradle/libs.versions.toml",
+        "package_name": "org.example:nover",
+        "group_id": "org.example",
+        "artifact_id": "nover",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/gradleapp",
+        "tool": "gradle",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "catalog_entry",
+        "declaration_context": "catalog:nover"
+      },
+      {
+        "source_id": "57fd441ce0a94699204491de552ecc2776b8a091609dda58c707ff3a676bd954",
+        "source_path": "/home/maven-fixture/projects/gradleapp/gradle/verification-metadata.xml",
+        "package_name": "org.example:widgets",
+        "group_id": "org.example",
+        "artifact_id": "widgets",
+        "evidence": "verification_reference",
+        "project_path": "/home/maven-fixture/projects/gradleapp",
+        "tool": "gradle",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "1111111111111111111111111111111111111111111111111111111111111111",
+            "source_id": "57fd441ce0a94699204491de552ecc2776b8a091609dda58c707ff3a676bd954",
+            "source_kind": "verification_metadata",
+            "source_path": "/home/maven-fixture/projects/gradleapp/gradle/verification-metadata.xml",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "2222222222222222222222222222222222222222222222222222222222222222",
+            "source_id": "57fd441ce0a94699204491de552ecc2776b8a091609dda58c707ff3a676bd954",
+            "source_kind": "verification_metadata",
+            "source_path": "/home/maven-fixture/projects/gradleapp/gradle/verification-metadata.xml",
+            "verification": "not_verified"
+          }
+        ],
+        "reasons": [],
+        "artifact": {
+          "filename": "widgets-1.0.jar"
+        }
+      },
+      {
+        "source_id": "57fd441ce0a94699204491de552ecc2776b8a091609dda58c707ff3a676bd954",
+        "source_path": "/home/maven-fixture/projects/gradleapp/gradle/verification-metadata.xml",
+        "package_name": "org.example:widgets",
+        "group_id": "org.example",
+        "artifact_id": "widgets",
+        "evidence": "verification_reference",
+        "project_path": "/home/maven-fixture/projects/gradleapp",
+        "tool": "gradle",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.0",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [
+          "checksum_invalid"
+        ],
+        "artifact": {
+          "filename": "widgets-1.0.pom"
+        }
+      },
+      {
+        "source_id": "5a75b65fe777ecf4f82b588e1f9e5ecced65bc6f27c88ff161fad13add9f16db",
+        "source_path": "/home/maven-fixture/projects/mvnapp/pom.xml",
+        "package_name": "org.apache.maven.plugins:maven-compiler-plugin",
+        "group_id": "org.apache.maven.plugins",
+        "artifact_id": "maven-compiler-plugin",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/mvnapp",
+        "tool": "maven",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [
+          "3.13.0"
+        ],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "plugin"
+      },
+      {
+        "source_id": "5a75b65fe777ecf4f82b588e1f9e5ecced65bc6f27c88ff161fad13add9f16db",
+        "source_path": "/home/maven-fixture/projects/mvnapp/pom.xml",
+        "package_name": "org.example:bom",
+        "group_id": "org.example",
+        "artifact_id": "bom",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/mvnapp",
+        "tool": "maven",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [
+          "2.0"
+        ],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "bom_import",
+        "maven_scope": "import",
+        "declared_type": "pom"
+      },
+      {
+        "source_id": "5a75b65fe777ecf4f82b588e1f9e5ecced65bc6f27c88ff161fad13add9f16db",
+        "source_path": "/home/maven-fixture/projects/mvnapp/pom.xml",
+        "package_name": "org.example:ci-only",
+        "group_id": "org.example",
+        "artifact_id": "ci-only",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/mvnapp",
+        "tool": "maven",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [
+          "1.0"
+        ],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "direct",
+        "profile_id": "ci"
+      },
+      {
+        "source_id": "5a75b65fe777ecf4f82b588e1f9e5ecced65bc6f27c88ff161fad13add9f16db",
+        "source_path": "/home/maven-fixture/projects/mvnapp/pom.xml",
+        "package_name": "org.example:ext",
+        "group_id": "org.example",
+        "artifact_id": "ext",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/mvnapp",
+        "tool": "maven",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [
+          "1.0"
+        ],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "extension"
+      },
+      {
+        "source_id": "5a75b65fe777ecf4f82b588e1f9e5ecced65bc6f27c88ff161fad13add9f16db",
+        "source_path": "/home/maven-fixture/projects/mvnapp/pom.xml",
+        "package_name": "org.example:leaky",
+        "group_id": "org.example",
+        "artifact_id": "leaky",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/mvnapp",
+        "tool": "maven",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [
+          "[redacted]"
+        ],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [
+          "redacted_requirement"
+        ],
+        "declaration_role": "direct"
+      },
+      {
+        "source_id": "5a75b65fe777ecf4f82b588e1f9e5ecced65bc6f27c88ff161fad13add9f16db",
+        "source_path": "/home/maven-fixture/projects/mvnapp/pom.xml",
+        "package_name": "org.example:managed-plugin",
+        "group_id": "org.example",
+        "artifact_id": "managed-plugin",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/mvnapp",
+        "tool": "maven",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [
+          "1.0"
+        ],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "managed_plugin"
+      },
+      {
+        "source_id": "5a75b65fe777ecf4f82b588e1f9e5ecced65bc6f27c88ff161fad13add9f16db",
+        "source_path": "/home/maven-fixture/projects/mvnapp/pom.xml",
+        "package_name": "org.example:parent",
+        "group_id": "org.example",
+        "artifact_id": "parent",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/mvnapp",
+        "tool": "maven",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [
+          "1.0"
+        ],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "parent"
+      },
+      {
+        "source_id": "5a75b65fe777ecf4f82b588e1f9e5ecced65bc6f27c88ff161fad13add9f16db",
+        "source_path": "/home/maven-fixture/projects/mvnapp/pom.xml",
+        "package_name": "org.example:plugin-helper",
+        "group_id": "org.example",
+        "artifact_id": "plugin-helper",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/mvnapp",
+        "tool": "maven",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [
+          "1.0"
+        ],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "plugin_dependency",
+        "declaration_context": "plugin:org.apache.maven.plugins:maven-compiler-plugin"
+      },
+      {
+        "source_id": "5a75b65fe777ecf4f82b588e1f9e5ecced65bc6f27c88ff161fad13add9f16db",
+        "source_path": "/home/maven-fixture/projects/mvnapp/pom.xml",
+        "package_name": "org.example:widgets",
+        "group_id": "org.example",
+        "artifact_id": "widgets",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/mvnapp",
+        "tool": "maven",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [
+          "${widgets.version}",
+          "1.0"
+        ],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "direct"
+      },
+      {
+        "source_id": "5a75b65fe777ecf4f82b588e1f9e5ecced65bc6f27c88ff161fad13add9f16db",
+        "source_path": "/home/maven-fixture/projects/mvnapp/pom.xml",
+        "package_name": "org.example:widgets",
+        "group_id": "org.example",
+        "artifact_id": "widgets",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/mvnapp",
+        "tool": "maven",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [
+          "1.0"
+        ],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "direct",
+        "maven_scope": "test",
+        "declared_classifier": "sources",
+        "optional": true
+      },
+      {
+        "source_id": "5a75b65fe777ecf4f82b588e1f9e5ecced65bc6f27c88ff161fad13add9f16db",
+        "source_path": "/home/maven-fixture/projects/mvnapp/pom.xml",
+        "package_name": "org.example:widgets",
+        "group_id": "org.example",
+        "artifact_id": "widgets",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/mvnapp",
+        "tool": "maven",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "direct",
+        "declared_classifier": ""
+      },
+      {
+        "source_id": "5a75b65fe777ecf4f82b588e1f9e5ecced65bc6f27c88ff161fad13add9f16db",
+        "source_path": "/home/maven-fixture/projects/mvnapp/pom.xml",
+        "package_name": "org.example:widgets",
+        "group_id": "org.example",
+        "artifact_id": "widgets",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/mvnapp",
+        "tool": "maven",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [
+          "[1.0, 2.0)"
+        ],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "managed"
+      },
+      {
+        "source_id": "5a75b65fe777ecf4f82b588e1f9e5ecced65bc6f27c88ff161fad13add9f16db",
+        "source_path": "/home/maven-fixture/projects/mvnapp/pom.xml",
+        "package_name": "org.scala-lang:scala-library_2.13",
+        "group_id": "org.scala-lang",
+        "artifact_id": "scala-library_2.13",
+        "evidence": "declared_dependency",
+        "project_path": "/home/maven-fixture/projects/mvnapp",
+        "tool": "maven",
+        "scope": "project",
+        "version_status": "unknown",
+        "requested_specs": [],
+        "configurations": [],
+        "repository_format": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": [],
+        "declaration_role": "direct"
+      }
+    ]
+  },
+  "maven_config_audit": {
+    "schema_version": 1,
+    "status": "complete",
+    "reasons": [],
+    "files": [
+      {
+        "source_id": "9e5cf1031ba282ca4c40712005a3cc66933d908ef2eb64a9e1ad4726128b9da8",
+        "manager": "maven",
+        "scope": "process",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "c7c17e6876ce0f50d18e18ca86a3781f0767ce91a58f9cc9de220fd8e6dd9c84",
+        "manager": "maven",
+        "scope": "project",
+        "path": "/home/maven-fixture/projects/mixedapp/pom.xml",
+        "status": "present",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "73c183064de67426116c98d6af9741048f535370ed0adc739b14c8c19a67ec18",
+        "manager": "maven",
+        "scope": "project",
+        "path": "/home/maven-fixture/projects/mvnapp/.mvn/maven.config",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "aether.transport.https.securityMode",
+            "display": "insecure",
+            "source_id": "73c183064de67426116c98d6af9741048f535370ed0adc739b14c8c19a67ec18",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "b4094c36363f986bf42867d427854131be503fa9e319f87952f7a44d82f801d9",
+        "manager": "maven",
+        "scope": "project",
+        "path": "/home/maven-fixture/projects/mvnapp/.mvn/wrapper/maven-wrapper.properties",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "wrapper.distribution_checksum_configured",
+            "display": "false",
+            "source_id": "b4094c36363f986bf42867d427854131be503fa9e319f87952f7a44d82f801d9",
+            "redacted": false
+          },
+          {
+            "key": "wrapper.distribution_url",
+            "display": "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.9/apache-maven-3.9.9-bin.zip",
+            "source_id": "b4094c36363f986bf42867d427854131be503fa9e319f87952f7a44d82f801d9",
+            "redacted": false
+          },
+          {
+            "key": "wrapper.type",
+            "display": "bin",
+            "source_id": "b4094c36363f986bf42867d427854131be503fa9e319f87952f7a44d82f801d9",
+            "redacted": false
+          },
+          {
+            "key": "wrapper.wrapper_checksum_configured",
+            "display": "false",
+            "source_id": "b4094c36363f986bf42867d427854131be503fa9e319f87952f7a44d82f801d9",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "22c19e2b91f79895a24673ac789a98b06e23ea4e5be91f7c3d1d9a4ae0375c3a",
+        "manager": "maven",
+        "scope": "project",
+        "path": "/home/maven-fixture/projects/mvnapp/pom.xml",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "repositories.0.id",
+            "display": "insecure",
+            "source_id": "22c19e2b91f79895a24673ac789a98b06e23ea4e5be91f7c3d1d9a4ae0375c3a",
+            "redacted": false
+          },
+          {
+            "key": "repositories.0.kind",
+            "display": "dependency",
+            "source_id": "22c19e2b91f79895a24673ac789a98b06e23ea4e5be91f7c3d1d9a4ae0375c3a",
+            "redacted": false
+          },
+          {
+            "key": "repositories.0.url",
+            "display": "http://repo.example.invalid/maven",
+            "source_id": "22c19e2b91f79895a24673ac789a98b06e23ea4e5be91f7c3d1d9a4ae0375c3a",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+        "manager": "maven",
+        "scope": "user",
+        "path": "/home/maven-fixture/.m2/settings.xml",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "local_repository",
+            "display": "/home/maven-fixture/.m2/repository",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "mirrors.0.blocked",
+            "display": "false",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "mirrors.0.id",
+            "display": "corp",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "mirrors.0.mirror_of",
+            "display": "*,!local",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "mirrors.0.url",
+            "display": "http://mirror.example.invalid/maven2",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": true
+          },
+          {
+            "key": "mirrors.1.blocked",
+            "display": "true",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "mirrors.1.id",
+            "display": "blocked",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "mirrors.1.mirror_of",
+            "display": "external:http:*",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "mirrors.1.url",
+            "display": "http://blocked.example.invalid/",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "proxies.0.active",
+            "display": "true",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "proxies.0.auth_configured",
+            "display": "true",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": true
+          },
+          {
+            "key": "proxies.0.credential_form",
+            "display": "encrypted",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "proxies.0.host",
+            "display": "proxy.example.invalid",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "proxies.0.port",
+            "display": "8443",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "proxies.0.protocol",
+            "display": "https",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "repositories.0.id",
+            "display": "corp-releases",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "repositories.0.kind",
+            "display": "dependency",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "repositories.0.profile_activation",
+            "display": "unknown",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "repositories.0.profile_id",
+            "display": "corp",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "repositories.0.releases_checksum_policy",
+            "display": "warn",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "repositories.0.releases_update_policy",
+            "display": "interval:60",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "repositories.0.snapshots_enabled",
+            "display": "false",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "repositories.0.url",
+            "display": "https://repo.example.invalid/releases",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "servers.0.auth_configured",
+            "display": "true",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": true
+          },
+          {
+            "key": "servers.0.credential_form",
+            "display": "literal",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "servers.0.id",
+            "display": "corp",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "servers.1.auth_configured",
+            "display": "true",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": true
+          },
+          {
+            "key": "servers.1.credential_form",
+            "display": "reference",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          },
+          {
+            "key": "servers.1.id",
+            "display": "env",
+            "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+            "redacted": false
+          }
+        ]
+      }
+    ],
+    "contexts": [
+      {
+        "manager": "maven",
+        "config_source_ids": [
+          "9e5cf1031ba282ca4c40712005a3cc66933d908ef2eb64a9e1ad4726128b9da8",
+          "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "maven",
+        "project_path": "/home/maven-fixture/projects/mixedapp",
+        "config_source_ids": [
+          "9e5cf1031ba282ca4c40712005a3cc66933d908ef2eb64a9e1ad4726128b9da8",
+          "c7c17e6876ce0f50d18e18ca86a3781f0767ce91a58f9cc9de220fd8e6dd9c84",
+          "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "maven",
+        "project_path": "/home/maven-fixture/projects/mvnapp",
+        "config_source_ids": [
+          "9e5cf1031ba282ca4c40712005a3cc66933d908ef2eb64a9e1ad4726128b9da8",
+          "73c183064de67426116c98d6af9741048f535370ed0adc739b14c8c19a67ec18",
+          "b4094c36363f986bf42867d427854131be503fa9e319f87952f7a44d82f801d9",
+          "22c19e2b91f79895a24673ac789a98b06e23ea4e5be91f7c3d1d9a4ae0375c3a",
+          "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae"
+        ],
+        "selection_status": "observed"
+      }
+    ],
+    "credential_files": [
+      {
+        "path": "/home/maven-fixture/.m2/settings-security.xml",
+        "status": "present",
+        "presence": "present"
+      },
+      {
+        "path": "/home/maven-fixture/.m2/settings-security4.xml",
+        "status": "absent",
+        "presence": "absent"
+      }
+    ],
+    "findings": [
+      {
+        "code": "maven-001",
+        "severity": "MEDIUM",
+        "source_id": "22c19e2b91f79895a24673ac789a98b06e23ea4e5be91f7c3d1d9a4ae0375c3a",
+        "key": "repositories.0.url",
+        "detail": "A declared Maven repository uses an unencrypted HTTP URL; whether it is contacted is not established."
+      },
+      {
+        "code": "maven-001",
+        "severity": "MEDIUM",
+        "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+        "key": "mirrors.0.url",
+        "detail": "A declared unblocked Maven mirror uses an unencrypted HTTP URL; whether it is contacted is not established."
+      },
+      {
+        "code": "maven-002",
+        "severity": "LOW",
+        "source_id": "91db855cce0aa927cff0357ee1874159748dc60cdfcc209be16e8bab7052f5ae",
+        "key": "repositories.0.releases_checksum_policy",
+        "detail": "A declared Maven repository does not fail on checksum mismatches."
+      },
+      {
+        "code": "maven-003",
+        "severity": "MEDIUM",
+        "source_id": "73c183064de67426116c98d6af9741048f535370ed0adc739b14c8c19a67ec18",
+        "key": "aether.transport.https.securityMode",
+        "detail": "An option weakens Maven TLS verification; transport applicability is not established."
+      },
+      {
+        "code": "maven-005",
+        "severity": "LOW",
+        "source_id": "b4094c36363f986bf42867d427854131be503fa9e319f87952f7a44d82f801d9",
+        "key": "wrapper.distribution_checksum_configured",
+        "detail": "The wrapper properties set no distribution checksum, a missing defense rather than proven execution."
+      }
+    ]
+  },
+  "gradle_config_audit": {
+    "schema_version": 1,
+    "status": "complete",
+    "reasons": [],
+    "files": [
+      {
+        "source_id": "eba97eb14b97306aee311791d9d0452be69527afb5d1ec83131ff17534498987",
+        "manager": "gradle",
+        "scope": "process",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "4f71e6d71aa640e7eb7a4cc6301bdd9822ba214ff500d05751440e25a2d7b9b5",
+        "manager": "gradle",
+        "scope": "project",
+        "path": "/home/maven-fixture/projects/gradleapp/gradle.properties",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "org.gradle.dependency.verification",
+            "display": "off",
+            "source_id": "4f71e6d71aa640e7eb7a4cc6301bdd9822ba214ff500d05751440e25a2d7b9b5",
+            "redacted": false
+          },
+          {
+            "key": "org.gradle.mirror.maven.settings",
+            "display": "true",
+            "source_id": "4f71e6d71aa640e7eb7a4cc6301bdd9822ba214ff500d05751440e25a2d7b9b5",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "ce5e8e7ef0ef14beba9e9888e93e3e565a9a5cbda2a17fada034ffd3c8478ddf",
+        "manager": "gradle",
+        "scope": "project",
+        "path": "/home/maven-fixture/projects/gradleapp/gradle/verification-metadata.xml",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "verification.trusted_artifacts_present",
+            "display": "true",
+            "source_id": "ce5e8e7ef0ef14beba9e9888e93e3e565a9a5cbda2a17fada034ffd3c8478ddf",
+            "redacted": false
+          },
+          {
+            "key": "verification.verify_metadata",
+            "display": "false",
+            "source_id": "ce5e8e7ef0ef14beba9e9888e93e3e565a9a5cbda2a17fada034ffd3c8478ddf",
+            "redacted": false
+          },
+          {
+            "key": "verification.verify_signatures",
+            "display": "false",
+            "source_id": "ce5e8e7ef0ef14beba9e9888e93e3e565a9a5cbda2a17fada034ffd3c8478ddf",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "e3b4d84b93a4e7608280faa829d7e7bf6f56a9c152f121c703671cc371330af5",
+        "manager": "gradle",
+        "scope": "project",
+        "path": "/home/maven-fixture/projects/gradleapp/gradle/wrapper/gradle-wrapper.properties",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "wrapper.distribution_checksum_configured",
+            "display": "false",
+            "source_id": "e3b4d84b93a4e7608280faa829d7e7bf6f56a9c152f121c703671cc371330af5",
+            "redacted": false
+          },
+          {
+            "key": "wrapper.distribution_url",
+            "display": "http://services.gradle.org/distributions/gradle-8.10-bin.zip",
+            "source_id": "e3b4d84b93a4e7608280faa829d7e7bf6f56a9c152f121c703671cc371330af5",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "fa5d369cbbce12a00e217590310ef8d004306c56e4ecd64b8c016c45c16f9229",
+        "manager": "gradle",
+        "scope": "user",
+        "path": "/home/maven-fixture/.gradle/gradle.properties",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "proxy.https.auth_configured",
+            "display": "true",
+            "source_id": "fa5d369cbbce12a00e217590310ef8d004306c56e4ecd64b8c016c45c16f9229",
+            "redacted": true
+          },
+          {
+            "key": "proxy.https.credential_form",
+            "display": "literal",
+            "source_id": "fa5d369cbbce12a00e217590310ef8d004306c56e4ecd64b8c016c45c16f9229",
+            "redacted": false
+          },
+          {
+            "key": "proxy.https.host",
+            "display": "proxy.example.invalid",
+            "source_id": "fa5d369cbbce12a00e217590310ef8d004306c56e4ecd64b8c016c45c16f9229",
+            "redacted": false
+          },
+          {
+            "key": "proxy.https.port",
+            "display": "3128",
+            "source_id": "fa5d369cbbce12a00e217590310ef8d004306c56e4ecd64b8c016c45c16f9229",
+            "redacted": false
+          }
+        ]
+      }
+    ],
+    "contexts": [
+      {
+        "manager": "gradle",
+        "config_source_ids": [
+          "eba97eb14b97306aee311791d9d0452be69527afb5d1ec83131ff17534498987",
+          "fa5d369cbbce12a00e217590310ef8d004306c56e4ecd64b8c016c45c16f9229"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "gradle",
+        "project_path": "/home/maven-fixture/projects/gradleapp",
+        "config_source_ids": [
+          "eba97eb14b97306aee311791d9d0452be69527afb5d1ec83131ff17534498987",
+          "fa5d369cbbce12a00e217590310ef8d004306c56e4ecd64b8c016c45c16f9229",
+          "4f71e6d71aa640e7eb7a4cc6301bdd9822ba214ff500d05751440e25a2d7b9b5",
+          "e3b4d84b93a4e7608280faa829d7e7bf6f56a9c152f121c703671cc371330af5",
+          "ce5e8e7ef0ef14beba9e9888e93e3e565a9a5cbda2a17fada034ffd3c8478ddf"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "gradle",
+        "project_path": "/home/maven-fixture/projects/mixedapp",
+        "config_source_ids": [
+          "eba97eb14b97306aee311791d9d0452be69527afb5d1ec83131ff17534498987",
+          "fa5d369cbbce12a00e217590310ef8d004306c56e4ecd64b8c016c45c16f9229"
+        ],
+        "selection_status": "observed"
+      }
+    ],
+    "credential_files": [],
+    "findings": [
+      {
+        "code": "gradle-001",
+        "severity": "MEDIUM",
+        "source_id": "4f71e6d71aa640e7eb7a4cc6301bdd9822ba214ff500d05751440e25a2d7b9b5",
+        "key": "org.gradle.dependency.verification",
+        "detail": "Gradle dependency verification is disabled by properties."
+      },
+      {
+        "code": "gradle-003",
+        "severity": "MEDIUM",
+        "source_id": "e3b4d84b93a4e7608280faa829d7e7bf6f56a9c152f121c703671cc371330af5",
+        "key": "wrapper.distribution_url",
+        "detail": "The wrapper distribution URL uses an unencrypted HTTP connection."
+      },
+      {
+        "code": "gradle-004",
+        "severity": "LOW",
+        "source_id": "e3b4d84b93a4e7608280faa829d7e7bf6f56a9c152f121c703671cc371330af5",
+        "key": "wrapper.distribution_checksum_configured",
+        "detail": "The wrapper properties set no distribution checksum, a missing defense rather than proven execution."
+      },
+      {
+        "code": "gradle-005",
+        "severity": "LOW",
+        "source_id": "ce5e8e7ef0ef14beba9e9888e93e3e565a9a5cbda2a17fada034ffd3c8478ddf",
+        "key": "verification.verify_metadata",
+        "detail": "Gradle verification metadata disables metadata checking; artifact checksums are unaffected."
+      }
+    ]
+  }
+}

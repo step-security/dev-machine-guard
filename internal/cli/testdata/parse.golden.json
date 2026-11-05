@@ -36,6 +36,8 @@
         "$HOME"
       ],
       "TelemetryOutFile": "",
+      "UninstallNoRetire": false,
+      "UninstallRetire": false,
       "UseLegacyNodeScan": null,
       "UseLegacyPythonScan": null,
       "Verbose": false,
@@ -646,7 +648,7 @@
       "--device-id"
     ],
     "result": {
-      "error": "--device-id requires a value"
+      "error": "--device-id requires a value (a literal id, or a template over {serial} {hostname} {user}; \"-\" clears it)"
     }
   },
   {
@@ -935,6 +937,165 @@
     ],
     "result": {
       "error": "unknown option: --auto-update, run 'BINARY --help' for usage information"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--device-id=-"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--device-id",
+      "{hostname}-{user}"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--device-tag",
+      "t1"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--device-tag=t1"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--device-tag"
+    ],
+    "result": {
+      "error": "--device-tag requires a value (letters, digits, '.', '_', ':', '/', '-'; \"-\" clears it)"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--device-tag=-"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--device-tag="
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--retire-on-uninstall"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--retire-on-uninstall=true"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--retire-on-uninstall=false"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--retire-on-uninstall="
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--retire-on-uninstall=maybe"
+    ],
+    "result": {
+      "error": "--retire-on-uninstall accepts true or false, got \"maybe\""
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--retire-on-uninstall",
+      "true"
+    ],
+    "result": {
+      "error": "unknown option: true, run 'BINARY --help' for usage information"
+    }
+  },
+  {
+    "args": [
+      "uninstall",
+      "--retire"
+    ],
+    "result": {
+      "Command": "uninstall",
+      "UninstallRetire": true
+    }
+  },
+  {
+    "args": [
+      "uninstall",
+      "--no-retire"
+    ],
+    "result": {
+      "Command": "uninstall",
+      "UninstallNoRetire": true
+    }
+  },
+  {
+    "args": [
+      "uninstall",
+      "--retire",
+      "--no-retire"
+    ],
+    "result": {
+      "error": "--retire and --no-retire are mutually exclusive"
+    }
+  },
+  {
+    "args": [
+      "send-telemetry",
+      "--retire"
+    ],
+    "result": {
+      "error": "--retire / --no-retire apply to the uninstall command only"
     }
   },
   {

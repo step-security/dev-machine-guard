@@ -111,7 +111,7 @@ func TestAgentPluginsGolden_CoversTheWholeVocabulary(t *testing.T) {
 		what string
 		want []string
 	}{
-		{"agent", []string{AgentClaudeCode, AgentCodex, AgentCopilot}},
+		{"agent", []string{AgentClaudeCode, AgentCodex, AgentCopilot, AgentPi}},
 		{"status", []string{AgentScanStatusComplete, AgentScanStatusPartial, AgentScanStatusError, AgentScanStatusUnsupported}},
 		{"error", []string{AgentScanErrReadFailed, AgentScanErrParseFailed, AgentScanErrUnsupportedSchema, AgentScanErrLimitExceeded,
 			AgentScanErrUnsafePath, AgentScanErrSourceChanged, AgentScanErrRootUnresolved}},
@@ -120,10 +120,11 @@ func TestAgentPluginsGolden_CoversTheWholeVocabulary(t *testing.T) {
 		{"mode", []string{PluginCommandModeCopy, PluginCommandModeLink}},
 		{"install", []string{PluginInstallMarketplace, PluginInstallDirectory, PluginInstallSynced, PluginInstallAccount, PluginInstallUnknown}},
 		{"scope", []string{PluginScopeUser, PluginScopeProject, PluginScopeLocal, PluginScopeSystem, PluginScopeUnknown}},
-		{"evidence", []string{PluginEvidenceRegistry, PluginEvidenceLocalConfig, PluginEvidenceSkillDirectory, PluginEvidenceSyncedDirectory, PluginEvidenceRemoteMarker}},
-		{"manifest", []string{PluginManifestClaude, PluginManifestCodex, PluginManifestCopilot, PluginManifestCursor, PluginManifestPortable, PluginManifestCatalog, PluginManifestNone, PluginManifestUnknown}},
-		{"component", []string{PluginComponentSkill, PluginComponentCommand, PluginComponentMCP, PluginComponentAgent, PluginComponentHook, PluginComponentLSP, PluginComponentApp, PluginComponentRule}},
-		{"nested source", []string{"claude_plugin", "codex_plugin", "copilot_plugin"}},
+		{"evidence", []string{PluginEvidenceRegistry, PluginEvidenceLocalConfig, PluginEvidenceSkillDirectory, PluginEvidenceSyncedDirectory, PluginEvidenceRemoteMarker, PluginEvidenceExtensionDirectory}},
+		{"manifest", []string{PluginManifestClaude, PluginManifestCodex, PluginManifestCopilot, PluginManifestCursor, PluginManifestPortable, PluginManifestCatalog, PluginManifestPi, PluginManifestNone, PluginManifestUnknown}},
+		{"component", []string{PluginComponentSkill, PluginComponentCommand, PluginComponentMCP, PluginComponentAgent, PluginComponentHook, PluginComponentLSP, PluginComponentApp, PluginComponentRule,
+			PluginComponentExtension, PluginComponentPrompt, PluginComponentTheme}},
+		{"nested source", []string{"claude_plugin", "codex_plugin", "copilot_plugin", "pi_plugin"}},
 		// An empty kind denotes SKILL.md and remains valid beside explicit kinds.
 		{"definition", []string{"", AgentDefinitionSkill, AgentDefinitionCommand}},
 	} {
@@ -148,7 +149,7 @@ func TestAgentPluginsGolden_Invariants(t *testing.T) {
 	// Tri-state booleans: the fixture carries an explicit false for every one, and
 	// an absent one for every one, so neither can quietly collapse into the other.
 	type tri struct{ f, present, absent bool }
-	tris := map[string]*tri{"installed": {}, "files_present": {}, "configured_enabled": {}, "effective_enabled": {}, "auto_update_enabled": {}}
+	tris := map[string]*tri{"installed": {}, "files_present": {}, "configured_enabled": {}, "effective_enabled": {}, "auto_update_enabled": {}, "component configured_enabled": {}}
 	note := func(key string, v *bool) {
 		if v == nil {
 			tris[key].absent = true
@@ -168,6 +169,9 @@ func TestAgentPluginsGolden_Invariants(t *testing.T) {
 			note("files_present", p.FilesPresent)
 			note("configured_enabled", p.ConfiguredEnabled)
 			note("effective_enabled", p.EffectiveEnabled)
+			for _, comp := range p.Components {
+				note("component configured_enabled", comp.ConfiguredEnabled)
+			}
 		}
 	}
 	for key, st := range tris {
@@ -369,4 +373,40 @@ func TestAgentPluginsGolden_CopilotObservations(t *testing.T) {
 		return
 	}
 	t.Fatal("shared fixture is missing Copilot")
+}
+
+// Pi installations are directories with resource components, and a saved
+// per-resource selection is recorded at the component, never the installation.
+func TestAgentPluginsGolden_PiObservations(t *testing.T) {
+	_, doc := loadAgentPluginsGolden(t)
+	for _, c := range doc.AgentPlugins.Contexts {
+		if c.Agent != AgentPi {
+			continue
+		}
+		if len(c.Plugins) != 5 || len(c.Marketplaces) != 0 {
+			t.Fatalf("Pi plugins: %d, marketplaces: %d", len(c.Plugins), len(c.Marketplaces))
+		}
+		selections := 0
+		for _, p := range c.Plugins {
+			if p.InstallationKind != PluginInstallDirectory || p.ConfiguredEnabled != nil || p.EffectiveEnabled != nil {
+				t.Errorf("%s: installation kind or enablement changed", p.NativeID)
+			}
+			for _, comp := range p.Components {
+				if comp.Skill != nil && (comp.Skill.Agent != AgentPi || comp.Skill.Source != "pi_plugin" || comp.Skill.Usage != nil) {
+					t.Errorf("%s: Pi skill attribution or usage changed", comp.ComponentID)
+				}
+				if (comp.ConfiguredEnabled == nil) != (len(comp.Enablement) == 0) {
+					t.Errorf("%s: a saved selection needs its stating layer", comp.ComponentID)
+				}
+				if comp.ConfiguredEnabled != nil {
+					selections++
+				}
+			}
+		}
+		if selections == 0 {
+			t.Error("fixture has no saved Pi resource selection")
+		}
+		return
+	}
+	t.Fatal("shared fixture is missing Pi")
 }

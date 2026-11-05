@@ -175,7 +175,7 @@ func TestGather_LinuxDistroOnly(t *testing.T) {
 
 // TestGather_NoConsoleUser_DoesNotLeakRoot covers issue #63: when running as
 // a daemon on macOS and LoggedInUser() reports an error (no GUI console
-// user), getDeveloperIdentity must not silently fall back to the process's
+// user), developerIdentity must not silently fall back to the process's
 // own user (which under a LaunchDaemon is "root"). Identity should resolve
 // to "unknown" so the telemetry payload's no_user_logged_in flag fires.
 func TestGather_NoConsoleUser_DoesNotLeakRoot(t *testing.T) {
@@ -197,7 +197,7 @@ func TestGather_NoConsoleUser_DoesNotLeakRoot(t *testing.T) {
 }
 
 // TestGather_NoConsoleUser_EnvVarRescues asserts that the env-var path in
-// getDeveloperIdentity still works when LoggedInUser would error. Operators
+// developerIdentity still works when LoggedInUser would error. Operators
 // who populate USER_EMAIL/DEVELOPER_EMAIL in the daemon plist should still
 // get correct identity attribution even on no-console-user hosts.
 func TestGather_NoConsoleUser_EnvVarRescues(t *testing.T) {
@@ -372,5 +372,58 @@ func TestIDForGuestPrecedence(t *testing.T) {
 				t.Fatalf("IDForGuest = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestGather_DeviceIDDefaultsToSerial(t *testing.T) {
+	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
+	mock.SetGOOS("darwin")
+	mock.SetHostname("test-mac.local")
+	mock.SetCommand(`"IOPlatformSerialNumber" = "SERIAL123"`, "", 0, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
+	mock.SetUsername("devuser")
+
+	dev := Gather(context.Background(), mock)
+	if dev.SerialNumber != "SERIAL123" || dev.DeviceID != "SERIAL123" {
+		t.Fatalf("default identity must equal the serial: %+v", dev)
+	}
+	if dev.DeviceIDSource != IdentitySourceSerial || dev.IdentityPerUser || dev.IdentityIncomplete {
+		t.Fatalf("unexpected identity metadata: %+v", dev)
+	}
+}
+
+func TestGather_DeviceIDAndSerialDiffer(t *testing.T) {
+	withConfigDeviceID(t, "{hostname}-{user}")
+	mock := executor.NewMock()
+	t.Cleanup(ResetIDCache)
+	mock.SetGOOS("darwin")
+	mock.SetHostname("AVD-HOST-07")
+	mock.SetCommand(`"IOPlatformSerialNumber" = "SERIAL123"`, "", 0, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
+	mock.SetUsername("CONTOSO\\JDoe")
+
+	dev := Gather(context.Background(), mock)
+	if dev.DeviceID != "avd-host-07-jdoe" {
+		t.Fatalf("device id = %q", dev.DeviceID)
+	}
+	if dev.SerialNumber != "SERIAL123" {
+		t.Fatalf("serial must stay the hardware value, got %q", dev.SerialNumber)
+	}
+	if dev.DeviceIDSource != IdentitySourceConfig || !dev.IdentityPerUser || dev.IdentityIncomplete {
+		t.Fatalf("unexpected identity metadata: %+v", dev)
+	}
+	if got := ID(dev); got != "avd-host-07-jdoe" {
+		t.Fatalf("ID(dev) = %q, want the resolved template", got)
+	}
+
+	// Same machine, service-account context: the serial is still known (the
+	// process cache), but {user} cannot be completed.
+	mock.SetUsername("NT AUTHORITY\\SYSTEM")
+	mock.SetGOOS("windows")
+	dev = Gather(context.Background(), mock)
+	if !dev.IdentityIncomplete || dev.DeviceID != "" || dev.SerialNumber != "SERIAL123" {
+		t.Fatalf("SYSTEM with {user} must be incomplete but keep the serial: %+v", dev)
+	}
+	if got := ID(dev); got != "" {
+		t.Fatalf("ID(dev) for an incomplete identity = %q, want empty", got)
 	}
 }

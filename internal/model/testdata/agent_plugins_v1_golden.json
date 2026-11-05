@@ -1235,6 +1235,316 @@
         ],
         "errors": [],
         "context_id": "ctx_27b0f806087df0ecb9ebf1f42154e85d4d0a12a047e7be6c4b3cccaa38ffffbf"
+      },
+      {
+        "context_id": "ctx_54b47e80a5d27e4200158e30254d9835bc5c3a09017fa0a5d09474d5331fbeab",
+        "agent": "pi",
+        "config_root": "/Users/example-user/.pi/agent",
+        "plugin_root": "/Users/example-user/.pi/agent",
+        "agent_version": "1.4.0",
+        "marketplace_status": "complete",
+        "installation_status": "complete",
+        "marketplaces": [],
+        "plugins": [
+          {
+            "instance_id": "inst_df100aedfed80d8c8e2052d50876284fb4eb233e7bd85776516a1e694e3a0543",
+            "native_id": "git:github.com/acme/pi-kit",
+            "name": "github.com/acme/pi-kit",
+            "installation_kind": "directory",
+            "scope": "user",
+            "install_path": "/Users/example-user/.pi/agent/git/github.com/acme/pi-kit",
+            "source_path": "/Users/example-user/.pi/agent/git/github.com/acme/pi-kit",
+            "source": {
+              "kind": "git",
+              "location": "https://github.com/acme/pi-kit",
+              "requested_ref": "v1",
+              "resolved_revision": "0123456789abcdef0123456789abcdef01234567"
+            },
+            "manifest_format": "none",
+            "installed": true,
+            "files_present": true,
+            "installation_evidence": "local_config",
+            "enablement": [],
+            "component_status": "complete",
+            "components": [
+              {
+                "component_id": "comp_17346e8b0537f7a4dc75733f317a9fcecb3cb539360364142169de57931bce4b",
+                "kind": "skill",
+                "name": "hidden",
+                "relative_path": "skills/hidden/SKILL.md",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.pi/agent/git/github.com/acme/pi-kit/skills/hidden/SKILL.md",
+                "resolved_definition_path": "/Users/example-user/.pi/agent/git/github.com/acme/pi-kit/skills/hidden/SKILL.md",
+                "callable_names": [],
+                "skill": {
+                  "skill_slug": "hidden",
+                  "skill_name": "hidden",
+                  "description": "Hidden skill",
+                  "agent": "pi",
+                  "source": "pi_plugin",
+                  "scope": "global",
+                  "skill_dir_path": "/Users/example-user/.pi/agent/git/github.com/acme/pi-kit/skills/hidden",
+                  "root_rel_path": "hidden",
+                  "skill_md_path": "/Users/example-user/.pi/agent/git/github.com/acme/pi-kit/skills/hidden/SKILL.md",
+                  "skill_md_hash": "45c856d6586ba7ebbca6cdcb891ab309cc94359390e972818d8b234c03b30d26",
+                  "definition_kind": "skill",
+                  "definition_path": "/Users/example-user/.pi/agent/git/github.com/acme/pi-kit/skills/hidden/SKILL.md",
+                  "definition_hash": "45c856d6586ba7ebbca6cdcb891ab309cc94359390e972818d8b234c03b30d26",
+                  "file_count": 1,
+                  "total_size_bytes": 53,
+                  "has_frontmatter": true
+                },
+                "configured_enabled": false,
+                "enablement": [
+                  {
+                    "scope": "user",
+                    "source_path": "/Users/example-user/.pi/agent/settings.json",
+                    "enabled": false
+                  }
+                ]
+              },
+              {
+                "component_id": "comp_e427b2afd5167ce2a1c42fcd3bb9e0b143d47dab7d92debd165894a42f491eed",
+                "kind": "skill",
+                "name": "shown",
+                "relative_path": "skills/shown/SKILL.md",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.pi/agent/git/github.com/acme/pi-kit/skills/shown/SKILL.md",
+                "resolved_definition_path": "/Users/example-user/.pi/agent/git/github.com/acme/pi-kit/skills/shown/SKILL.md",
+                "callable_names": [],
+                "skill": {
+                  "skill_slug": "shown",
+                  "skill_name": "shown",
+                  "description": "Shown skill",
+                  "agent": "pi",
+                  "source": "pi_plugin",
+                  "scope": "global",
+                  "skill_dir_path": "/Users/example-user/.pi/agent/git/github.com/acme/pi-kit/skills/shown",
+                  "root_rel_path": "shown",
+                  "skill_md_path": "/Users/example-user/.pi/agent/git/github.com/acme/pi-kit/skills/shown/SKILL.md",
+                  "skill_md_hash": "bb30b35129996c5e75916ee0dcf9f053f02b4f134af82350d7146827e39be093",
+                  "definition_kind": "skill",
+                  "definition_path": "/Users/example-user/.pi/agent/git/github.com/acme/pi-kit/skills/shown/SKILL.md",
+                  "definition_hash": "bb30b35129996c5e75916ee0dcf9f053f02b4f134af82350d7146827e39be093",
+                  "file_count": 1,
+                  "total_size_bytes": 51,
+                  "has_frontmatter": true
+                },
+                "configured_enabled": true,
+                "enablement": [
+                  {
+                    "scope": "user",
+                    "source_path": "/Users/example-user/.pi/agent/settings.json",
+                    "enabled": true
+                  }
+                ]
+              }
+            ],
+            "errors": []
+          },
+          {
+            "instance_id": "inst_34c1011be5e3f8fd86d7020165066ab17a3c5115d5380cf6c1ee1d43d07a8bab",
+            "native_id": "local:/Users/example-user/.pi/agent/extensions/off.ts",
+            "name": "off.ts",
+            "installation_kind": "directory",
+            "scope": "user",
+            "install_path": "/Users/example-user/.pi/agent/extensions",
+            "source_path": "/Users/example-user/.pi/agent/extensions/off.ts",
+            "source": {
+              "kind": "local",
+              "location": "/Users/example-user/.pi/agent/extensions/off.ts"
+            },
+            "manifest_format": "none",
+            "installed": true,
+            "files_present": true,
+            "installation_evidence": "extension_directory",
+            "enablement": [],
+            "component_status": "complete",
+            "components": [
+              {
+                "component_id": "comp_f1b327f126a26d1ba6864b6218b7d5bf857b094a0695d85fff13da851799d172",
+                "kind": "extension",
+                "name": "off.ts",
+                "relative_path": "off.ts",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.pi/agent/extensions/off.ts",
+                "callable_names": [],
+                "configured_enabled": false,
+                "enablement": [
+                  {
+                    "scope": "user",
+                    "source_path": "/Users/example-user/.pi/agent/settings.json",
+                    "enabled": false
+                  }
+                ]
+              }
+            ],
+            "errors": []
+          },
+          {
+            "instance_id": "inst_92441219e01db6c3b3c32916c208582e5fe79a32654179c6723c4bcbc114a474",
+            "native_id": "local:/Users/example-user/src/example-repo/.pi/extensions/repo-tools",
+            "name": "repo-tools",
+            "installation_kind": "directory",
+            "scope": "project",
+            "project_path": "/Users/example-user/src/example-repo",
+            "install_path": "/Users/example-user/src/example-repo/.pi/extensions/repo-tools",
+            "source_path": "/Users/example-user/src/example-repo/.pi/extensions/repo-tools",
+            "source": {
+              "kind": "local",
+              "location": "/Users/example-user/src/example-repo/.pi/extensions/repo-tools"
+            },
+            "manifest_format": "none",
+            "installed": true,
+            "files_present": true,
+            "installation_evidence": "extension_directory",
+            "enablement": [],
+            "component_status": "complete",
+            "components": [
+              {
+                "component_id": "comp_ea782fa668cffbd16bb601a9bbf7149c7865110bc63ad33f69c3e23be7de669e",
+                "kind": "extension",
+                "name": "index.ts",
+                "relative_path": "index.ts",
+                "status": "complete",
+                "definition_path": "/Users/example-user/src/example-repo/.pi/extensions/repo-tools/index.ts",
+                "callable_names": []
+              }
+            ],
+            "errors": []
+          },
+          {
+            "instance_id": "inst_d9d7a828cc33e72c48be8324ec5b7d4b7db0e9c86c60a5ad1a1454763cf4ba71",
+            "native_id": "npm:@acme/missing",
+            "name": "@acme/missing",
+            "installation_kind": "directory",
+            "scope": "user",
+            "install_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/missing",
+            "source_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/missing",
+            "source": {
+              "kind": "npm",
+              "package_name": "@acme/missing"
+            },
+            "manifest_format": "none",
+            "installed": false,
+            "files_present": false,
+            "installation_evidence": "local_config",
+            "enablement": [],
+            "component_status": "partial",
+            "components": [],
+            "errors": [
+              {
+                "code": "read_failed",
+                "source_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/missing",
+                "instance_id": "inst_d9d7a828cc33e72c48be8324ec5b7d4b7db0e9c86c60a5ad1a1454763cf4ba71"
+              }
+            ]
+          },
+          {
+            "instance_id": "inst_6d88b0d277497bde253d6955e48bf7db4944945886ef9928ba544245720393ca",
+            "native_id": "npm:@acme/pi-tools",
+            "name": "@acme/pi-tools",
+            "manifest_name": "@acme/pi-tools",
+            "installation_kind": "directory",
+            "scope": "user",
+            "install_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/pi-tools",
+            "source_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/pi-tools",
+            "manifest_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/pi-tools/package.json",
+            "source": {
+              "kind": "npm",
+              "package_name": "@acme/pi-tools",
+              "package_version": "1.2.0"
+            },
+            "manifest_format": "pi",
+            "manifest_version": "1.2.0",
+            "installed": true,
+            "files_present": true,
+            "installation_evidence": "local_config",
+            "enablement": [],
+            "component_status": "complete",
+            "components": [
+              {
+                "component_id": "comp_1bdbb58c0ff1354efdcda89d14e2f0b7bdbb316a7aee737268606de43cd619ff",
+                "kind": "extension",
+                "name": "src/index.ts",
+                "relative_path": "src/index.ts",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/pi-tools/src/index.ts",
+                "callable_names": []
+              },
+              {
+                "component_id": "comp_1c336fc9d304c7f4e9ac108e17777e5b72ec26e0cf49cbd26a12f0972a890d24",
+                "kind": "theme",
+                "name": "dusk",
+                "relative_path": "themes/dusk.json",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/pi-tools/themes/dusk.json",
+                "callable_names": []
+              },
+              {
+                "component_id": "comp_7aea2e4d0c2701c6d3e76ea00dfe85536512d8e53d07f2af0f7a32605ff1b2fb",
+                "kind": "skill",
+                "name": "triage",
+                "relative_path": "skills/triage.md",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/pi-tools/skills/triage.md",
+                "resolved_definition_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/pi-tools/skills/triage.md",
+                "callable_names": [],
+                "skill": {
+                  "skill_slug": "skills",
+                  "skill_name": "triage",
+                  "description": "Triage an issue",
+                  "agent": "pi",
+                  "source": "pi_plugin",
+                  "scope": "global",
+                  "definition_kind": "skill",
+                  "definition_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/pi-tools/skills/triage.md",
+                  "definition_hash": "a1a0fc956e2ae281b6212e58ba9ae028ac63a013892fad4f8f00b5129615530c",
+                  "has_frontmatter": true
+                }
+              },
+              {
+                "component_id": "comp_802fa3f1f1d4280ee8543f50c4ccd1f3ee6e3df6e7fb8ccf09b1330d94285e02",
+                "kind": "skill",
+                "name": "review",
+                "relative_path": "skills/review/SKILL.md",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/pi-tools/skills/review/SKILL.md",
+                "resolved_definition_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/pi-tools/skills/review/SKILL.md",
+                "callable_names": [],
+                "skill": {
+                  "skill_slug": "review",
+                  "skill_name": "review",
+                  "description": "Review a change",
+                  "agent": "pi",
+                  "source": "pi_plugin",
+                  "scope": "global",
+                  "skill_dir_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/pi-tools/skills/review",
+                  "root_rel_path": "review",
+                  "skill_md_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/pi-tools/skills/review/SKILL.md",
+                  "skill_md_hash": "b7f63a65f1631cd45a3491c9abcb71a40544a056b4fa78b96340b221d881893d",
+                  "definition_kind": "skill",
+                  "definition_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/pi-tools/skills/review/SKILL.md",
+                  "definition_hash": "b7f63a65f1631cd45a3491c9abcb71a40544a056b4fa78b96340b221d881893d",
+                  "file_count": 1,
+                  "total_size_bytes": 56,
+                  "has_frontmatter": true
+                }
+              },
+              {
+                "component_id": "comp_b6a145ed70221157f43ea7361c341d390574b3e4605af4bdb81a654ea12012b0",
+                "kind": "prompt",
+                "name": "fix",
+                "relative_path": "prompts/fix.md",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.pi/agent/npm/node_modules/@acme/pi-tools/prompts/fix.md",
+                "callable_names": []
+              }
+            ],
+            "errors": []
+          }
+        ],
+        "errors": []
       }
     ]
   },

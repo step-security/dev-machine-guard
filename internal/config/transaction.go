@@ -52,7 +52,14 @@ func explicitIdentities(data []byte, includeDevice bool) (map[string]string, err
 		if err := json.Unmarshal(value, &raw); err != nil {
 			return nil, err
 		}
-		id, err := identity.Normalize(raw, kind)
+		// A device id may also be a template the agent expands per scan, or
+		// "-" to clear the override; a user id is always a literal.
+		var id string
+		if kind == "device" {
+			id, err = identity.NormalizeDevice(raw)
+		} else {
+			id, err = identity.Normalize(raw, kind)
+		}
 		if err != nil {
 			return nil, err
 		}

@@ -71,6 +71,9 @@ type Payload struct {
 	CustomerID           string                 `json:"customer_id"`
 	DeviceID             string                 `json:"device_id"`
 	SerialNumber         string                 `json:"serial_number"`
+	DeviceIDSource       string                 `json:"device_id_source,omitempty"` // env | config | auto | serial | wsl_guest
+	DeviceTag            string                 `json:"device_tag"`                 // config.json device_tag; always present so the backend can tell "cleared" from "older agent"
+	Virtualization       *model.Virtualization  `json:"virtualization,omitempty"`
 	UserIdentity         string                 `json:"user_identity"`
 	Hostname             string                 `json:"hostname"`
 	Platform             string                 `json:"platform"`
@@ -145,6 +148,9 @@ type Payload struct {
 	RubyConfigAudit     *model.RubyConfigAudit     `json:"ruby_config_audit,omitempty"`
 	CondaInventory      *model.CondaInventory      `json:"conda_inventory,omitempty"`
 	CondaConfigAudit    *model.CondaConfigAudit    `json:"conda_config_audit,omitempty"`
+	MavenInventory      *model.MavenInventory      `json:"maven_inventory,omitempty"`
+	MavenConfigAudit    *model.MavenConfigAudit    `json:"maven_config_audit,omitempty"`
+	GradleConfigAudit   *model.GradleConfigAudit   `json:"gradle_config_audit,omitempty"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -445,11 +451,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	fmt.Fprintf(os.Stderr, "StepSecurity Device Agent v%s\n", buildinfo.Version)
 	fmt.Fprintf(os.Stderr, "==========================================\n\n")
 
-	// Resolve the serial before the lock so a refused run is attributable
-	// (the backend rejects an empty device_id).
+	// Resolve the identity before the lock so a refused run is attributable
+	// under the same id the scan would report (a configured or automatic
+	// identity, not only the serial). An incomplete identity leaves it empty
+	// and the lock_held beacon is skipped; the run gate reports that case.
 	serialCtx, serialCancel := context.WithTimeout(ctx, serialProbeTimeout)
-	probed := model.Device{SerialNumber: device.SerialNumber(serialCtx, exec)}
+	ident := device.ResolvedDeviceID(serialCtx, exec)
 	serialCancel()
+	probed := model.Device{SerialNumber: ident.Serial, DeviceID: ident.DeviceID, DeviceIDSource: ident.Source, IdentityIncomplete: ident.Incomplete}
 	wslGuest := wslGuestFromConfig(cfg)
 	if wslGuest != nil {
 		deviceID = device.IDForGuest(probed, wslGuest.HostDeviceID, wslGuest.DistroID)
@@ -483,6 +492,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	}()
 	log.Progress("Lock acquired (PID: %d)", os.Getpid())
 
+	// A run under the machine identity that waited in the gate or on the
+	// lock may have been overtaken by another user's switch to per-user
+	// identities; its upload would restore the row that switch just retired.
+	if serialRunSuperseded(exec, ident, wslGuest) {
+		log.Progress("Identity switch: this host became multi-user while this run was waiting; skipping this run under the machine identity %s (the next run reports per user)", deviceID)
+		return nil
+	}
+
 	// Scheduler info — first tracked phase. Gathers launchd/schtasks/systemd
 	// state (interval, last/next run, RunAtLoad, last exit, missed runs) for
 	// troubleshooting; see docs/launchd-troubleshooting.md. Best-effort —
@@ -509,10 +526,20 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	phaseCtx, phaseCancel := startPhase(ctx, tracker, "device_info")
 	log.Progress("Gathering device information...")
 	dev := device.Gather(phaseCtx, exec)
+	dev.Virtualization = device.DetectVirtualization(phaseCtx, exec)
+	dev.DeviceTag = config.DeviceTag
 	// WSL detection (Windows host-side; feature-gated until the backend
 	// consumes device.wsl). No-op off Windows.
 	if featuregate.IsEnabled(featuregate.FeatureWSLDetection) {
 		dev.WSL = device.GatherWSL(phaseCtx, exec)
+	}
+	// The run gate already refused an incomplete identity before any beacon;
+	// this guards the paths that bypass it (kill switch, a direct run). No
+	// "started" post has happened yet, so returning here leaves no trace.
+	if dev.IdentityIncomplete {
+		endPhase(phaseCtx, phaseCancel, tracker, log, "device_info")
+		log.Progress("Device identity template requires a logged-in user; none found (running as %q) — skipping this run", dev.UserIdentity)
+		return nil
 	}
 	deviceID = device.ID(dev)
 	if wslGuest != nil {
@@ -522,21 +549,40 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		// The device_info budget ran out before any source answered; retry on
 		// the run's deadline rather than upload without an identity.
 		dev.SerialNumber = device.SerialNumber(ctx, exec)
+		device.AttachIdentity(exec, &dev)
 		if deviceID = device.ID(dev); deviceID == "" {
 			phaseCancel()
 			return fmt.Errorf("device identity could not be determined")
 		}
 	}
+	// A host that just became multi-user retires the row it used to report
+	// under (once), before anything is posted under the new identity.
+	retireSerialRowOnIdentitySwitch(ctx, exec, log, &dev, wslGuest)
+	// Gather decided whether this is a developer session or a daemon context
+	// (service accounts included); the identity template's {user} token
+	// applies the same rule, so the warning, the Developer: line, the
+	// telemetry field and the token agree.
 	noUserLoggedIn := dev.NoUserLoggedIn
-	log.Progress("Device ID: %s", deviceID)
+	if dev.DeviceIDSource == "" || dev.DeviceIDSource == device.IdentitySourceSerial {
+		log.Progress("Device ID: %s", deviceID)
+	} else {
+		log.Progress("Device ID: %s (source %s)", deviceID, dev.DeviceIDSource)
+	}
 	log.Progress("Serial Number: %s", dev.SerialNumber)
 	log.Progress("OS Version: %s", dev.OSVersion)
+	if v := device.FormatVirtualization(dev.Virtualization); v != "" {
+		log.Progress("Virtualization: %s", v)
+	}
+	if dev.DeviceTag != "" {
+		log.Progress("Device tag: %s", dev.DeviceTag)
+	}
 	if noUserLoggedIn {
 		log.Progress("Developer: (no user logged in)")
 	} else {
 		log.Progress("Developer: %s", dev.UserIdentity)
 	}
-	log.Debug("device gathered: hostname=%q platform=%q serial=%q user_identity=%q no_user=%v", dev.Hostname, dev.Platform, dev.SerialNumber, dev.UserIdentity, noUserLoggedIn)
+	log.Debug("device gathered: hostname=%q platform=%q device_id=%q source=%q serial=%q user_identity=%q no_user=%v",
+		dev.Hostname, dev.Platform, deviceID, dev.DeviceIDSource, dev.SerialNumber, dev.UserIdentity, noUserLoggedIn)
 	if identity.MissingUser(dev.UserIdentity) {
 		log.Warn(identity.MissingUserWarning)
 	}
@@ -750,7 +796,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// MCP configs
 	phaseCtx, phaseCancel = startPhase(ctx, tracker, "mcp_config_scan")
 	log.Progress("Collecting MCP configuration files...")
-	mcpDetector := detector.NewMCPDetector(exec).WithSkipper(tccSkipper)
+	mcpDetector := detector.NewMCPDetector(exec).WithSkipper(tccSkipper).WithPiEnvironment(userExec)
 	mcpConfigs := mcpDetector.DetectEnterprise(phaseCtx, searchDirs)
 	for _, c := range mcpConfigs {
 		log.Progress("  Found: %s config (%s)", c.ConfigSource, c.Vendor)
@@ -1219,6 +1265,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	endPhase(phaseCtx, phaseCancel, tracker, log, "conda_scan")
 	postPhase()
 
+	// Maven and Gradle metadata use the raw executor and the same developer as Go/Cargo.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "maven_scan")
+	log.Progress("Collecting Java/JVM packages and configuration...")
+	mavenInventory, mavenConfigAudit, gradleConfigAudit := detector.NewMavenScanner(exec, log).Scan(phaseCtx, browserTarget, searchDirs, cfg.IncludeNetworkVolumes)
+	log.Progress("  Java/JVM: %d projects, %d package facts (inventory %s, maven config %s, gradle config %s)", len(mavenInventory.Projects), len(mavenInventory.Packages), mavenInventory.Status, mavenConfigAudit.Status, gradleConfigAudit.Status)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "maven_scan")
+	postPhase()
+
 	// npm + pip configuration audits — surface-only inventory of every
 	// .npmrc and pip.conf on the host, plus the merged effective views
 	// each tool would resolve. We use the user-aware executor so npm and
@@ -1325,9 +1379,15 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// Its own identity is unusable: the hostname is the Windows host's, and a
 	// minimal or WSL1 distro has no machine-id, so dev.SerialNumber reads
 	// "unknown" and every such distro would collide on one record.
-	deviceIdentity := dev.SerialNumber
+	//
+	// Otherwise device_id is the resolved identity (configured template or the
+	// machine id) while serial_number stays the machine identity, so a rebuilt
+	// virtual desktop that keeps its configured identity still reports the
+	// hardware change.
+	deviceIdentity, identitySource := dev.SerialNumber, dev.DeviceIDSource
 	if wslGuest != nil {
 		deviceIdentity = wslguest.DeviceID(wslGuest.HostDeviceID, wslGuest.DistroID)
+		identitySource = "wsl_guest"
 		log.Progress("WSL guest: distro %s on host %s — device id %s",
 			wslGuest.DistroID, wslGuest.HostDeviceID, deviceIdentity)
 	}
@@ -1336,6 +1396,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	payload := &Payload{
 		PayloadSchemaVersion: schemaVersion,
 		CustomerID:           config.CustomerID,
+		DeviceIDSource:       identitySource,
+		DeviceTag:            dev.DeviceTag,
+		Virtualization:       dev.Virtualization,
 		WSL:                  dev.WSL,
 		WSLGuest:             wslGuest,
 		AgentVersion:         buildinfo.Version,
@@ -1390,6 +1453,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		RubyConfigAudit:         rubyConfigAudit,
 		CondaInventory:          condaInventory,
 		CondaConfigAudit:        condaConfigAudit,
+		MavenInventory:          mavenInventory,
+		MavenConfigAudit:        mavenConfigAudit,
+		GradleConfigAudit:       gradleConfigAudit,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,

@@ -63,18 +63,60 @@ type ScanResult struct {
 }
 
 type Device struct {
-	NoUserLoggedIn bool             `json:"-"` // session state is independent of attribution
-	Hostname       string           `json:"hostname"`
-	SerialNumber   string           `json:"serial_number"`
-	OSVersion      string           `json:"os_version"`
-	Platform       string           `json:"platform"`
-	UserIdentity   string           `json:"user_identity"`
-	Resources      MachineResources `json:"resources"`
+	// NoUserLoggedIn is the OS session state, independent of attribution: a
+	// provisioned user_id keeps UserIdentity while the session has no user.
+	NoUserLoggedIn bool   `json:"-"`
+	Hostname       string `json:"hostname"`
+	// SerialNumber is the probed hardware serial. DeviceID is the identity
+	// every backend call uses: the same value unless a device identity template
+	// is configured (STEPSEC_DEVICE_ID / config.json device_id), in which case
+	// it is the expanded, sanitized template and DeviceIDSource says where it
+	// came from ("env" | "config" | "serial"). See internal/device/identity.go.
+	SerialNumber   string `json:"serial_number"`
+	DeviceID       string `json:"device_id,omitempty"`
+	DeviceIDSource string `json:"device_id_source,omitempty"`
+	// DeviceTag is the admin-set label from the agent configuration
+	// (config.json device_tag); empty when none is configured.
+	DeviceTag string `json:"device_tag,omitempty"`
+	// IdentityPerUser: the template contained {user}, so this machine's users
+	// are separate devices. IdentityIncomplete: a token expanded empty (e.g.
+	// {user} under SYSTEM); DeviceID is "" and the run must not upload.
+	IdentityPerUser    bool             `json:"-"`
+	IdentityIncomplete bool             `json:"-"`
+	OSVersion          string           `json:"os_version"`
+	Platform           string           `json:"platform"`
+	UserIdentity       string           `json:"user_identity"`
+	Resources          MachineResources `json:"resources"`
 	// WSL reports Windows Subsystem for Linux on a Windows host. Nil on every
 	// other platform, and nil on Windows unless the WSL-detection feature gate
 	// is on — so `omitempty` drops it entirely rather than emitting a zero
 	// value that a reader could mistake for "scanned, no WSL".
 	WSL *WSLInfo `json:"wsl,omitempty"`
+	// Virtualization says whether this machine is a virtual machine and on
+	// which hypervisor or cloud. Nil when detection did not run (community
+	// output before the probe, a Device built by hand).
+	Virtualization *Virtualization `json:"virtualization,omitempty"`
+}
+
+// Virtualization types. A machine can be proven virtual (a hypervisor vendor
+// showed up in SMBIOS/DMI, the cloud metadata service answered, or the OS
+// says so), never proven physical: "physical" means no hypervisor was
+// detected by any source, "unknown" means no source could be read.
+const (
+	VirtualizationVirtual  = "virtual"
+	VirtualizationPhysical = "physical"
+	VirtualizationUnknown  = "unknown"
+)
+
+// Virtualization is the hypervisor classification reported with device info.
+// Vendor is one of azure | aws | gcp | hyperv | vmware | kvm | qemu | xen |
+// parallels | virtualbox | apple | other, empty for a physical machine.
+// Source names the evidence: imds (cloud metadata service) | smbios | dmi |
+// sysctl | cpuinfo | systemd.
+type Virtualization struct {
+	Type   string `json:"type"`
+	Vendor string `json:"vendor,omitempty"`
+	Source string `json:"source,omitempty"`
 }
 
 // WSL presence is tri-state. A probe that cannot read the registry (e.g. a
@@ -451,6 +493,8 @@ type NPMRCAudit struct {
 	Effective      *NPMRCEffective `json:"effective,omitempty"`
 	Env            []NPMRCEnvVar   `json:"env"`
 	DiscoveryError string          `json:"discovery_error,omitempty"`
+	// ConfigAuditVersion is absent on legacy payloads.
+	ConfigAuditVersion int `json:"config_audit_version,omitempty"`
 }
 
 // NPMRCFile is a single .npmrc file. Metadata is best-effort: fields that
@@ -473,6 +517,10 @@ type NPMRCFile struct {
 	GitTracked  bool         `json:"git_tracked,omitempty"`
 	Entries     []NPMRCEntry `json:"entries,omitempty"`
 	ParseError  string       `json:"parse_error,omitempty"`
+	Format      string       `json:"format,omitempty"` // ini | yaml
+	// RuntimeApplicability says whether the installed manager reads this
+	// file at all (applicable | ignored | unknown), not whether it wins.
+	RuntimeApplicability string `json:"runtime_applicability,omitempty"`
 }
 
 // NPMRCEntry is one parsed line of a .npmrc file. DisplayValue is always
@@ -489,6 +537,9 @@ type NPMRCEntry struct {
 	EnvRefVars   []string `json:"env_ref_vars,omitempty"`
 	ValueSHA256  string   `json:"value_sha256,omitempty"`
 	Quoted       bool     `json:"quoted,omitempty"`
+	// HasLiteralAuth is true when an auth-bearing value carries literal
+	// credential material, even beside an env reference.
+	HasLiteralAuth bool `json:"has_literal_auth,omitempty"`
 }
 
 // NPMRCEffective mirrors the merged-config view emitted by
@@ -498,6 +549,8 @@ type NPMRCEffective struct {
 	SourceByKey map[string]string `json:"source_by_key,omitempty"`
 	Config      map[string]any    `json:"config,omitempty"`
 	Error       string            `json:"error,omitempty"`
+	// CaptureDirectory is the working directory the capture actually ran in.
+	CaptureDirectory string `json:"capture_directory,omitempty"`
 }
 
 // NPMRCEnvVar is a single npm-relevant process environment variable.
@@ -512,13 +565,14 @@ type NPMRCEnvVar struct {
 // PnpmAudit reuses NPMRCFile/NPMRCEnvVar — pnpm reads the same .npmrc syntax
 // as npm. Only the effective view and env list diverge.
 type PnpmAudit struct {
-	Available      bool           `json:"pnpm_available"`
-	PnpmVersion    string         `json:"pnpm_version,omitempty"`
-	PnpmPath       string         `json:"pnpm_path,omitempty"`
-	Files          []NPMRCFile    `json:"files"`
-	Effective      *PnpmEffective `json:"effective,omitempty"`
-	Env            []NPMRCEnvVar  `json:"env"`
-	DiscoveryError string         `json:"discovery_error,omitempty"`
+	Available          bool           `json:"pnpm_available"`
+	PnpmVersion        string         `json:"pnpm_version,omitempty"`
+	PnpmPath           string         `json:"pnpm_path,omitempty"`
+	Files              []NPMRCFile    `json:"files"`
+	Effective          *PnpmEffective `json:"effective,omitempty"`
+	Env                []NPMRCEnvVar  `json:"env"`
+	DiscoveryError     string         `json:"discovery_error,omitempty"`
+	ConfigAuditVersion int            `json:"config_audit_version,omitempty"`
 }
 
 // PnpmEffective mirrors `pnpm config list --json`. SourceByKey is kept on
@@ -528,40 +582,45 @@ type PnpmEffective struct {
 	SourceByKey map[string]string `json:"source_by_key,omitempty"`
 	Config      map[string]any    `json:"config,omitempty"`
 	Error       string            `json:"error,omitempty"`
+	// CaptureDirectory is the working directory the capture actually ran in.
+	CaptureDirectory string `json:"capture_directory,omitempty"`
 }
 
 // BunAudit has no Effective field — bun has no `config list` equivalent.
 // Consumers render the union of parsed files. NPMRCFiles carries any .npmrc
 // bun would read for auth.
 type BunAudit struct {
-	Available      bool            `json:"bun_available"`
-	BunVersion     string          `json:"bun_version,omitempty"`
-	BunPath        string          `json:"bun_path,omitempty"`
-	Files          []BunConfigFile `json:"files"`
-	NPMRCFiles     []NPMRCFile     `json:"npmrc_files"`
-	Env            []NPMRCEnvVar   `json:"env"`
-	DiscoveryError string          `json:"discovery_error,omitempty"`
+	Available          bool            `json:"bun_available"`
+	BunVersion         string          `json:"bun_version,omitempty"`
+	BunPath            string          `json:"bun_path,omitempty"`
+	Files              []BunConfigFile `json:"files"`
+	NPMRCFiles         []NPMRCFile     `json:"npmrc_files"`
+	Env                []NPMRCEnvVar   `json:"env"`
+	DiscoveryError     string          `json:"discovery_error,omitempty"`
+	ContextDirectory   string          `json:"context_directory,omitempty"`
+	ConfigAuditVersion int             `json:"config_audit_version,omitempty"`
 }
 
 // BunConfigFile is a single bunfig.toml. Scope: user | user-xdg | project.
 type BunConfigFile struct {
-	Path        string       `json:"path"`
-	Scope       string       `json:"scope"`
-	Exists      bool         `json:"exists"`
-	Readable    bool         `json:"readable"`
-	SizeBytes   int64        `json:"size_bytes,omitempty"`
-	ModTimeUnix int64        `json:"mtime_unix,omitempty"`
-	Mode        string       `json:"mode,omitempty"`
-	OwnerUID    int          `json:"owner_uid,omitempty"`
-	OwnerName   string       `json:"owner_name,omitempty"`
-	GroupGID    int          `json:"group_gid,omitempty"`
-	GroupName   string       `json:"group_name,omitempty"`
-	SHA256      string       `json:"sha256,omitempty"`
-	SymlinkTo   string       `json:"symlink_target,omitempty"`
-	InGitRepo   bool         `json:"in_git_repo,omitempty"`
-	GitTracked  bool         `json:"git_tracked,omitempty"`
-	Sections    []BunSection `json:"sections,omitempty"`
-	ParseError  string       `json:"parse_error,omitempty"`
+	Path                 string       `json:"path"`
+	Scope                string       `json:"scope"`
+	Exists               bool         `json:"exists"`
+	Readable             bool         `json:"readable"`
+	SizeBytes            int64        `json:"size_bytes,omitempty"`
+	ModTimeUnix          int64        `json:"mtime_unix,omitempty"`
+	Mode                 string       `json:"mode,omitempty"`
+	OwnerUID             int          `json:"owner_uid,omitempty"`
+	OwnerName            string       `json:"owner_name,omitempty"`
+	GroupGID             int          `json:"group_gid,omitempty"`
+	GroupName            string       `json:"group_name,omitempty"`
+	SHA256               string       `json:"sha256,omitempty"`
+	SymlinkTo            string       `json:"symlink_target,omitempty"`
+	InGitRepo            bool         `json:"in_git_repo,omitempty"`
+	GitTracked           bool         `json:"git_tracked,omitempty"`
+	Sections             []BunSection `json:"sections,omitempty"`
+	ParseError           string       `json:"parse_error,omitempty"`
+	RuntimeApplicability string       `json:"runtime_applicability,omitempty"`
 }
 
 // BunSection groups NPMRCEntry by dotted section path (e.g. "install",
@@ -576,50 +635,54 @@ type BunSection struct {
 // Top-level Flavor reflects the binary's major; per-file Flavor reflects the
 // file's own syntax — the renderer flags mismatches.
 type YarnAudit struct {
-	Available      bool             `json:"yarn_available"`
-	YarnVersion    string           `json:"yarn_version,omitempty"`
-	YarnPath       string           `json:"yarn_path,omitempty"`
-	Flavor         string           `json:"flavor,omitempty"` // "classic" | "berry" | "unknown"
-	Files          []YarnConfigFile `json:"files"`
-	NPMRCFiles     []NPMRCFile      `json:"npmrc_files"` // auth side-channel
-	Env            []NPMRCEnvVar    `json:"env"`
-	DiscoveryError string           `json:"discovery_error,omitempty"`
+	Available          bool             `json:"yarn_available"`
+	YarnVersion        string           `json:"yarn_version,omitempty"`
+	YarnPath           string           `json:"yarn_path,omitempty"`
+	Flavor             string           `json:"flavor,omitempty"` // "classic" | "berry" | "unknown"
+	Files              []YarnConfigFile `json:"files"`
+	NPMRCFiles         []NPMRCFile      `json:"npmrc_files"` // auth side-channel
+	Env                []NPMRCEnvVar    `json:"env"`
+	DiscoveryError     string           `json:"discovery_error,omitempty"`
+	ContextDirectory   string           `json:"context_directory,omitempty"`
+	ConfigAuditVersion int              `json:"config_audit_version,omitempty"`
 }
 
 // YarnConfigFile is a discovered .yarnrc (classic) or .yarnrc.yml (berry).
 type YarnConfigFile struct {
-	Path        string      `json:"path"`
-	Scope       string      `json:"scope"`  // "user" | "project"
-	Flavor      string      `json:"flavor"` // "classic" | "berry"
-	Exists      bool        `json:"exists"`
-	Readable    bool        `json:"readable"`
-	SizeBytes   int64       `json:"size_bytes,omitempty"`
-	ModTimeUnix int64       `json:"mtime_unix,omitempty"`
-	Mode        string      `json:"mode,omitempty"`
-	OwnerUID    int         `json:"owner_uid,omitempty"`
-	OwnerName   string      `json:"owner_name,omitempty"`
-	GroupGID    int         `json:"group_gid,omitempty"`
-	GroupName   string      `json:"group_name,omitempty"`
-	SHA256      string      `json:"sha256,omitempty"`
-	SymlinkTo   string      `json:"symlink_target,omitempty"`
-	InGitRepo   bool        `json:"in_git_repo,omitempty"`
-	GitTracked  bool        `json:"git_tracked,omitempty"`
-	Entries     []YarnEntry `json:"entries,omitempty"`
-	ParseError  string      `json:"parse_error,omitempty"`
+	Path                 string      `json:"path"`
+	Scope                string      `json:"scope"`  // "user" | "project"
+	Flavor               string      `json:"flavor"` // "classic" | "berry"
+	Exists               bool        `json:"exists"`
+	Readable             bool        `json:"readable"`
+	SizeBytes            int64       `json:"size_bytes,omitempty"`
+	ModTimeUnix          int64       `json:"mtime_unix,omitempty"`
+	Mode                 string      `json:"mode,omitempty"`
+	OwnerUID             int         `json:"owner_uid,omitempty"`
+	OwnerName            string      `json:"owner_name,omitempty"`
+	GroupGID             int         `json:"group_gid,omitempty"`
+	GroupName            string      `json:"group_name,omitempty"`
+	SHA256               string      `json:"sha256,omitempty"`
+	SymlinkTo            string      `json:"symlink_target,omitempty"`
+	InGitRepo            bool        `json:"in_git_repo,omitempty"`
+	GitTracked           bool        `json:"git_tracked,omitempty"`
+	Entries              []YarnEntry `json:"entries,omitempty"`
+	ParseError           string      `json:"parse_error,omitempty"`
+	RuntimeApplicability string      `json:"runtime_applicability,omitempty"`
 }
 
 // YarnEntry is a parsed key/value from either flavor. Berry nested maps
 // flatten to dotted keys (e.g. `npmScopes.@step-security.npmAuthToken`) so
 // the same slice carries both flavors.
 type YarnEntry struct {
-	Key          string   `json:"key"`
-	DisplayValue string   `json:"display_value"`
-	LineNum      int      `json:"line_num,omitempty"`
-	IsAuth       bool     `json:"is_auth,omitempty"`
-	IsEnvRef     bool     `json:"is_env_ref,omitempty"`
-	EnvRefVars   []string `json:"env_ref_vars,omitempty"`
-	ValueSHA256  string   `json:"value_sha256,omitempty"`
-	Quoted       bool     `json:"quoted,omitempty"`
+	Key            string   `json:"key"`
+	DisplayValue   string   `json:"display_value"`
+	LineNum        int      `json:"line_num,omitempty"`
+	IsAuth         bool     `json:"is_auth,omitempty"`
+	IsEnvRef       bool     `json:"is_env_ref,omitempty"`
+	EnvRefVars     []string `json:"env_ref_vars,omitempty"`
+	ValueSHA256    string   `json:"value_sha256,omitempty"`
+	Quoted         bool     `json:"quoted,omitempty"`
+	HasLiteralAuth bool     `json:"has_literal_auth,omitempty"`
 }
 
 // --- pip configuration audit -------------------------------------------------
@@ -2051,4 +2114,97 @@ type CondaConfigContext struct {
 	ProjectPath     string   `json:"project_path,omitempty"`
 	ConfigSourceIDs []string `json:"config_source_ids"` // highest precedence first
 	SelectionStatus string   `json:"selection_status"`  // observed | partial
+}
+
+// MavenInventorySchemaVersion versions maven_inventory, maven_config_audit and
+// gradle_config_audit.
+const MavenInventorySchemaVersion = 1
+
+// MavenSource reuses the Cargo source shape. Kinds: project_search_root |
+// project | manifest | version_catalog | lockfile | verification_metadata |
+// maven_repository | gradle_cache | artifact_directory | cached_artifact.
+type MavenSource = CargoSource
+
+// MavenRecordedChecksum is an expected digest from verification metadata,
+// never a hash DMG computed or verified.
+type MavenRecordedChecksum = ComposerRecordedChecksum
+
+// MavenCredentialFile reports existence only; contents are never read.
+type MavenCredentialFile = CargoCredentialFile
+
+// MavenOrigin reuses the Ruby origin shape with kind unknown | repository |
+// local. Cache layout and current settings are not historical provenance.
+type MavenOrigin = RubyOrigin
+
+// MavenConfigAudit and GradleConfigAudit reuse the Ruby observed-source model
+// with manager maven or gradle and scope system | user | project | process.
+type (
+	MavenConfigAudit  = RubyConfigAudit
+	GradleConfigAudit = RubyConfigAudit
+)
+
+// MavenInventory covers Maven and Gradle from passive metadata reads; no
+// Maven, Gradle, wrapper, plugin or script runs. Declarations, locks, cached
+// files and verification references stay separate evidence.
+type MavenInventory struct {
+	SchemaVersion int            `json:"schema_version"`
+	Status        string         `json:"status"` // complete | partial
+	Reasons       []string       `json:"reasons"`
+	Sources       []MavenSource  `json:"sources"`
+	Projects      []MavenProject `json:"projects"`
+	Packages      []MavenPackage `json:"packages"`
+}
+
+// MavenProject is a directory whose listing holds a POM, .mvn configuration,
+// or a Gradle build, lock, catalog, verification, wrapper or properties file.
+type MavenProject struct {
+	ProjectPath string `json:"project_path"`
+	SourceID    string `json:"source_id"`
+	Tool        string `json:"tool"` // maven | gradle | unknown
+}
+
+// MavenPackage is one observation of a case-sensitive group:artifact.
+// Declarations never carry a version; their raw text is requested_specs.
+type MavenPackage struct {
+	SourceID          string                  `json:"source_id"`
+	SourcePath        string                  `json:"source_path"`
+	PackageName       string                  `json:"package_name"`
+	GroupID           string                  `json:"group_id"`
+	ArtifactID        string                  `json:"artifact_id"`
+	Evidence          string                  `json:"evidence"` // declared_dependency | locked_package | cached_artifact | verification_reference
+	ProjectPath       string                  `json:"project_path,omitempty"`
+	Tool              string                  `json:"tool"`           // maven | gradle | unknown
+	Scope             string                  `json:"scope"`          // project | user | system | custom | unknown
+	VersionStatus     string                  `json:"version_status"` // known | unknown
+	Version           string                  `json:"version,omitempty"`
+	RequestedSpecs    []string                `json:"requested_specs"`
+	Configurations    []string                `json:"configurations"`    // Gradle lock configurations
+	RepositoryFormat  string                  `json:"repository_format"` // maven | ivy | unknown
+	Origin            MavenOrigin             `json:"origin"`
+	RecordedChecksums []MavenRecordedChecksum `json:"recorded_checksums"`
+	Reasons           []string                `json:"reasons"`
+	// Declaration-only context; maven_scope is the declared Maven scope, not file placement.
+	DeclarationRole    string         `json:"declaration_role,omitempty"`    // direct | managed | bom_import | parent | plugin | managed_plugin | plugin_dependency | extension | catalog_entry
+	DeclarationContext string         `json:"declaration_context,omitempty"` // plugin:<g>:<a> | managed_plugin:<g>:<a> | catalog:<alias>
+	ProfileID          string         `json:"profile_id,omitempty"`
+	MavenScope         string         `json:"maven_scope,omitempty"`
+	DeclaredType       string         `json:"declared_type,omitempty"`
+	DeclaredClassifier *string        `json:"declared_classifier,omitempty"` // nil = not declared
+	Optional           *bool          `json:"optional,omitempty"`
+	Artifact           *MavenArtifact `json:"artifact,omitempty"`
+}
+
+// MavenArtifact names one file. Cached files carry path, role and size; a
+// verification reference has only the filename.
+type MavenArtifact struct {
+	Filename                  string  `json:"filename"`
+	Path                      string  `json:"path,omitempty"`
+	ArtifactRole              string  `json:"artifact_role,omitempty"` // metadata | payload
+	SizeBytes                 int64   `json:"size_bytes,omitempty"`
+	Extension                 string  `json:"extension,omitempty"`
+	Classifier                *string `json:"classifier,omitempty"` // nil = unknown, "" = unclassified
+	BaseVersion               string  `json:"base_version,omitempty"`
+	FileVersion               string  `json:"file_version,omitempty"` // timestamped snapshot file
+	ContentKey                string  `json:"content_key,omitempty"`  // Gradle cache directory, not a computed digest
+	LocalInstallMarkerPresent bool    `json:"local_install_marker_present,omitempty"`
 }

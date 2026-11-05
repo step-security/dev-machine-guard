@@ -2804,3 +2804,623 @@ func TestCopilotHookDeclarations(t *testing.T) {
 		})
 	}
 }
+
+func piContext(t *testing.T, result SkillsResult) model.AgentPluginContext {
+	t.Helper()
+	if result.Plugins != nil {
+		for _, c := range result.Plugins.Contexts {
+			if c.Agent == model.AgentPi {
+				return c
+			}
+		}
+	}
+	t.Fatal("missing Pi context")
+	return model.AgentPluginContext{}
+}
+
+func piPlugin(t *testing.T, c model.AgentPluginContext, nativeID string) model.PluginObservation {
+	t.Helper()
+	for _, p := range c.Plugins {
+		if p.NativeID == nativeID {
+			return p
+		}
+	}
+	t.Fatalf("missing Pi installation %s in %+v", nativeID, c.Plugins)
+	return model.PluginObservation{}
+}
+
+func piComponent(t *testing.T, p model.PluginObservation, kind, name string) model.PluginComponent {
+	t.Helper()
+	for _, c := range p.Components {
+		if c.Kind == kind && c.Name == name {
+			return c
+		}
+	}
+	t.Fatalf("missing %s %s in %+v", kind, name, p.Components)
+	return model.PluginComponent{}
+}
+
+func TestPiPackageInventory(t *testing.T) {
+	m, fs := newPluginMock()
+	root := filepath.Join(testHome, ".pi", "agent")
+	fs.addFile(filepath.Join(root, "settings.json"), "\xef\xbb\xbf"+`{
+		"packages": [
+			"npm:@acme/tools@1.2.0",
+			{"source": "git:github.com/acme/kit@v1", "skills": ["!skills/hidden"]},
+			"./local-ext.ts",
+			"npm:missing",
+			"builtin:core",
+			42
+		],
+		"extensions": ["!extensions/disabled.ts"]
+	}`)
+	tools := filepath.Join(root, "npm", "node_modules", "@acme", "tools")
+	fs.addFile(filepath.Join(tools, "package.json"), `{"name":"@acme/tools","version":"1.2.0","pi":{"extensions":["./src/index.ts"],"skills":["skills"],"prompts":["prompts"],"themes":["themes"]}}`)
+	fs.addFile(filepath.Join(tools, "src", "index.ts"), "EXTENSION_CODE_MUST_NOT_LEAVE_DEVICE")
+	fs.addFile(filepath.Join(tools, "src", "helper.ts"), "")
+	fs.addFile(filepath.Join(tools, "skills", "review", "SKILL.md"), validFrontmatter("review", "Review code"))
+	fs.addFile(filepath.Join(tools, "skills", "loose.md"), validFrontmatter("loose", "Loose skill"))
+	fs.addFile(filepath.Join(tools, "skills", "notes.md"), "no frontmatter")
+	fs.addFile(filepath.Join(tools, "prompts", "fix.md"), "PROMPT_MUST_NOT_LEAVE_DEVICE")
+	fs.addFile(filepath.Join(tools, "themes", "dark.json"), "{}")
+	kit := filepath.Join(root, "git", "github.com", "acme", "kit")
+	fs.addFile(filepath.Join(kit, ".git", "HEAD"), "ref: refs/heads/main\n")
+	fs.addFile(filepath.Join(kit, ".git", "refs", "heads", "main"), "0123456789abcdef0123456789abcdef01234567\n")
+	fs.addFile(filepath.Join(kit, "skills", "hidden", "SKILL.md"), validFrontmatter("hidden", "Hidden"))
+	fs.addFile(filepath.Join(kit, "skills", "shown", "SKILL.md"), validFrontmatter("shown", "Shown"))
+	fs.addFile(filepath.Join(kit, "extensions", "kit.ts"), "")
+	fs.addFile(filepath.Join(root, "local-ext.ts"), "")
+	fs.addFile(filepath.Join(root, "extensions", "disabled.ts"), "")
+	fs.addFile(filepath.Join(root, "extensions", "bundle", "index.ts"), "")
+	fs.addFile(filepath.Join(root, "extensions", "bundle", "helper.ts"), "")
+	fs.addFile(filepath.Join(root, "extensions", "notes", "README.md"), "")
+	fs.addFile(filepath.Join(root, "mcp.json"), `{"mcpServers":{}}`)
+	fs.commit()
+	versions := AgentVersions([]model.AITool{{Name: "pi", Version: "1.4.0"}, {Name: "oh-my-pi", Version: "9.9.9"}})
+	result := NewSkillsDetector(m).WithAgentVersions(versions).DetectAll(context.Background(), nil, nil)
+	c := piContext(t, result)
+	if c.AgentVersion != "1.4.0" || c.ConfigRoot != root || c.MarketplaceStatus != model.AgentScanStatusComplete || len(c.Marketplaces) != 0 {
+		t.Fatalf("context: %+v", c)
+	}
+	// The non-string entry is skipped and reported; every other entry survives.
+	if c.InstallationStatus != model.AgentScanStatusPartial || len(c.Plugins) != 6 {
+		t.Fatalf("installations: %+v", c)
+	}
+
+	p := piPlugin(t, c, "npm:@acme/tools")
+	if p.Name != "@acme/tools" || p.InstallPath != tools || p.ManifestFormat != model.PluginManifestPi || p.ManifestVersion != "1.2.0" ||
+		p.InstallationEvidence != model.PluginEvidenceLocalConfig || p.Source == nil || p.Source.Kind != model.PluginSourceNPM ||
+		p.Source.PackageName != "@acme/tools" || p.Source.PackageVersion != "1.2.0" || p.Installed == nil || !*p.Installed ||
+		p.ComponentStatus != model.AgentScanStatusComplete || len(p.Components) != 5 {
+		t.Fatalf("npm package: %+v", p)
+	}
+	if ext := piComponent(t, p, model.PluginComponentExtension, "src/index.ts"); ext.ConfiguredEnabled != nil || ext.Enablement != nil || ext.Skill != nil {
+		t.Fatalf("unfiltered extension: %+v", ext)
+	}
+	if s := piComponent(t, p, model.PluginComponentSkill, "review"); s.Skill == nil || s.Skill.Source != "pi_plugin" || s.Skill.Agent != model.AgentPi || s.RelativePath != "skills/review/SKILL.md" {
+		t.Fatalf("SKILL.md skill: %+v", s)
+	}
+	if s := piComponent(t, p, model.PluginComponentSkill, "loose"); s.Skill == nil || s.Skill.SkillDirPath != "" || s.Skill.SkillMDPath != "" || s.Skill.DefinitionHash == "" || s.RelativePath != "skills/loose.md" {
+		t.Fatalf("markdown skill: %+v", s)
+	}
+	piComponent(t, p, model.PluginComponentPrompt, "fix")
+	piComponent(t, p, model.PluginComponentTheme, "dark")
+
+	g := piPlugin(t, c, "git:github.com/acme/kit")
+	if g.Source == nil || g.Source.Kind != model.PluginSourceGit || g.Source.RequestedRef != "v1" || g.Source.ResolvedRevision != "0123456789abcdef0123456789abcdef01234567" || len(g.Components) != 3 {
+		t.Fatalf("git package: %+v", g)
+	}
+	hidden, shown := piComponent(t, g, model.PluginComponentSkill, "hidden"), piComponent(t, g, model.PluginComponentSkill, "shown")
+	if hidden.ConfiguredEnabled == nil || *hidden.ConfiguredEnabled || shown.ConfiguredEnabled == nil || !*shown.ConfiguredEnabled ||
+		len(hidden.Enablement) != 1 || hidden.Enablement[0].Scope != model.PluginScopeUser || hidden.Enablement[0].SourcePath != filepath.Join(root, "settings.json") {
+		t.Fatalf("filtered skills: %+v %+v", hidden, shown)
+	}
+	if ext := piComponent(t, g, model.PluginComponentExtension, "extensions/kit.ts"); ext.ConfiguredEnabled != nil {
+		t.Fatalf("kind without a filter keeps its own selection: %+v", ext)
+	}
+
+	if l := piPlugin(t, c, "local:"+filepath.Join(root, "local-ext.ts")); l.InstallPath != root || len(l.Components) != 1 || l.Components[0].RelativePath != "local-ext.ts" {
+		t.Fatalf("local file: %+v", l)
+	}
+	if missing := piPlugin(t, c, "npm:missing"); missing.Installed == nil || *missing.Installed || missing.FilesPresent == nil || *missing.FilesPresent ||
+		missing.ComponentStatus != model.AgentScanStatusPartial || len(missing.Components) != 0 {
+		t.Fatalf("missing payload: %+v", missing)
+	}
+	disabled := piPlugin(t, c, "local:"+filepath.Join(root, "extensions", "disabled.ts"))
+	if disabled.InstallationEvidence != model.PluginEvidenceExtensionDirectory || disabled.Components[0].ConfiguredEnabled == nil || *disabled.Components[0].ConfiguredEnabled {
+		t.Fatalf("disabled auto extension: %+v", disabled)
+	}
+	bundle := piPlugin(t, c, "local:"+filepath.Join(root, "extensions", "bundle"))
+	if len(bundle.Components) != 1 || bundle.Components[0].Name != "index.ts" || bundle.Components[0].ConfiguredEnabled == nil || !*bundle.Components[0].ConfiguredEnabled {
+		t.Fatalf("auto extension directory: %+v", bundle)
+	}
+
+	body, _ := json.Marshal(c)
+	if strings.Contains(string(body), "MUST_NOT_LEAVE_DEVICE") {
+		t.Fatal("resource contents leaked")
+	}
+	// Pi installations never claim walked MCP files.
+	for _, file := range []string{filepath.Join(root, "mcp.json"), filepath.Join(kit, "mcp.json"), filepath.Join(tools, ".mcp.json")} {
+		if result.replacesMCPConfig("discovered_mcp", file, map[string]bool{}) {
+			t.Errorf("%s suppressed", file)
+		}
+	}
+}
+
+func TestPiSettingsFailuresKeepCoverage(t *testing.T) {
+	tests := []struct {
+		name, settings string
+		complete       bool
+		enablement     bool // the auto extension carries a saved selection
+	}{
+		{"absent", "", true, false},
+		{"empty file", "\x00", true, false},
+		{"whitespace", "  \n", false, false},
+		{"bom only", "\xef\xbb\xbf", false, false},
+		{"null", "null", false, false},
+		{"truncated", `{"packages":[`, false, false},
+		{"packages object", `{"packages":{}}`, false, false},
+		{"bad filter type", `{"packages":[{"source":"npm:x","skills":"bad"},{"source":7},null]}`, false, false},
+		{"extensions string", `{"extensions":"!extensions/auto.ts"}`, false, false},
+		{"extensions mixed", `{"extensions":["!extensions/auto.ts",1]}`, false, false},
+		{"override", `{"extensions":["-extensions/auto.ts"]}`, true, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m, fs := newPluginMock()
+			root := filepath.Join(testHome, ".pi", "agent")
+			switch tc.settings {
+			case "":
+			case "\x00":
+				fs.addFile(filepath.Join(root, "settings.json"), "")
+			default:
+				fs.addFile(filepath.Join(root, "settings.json"), tc.settings)
+			}
+			fs.addFile(filepath.Join(root, "extensions", "auto.ts"), "")
+			fs.commit()
+			c := piContext(t, NewSkillsDetector(m).DetectAll(context.Background(), nil, nil))
+			if got := c.InstallationStatus == model.AgentScanStatusComplete; got != tc.complete {
+				t.Fatalf("complete = %v, want %v: %+v", got, tc.complete, c.Errors)
+			}
+			auto := piPlugin(t, c, "local:"+filepath.Join(root, "extensions", "auto.ts"))
+			if got := auto.Components[0].ConfiguredEnabled != nil; got != tc.enablement {
+				t.Fatalf("enablement = %v, want %v", got, tc.enablement)
+			}
+		})
+	}
+}
+
+func TestPiProjectDiscovery(t *testing.T) {
+	t.Run("installed package without language manifest", func(t *testing.T) {
+		m, fs := newPluginMock()
+		project := filepath.Join(testHome, "repos", "pi-only")
+		root := filepath.Join(project, ".pi")
+		fs.addFile(filepath.Join(root, "settings.json"), `{"packages":["npm:widgets"]}`)
+		pkg := filepath.Join(root, "npm", "node_modules", "widgets")
+		fs.addFile(filepath.Join(pkg, "package.json"), `{"name":"widgets","version":"1.0.0","pi":{"extensions":["index.ts"]}}`)
+		fs.addFile(filepath.Join(pkg, "index.ts"), "")
+		fs.commit()
+
+		result := NewSkillsDetector(m).DetectAll(t.Context(), nil, []string{filepath.Join(testHome, "repos")})
+		plugin := piPlugin(t, piContext(t, result), "npm:widgets")
+		if plugin.Scope != model.PluginScopeProject || plugin.ProjectPath != project || len(plugin.Components) != 1 {
+			t.Fatalf("project installation = %+v", plugin)
+		}
+	})
+	for _, name := range []string{"skills", "extensions", "prompts", "themes", "settings.json", "mcp.json", "npm", "git", "other.json"} {
+		for _, kind := range []string{"directory", "file", "symlink", "irregular"} {
+			t.Run(name+"/"+kind, func(t *testing.T) {
+				m, fs := newSkillsMock()
+				project := filepath.Join(testHome, "repos", "pi-only")
+				root := filepath.Join(project, ".pi")
+				fs.mkdir(root)
+				switch kind {
+				case "directory":
+					fs.mkdir(filepath.Join(root, name))
+				case "file":
+					fs.addFile(filepath.Join(root, name), "{}")
+				case "symlink":
+					fs.addSymlink(filepath.Join(root, name), filepath.Join(testHome, "Documents", name))
+				case "irregular":
+					fs.children[root][name] = executor.MockIrregularDirEntry(name)
+				}
+				fs.commit()
+				info := &model.AgentSkillScanInfo{}
+				got := NewSkillsDetector(m).walkForProjectRoots(t.Context(), []string{filepath.Join(testHome, "repos")}, info)
+				want := kind == "directory" && slices.Contains([]string{"skills", "extensions", "prompts", "themes"}, name) ||
+					kind == "file" && (name == "settings.json" || name == "mcp.json")
+				if len(got) != 0 && (len(got) != 1 || got[0] != project) || (len(got) == 1) != want {
+					t.Errorf("projects = %v, want discovered = %v", got, want)
+				}
+			})
+		}
+	}
+}
+
+func TestPiProjectLayers(t *testing.T) {
+	m, fs := newPluginMock()
+	root := filepath.Join(testHome, ".pi", "agent")
+	project := filepath.Join(testHome, "repo")
+	fs.addFile(filepath.Join(root, "settings.json"), `{"packages":["npm:shared"]}`)
+	shared := filepath.Join(root, "npm", "node_modules", "shared")
+	fs.addFile(filepath.Join(shared, "skills", "a", "SKILL.md"), validFrontmatter("a", "A"))
+	fs.addFile(filepath.Join(shared, "skills", "b", "SKILL.md"), validFrontmatter("b", "B"))
+	settings := filepath.Join(project, ".pi", "settings.json")
+	fs.addFile(settings, `{"packages":[{"source":"npm:shared","autoload":false,"skills":["skills/a","-skills/b/SKILL.md"]},{"source":"npm:solo","autoload":false,"extensions":["a.ts"]}]}`)
+	solo := filepath.Join(project, ".pi", "npm", "node_modules", "solo")
+	fs.addFile(filepath.Join(solo, "extensions", "a.ts"), "")
+	fs.addFile(filepath.Join(solo, "extensions", "other.ts"), "")
+	fs.addFile(filepath.Join(project, ".pi", "extensions", "p.ts"), "")
+	fs.commit()
+	c := piContext(t, NewSkillsDetector(m).DetectAll(context.Background(), []string{project}, nil))
+	if c.InstallationStatus != model.AgentScanStatusComplete || len(c.Plugins) != 3 {
+		t.Fatalf("installations: %+v", c)
+	}
+	user := piPlugin(t, c, "npm:shared")
+	if user.Scope != model.PluginScopeUser {
+		t.Fatalf("narrowing must not install a project copy: %+v", user)
+	}
+	a, b := piComponent(t, user, model.PluginComponentSkill, "a"), piComponent(t, user, model.PluginComponentSkill, "b")
+	if a.ConfiguredEnabled != nil || len(a.Enablement) != 1 || !a.Enablement[0].Enabled || a.Enablement[0].Scope != model.PluginScopeProject ||
+		a.Enablement[0].ProjectPath != project || a.Enablement[0].SourcePath != settings {
+		t.Fatalf("project selection on user installation: %+v", a)
+	}
+	if len(b.Enablement) != 1 || b.Enablement[0].Enabled {
+		t.Fatalf("project exclusion: %+v", b)
+	}
+	own := piPlugin(t, c, "npm:solo")
+	if own.Scope != model.PluginScopeProject || own.ProjectPath != project || own.InstallPath != solo {
+		t.Fatalf("project package: %+v", own)
+	}
+	index, other := piComponent(t, own, model.PluginComponentExtension, "extensions/a.ts"), piComponent(t, own, model.PluginComponentExtension, "extensions/other.ts")
+	if index.ConfiguredEnabled == nil || !*index.ConfiguredEnabled || other.ConfiguredEnabled == nil || *other.ConfiguredEnabled {
+		t.Fatalf("autoload:false selection: %+v %+v", index, other)
+	}
+	if p := piPlugin(t, c, "local:"+filepath.Join(project, ".pi", "extensions", "p.ts")); p.Scope != model.PluginScopeProject || p.ProjectPath != project {
+		t.Fatalf("project extension: %+v", p)
+	}
+}
+
+func TestPiAgentRoot(t *testing.T) {
+	tests := []struct {
+		name, env, goos, want string
+		ok                    bool
+	}{
+		{"default", "", "linux", testHome + "/.pi/agent", true},
+		{"absolute", "/opt/pi", "linux", "/opt/pi", true},
+		{"tilde", "~/alt/pi", "linux", testHome + "/alt/pi", true},
+		{"file url", "file:///opt/pi", "darwin", "/opt/pi", true},
+		{"remote file url", "file://server/pi", "linux", testHome + "/.pi/agent", false},
+		{"relative", "alt/pi", "linux", testHome + "/.pi/agent", false},
+		{"untrimmed", " /opt/pi", "linux", testHome + "/.pi/agent", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := executor.NewMock()
+			m.SetGOOS(tc.goos)
+			m.SetEnv("PI_CODING_AGENT_DIR", tc.env)
+			got, ok := piAgentRoot(m, testHome)
+			if got != tc.want || ok != tc.ok {
+				t.Errorf("piAgentRoot(%q) = %q, %v, want %q, %v", tc.env, got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+	if got, ok := piNormalizePath("/c/Users/dev/pi", `C:\Users\dev`, model.PlatformWindows); got != `C:\Users\dev\pi` || !ok {
+		t.Errorf("shell drive path = %q, %v", got, ok)
+	}
+	if got, ok := piNormalizePath("/mnt/d/pi", `C:\Users\dev`, model.PlatformWindows); got != `D:\pi` || !ok {
+		t.Errorf("WSL drive path = %q, %v", got, ok)
+	}
+}
+
+func TestPiCustomRootContext(t *testing.T) {
+	m, fs := newPluginMock()
+	custom := "/opt/pi"
+	m.SetEnv("PI_CODING_AGENT_DIR", custom)
+	fs.addFile(filepath.Join(custom, "extensions", "x.ts"), "")
+	fs.addFile(filepath.Join(testHome, ".pi", "agent", "extensions", "default.ts"), "")
+	fs.commit()
+	c := piContext(t, NewSkillsDetector(m).DetectAll(context.Background(), nil, nil))
+	if c.ConfigRoot != custom || len(c.Plugins) != 1 || c.Plugins[0].SourcePath != filepath.Join(custom, "extensions", "x.ts") {
+		t.Fatalf("custom root: %+v", c)
+	}
+
+	m, fs = newPluginMock()
+	m.SetEnv("PI_CODING_AGENT_DIR", "relative/pi")
+	fs.commit()
+	c = piContext(t, NewSkillsDetector(m).DetectAll(context.Background(), nil, nil))
+	if c.InstallationStatus != model.AgentScanStatusError || len(c.Plugins) != 0 {
+		t.Fatalf("unresolved root must not claim an empty inventory: %+v", c)
+	}
+}
+
+func TestPiAbsentRootHasNoContext(t *testing.T) {
+	m, fs := newPluginMock()
+	fs.addFile(filepath.Join(testHome, ".claude", "settings.json"), "{}")
+	fs.commit()
+	result := NewSkillsDetector(m).DetectAll(context.Background(), nil, nil)
+	if result.Plugins != nil {
+		for _, c := range result.Plugins.Contexts {
+			if c.Agent == model.AgentPi {
+				t.Fatalf("Pi context without Pi: %+v", c)
+			}
+		}
+	}
+}
+
+func TestPiTildeFilterNeedsKnownVersion(t *testing.T) {
+	for _, tc := range []struct {
+		version string
+		known   bool
+	}{{"1.4.0", true}, {"1.2.0", true}, {"1.1.9", false}, {"", false}} {
+		t.Run(tc.version, func(t *testing.T) {
+			m, fs := newPluginMock()
+			root := filepath.Join(testHome, ".pi", "agent")
+			fs.addFile(filepath.Join(root, "settings.json"), `{"extensions":["!~/.pi/agent/extensions/x.ts"]}`)
+			fs.addFile(filepath.Join(root, "extensions", "x.ts"), "")
+			fs.commit()
+			versions := AgentVersions([]model.AITool{{Name: "pi", Version: tc.version}})
+			c := piContext(t, NewSkillsDetector(m).WithAgentVersions(versions).DetectAll(context.Background(), nil, nil))
+			got := c.Plugins[0].Components[0].ConfiguredEnabled
+			if (got != nil) != tc.known || got != nil && *got {
+				t.Fatalf("version %q: %v", tc.version, got)
+			}
+		})
+	}
+}
+
+func TestPiMatcher(t *testing.T) {
+	base := "/pkg"
+	files := []string{"/pkg/extensions/a.ts", "/pkg/extensions/b.ts", "/pkg/skills/x/SKILL.md", "/pkg/.hidden/c.ts"}
+	tests := []struct {
+		name     string
+		patterns []string
+		want     map[string]bool
+	}{
+		{"none keeps all", nil, map[string]bool{"/pkg/extensions/a.ts": true, "/pkg/extensions/b.ts": true, "/pkg/skills/x/SKILL.md": true, "/pkg/.hidden/c.ts": true}},
+		{"include", []string{"extensions/*.ts"}, map[string]bool{"/pkg/extensions/a.ts": true, "/pkg/extensions/b.ts": true, "/pkg/skills/x/SKILL.md": false, "/pkg/.hidden/c.ts": false}},
+		{"exclude by name", []string{"!b.ts"}, map[string]bool{"/pkg/extensions/a.ts": true, "/pkg/extensions/b.ts": false, "/pkg/skills/x/SKILL.md": true, "/pkg/.hidden/c.ts": true}},
+		{"skill directory", []string{"!skills/x"}, map[string]bool{"/pkg/extensions/a.ts": true, "/pkg/extensions/b.ts": true, "/pkg/skills/x/SKILL.md": false, "/pkg/.hidden/c.ts": true}},
+		{"globstar also matches names", []string{"**/*.ts"}, map[string]bool{"/pkg/extensions/a.ts": true, "/pkg/extensions/b.ts": true, "/pkg/skills/x/SKILL.md": false, "/pkg/.hidden/c.ts": true}},
+		{"dot segments need a dot pattern", []string{"*/c.ts"}, map[string]bool{"/pkg/extensions/a.ts": false, "/pkg/extensions/b.ts": false, "/pkg/skills/x/SKILL.md": false, "/pkg/.hidden/c.ts": false}},
+		{"braces", []string{"extensions/{a,c}.ts"}, map[string]bool{"/pkg/extensions/a.ts": true, "/pkg/extensions/b.ts": false, "/pkg/skills/x/SKILL.md": false, "/pkg/.hidden/c.ts": false}},
+		{"force order", []string{"!extensions/*", "+./extensions/a.ts", "-extensions/a.ts"}, map[string]bool{"/pkg/extensions/a.ts": false, "/pkg/extensions/b.ts": false, "/pkg/skills/x/SKILL.md": true, "/pkg/.hidden/c.ts": true}},
+		{"force include needs path", []string{"!extensions/*", "+a.ts"}, map[string]bool{"/pkg/extensions/a.ts": false, "/pkg/extensions/b.ts": false, "/pkg/skills/x/SKILL.md": true, "/pkg/.hidden/c.ts": true}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &piMatcher{base: base, home: testHome, goos: "linux", tilde: true}
+			if got := m.apply(files, tc.patterns); !reflect.DeepEqual(got, tc.want) || m.unsupported {
+				t.Errorf("apply(%q) = %v (unsupported %v), want %v", tc.patterns, got, m.unsupported, tc.want)
+			}
+		})
+	}
+	m := &piMatcher{base: base, home: testHome, goos: "linux", tilde: true}
+	if got := m.autoloadDelta(files, []string{"extensions/*", "!extensions/b.ts"}); !reflect.DeepEqual(got, map[string]bool{"/pkg/extensions/a.ts": true, "/pkg/extensions/b.ts": false}) {
+		t.Errorf("autoloadDelta = %v", got)
+	}
+	for _, pattern := range []string{"@(a|b).ts", "{1..3}.ts", "[[:alpha:]].ts"} {
+		if _, ok := piGlobMatch(pattern, "a.ts"); ok {
+			t.Errorf("%q must be reported as unsupported", pattern)
+		}
+	}
+}
+
+func TestPiIgnoreFiles(t *testing.T) {
+	m, fs := newPluginMock()
+	root := filepath.Join(testHome, ".pi", "agent")
+	fs.addFile(filepath.Join(root, "settings.json"), `{"packages":["npm:p"]}`)
+	pkg := filepath.Join(root, "npm", "node_modules", "p")
+	fs.addFile(filepath.Join(pkg, "prompts", ".gitignore"), "drafts/\n*.tmp.md\n!keep.tmp.md\n# comment\n")
+	fs.addFile(filepath.Join(pkg, "prompts", "a.md"), "")
+	fs.addFile(filepath.Join(pkg, "prompts", "x.tmp.md"), "")
+	fs.addFile(filepath.Join(pkg, "prompts", "keep.tmp.md"), "")
+	fs.addFile(filepath.Join(pkg, "prompts", "drafts", "d.md"), "")
+	fs.addFile(filepath.Join(pkg, "prompts", "nested", ".ignore"), "/only.md\n")
+	fs.addFile(filepath.Join(pkg, "prompts", "nested", "only.md"), "")
+	fs.addFile(filepath.Join(pkg, "prompts", "nested", "kept.md"), "")
+	fs.addFile(filepath.Join(pkg, "prompts", "node_modules", "n.md"), "")
+	fs.commit()
+	p := piPlugin(t, piContext(t, NewSkillsDetector(m).DetectAll(context.Background(), nil, nil)), "npm:p")
+	var names []string
+	for _, c := range p.Components {
+		names = append(names, c.RelativePath)
+	}
+	slices.Sort(names)
+	if want := []string{"prompts/a.md", "prompts/keep.tmp.md", "prompts/nested/kept.md"}; !slices.Equal(names, want) {
+		t.Fatalf("prompts = %v, want %v", names, want)
+	}
+}
+
+func TestPiGitSource(t *testing.T) {
+	tests := []struct {
+		source, identity, ref string
+		ok                    bool
+	}{
+		{"git:github.com/acme/kit@v1", "git:github.com/acme/kit", "v1", true},
+		{"git:acme/kit#main", "git:github.com/acme/kit", "main", true},
+		{"git:gitlab:group/sub/repo", "git:gitlab.com/group/sub/repo", "", true},
+		{"https://example.com/acme/kit.git@abc", "git:example.com/acme/kit", "abc", true},
+		{"git:git@host.example:acme/kit.git@v2", "git:host.example/acme/kit", "v2", true},
+		{"ssh://git@host.example/acme/kit", "git:host.example/acme/kit", "", true},
+		{"git:localhost/acme/kit", "git:localhost/acme/kit", "", true},
+		{"git:host.example/acme/../kit", "", "", false},
+		{"git:host.example/acme%2f..%2fkit", "", "", false},
+		{"git:host.example/kit", "", "", false},
+		{"github.com/acme/kit", "", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.source, func(t *testing.T) {
+			src, ok := parsePiGitSource(tc.source)
+			if ok != tc.ok || src.identity != tc.identity || src.ref != tc.ref {
+				t.Errorf("parsePiGitSource(%q) = %+v, %v", tc.source, src, ok)
+			}
+		})
+	}
+}
+
+func TestPiManifestSelections(t *testing.T) {
+	m, fs := newPluginMock()
+	root := filepath.Join(testHome, ".pi", "agent")
+	fs.addFile(filepath.Join(root, "settings.json"), `{"packages":["npm:outside","npm:bad","npm:empty","npm:plain"]}`)
+	modules := filepath.Join(root, "npm", "node_modules")
+	fs.addFile(filepath.Join(modules, "outside", "package.json"), `{"pi":{"skills":["../shared/skills"],"prompts":["prompts/*.md","!prompts/skip.md"]}}`)
+	fs.addFile(filepath.Join(modules, "outside", "prompts", "go.md"), "")
+	fs.addFile(filepath.Join(modules, "outside", "prompts", "skip.md"), "")
+	fs.addFile(filepath.Join(modules, "shared", "skills", "ext", "SKILL.md"), validFrontmatter("ext", "External"))
+	fs.addFile(filepath.Join(modules, "bad", "package.json"), `{"pi":{"extensions":"index.ts","skills":[1],"prompts":null}}`)
+	fs.addFile(filepath.Join(modules, "bad", "index.ts"), "")
+	fs.addFile(filepath.Join(modules, "empty", "package.json"), `{"pi":{}}`)
+	fs.addFile(filepath.Join(modules, "empty", "extensions", "x.ts"), "")
+	fs.addFile(filepath.Join(modules, "plain", "package.json"), `[]`)
+	fs.addFile(filepath.Join(modules, "plain", "lib.ts"), "")
+	fs.commit()
+	c := piContext(t, NewSkillsDetector(m).DetectAll(context.Background(), nil, nil))
+
+	outside := piPlugin(t, c, "npm:outside")
+	if len(outside.Components) != 2 {
+		t.Fatalf("outside: %+v", outside.Components)
+	}
+	ext := piComponent(t, outside, model.PluginComponentSkill, "../shared/skills/ext/SKILL.md")
+	if ext.RelativePath != "." || ext.DeclarationPointer != "/pi/skills/0" || ext.DefinitionPath != filepath.Join(modules, "outside", "package.json") ||
+		ext.Skill == nil || ext.Skill.SkillMDPath != filepath.Join(modules, "shared", "skills", "ext", "SKILL.md") {
+		t.Fatalf("external target: %+v", ext)
+	}
+	piComponent(t, outside, model.PluginComponentPrompt, "go")
+
+	// A manifest whose pi fields are not string arrays selects nothing of
+	// that kind and never falls back to conventional directories.
+	for _, id := range []string{"npm:bad", "npm:empty"} {
+		if p := piPlugin(t, c, id); p.ManifestFormat != model.PluginManifestPi || len(p.Components) != 0 {
+			t.Fatalf("%s: %+v", id, p)
+		}
+	}
+	// Without resources of its own a local directory is one extension, but an
+	// npm payload is not.
+	if p := piPlugin(t, c, "npm:plain"); p.ManifestFormat != model.PluginManifestNone || len(p.Components) != 0 {
+		t.Fatalf("plain: %+v", p)
+	}
+}
+
+func TestPiEmptyFilterKeepsOtherAgents(t *testing.T) {
+	for _, pattern := range []string{"", "+", "-", "!"} {
+		t.Run(fmt.Sprintf("%q", pattern), func(t *testing.T) {
+			m, fs := newPluginMock()
+			root := filepath.Join(testHome, ".pi", "agent")
+			fs.addFile(filepath.Join(root, "settings.json"), `{"packages":[{"source":"npm:p","autoload":false,"extensions":[`+jsonQuote(pattern)+`]}]}`)
+			fs.addFile(filepath.Join(root, "npm", "node_modules", "p", "extensions", "x.ts"), "")
+			fs.addFile(filepath.Join(testHome, ".codex", "config.toml"), "[plugins.'test-plugin@company']\nenabled = true\n")
+			fs.addFile(filepath.Join(testHome, ".codex", "plugins/cache/company/test-plugin/local/.codex-plugin/plugin.json"), `{"name":"test-plugin"}`)
+			fs.commit()
+			result := NewSkillsDetector(m).DetectAll(context.Background(), nil, nil)
+			if result.Plugins == nil || !slices.ContainsFunc(result.Plugins.Contexts, func(c model.AgentPluginContext) bool { return c.Agent == model.AgentCodex && len(c.Plugins) == 1 }) {
+				t.Fatalf("other agents lost: %+v", result.Plugins)
+			}
+			piPlugin(t, piContext(t, result), "npm:p")
+		})
+	}
+}
+
+func TestPiMalformedManifestIsPartial(t *testing.T) {
+	m, fs := newPluginMock()
+	root := filepath.Join(testHome, ".pi", "agent")
+	pkg := filepath.Join(root, "npm", "node_modules", "p")
+	fs.addFile(filepath.Join(root, "settings.json"), `{"packages":["npm:p"]}`)
+	fs.addFile(filepath.Join(pkg, "package.json"), `{"pi":`)
+	fs.addFile(filepath.Join(pkg, "src", "index.ts"), "")
+	fs.commit()
+	p := piPlugin(t, piContext(t, NewSkillsDetector(m).DetectAll(context.Background(), nil, nil)), "npm:p")
+	if p.ComponentStatus == model.AgentScanStatusComplete || !slices.ContainsFunc(p.Errors, func(e model.AgentScanError) bool { return e.Code == model.AgentScanErrParseFailed }) {
+		t.Fatalf("a truncated manifest must not read as removed resources: %s %+v", p.ComponentStatus, p.Errors)
+	}
+}
+
+// piDeniedStat refuses Stat on one path, as a permission failure would.
+type piDeniedStat struct {
+	executor.Executor
+	denied string
+}
+
+func (m piDeniedStat) GuardedFiles(_ []string, _ func(string) string, _ int64) executor.Executor {
+	return m
+}
+
+func (m piDeniedStat) Stat(p string) (os.FileInfo, error) {
+	if p == m.denied {
+		return nil, os.ErrPermission
+	}
+	return m.Executor.Stat(p)
+}
+
+func TestPiUnreadableExtensionsDirIsPartial(t *testing.T) {
+	m, fs := newPluginMock()
+	root := filepath.Join(testHome, ".pi", "agent")
+	fs.addFile(filepath.Join(root, "settings.json"), `{}`)
+	fs.addFile(filepath.Join(root, "extensions", "x.ts"), "")
+	fs.commit()
+	c := piContext(t, NewSkillsDetector(piDeniedStat{m, filepath.Join(root, "extensions")}).DetectAll(context.Background(), nil, nil))
+	if c.InstallationStatus == model.AgentScanStatusComplete {
+		t.Fatalf("an unreadable extensions directory must not read as empty: %+v", c.Errors)
+	}
+}
+
+func TestPiSavedAliasCoalescesWithAutoExtension(t *testing.T) {
+	m, fs := newPluginMock()
+	root := filepath.Join(testHome, ".pi", "agent")
+	automatic := filepath.Join(root, "extensions", "x.ts")
+	alias := filepath.Join(testHome, "pi-alias.ts")
+	project := filepath.Join(testHome, "project")
+	fs.addFile(filepath.Join(root, "settings.json"), `{"extensions":[`+jsonQuote(alias)+`]}`)
+	fs.addFile(filepath.Join(project, ".pi", "settings.json"), `{"extensions":[`+jsonQuote(alias)+`]}`)
+	fs.addFile(automatic, "")
+	fs.addFile(alias, "")
+	fs.commit()
+	m.SetSymlink(alias, automatic)
+	c := piContext(t, NewSkillsDetector(m).DetectAll(context.Background(), []string{project}, nil))
+	scopes := map[string]int{}
+	for _, p := range c.Plugins {
+		scopes[p.Scope]++
+	}
+	// One physical extension per scope; the project selection stays its own installation.
+	if scopes[model.PluginScopeUser] != 1 || scopes[model.PluginScopeProject] != 1 {
+		t.Fatalf("installations per scope = %v: %+v", scopes, c.Plugins)
+	}
+	if p := piPlugin(t, c, "local:"+alias); p.InstallationEvidence != model.PluginEvidenceLocalConfig {
+		t.Fatalf("saved selection lost its evidence: %+v", p)
+	}
+}
+
+func TestPiNPMRegistryProvenance(t *testing.T) {
+	lock := func(name, version, resolved string) string {
+		return `{"lockfileVersion":3,"packages":{"node_modules/` + name + `":{"version":"` + version + `","resolved":"` + resolved + `"}}}`
+	}
+	tests := []struct {
+		name, pkg, file, receipt, want string
+	}{
+		{"hidden lockfile", "p", "node_modules/.package-lock.json", lock("p", "1.0.0", "https://registry.npmjs.org/p/-/p-1.0.0.tgz"), "https://registry.npmjs.org"},
+		{"prefix lockfile", "@acme/p", "package-lock.json", lock("@acme/p", "1.0.0", "https://npm.example/api/npm/@acme/p/-/p-1.0.0.tgz"), "https://npm.example/api/npm"},
+		{"escaped scope", "@acme/p", "package-lock.json", lock("@acme/p", "1.0.0", "https://npm.example/@acme%2fp/-/p-1.0.0.tgz"), "https://npm.example"},
+		{"credentials dropped", "p", "package-lock.json", lock("p", "1.0.0", "https://user:pass@npm.example/p/-/p-1.0.0.tgz"), "https://npm.example"},
+		{"other version", "p", "package-lock.json", lock("p", "0.9.0", "https://registry.npmjs.org/p/-/p-0.9.0.tgz"), ""},
+		{"not a registry tarball", "p", "package-lock.json", lock("p", "1.0.0", "git+ssh://git@github.com/acme/p.git#abc"), ""},
+		{"no receipt", "p", "", "", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m, fs := newPluginMock()
+			root := filepath.Join(testHome, ".pi", "agent")
+			pkg := filepath.Join(root, "npm", "node_modules", filepath.FromSlash(tc.pkg))
+			fs.addFile(filepath.Join(root, "settings.json"), `{"packages":["npm:`+tc.pkg+`"]}`)
+			fs.addFile(filepath.Join(pkg, "package.json"), `{"name":"`+tc.pkg+`","version":"1.0.0","pi":{"extensions":["index.ts"]}}`)
+			fs.addFile(filepath.Join(pkg, "index.ts"), "")
+			if tc.file != "" {
+				fs.addFile(filepath.Join(root, "npm", filepath.FromSlash(tc.file)), tc.receipt)
+			}
+			fs.commit()
+			p := piPlugin(t, piContext(t, NewSkillsDetector(m).DetectAll(context.Background(), nil, nil)), "npm:"+tc.pkg)
+			if p.Source == nil || p.Source.Location != tc.want || p.ComponentStatus != model.AgentScanStatusComplete {
+				t.Fatalf("location = %+v (%s), want %q", p.Source, p.ComponentStatus, tc.want)
+			}
+		})
+	}
+}

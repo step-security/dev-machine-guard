@@ -82,7 +82,16 @@ Non-interactive configure (for MSI / SCCM / Intune deployments):
   --api-endpoint URL            StepSecurity backend URL
   --api-key KEY                 Authentication key (or set DMG_API_KEY env var)
   --user-id ID                  Set user identity once, only when none is detected
-  --device-id ID                Custom device identifier (default: machine serial)
+  --device-id VALUE             Device identity: a literal id, or a template over
+                                {serial} {hostname} {user} (e.g. "{hostname}-{user}"
+                                for pooled virtual desktops). Blank/omitted keeps the
+                                current value; "-" clears a saved template. The
+                                STEPSEC_DEVICE_ID env var overrides it at run time.
+  --device-tag VALUE            Label shown in the dashboard (e.g. "avd-pool-eu"); the
+                                dashboard's retirement scope can select devices by
+                                tag. "-" clears it.
+  --retire-on-uninstall[=BOOL]  Make 'uninstall' retire this device in the dashboard
+                                before removing the scheduler job (default false)
   --scan-frequency HOURS        Scheduled scan frequency
   --max-execution-duration D    Whole-run watchdog (e.g. 2h, 30m; off to disable)
   --auto-update=BOOL            Windows MSI self-update on (default) or off
@@ -99,6 +108,11 @@ Non-interactive configure (for MSI / SCCM / Intune deployments):
   --disable-runtime-scan, --include-tcc-protected, --no-include-tcc-protected,
   --no-include-network-volumes, --include-network-volumes, --log-level,
   --install-dir, --color
+
+Uninstall:
+  --retire                      Retire this device in the dashboard, then remove the
+                                scheduler job (overrides retire_on_uninstall=false)
+  --no-retire                   Never call the dashboard (overrides retire_on_uninstall)
 
 Configuration:
   Per-user config:    ~/.stepsecurity/config.json
