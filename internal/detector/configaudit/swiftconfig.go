@@ -274,7 +274,7 @@ func (d *SwiftConfigDetector) Detect(ctx context.Context, scope SwiftConfigScope
 				// The mirror file is audit-only, build and cache leads are
 				// inventory-only, and the config home feeds both.
 				if key == "SWIFTPM_MIRROR_CONFIG" || key == "XDG_CONFIG_HOME" {
-					a.degrade("path_unresolved")
+					a.Partial("path_unresolved")
 				}
 				if key != "SWIFTPM_MIRROR_CONFIG" && !slices.Contains(a.InventoryReasons, "path_unresolved") {
 					a.InventoryReasons = append(a.InventoryReasons, "path_unresolved")
@@ -377,10 +377,7 @@ func (a *SwiftConfigSnapshot) protect(path string) {
 		return
 	}
 	guard := a.scope.Protected
-	if a.libraryRoot(path) != "" {
-		if a.scope.Library == nil {
-			return // nothing under ~/Library is read either
-		}
+	if a.scope.Library != nil {
 		guard = a.scope.Library
 	}
 	if resolved, err := a.exec.GuardedFiles([]string{path}, guard, 0).EvalSymlinks(path); err == nil {
@@ -497,6 +494,17 @@ func (a *SwiftConfigSnapshot) setting(f *model.RubyConfigFile, key, value string
 // through that root's reader; elsewhere a missing file cannot establish its
 // own root through a parent symlink.
 func (a *SwiftConfigSnapshot) readFile(scope, p string, parse func(*model.RubyConfigFile, []byte)) *model.RubyConfigFile {
+	files := a.exec.GuardedFiles([]string{filepath.Dir(p), p}, a.ContentGuard, swiftConfigBytes)
+	if root := a.libraryRoot(p); root != "" {
+		files = a.exec.GuardedFiles([]string{root}, a.LibraryGuard, swiftConfigBytes)
+	}
+	// Compatibility symlinks name the same observation, not another copy
+	// of its settings and findings. Failed paths retain their logical name.
+	if a.ctx.Err() == nil && !a.limited {
+		if resolved, err := files.EvalSymlinks(p); err == nil {
+			p = resolved
+		}
+	}
 	f := a.record(scope, p)
 	if f == nil || f.Status != "absent" || len(f.Reasons) > 0 {
 		return f
@@ -504,10 +512,6 @@ func (a *SwiftConfigSnapshot) readFile(scope, p string, parse func(*model.RubyCo
 	if a.ctx.Err() != nil {
 		a.fileReason(f, "unreadable", "deadline_exceeded")
 		return f
-	}
-	files := a.exec.GuardedFiles([]string{filepath.Dir(p), p}, a.ContentGuard, swiftConfigBytes)
-	if root := a.libraryRoot(p); root != "" {
-		files = a.exec.GuardedFiles([]string{root}, a.LibraryGuard, swiftConfigBytes)
 	}
 	info, err := files.Stat(p)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -933,7 +937,8 @@ func (a *SwiftConfigSnapshot) Finish() model.SwiftConfigAudit {
 	if a.scope.Username != "" {
 		ids, partial := a.chain(nil)
 		a.context(model.RubyConfigContext{Manager: swiftManager, ConfigSourceIDs: ids, SelectionStatus: swiftSelection(partial)})
-		for _, p := range a.projects {
+		for _, key := range sortedKeys(a.projects) {
+			p := a.projects[key]
 			ids, partial := a.chain(p)
 			a.context(model.RubyConfigContext{Manager: swiftManager, ProjectPath: p.dir, ConfigSourceIDs: ids, SelectionStatus: swiftSelection(partial)})
 		}

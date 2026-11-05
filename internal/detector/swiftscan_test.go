@@ -907,6 +907,10 @@ func TestSwiftScanRegistryLayouts(t *testing.T) {
 		reason   string
 	}{
 		{"released", []string{"acme", "Lib", "1.0.0"}, map[string]string{"Package.swift": "", ".registry-metadata": `{"registry":"https://r.example.invalid/"}`}, 1, ""},
+		{"registry host key", []string{"127.0.0.1-4a5aff14", "acme", "Lib", "1.0.0"}, map[string]string{"Package.swift": "", ".registry-metadata": `{"registry":"https://r.example.invalid/"}`}, 1, ""},
+		{"registry hash key", []string{"4a5aff14", "acme", "Lib", "1.0.0"}, map[string]string{"Package.swift": "", ".registry-metadata": `{"registry":"https://r.example.invalid/"}`}, 1, ""},
+		{"legacy hash scope", []string{"4a5aff14", "Lib", "1.0.0"}, map[string]string{"Package.swift": "", ".registry-metadata": `{"registry":"https://r.example.invalid/"}`}, 1, ""},
+		{"invalid registry key", []string{"registry-invalid", "acme", "Lib", "1.0.0"}, map[string]string{"Package.swift": "", ".registry-metadata": `{"registry":"https://r.example.invalid/"}`}, 0, "unsupported_layout"},
 		{"development storage key", []string{"acme", "Lib", "1.0.0", "abc"}, map[string]string{"Package.swift": "", ".registry-metadata": `{"registry":"https://r.example.invalid"}`}, 0, "unsupported_layout"},
 		{"invalid scope", []string{"-acme", "Lib", "1.0.0"}, map[string]string{"Package.swift": ""}, 0, "unsupported_layout"},
 		{"invalid version", []string{"acme", "Lib", "1.0"}, map[string]string{"Package.swift": ""}, 0, "unsupported_layout"},
@@ -935,7 +939,7 @@ func TestSwiftScanRegistryLayouts(t *testing.T) {
 			}
 			if tc.packages == 1 {
 				p := inv.Packages[0]
-				if p.PackageName != "acme.lib" || p.Version != "1.0.0" || p.SourcePath != filepath.Join(dir, ".registry-metadata") {
+				if p.PackageName != strings.ToLower(tc.path[len(tc.path)-3]+"."+tc.path[len(tc.path)-2]) || p.Version != "1.0.0" || p.SourcePath != filepath.Join(dir, ".registry-metadata") {
 					t.Errorf("package = %+v", p)
 				}
 				if tc.name == "credential receipt" && (p.Origin.Kind != "unknown" || !slices.Equal(p.Reasons, []string{"origin_unresolved"})) {

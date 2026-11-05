@@ -216,7 +216,13 @@ func swiftResolvedPin(version int, raw json.RawMessage) (swiftPin, bool) {
 	switch pin.kind {
 	case "localSourceControl":
 		if !configaudit.SwiftAbsPath(pin.location) {
-			return swiftPin{}, false
+			// SwiftPM records the original URL even when its mirror is local.
+			_, _, safe := configaudit.SwiftURL(pin.location)
+			colon, slash := strings.IndexByte(pin.location, ':'), strings.IndexByte(pin.location, '/')
+			if !safe || colon < 0 || slash >= 0 && slash < colon {
+				return swiftPin{}, false
+			}
+			pin.kind = "remoteSourceControl"
 		}
 	case "remoteSourceControl":
 		if pin.location == "" {

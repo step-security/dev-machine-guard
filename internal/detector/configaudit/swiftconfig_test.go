@@ -631,3 +631,153 @@ func swiftJSONString(t *testing.T, v any) string {
 	}
 	return string(data)
 }
+
+func TestSwiftConfigCredentialAliasIntoLibrary(t *testing.T) {
+	for _, kind := range []string{"netrc", "security"} {
+		t.Run(kind, func(t *testing.T) {
+			x, scope := swiftConfigTest(t, model.PlatformDarwin)
+			lib := filepath.Join(scope.Home, "Library")
+			base := filepath.Join(lib, "org.swift.swiftpm")
+			scope.Protected = func(p string) string {
+				if strings.HasPrefix(p, lib) {
+					return "skipped_protected"
+				}
+				return ""
+			}
+			scope.LibraryRoots = []string{base}
+			scope.Library = SwiftLibraryGuard(scope.Protected, nil, scope.LibraryRoots)
+			target := filepath.Join(base, "relocated", "mirrors.json")
+			swiftConfigWrite(t, target, string(mustSwiftFixture(t, "mirrors-modern.json")))
+			source := filepath.Join(scope.Home, ".netrc")
+			dest := target
+			if kind == "security" {
+				source = filepath.Join(scope.Home, ".swiftpm", "security")
+				dest = filepath.Dir(target)
+			}
+			if err := os.MkdirAll(filepath.Dir(source), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(dest, source); err != nil {
+				t.Fatal(err)
+			}
+			x.env["SWIFTPM_MIRROR_CONFIG"] = target
+			a := NewSwiftConfigDetector(x).Detect(t.Context(), scope).Finish()
+			f := swiftConfigFile(t, a, target)
+			if x.reads[target] != 0 || f.Status != "skipped_protected" {
+				t.Fatalf("alias kind %s read %d status %s", kind, x.reads[target], f.Status)
+			}
+		})
+	}
+}
+func TestSwiftConfigRejectedLeadContext(t *testing.T) {
+	for _, key := range []string{"SWIFTPM_MIRROR_CONFIG", "XDG_CONFIG_HOME"} {
+		t.Run(key, func(t *testing.T) {
+			x, s := swiftConfigTest(t, model.PlatformLinux)
+			x.env[key] = "relative/path"
+			a := NewSwiftConfigDetector(x).Detect(t.Context(), s).Finish()
+			if a.Status != "partial" {
+				t.Fatal(a.Status)
+			}
+			for _, c := range a.Contexts {
+				if c.SelectionStatus != "partial" {
+					t.Fatalf("audit partial but context %s", c.SelectionStatus)
+				}
+			}
+		})
+	}
+}
+func TestSwiftConfigBudgetDeterminism(t *testing.T) {
+	old := maxSwiftAuditBytes
+	t.Cleanup(func() { maxSwiftAuditBytes = old })
+	maxSwiftAuditBytes = 350
+	seen := map[string]bool{}
+	for range 100 {
+		a := &SwiftConfigSnapshot{scope: SwiftConfigScope{Username: "dev"}, audit: emptySwiftAudit(), projects: map[string]*swiftProjectConfig{}, files: map[string]*model.RubyConfigFile{}}
+		for _, key := range strings.Split("a b c d e f g h i j k l m n o p q r s t", " ") {
+			a.projects[key] = &swiftProjectConfig{dir: "/home/dev/src/" + key}
+		}
+		out := a.Finish()
+		if len(out.Contexts) < 2 || len(out.Contexts) > 20 {
+			t.Fatalf("probe budget invalid %d", len(out.Contexts))
+		}
+		paths := []string{}
+		for _, c := range out.Contexts {
+			paths = append(paths, c.ProjectPath)
+		}
+		seen[strings.Join(paths, ",")] = true
+	}
+	if len(seen) > 1 {
+		t.Fatalf("unchanged projects yield %d different retained context subsets", len(seen))
+	}
+}
+
+func TestSwiftConfigPhysicalAliases(t *testing.T) {
+	for _, tc := range []struct {
+		name, goos, scope string
+		linked            bool
+	}{
+		{"shared alias", model.PlatformDarwin, "user", true},
+		{"project alias", model.PlatformDarwin, "project", true},
+		{"Linux project alias", model.PlatformLinux, "project", true},
+		{"shared copy", model.PlatformDarwin, "user", false},
+		{"project copy", model.PlatformLinux, "project", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			x, scope := swiftConfigTest(t, tc.goos)
+			project := filepath.Join(scope.Home, "src", "app")
+			base := filepath.Join(project, ".swiftpm")
+			legacy := filepath.Join(base, "config")
+			if tc.scope == "user" {
+				base = filepath.Join(scope.Home, "Library", "org.swift.swiftpm")
+				legacy = filepath.Join(base, "mirrors.json")
+				lib := filepath.Join(scope.Home, "Library")
+				scope.Protected = func(p string) string {
+					if p == lib || strings.HasPrefix(p, lib+string(filepath.Separator)) {
+						return "skipped_protected"
+					}
+					return ""
+				}
+				scope.LibraryRoots = []string{base}
+				scope.Library = SwiftLibraryGuard(scope.Protected, nil, scope.LibraryRoots)
+			}
+			modern := filepath.Join(base, "configuration", "mirrors.json")
+			data := `{"version":1,"object":[{"original":"https://example.invalid/widgets.git","mirror":"http://mirror.example.invalid/widgets.git"}]}`
+			swiftConfigWrite(t, modern, data)
+			if tc.linked {
+				if err := os.Symlink(modern, legacy); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				swiftConfigWrite(t, legacy, data)
+			}
+			snapshot := NewSwiftConfigDetector(x).Detect(t.Context(), scope)
+			if tc.scope == "project" {
+				snapshot.Project(project, SwiftProjectFiles{Mirrors: modern, Legacy: legacy})
+			}
+			audit := snapshot.Finish()
+			want := 2
+			if tc.linked {
+				want = 1
+			}
+			ids := []string{}
+			for _, f := range audit.Files {
+				if f.Scope == tc.scope && len(f.Settings) > 0 {
+					ids = append(ids, f.SourceID)
+				}
+			}
+			if len(ids) != want || len(audit.Findings) != want || x.reads[modern]+x.reads[legacy] != want {
+				t.Fatalf("files=%d findings=%d reads=%d, want %d", len(ids), len(audit.Findings), x.reads[modern]+x.reads[legacy], want)
+			}
+			for _, c := range audit.Contexts {
+				if tc.scope == "project" && c.ProjectPath != project {
+					continue
+				}
+				for _, id := range ids {
+					if !slices.Contains(c.ConfigSourceIDs, id) {
+						t.Fatalf("context lost source %s: %+v", id, c)
+					}
+				}
+			}
+		})
+	}
+}

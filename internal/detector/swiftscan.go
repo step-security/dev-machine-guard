@@ -1074,9 +1074,8 @@ func (c *swiftScan) repositories(root *model.SwiftSource, files executor.Executo
 	}
 }
 
-// downloads enumerates registry/downloads/<scope>/<name>/<version>. Any other
-// shape, including a development layout with a storage-key level, is left
-// unsupported rather than guessed.
+// downloads accepts scope/name/version with an optional registry storage key.
+// Only the receipt establishes the registry origin, never the directory key.
 func (c *swiftScan) downloads(root *model.SwiftSource, files executor.Executor, r swiftRoot, dir string, budget *int) {
 	level := func(parent string, valid func(string) bool) []string {
 		entries, _ := c.list(root, files, parent, budget)
@@ -1092,13 +1091,35 @@ func (c *swiftScan) downloads(root *model.SwiftSource, files executor.Executor, 
 		}
 		return out
 	}
-	for _, scope := range level(dir, configaudit.SwiftRegistryScope) {
-		for _, name := range level(filepath.Join(dir, scope), configaudit.SwiftRegistryName) {
-			for _, version := range level(filepath.Join(dir, scope, name), swiftVersion) {
+	storageKey := func(key string) bool {
+		if i := strings.LastIndexByte(key, '-'); i >= 0 {
+			if i == 0 || i > 32 || key[:i] != strings.ToLower(key[:i]) {
+				return false
+			}
+			key = key[i+1:]
+		}
+		return cargoIsHex(key, 8)
+	}
+	for _, first := range level(dir, func(s string) bool { return configaudit.SwiftRegistryScope(s) || storageKey(s) }) {
+		for _, second := range level(filepath.Join(dir, first), configaudit.SwiftRegistryName) {
+			modern := storageKey(first) && configaudit.SwiftRegistryScope(second)
+			for _, third := range level(filepath.Join(dir, first, second), func(s string) bool {
+				return configaudit.SwiftRegistryScope(first) && swiftVersion(s) || modern && configaudit.SwiftRegistryName(s)
+			}) {
 				if c.stopped(root) {
 					return
 				}
-				c.download(root, files, r, filepath.Join(dir, scope, name, version), scope+"."+name, version)
+				path := filepath.Join(dir, first, second, third)
+				if swiftVersion(third) {
+					c.download(root, files, r, path, first+"."+second, third)
+					continue
+				}
+				for _, version := range level(path, swiftVersion) {
+					if c.stopped(root) {
+						return
+					}
+					c.download(root, files, r, filepath.Join(path, version), second+"."+third, version)
+				}
 			}
 		}
 	}

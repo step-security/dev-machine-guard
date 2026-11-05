@@ -80,6 +80,9 @@ func TestParseSwiftResolvedInvalid(t *testing.T) {
 		{"wrong type", doc(pin(`{"revision":1}`)), 0, []string{"parse_error"}, nil},
 		{"duplicate keeps first", doc(pin(`{"version":"1.0.0"}`), pin(`{"version":"2.0.0"}`)), 1, []string{"parse_error"}, nil},
 		{"invalid neighbor kept", doc(pin(`{"version":"1.0.0"}`), `{"identity":"b","kind":"bogus","location":"x","state":{"version":"1"}}`), 1, []string{"parse_error"}, nil},
+		{"local mirror original URL", doc(`{"identity":"renamed","kind":"localSourceControl","location":"https://example.invalid/a.git","state":{"revision":"r","version":"1.0.0"}}`), 1, nil, nil},
+		{"local mirror original SSH", doc(`{"identity":"renamed","kind":"localSourceControl","location":"git@example.invalid:a.git","state":{"revision":"r"}}`), 1, nil, nil},
+		{"local mirror unsafe URL", doc(`{"identity":"renamed","kind":"localSourceControl","location":"https://example.invalid/a.git?token=CANARY","state":{"revision":"r"}}`), 0, []string{"parse_error"}, nil},
 		{"relative local", doc(`{"identity":"b","kind":"localSourceControl","location":"repo","state":{"revision":"r"}}`), 0, []string{"parse_error"}, nil},
 		{"control character", doc(pin(`{"revision":"a\u0000b"}`)), 0, []string{"parse_error"}, nil},
 		{"version 4", `{"version":4,"pins":[]}`, 0, nil, errSwiftUnsupported},
@@ -106,6 +109,14 @@ func TestParseSwiftResolvedInvalid(t *testing.T) {
 				}
 			}
 		})
+	}
+	// A mirrored pin records its original URL, not the local mirror path.
+	for _, location := range []string{"https://example.invalid/a.git", "git@example.invalid:a.git"} {
+		pin, ok := swiftResolvedPin(3, []byte(`{"identity":"renamed","kind":"localSourceControl","location":"`+location+`","state":{"revision":"r","version":"1.0.0"}}`))
+		origin, reason := swiftOrigin(pin.kind, pin.location)
+		if !ok || pin.identity != "renamed" || pin.version != "1.0.0" || origin.Kind != "git" || origin.URL != location || reason != "" {
+			t.Fatalf("mirrored pin = %+v, origin = %+v, reason = %s", pin, origin, reason)
+		}
 	}
 	// The first of two pins sharing an identity stands.
 	pins, _, _ := parseSwiftResolved([]byte(doc(pin(`{"version":"1.0.0"}`), pin(`{"version":"2.0.0"}`))))
@@ -382,7 +393,7 @@ func TestSwiftRegistryLayoutValidators(t *testing.T) {
 		{"1.0", swiftVersion, false},
 		{"v1.0.0", swiftVersion, false},
 		{"1.0.0-", swiftVersion, false},
-		// The development layout keys a version folder by storage key.
+		// A registry version must be a semantic version.
 		{"1.0.0.abc", swiftVersion, false},
 	} {
 		if got := tc.check(tc.value); got != tc.want {
