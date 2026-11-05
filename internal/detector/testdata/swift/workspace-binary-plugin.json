@@ -1,0 +1,51 @@
+{
+  "object" : {
+    "artifacts" : [
+      {
+        "kind" : {
+          "typedArtifactsArchive" : {
+            "_0" : [
+              "executable"
+            ]
+          }
+        },
+        "packageRef" : {
+          "identity" : "swiftlintplugins",
+          "kind" : "remoteSourceControl",
+          "location" : "https://github.com/SimplyDanny/SwiftLintPlugins.git",
+          "name" : "SwiftLintPlugins"
+        },
+        "path" : "/Users/supermac/swift-inventory-lab-20261104/projects/BinaryPlugin/.build/artifacts/swiftlintplugins/SwiftLintBinary/SwiftLintBinary.artifactbundle",
+        "source" : {
+          "checksum" : "12befab676fc972ffde2ec295d016d53c3a85f64aabd9c7fee0032d681e307e9",
+          "type" : "remote",
+          "url" : "https://github.com/realm/SwiftLint/releases/download/0.63.2/SwiftLintBinary.artifactbundle.zip"
+        },
+        "targetName" : "SwiftLintBinary"
+      }
+    ],
+    "dependencies" : [
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "swiftlintplugins",
+          "kind" : "remoteSourceControl",
+          "location" : "https://github.com/SimplyDanny/SwiftLintPlugins.git",
+          "name" : "SwiftLintPlugins"
+        },
+        "state" : {
+          "checkoutState" : {
+            "revision" : "8a4640d14777685ba8f14e832373160498fbab92",
+            "version" : "0.63.2"
+          },
+          "name" : "sourceControlCheckout"
+        },
+        "subpath" : "SwiftLintPlugins"
+      }
+    ],
+    "prebuilts" : [
+
+    ]
+  },
+  "version" : 7
+}

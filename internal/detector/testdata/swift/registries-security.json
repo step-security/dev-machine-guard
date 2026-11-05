@@ -1,0 +1,33 @@
+{
+  "authentication" : {
+
+  },
+  "registries" : {
+    "roundtrip" : {
+      "supportsAvailability" : false,
+      "url" : "https://registry.example.invalid"
+    }
+  },
+  "security" : {
+    "default" : {
+      "signing" : {
+        "onUnsigned" : "silentAllow",
+        "onUntrustedCertificate" : "silentAllow"
+      }
+    },
+    "packageOverrides" : {
+
+    },
+    "registryOverrides" : {
+
+    },
+    "scopeOverrides" : {
+      "example" : {
+        "signing" : {
+          "includeDefaultTrustedRootCertificates" : false
+        }
+      }
+    }
+  },
+  "version" : 1
+}

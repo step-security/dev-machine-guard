@@ -318,3 +318,68 @@ func FuzzMavenMetadata(f *testing.F) {
 		}
 	})
 }
+
+func FuzzSwiftMetadata(f *testing.F) {
+	for _, s := range []string{
+		`{"version":1,"object":{"pins":[{"package":"A","repositoryURL":"https://github.com/a/a.git","state":{"revision":"r","version":"1.0.0"}}]}}`,
+		`{"version":2,"pins":[{"identity":"a","kind":"remoteSourceControl","location":"https://h/a","state":{"revision":"r","branch":"main"}}]}`,
+		`{"version":3,"originHash":"x","pins":[{"identity":"s.n","kind":"registry","location":"","state":{"version":"1.0.0"}}]}`,
+		`{"version":7,"object":{"dependencies":[{"packageRef":{"identity":"a","kind":"remoteSourceControl","location":"https://h/a","name":"a"},` +
+			`"state":{"name":"edited","path":null},"subpath":"a","basedOn":{"packageRef":{"identity":"a","kind":"remoteSourceControl","location":"https://h/a","name":"a"},` +
+			`"state":{"name":"sourceControlCheckout","checkoutState":{"revision":"r","version":"1.0.0"}},"subpath":"a","basedOn":null}}],` +
+			`"artifacts":[{"packageRef":{"identity":"a","kind":"remoteSourceControl","location":"https://h/a","name":"a"},"targetName":"T",` +
+			`"source":{"type":"remote","url":"https://h/t.zip","checksum":"` + strings.Repeat("a", 64) + `"},"path":"/x/T.artifactbundle","kind":{"typedArtifactsArchive":{"_0":[]}}}],"prebuilts":[]}}`,
+		`{"version":4,"object":{"dependencies":[{"packageRef":{"identity":"a","kind":"remote","path":"/r/a","name":"a"},"state":{"name":"local"},"subpath":"a"}],"artifacts":[]}}`,
+		"[core]\n\tbare = true\n[remote \"origin\"]\n\turl = \"https://h/a.git\" ; c\n",
+		`{"registry":"https://r.example","scmRepositoryURLs":[]}`,
+		"", "{", "\xff\x00",
+	} {
+		f.Add([]byte(s))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 16*1024 {
+			t.Skip()
+		}
+		before := bytes.Clone(data)
+		pins, reasons, err := parseSwiftResolved(data)
+		if pins2, reasons2, err2 := parseSwiftResolved(data); !reflect.DeepEqual(pins, pins2) || !slices.Equal(reasons, reasons2) || (err == nil) != (err2 == nil) {
+			t.Fatal("resolved parse is not deterministic")
+		}
+		ids := map[string]bool{}
+		for _, p := range pins {
+			if !swiftText(p.identity, 512) || ids[p.identity] || (p.version == "" && p.revision == "") {
+				t.Fatalf("invalid pin %+v", p)
+			}
+			ids[p.identity] = true
+		}
+		deps, artifacts, reasons, err := parseSwiftWorkspace(data)
+		if deps2, artifacts2, reasons2, err2 := parseSwiftWorkspace(data); !reflect.DeepEqual(deps, deps2) || !reflect.DeepEqual(artifacts, artifacts2) ||
+			!slices.Equal(reasons, reasons2) || (err == nil) != (err2 == nil) {
+			t.Fatal("workspace parse is not deterministic")
+		}
+		for _, d := range deps {
+			if !swiftText(d.identity, 512) {
+				t.Fatalf("invalid dependency %+v", d)
+			}
+		}
+		for _, a := range artifacts {
+			if !swiftText(a.identity, 512) || !slices.Contains([]string{"xcframework", "artifact_archive", "unknown"}, a.kind) {
+				t.Fatalf("invalid artifact %+v", a)
+			}
+		}
+		bare, origin, ok := parseSwiftGitConfig(data)
+		if bare2, origin2, ok2 := parseSwiftGitConfig(data); bare != bare2 || origin != origin2 || ok != ok2 {
+			t.Fatal("git config parse is not deterministic")
+		}
+		if !ok && origin != "" {
+			t.Fatal("unresolved git config returned an origin")
+		}
+		registry, err := parseSwiftReceipt(data)
+		if registry2, err2 := parseSwiftReceipt(data); registry != registry2 || (err == nil) != (err2 == nil) {
+			t.Fatal("receipt parse is not deterministic")
+		}
+		if !bytes.Equal(data, before) {
+			t.Fatal("parser mutated input")
+		}
+	})
+}
