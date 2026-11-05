@@ -3,8 +3,10 @@
 package updatestate
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,7 +64,12 @@ func TestRenameDirGivesUpOnAHeldHandle(t *testing.T) {
 	old := renameRetryBudget
 	renameRetryBudget = 2 * time.Second
 	defer func() { renameRetryBudget = old }()
-	if err := RenameDir(src, dst); !renameBlocked(err) {
+	err := RenameDir(src, dst)
+	if !renameBlocked(err) {
 		t.Fatalf("RenameDir = %v, want a blocked error", err)
+	}
+	// Restart Manager names this test process as the holder.
+	if want := fmt.Sprintf("pid %d", os.Getpid()); !strings.Contains(err.Error(), want) {
+		t.Fatalf("err = %q, want the holder %q", err, want)
 	}
 }

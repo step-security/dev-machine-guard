@@ -2,6 +2,9 @@ package updatestate
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -53,5 +56,32 @@ func TestRenameDirGivesUpAfterBudget(t *testing.T) {
 	renameRetryBudget = 0
 	if err := RenameDir("a", "b"); !errors.Is(err, errBlocked) {
 		t.Fatalf("RenameDir = %v, want %v", err, errBlocked)
+	}
+}
+
+func TestRenameDirNamesHoldersOnGiveUp(t *testing.T) {
+	stubRename(t, 1<<30, errBlocked)
+	renameRetryBudget = 0
+	old := blockedBy
+	t.Cleanup(func() { blockedBy = old })
+	var asked []string
+	blockedBy = func(paths []string) []string {
+		asked = paths
+		return []string{"MsMpEng.exe pid 4120 (Microsoft Defender Antivirus Service)"}
+	}
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, AgentFile), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := RenameDir(src, src+"-dst")
+	if !errors.Is(err, errBlocked) || !RenameBlocked(err) {
+		t.Fatalf("RenameDir = %v, want a wrapped blocked error", err)
+	}
+	if !strings.Contains(err.Error(), "held by MsMpEng.exe pid 4120") || len(asked) != 1 {
+		t.Fatalf("err = %q, asked %v", err, asked)
+	}
+	blockedBy = func([]string) []string { return nil }
+	if err := RenameDir(src, src+"-dst"); !strings.Contains(err.Error(), "holder not identified") {
+		t.Fatalf("err = %q, want holder not identified", err)
 	}
 }
