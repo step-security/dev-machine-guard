@@ -821,7 +821,9 @@ func (t *tick) update(ctx context.Context, probationClosed bool) int {
 	if target == st.Current {
 		// Current's dir was missing or damaged and is now restaged in place:
 		// the pointer already names it, so there is nothing to switch.
+		// update_ok (restaged) clears the earlier failure on the console.
 		t.d.Logf("self-update: restaged current %s", target)
+		t.enqueue(EventOK, target, target, "restaged", "")
 		t.countRestage(target)
 		t.setRunning(target)
 		return t.finish(ctx, ExitOK)

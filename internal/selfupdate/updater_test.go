@@ -258,7 +258,10 @@ func TestMissingStateRebuildsOnSeed(t *testing.T) {
 	e := newEnv(t)
 	e.api.setTarget("1.19.0")
 	e.tick()
-	wantEvents(t, e.events(), EventStateCorrupt)
+	wantEvents(t, e.events(), EventStateCorrupt, EventOK)
+	if ok := e.lastSent(EventOK); ok.From != "1.19.0" || ok.To != "1.19.0" || ok.Error != "restaged" {
+		t.Fatalf("update_ok = %+v, want 1.19.0 -> 1.19.0 restaged", ok)
+	}
 	if st := e.state(); st.Current != "1.19.0" {
 		t.Fatalf("current = %s", st.Current)
 	}
@@ -301,7 +304,7 @@ func TestCorruptStateIsReported(t *testing.T) {
 	if code := e.tick(); code != ExitOK {
 		t.Fatalf("tick = %d", code)
 	}
-	wantEvents(t, e.events(), EventStateCorrupt)
+	wantEvents(t, e.events(), EventStateCorrupt, EventOK)
 	if ev := e.lastSentOrNil(EventStateCorrupt); ev == nil || ev.Error == "" {
 		t.Fatal("no reason on update_state_corrupt")
 	}
