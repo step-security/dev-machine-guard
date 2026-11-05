@@ -113,7 +113,7 @@ func (s *MavenScanner) Scan(ctx context.Context, target *user.User, searchDirs [
 	c.guard = c.config.ContentGuard
 	c.files = s.exec.GuardedFiles(c.roots, c.guard, maxMavenMetadataBytes)
 	// Register every known cache before the walk so it is pruned, not walked.
-	c.pruned[c.key(filepath.Join(c.home, ".m2"))] = true
+	c.prune(filepath.Join(c.home, ".m2"))
 	c.cacheRoot(filepath.Join(c.home, ".m2", "repository"), "maven_repository", "user", "default")
 	for _, p := range c.config.RepositoryLeads {
 		c.cacheRoot(p, "maven_repository", "custom", "settings")
@@ -317,14 +317,7 @@ func (c *mavenScan) cacheRoot(path, kind, scope, origin string) {
 		return
 	}
 	path = filepath.Clean(path)
-	phys := path
-	// A stopped scan registers the root unresolved, so it is still reported.
-	if c.guard(path) == "" && c.stopReason() == "" {
-		if resolved, err := c.fs(path, 0).EvalSymlinks(path); err == nil {
-			phys = resolved
-		}
-	}
-	c.pruned[c.key(path)], c.pruned[c.key(phys)] = true, true
+	phys := c.prune(path)
 	if c.rootKeys[c.key(path)] || c.rootKeys[c.key(phys)] {
 		return
 	}
@@ -334,10 +327,25 @@ func (c *mavenScan) cacheRoot(path, kind, scope, origin string) {
 	c.source(kind, path, "")
 }
 
+// prune keeps the walk out of path at its logical and physical location, so
+// a symlinked tool home is not walked as a project, and returns the physical
+// path.
+func (c *mavenScan) prune(path string) string {
+	phys := path
+	// A stopped scan registers the root unresolved, so it is still reported.
+	if c.guard(path) == "" && c.stopReason() == "" {
+		if resolved, err := c.fs(path, 0).EvalSymlinks(path); err == nil {
+			phys = resolved
+		}
+	}
+	c.pruned[c.key(path)], c.pruned[c.key(phys)] = true, true
+	return phys
+}
+
 // gradleHome registers a Gradle user home's module cache. The whole home is
 // tool state, so the walk never enters it.
 func (c *mavenScan) gradleHome(home, scope string) {
-	c.pruned[c.key(home)] = true
+	c.prune(filepath.Clean(home))
 	c.cacheRoot(filepath.Join(home, "caches", "modules-2", "files-2.1"), "gradle_cache", scope, "default")
 }
 
@@ -501,6 +509,8 @@ func (c *mavenScan) project(dir string, entries []fs.DirEntry, walk *model.Maven
 	// unlisted keeps the first reason a manager's configuration folder was not
 	// fully listed, so the audit never reports its unread files as absent.
 	unlisted := map[string]string{}
+	// failures also limits the project source, whose files may be missing.
+	failures := []string{}
 	sub := func(manager string, rel ...string) []fs.DirEntry {
 		p := filepath.Join(append([]string{dir}, rel...)...)
 		var list []fs.DirEntry
@@ -510,6 +520,9 @@ func (c *mavenScan) project(dir string, entries []fs.DirEntry, walk *model.Maven
 			c.degrade(walk, reason)
 		} else {
 			list, reason = c.list(walk, c.files, p, &budget)
+		}
+		if reason != "" {
+			failures = append(failures, reason)
 		}
 		if reason != "" && manager != "" && unlisted[manager] == "" {
 			unlisted[manager] = reason
@@ -580,6 +593,9 @@ func (c *mavenScan) project(dir string, entries []fs.DirEntry, walk *model.Maven
 	if src == nil {
 		c.config.Partial("output_size_limit")
 		return true
+	}
+	for _, reason := range failures {
+		c.degrade(src, reason)
 	}
 	project := model.MavenProject{ProjectPath: dir, SourceID: src.SourceID, Tool: tool}
 	if c.charge(src, project) {
