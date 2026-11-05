@@ -116,6 +116,29 @@ previous one (for rollback), a copy of the MSI's seed version and, for
 up to a day, a downloaded version waiting to be switched to. Older
 version folders are deleted automatically.
 
+### Antivirus and EDR
+
+The MSI and the updater write new executables under
+`C:\Program Files\StepSecurity\versions\` and then rename the folder
+they were written to into place. While an antivirus or EDR scans a
+freshly written executable it holds the file open, and Windows refuses
+to rename the folder until the scan ends. Dev Machine Guard waits up to
+60 seconds for that; a product that holds the files longer, or blocks
+the write, stops the update ("Access is denied").
+
+Exclude, or set to monitor only for writes and renames by SYSTEM:
+
+| Exclude | Why |
+|---|---|
+| Folder `C:\Program Files\StepSecurity\` (with `versions\`, `seed\`, `state\`) | New versions are written and renamed here |
+| Processes `stepsecurity-dev-machine-guard.exe`, `stepsecurity-dev-machine-guard-task.exe`, `stepsecurity-dev-machine-guard-bootstrap.exe` | The updater and scans run as these |
+
+When the rename stays blocked, the error names the process holding the
+files, for example `Access is denied. (held by MsMpEng.exe pid 4120
+(Microsoft Defender Antivirus Service))`; that is the product to
+configure. `(holder not identified)` usually means a kernel-mode filter
+or an application-control policy blocked the write.
+
 ### Download mirror (optional)
 
 If devices can't reach GitHub, host the release files on an HTTPS server
@@ -386,7 +409,10 @@ Get-ItemProperty -Path 'HKLM:\Software\StepSecurity' | Select-Object AgentVersio
 - `AgentVersion`: the installed **MSI** version (what SCCM and Intune
   detect).
 - `RunningVersion`: the version the device currently **runs**. After a
-  self-update it is higher than `AgentVersion`; that's expected.
+  self-update it is higher than `AgentVersion`; that's expected. Empty
+  right after an MSI install means the MSI's `adopt-seed` step didn't
+  finish: search the MSI log for `adopt-seed:` (see
+  [Antivirus and EDR](#antivirus-and-edr)). The next update run repairs it.
 
 ### state.json and the update log
 
@@ -422,19 +448,19 @@ appears on hover.
 
 | Console label (event) | What it means | What to do |
 |---|---|---|
-| Updated (`update_ok`) | The device switched to the new version. With reason `seed_adopted`, it moved to a newer version from an MSI. | Nothing. Expect "Update confirmed" after the next successful scan. |
+| Updated (`update_ok`) | The device switched to the new version. With reason `seed_adopted`, it moved to a newer version from an MSI. With reason `restaged` (from and to are the same version), the current version's files were missing and were restored, for example after a blocked MSI install. | Nothing. Expect "Update confirmed" after the next successful scan. |
 | Update confirmed (`update_confirmed`) | The new version completed a scan and is kept. Reason `smoke_only`: no scan ran in the probation window, so it was confirmed by a self-test. | Nothing. |
 | Rolled back (`update_rolled_back`) | The new version failed on this device and the device went back to the version in "to". It won't take that version again. Reasons: `bad_runs` (crashed, hung or couldn't start twice), `smoke_failed` (failed its self-test), `pointer_invalid` (its files were damaged), `inconclusive` (no successful scan in 72 hours; retried after 7 days). | One device: check for software that kills or blocks processes in `C:\Program Files\StepSecurity\versions\`. Many devices: contact StepSecurity support. |
 | Download failed (`update_download_failed`) | The release files couldn't be downloaded from GitHub or the mirror. | Allow `github.com` and `release-assets.githubusercontent.com` for the machine (see [Requirements](#requirements)), or configure a mirror. Retried at the next check. |
 | Verification failed (`update_verify_failed`) | A downloaded file failed a signature, checksum or publisher check. Nothing was installed. | One device: look for a proxy, TLS inspection or security tool that alters downloads. Many devices: contact StepSecurity support. |
-| Staging failed (`update_stage_failed`) | The new version couldn't be written to disk (space, permissions). Reason `av_deleted`: antivirus deleted the running version's files three times in a day; re-installing it is paused for 24 hours. | Free disk space (see [Disk space](#disk-space)). For `av_deleted`, exclude `C:\Program Files\StepSecurity\` from file quarantine. |
+| Staging failed (`update_stage_failed`) | The new version couldn't be written to disk (space, permissions). `rename ... Access is denied. (held by <process>)`: an antivirus or EDR kept the new files open for over 60 seconds. Reason `av_deleted`: antivirus deleted the running version's files three times in a day; re-installing it is paused for 24 hours. | Free disk space (see [Disk space](#disk-space)). For `Access is denied` or `av_deleted`, add the exclusions in [Antivirus and EDR](#antivirus-and-edr) for the product named in the reason. |
 | Health check failed (`update_health_failed`) | The new version failed its self-test before the switch. The device stays on its version and won't take that one again. | Check that the device's configuration is complete (`config.json`). Many devices: contact StepSecurity support. |
 | Switch failed (`update_switch_failed`) | The new version was ready but the switch couldn't be saved. | Check disk health and free space. Retried automatically. |
 | Switch deferred (`update_switch_deferred`) | A scan was running at four update runs in a row, so the switch kept waiting. | Usually nothing: it switches at the first update run with no scan running. If it repeats, check for scans that never finish. |
 | Update check failed (`update_check_failed`) | The device couldn't get its target version from the StepSecurity API. | Check the machine's access to `<api-host>`, the proxy settings and the API key in `config.json`. Reported at most once a day. |
 | Below version floor (`update_refused_floor`) | The device was offered a version older than 1.18.1 and refused it. | Contact StepSecurity support. |
 | Auto update off (`update_disabled`) | Self-update is off on this device (`AUTOUPDATE=0`); the event names the version it isn't taking. | Expected for opted-out devices. To re-enable, see [Controlling updates](#controlling-updates). |
-| Version pointer invalid (`update_pointer_invalid`) | A scan couldn't start the current version and ran a fallback (the previous version or the MSI's seed). The reason names the cause, e.g. `state_missing` or `current_missing:<version>`. | Usually fixed by the next update run. If it repeats, check the Update task exists and runs; repair the MSI. |
+| Version pointer invalid (`update_pointer_invalid`) | A scan couldn't start the current version and ran a fallback (the previous version or the MSI's seed). The reason names the cause, e.g. `state_missing` or `current_missing:<version>`. After `state_missing`, the MSI's last `adopt-seed` lines follow, e.g. `state_missing; adopt-seed: copying seed 1.18.1: rename ...: Access is denied.` | Usually fixed by the next update run. `Access is denied` in the reason: see [Antivirus and EDR](#antivirus-and-edr). If it repeats, check the Update task exists and runs; repair the MSI. |
 | Permissions repaired (`update_acl_drift`) | Something changed the permissions on `versions\` or `state\`; the updater restored them. | If it repeats, find the tool or Group Policy changing permissions under `C:\Program Files\StepSecurity\`. |
 | Update state corrupt (`update_state_corrupt`) | `state.json` was missing or unreadable and was rebuilt. | Once: nothing. Repeated: check disk health and tools that delete files under `C:\Program Files\StepSecurity\state\`. |
 | Updater failing (`update_updater_failed`) | The updater in the current version failed three times in a row, and the MSI's copy took over. | Contact StepSecurity support with the device's `update.log`. |
@@ -490,6 +516,15 @@ path doesn't exist or isn't readable by SYSTEM (search the log for
 `--from-file`), or the credentials are incomplete (`api_key is
 required`). A failed install or upgrade is rolled back completely: the
 device keeps the version, the tasks and the settings it had.
+
+### Install succeeded, but `RunningVersion` is empty
+
+The MSI copies its version into `versions\` in a custom action
+(`adopt-seed`) that never fails the install. Search the MSI log for
+`adopt-seed:`; a line like `copying seed 1.18.1: rename ...: Access is
+denied.` means an antivirus or EDR held the new files (see
+[Antivirus and EDR](#antivirus-and-edr)). Scans keep running on the MSI's
+copy meanwhile, and the next update run (hourly) retries.
 
 ### 3010 (restart required)
 
