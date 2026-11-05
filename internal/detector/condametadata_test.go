@@ -113,6 +113,8 @@ func TestCondaOrigin(t *testing.T) {
 		{"credential channel", "https://CANARY:CANARY@repo.example.invalid/t/CANARY/ch/noarch", "", "noarch", model.CondaOrigin{Kind: "channel", URL: "https://repo.example.invalid/ch"}, ""},
 		{"unknown placeholder", "<unknown>", "", "", model.CondaOrigin{Kind: "unknown"}, ""},
 		{"redacted channel", condaRedacted, "", "", model.CondaOrigin{Kind: "unknown"}, "origin_unresolved"},
+		{"one-character scheme channel is unresolved", "0://host.example.invalid/t/CANARY-TOKEN/ch/noarch", "", "noarch", model.CondaOrigin{Kind: "unknown"}, "origin_unresolved"},
+		{"drive-letter scheme channel is a url", "C://host.example.invalid/t/CANARY-TOKEN/ch/noarch", "", "noarch", model.CondaOrigin{Kind: "channel", URL: "C://host.example.invalid/ch"}, ""},
 		{"empty", "", "", "", model.CondaOrigin{Kind: "unknown"}, ""},
 	} {
 		got, reason := condaOrigin(tc.channel, tc.url, tc.subdir)

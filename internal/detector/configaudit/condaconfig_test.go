@@ -474,6 +474,8 @@ func TestCondaSanitizeURL(t *testing.T) {
 		{"git@github.com:CANARY/repo.git", goRedacted, true},
 		{"not a url\x00", goRedacted, true},
 		{"conda-forge", "conda-forge", false},
+		{"0://host.example.invalid/t/CANARY/ch", goRedacted, true},
+		{"C://host.example.invalid/t/CANARY/ch", "C://host.example.invalid/ch", true},
 	} {
 		got, redacted := CondaSanitizeURL(tc.in)
 		if got != tc.want || redacted != tc.redacted {
