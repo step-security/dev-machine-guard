@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
-	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
@@ -509,17 +509,67 @@ func appendSeenUser(dir, token string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil { // #nosec G301 -- shared install dir
 		return err
 	}
+	// The append and the compaction share one lock, so a compaction never
+	// replaces the file with a snapshot that misses this visit. A lock that
+	// cannot be had in time does not lose the visit either: the append goes
+	// ahead, and only the compaction insists on the lock.
+	release, locked := lockSeenUsers(dir)
 	f, err := os.OpenFile(filepath.Join(dir, seenUsersFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644) // #nosec G302 G304 -- readable by every user's run
 	if err != nil {
+		release()
 		return err
 	}
 	_, err = f.WriteString(strings.Join(lines, ""))
 	_ = f.Close()
 	if err != nil {
+		release()
 		return err
 	}
-	compactSeenUsersIfLarge(dir)
+	if locked {
+		compactSeenUsersLocked(dir)
+	}
+	release()
 	return nil
+}
+
+// seenUsersLockFile is the cross-process lock every writer of
+// seen-users.txt holds: created exclusively, removed on release, and
+// reclaimed when its holder has evidently died (seenUsersLockStale).
+const (
+	seenUsersLockFile  = "seen-users.lock"
+	seenUsersLockWait  = 2 * time.Second
+	seenUsersLockStale = 10 * time.Second
+)
+
+// lockSeenUsers takes the visit-file lock, waiting up to seenUsersLockWait.
+// The release func is always safe to call; locked reports whether the lock
+// was actually held.
+func lockSeenUsers(dir string) (release func(), locked bool) {
+	path := filepath.Join(dir, seenUsersLockFile)
+	deadline := time.Now().Add(seenUsersLockWait)
+	for {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644) // #nosec G302 G304 -- every user's run may take it
+		if err == nil {
+			_ = f.Close()
+			return func() { _ = os.Remove(path) }, true
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return func() {}, false
+		}
+		if info, serr := os.Stat(path); serr == nil && time.Since(info.ModTime()) > seenUsersLockStale {
+			// The holder died. A rename is atomic, so exactly one waiter
+			// reclaims the stale lock; the others retry and race for it.
+			stale := path + "." + strconv.Itoa(os.Getpid()) + ".stale"
+			if os.Rename(path, stale) == nil {
+				_ = os.Remove(stale)
+			}
+			continue
+		}
+		if time.Now().After(deadline) {
+			return func() {}, false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func formatVisit(token string, day int64) string {
@@ -581,21 +631,16 @@ func legacyVisitCarriable(records []seenUser, token string) bool {
 // rewritten as one line per token, well under the read bound.
 const compactSeenUsersBytes = maxSeenUsersBytes / 2
 
-// compactSeenUsersIfLarge rewrites an oversized seen-users file as one line
-// per token, under the machine-wide lock so no concurrent append is lost;
-// a held lock means another run is scanning and the compaction waits for a
-// later run. Best effort.
-func compactSeenUsersIfLarge(dir string) {
+// compactSeenUsersLocked rewrites an oversized seen-users file as one line
+// per token. The caller holds the visit-file lock (lockSeenUsers), which
+// every append takes too, so no visit can land between the snapshot and
+// the replacement. Best effort.
+func compactSeenUsersLocked(dir string) {
 	path := filepath.Join(dir, seenUsersFile)
 	info, err := os.Stat(path)
 	if err != nil || info.Size() <= compactSeenUsersBytes {
 		return
 	}
-	held, err := lock.AcquireMachineWide()
-	if err != nil {
-		return
-	}
-	defer held.Release()
 	records := readSeenUserRecords(dir)
 	if records == nil {
 		return

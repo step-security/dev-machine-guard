@@ -7,11 +7,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
-	"github.com/step-security/dev-machine-guard/internal/paths"
 )
 
 // withMachineStateDir points the shared-host files at a temp dir and stubs
@@ -301,8 +301,6 @@ func TestSeenUsers_ConcurrentAppendsKeepEveryVisit(t *testing.T) {
 // every token's days.
 func TestSeenUsers_CompactsWhenLarge(t *testing.T) {
 	dir := t.TempDir()
-	paths.SetOverride(dir)
-	t.Cleanup(func() { paths.SetOverride("") })
 	var b strings.Builder
 	for b.Len() <= compactSeenUsersBytes {
 		b.WriteString("jdoe-0123456789ab 100\njdoe-0123456789ab 101\n")
@@ -318,6 +316,61 @@ func TestSeenUsers_CompactsWhenLarge(t *testing.T) {
 	if string(data) != "jdoe-0123456789ab 100,101\nasmith-0123456789ab 102\n" {
 		t.Fatalf("compacted file = %q", data)
 	}
+	if _, err := os.Stat(filepath.Join(dir, seenUsersLockFile)); !os.IsNotExist(err) {
+		t.Fatal("the visit-file lock must be released")
+	}
+}
+
+// Appends and the compaction share the visit-file lock: while a compaction
+// holds it, an append waits and lands after the replacement, so no visit is
+// lost; a compaction that cannot take the lock does not rewrite anything.
+func TestSeenUsers_AppendWaitsForTheCompactionLock(t *testing.T) {
+	dir := t.TempDir()
+	var b strings.Builder
+	for b.Len() <= compactSeenUsersBytes {
+		b.WriteString("jdoe-0123456789ab 100\n")
+	}
+	if err := os.WriteFile(filepath.Join(dir, seenUsersFile), []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A compactor holds the lock.
+	release, locked := lockSeenUsers(dir)
+	if !locked {
+		t.Fatal("the lock must be free")
+	}
+	withSeenUserDay(t, 101)
+	done := make(chan error, 1)
+	go func() { done <- appendSeenUser(dir, "asmith-0123456789ab") }()
+	select {
+	case err := <-done:
+		t.Fatalf("the append must wait for the lock, returned early: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	// The compactor replaces the file (the oversized snapshot it took) and
+	// releases; the waiting append then lands on the compacted file.
+	compactSeenUsersLocked(dir)
+	release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, seenUsersFile))
+	if string(data) != "jdoe-0123456789ab 100\nasmith-0123456789ab 101\n" {
+		t.Fatalf("file = %q, want the compacted line plus the waited-for visit", data)
+	}
+	// A stale lock (its holder died) is reclaimed instead of blocking forever.
+	lockPath := filepath.Join(dir, seenUsersLockFile)
+	if err := os.WriteFile(lockPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * seenUsersLockStale)
+	if err := os.Chtimes(lockPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+	release, locked = lockSeenUsers(dir)
+	if !locked {
+		t.Fatal("a stale lock must be reclaimed")
+	}
+	release()
 }
 
 // Turning detection off on a host that already switched must restore
@@ -344,6 +397,9 @@ func TestAutoIdentitySuperseded_OffNeverSkips(t *testing.T) {
 // `identity` must answer what the scan that follows would do: on the day the
 // second developer becomes established, the scan records today's visit before
 // deciding, so the diagnostic query assumes that visit without recording it.
+// main takes the prospective visit before selecting the state scope, which
+// is what caches the decision, so the test follows that order and never
+// resets the cache in between.
 func TestProspectiveScanUser_MatchesTheScanDecision(t *testing.T) {
 	dir := withMachineStateDir(t, "Professional", false)
 	withConfigDeviceID(t, "")
@@ -361,6 +417,9 @@ func TestProspectiveScanUser_MatchesTheScanDecision(t *testing.T) {
 	}
 	ResetAutoIdentityForTest()
 	ProspectiveScanUser(mock)
+	if scope := IdentityUserScope(mock); scope != asmith { // main's next step caches the decision
+		t.Fatalf("scope after the prospective visit = %q, want %q", scope, asmith)
+	}
 	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\asmith`); id.Source != IdentitySourceAuto || id.DeviceID != "host-"+asmith {
 		t.Fatalf("the prospective visit must give the scan's answer: %+v", id)
 	}

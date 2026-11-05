@@ -179,8 +179,14 @@ func main() {
 	// second developer on the same host is what flips it to automatic
 	// per-user identities (device/multiuser.go), and that must be known
 	// before the scope below is chosen.
-	if cfg.Command == "send-telemetry" {
+	// `identity` must answer what that scan would do, so it assumes today's
+	// visit here, before the automatic-mode decision below is cached,
+	// without recording it.
+	switch cfg.Command {
+	case "send-telemetry":
 		device.RecordScanUser(exec)
+	case "identity":
+		device.ProspectiveScanUser(exec)
 	}
 	paths.SetUserScope(device.IdentityUserScope(exec))
 	installDir := paths.Home() // "" when SetDisabled or home unresolved
@@ -827,10 +833,8 @@ type identityView struct {
 func printIdentity(exec executor.Executor, cfg *cli.Config) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	// Answer what a scan would do: a scan records today's visit before it
-	// decides the automatic mode (main's send-telemetry order), so the
-	// diagnostic query assumes that visit without recording it.
-	device.ProspectiveScanUser(exec)
+	// Today's prospective visit was taken at startup (before the scope was
+	// chosen), so this resolves exactly what the next scan would.
 	id := device.ResolvedDeviceID(ctx, exec)
 	if cfg.OutputFormat == "json" {
 		enc := json.NewEncoder(os.Stdout)
