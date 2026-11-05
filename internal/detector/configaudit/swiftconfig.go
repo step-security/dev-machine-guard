@@ -52,6 +52,13 @@ func SwiftLibraryGuard(protected func(string) string, volume func(string) bool, 
 		key := strings.ToLower(p)
 		for _, root := range roots {
 			root = strings.ToLower(filepath.Clean(root))
+			// Metadata links must not turn excluded Xcode output into input.
+			if filepath.Base(root) == "deriveddata" && isLexicalAncestor(root, key) {
+				parts := strings.Split(strings.TrimPrefix(key, root+string(filepath.Separator)), string(filepath.Separator))
+				if len(parts) > 1 && slices.Contains([]string{"build", "logs", "index.noindex"}, parts[1]) {
+					return model.GoReasonSkippedProtected
+				}
+			}
 			if key == root || isLexicalAncestor(root, key) || isLexicalAncestor(key, root) {
 				return ""
 			}

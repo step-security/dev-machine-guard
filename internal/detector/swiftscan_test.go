@@ -716,6 +716,28 @@ func TestSwiftScanLibraryBoundary(t *testing.T) {
 			t.Errorf("network cache = %+v", src)
 		}
 	})
+	t.Run("DerivedData output links", func(t *testing.T) {
+		for _, name := range []string{"Build", "Logs", "Index.noindex"} {
+			t.Run(name, func(t *testing.T) {
+				home := goTestHome(t)
+				derived := filepath.Join(home, "Library", "Developer", "Xcode", "DerivedData", "App-1")
+				target := filepath.Join(derived, name, "metadata.json")
+				swiftCopy(t, "workspace-macos.json", target, filepath.Join(home, "lab"))
+				source := filepath.Join(derived, "SourcePackages", "workspace-state.json")
+				swiftDir(t, filepath.Dir(source))
+				if err := os.Symlink(target, source); err != nil {
+					t.Skip("symlinks unavailable:", err)
+				}
+				scanner, x := swiftTestScanner(t, home, model.PlatformDarwin)
+				scanner.protection = swiftTCC(home)
+				inv, _ := scanner.Scan(t.Context(), goTestTarget(home), nil, nil)
+				if x.reads[source] != 0 || x.reads[target] != 0 || len(inv.Packages) != 0 || !slices.Contains(inv.Reasons, "skipped_protected") {
+					t.Errorf("output link read: reads=%v packages=%v reasons=%v", x.reads, inv.Packages, inv.Reasons)
+				}
+			})
+		}
+	})
+
 }
 
 // Inventory readers under ~/Library keep SwiftPM's security folder
@@ -837,6 +859,43 @@ func TestSwiftScanLinuxLeads(t *testing.T) {
 			}
 		}
 	})
+	t.Run("cache alias boundaries", func(t *testing.T) {
+		for _, kind := range []string{"home relocation", "foreign home", "explicit external cache"} {
+			t.Run(kind, func(t *testing.T) {
+				home := goTestHome(t)
+				base := filepath.Join(home, "old-cache")
+				if kind != "home relocation" {
+					base = filepath.Join(filepath.Dir(home), "external-cache")
+				}
+				cache := filepath.Join(base, "org.swift.swiftpm")
+				download := filepath.Join(cache, "registry", "downloads", "example", "widgets", "1.0.0")
+				goWrite(t, filepath.Join(download, "Package.swift"), "", 0o600)
+				swiftCopy(t, "registry-receipt.json", filepath.Join(download, ".registry-metadata"), home)
+				swiftDir(t, filepath.Join(home, ".swiftpm"))
+				if err := os.Symlink(cache, filepath.Join(home, ".swiftpm", "cache")); err != nil {
+					t.Skip("symlinks unavailable:", err)
+				}
+				scanner, x := swiftTestScanner(t, home, model.PlatformLinux)
+				if kind == "explicit external cache" {
+					x.env["XDG_CACHE_HOME"] = base
+				} else {
+					x.current = &user.User{Username: "root", Uid: "0"}
+				}
+				inv, _ := scanner.Scan(t.Context(), goTestTarget(home), nil, nil)
+				want := 1
+				if kind == "foreign home" {
+					want = 0
+					if x.reads[filepath.Join(download, ".registry-metadata")] != 0 || !slices.Contains(inv.Reasons, "skipped_protected") {
+						t.Errorf("foreign alias read: reads=%v reasons=%v", x.reads, inv.Reasons)
+					}
+				}
+				if len(inv.Packages) != want {
+					t.Errorf("packages = %d, want %d", len(inv.Packages), want)
+				}
+			})
+		}
+	})
+
 }
 
 func TestSwiftScanRegistryLayouts(t *testing.T) {

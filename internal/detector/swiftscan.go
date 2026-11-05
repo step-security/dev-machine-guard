@@ -400,13 +400,19 @@ func (c *swiftScan) cacheRoot(path, scope string, derived, alias bool) {
 	if !resolved {
 		phys = path
 	}
-	c.pruned[c.key(path)], c.pruned[c.key(phys)] = true, true
 	if alias {
 		if !resolved {
 			return
 		}
+		// A compatibility link cannot grant access to another user's cache.
+		// Keep home relocations and roots independently established above.
+		if !configaudit.GoWithinRoots(c.goos, phys, []string{c.home}) && !c.rootKeys[c.key(phys)] {
+			c.degrade(nil, "skipped_protected")
+			return
+		}
 		path = phys
 	}
+	c.pruned[c.key(path)], c.pruned[c.key(phys)] = true, true
 	if c.rootKeys[c.key(path)] || c.rootKeys[c.key(phys)] {
 		return
 	}
