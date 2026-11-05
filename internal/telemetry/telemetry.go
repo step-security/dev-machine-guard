@@ -1330,6 +1330,13 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// ExecutionLogs. This measures scan and audit work but not the upload
 	// that follows — a payload cannot contain the log of its own upload.
 	reportUsageOnce()
+	// Logged before the execution log is captured so it reaches the
+	// downloadable log; status_info carries the final value, which also
+	// covers sleep during the upload itself.
+	if s := tracker.Snapshot(); s.SleptMs > 0 {
+		log.Progress("Note: system slept about %s during this run; reported durations exclude sleep",
+			(time.Duration(s.SleptMs) * time.Millisecond).Round(time.Second))
+	}
 
 	capture.Sync()
 	execLogsBase64 := capture.SnapshotBase64()
