@@ -287,6 +287,7 @@ rmdir /s /q "C:\ProgramData\StepSecurity"
 | Device not updating / update errors in the console | Network, proxy, opt-out | [Windows self-update guide](windows-self-update-admin.md#troubleshooting-by-console-event) |
 | Scheduled task missing | `install` custom action skipped or failed | Same log; search for `RunInstallScheduledTask` |
 | Endpoint not reporting to dashboard | Wrong API key / endpoint | `type C:\ProgramData\StepSecurity\config.json` |
+| Install succeeded but `RunningVersion` is empty, or `update_stage_failed` "Access is denied" | An antivirus or EDR held the new files | Search the MSI log for `adopt-seed:`; add the [antivirus and EDR exclusions](windows-self-update-admin.md#antivirus-and-edr) |
 | Endpoint config still under `%USERPROFILE%\.stepsecurity\` | MSI ran without elevation (shouldn't happen via SCCM) | Verify SCCM Application is set to "Install for system" |
 
 When opening a support case, attach:
