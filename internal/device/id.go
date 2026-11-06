@@ -37,18 +37,35 @@ type idWriter interface {
 	CreateFileOnce(path string, data []byte, perm os.FileMode) error
 }
 
-// resolveID: privileged runs probe the hardware and refresh the shared file
-// (healing a stale or planted one); everyone else reads the file first and
-// only probes when it is absent. Unprivileged runs never write it. A probe
-// that only reached a per-install fallback doesn't displace a stored ID, so a
-// transient hardware-probe failure can't flip the identity.
+// resolveID: every run probes the hardware first. Privileged runs refresh the
+// shared file from a hardware result (healing a stale or planted one);
+// unprivileged runs never write it, but report a hardware serial they can
+// read over a stored value that differs: the file came with the image the
+// machine was cloned from and names its builder until a privileged run
+// rewrites it. The file still decides where only root can read the hardware
+// (Linux DMI) or where no serial exists, and where root deliberately
+// persisted the machine-id instead of the serial (keepReportedLinuxID). A
+// probe that only reached a per-install fallback doesn't displace a stored
+// ID, so a transient hardware-probe failure can't flip the identity.
 func resolveID(ctx context.Context, exec executor.Executor) string {
 	path := machineIDFile(exec.GOOS())
 	root := exec.IsRoot()
 	if !root {
-		if stored := readIDFile(exec, path); stored != "" {
+		stored := readIDFile(exec, path)
+		id, hardware := probeSerial(ctx, exec)
+		switch {
+		case stored == "":
+			if !usableSerial(id) {
+				return generatedID(ctx, exec, false, path)
+			}
+			return id
+		case stored == id:
 			return stored
+		case hardware && usableSerial(id) && !(exec.GOOS() == model.PlatformLinux && stored == linuxMachineID(exec)):
+			logger.Debug("machine identity: the stored id %s differs from this machine's hardware serial %s; using the serial (a cloned image carries its builder's id until a privileged run rewrites the file)", stored, id)
+			return id
 		}
+		return stored
 	}
 	id, hardware := probeSerial(ctx, exec)
 	if !usableSerial(id) {

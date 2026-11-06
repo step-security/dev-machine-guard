@@ -107,7 +107,12 @@ func TestMachineWideIDFile(t *testing.T) {
 		wantFile   string
 		machineID  string
 	}{
-		{"user prefers file over probe", " PERSISTED \n", false, "PERSISTED", " PERSISTED \n", ""},
+		// A non-elevated run reports a readable hardware serial over a file
+		// that names another machine (a cloned image) and never writes; it
+		// keeps the file where root chose the machine-id on purpose.
+		{"user reports the hardware serial over a stale file", " PERSISTED \n", false, "PROBED", " PERSISTED \n", ""},
+		{"user keeps the machine-id root chose over the serial", "mid-1\n", false, "mid-1", "mid-1\n", "mid-1"},
+		{"user keeps a file equal to the serial", "PROBED\n", false, "PROBED", "PROBED\n", ""},
 		{"user ignores placeholder file", "Default string\n", false, "PROBED", "Default string\n", ""},
 		{"user ignores empty file", "\n", false, "PROBED", "\n", ""},
 		{"user never writes", "", false, "PROBED", "", ""},
@@ -217,6 +222,32 @@ func TestNoGeneratedIDOnTimeout(t *testing.T) {
 	}
 	if id := ID(model.Device{SerialNumber: got}); id != "" {
 		t.Fatalf("ID = %q, want empty rather than a placeholder", id)
+	}
+}
+
+// Without a readable hardware serial the stored file still decides for a
+// non-elevated run (Linux DMI is root-only), and nothing is written.
+func TestUserKeepsStoredIDWhenProbeFallsBack(t *testing.T) {
+	for _, tc := range []struct{ name, file, want string }{
+		{"stored hardware id wins over machine-id", "HW-1\n", "HW-1"},
+		{"machine-id when nothing is stored", "", "mid-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Cleanup(ResetIDCache)
+			ResetIDCache()
+			mock := executor.NewMock()
+			mock.SetGOOS("linux")
+			mock.SetFile("/etc/machine-id", []byte("mid-1\n"))
+			if tc.file != "" {
+				mock.SetFile(linuxIDFile, []byte(tc.file))
+			}
+			if got := SerialNumber(context.Background(), mock); got != tc.want {
+				t.Fatalf("id = %q, want %q", got, tc.want)
+			}
+			if got, _ := mock.ReadFile(linuxIDFile); string(got) != tc.file {
+				t.Fatalf("a non-elevated run must not write the file: %q", got)
+			}
+		})
 	}
 }
 

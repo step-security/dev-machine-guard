@@ -88,6 +88,7 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 		stOK = false
 	}
 	deviceID := strings.TrimSpace(guestDeviceID)
+	machineID := ""
 	if deviceID != "" {
 		log.Debug("run-gate: gating as WSL guest %s", deviceID)
 	} else {
@@ -113,6 +114,9 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 				WSL:    wslWithOverride(WSLDirective{})}
 		}
 		deviceID = id.DeviceID
+		if usableSerial(id.Serial) {
+			machineID = id.Serial
+		}
 	}
 	if deviceID == "" || deviceID == "unknown" {
 		log.Debug("run-gate: no usable device id — failing open")
@@ -130,7 +134,7 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 
 	// Persist the reset before any network result or force/kill-switch exit.
 	if previousID != deviceID || previousConfiguredID != configuredID {
-		if err := persistIdentity(deviceID); err != nil {
+		if err := persistIdentity(deviceID, machineID); err != nil {
 			log.Debug("run-gate: could not persist device identity: %v", err)
 		}
 	}
@@ -160,7 +164,7 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 			// Persist the resolved id + gating fields even on "full" answers so
 			// skipped wakeups never re-probe and the offline fallback stays
 			// current. Best-effort.
-			if perr := recordCheckin(deviceID, directive, in.Now); perr != nil {
+			if perr := recordCheckin(deviceID, machineID, directive, in.Now); perr != nil {
 				log.Debug("run-gate: could not persist check-in state: %v", perr)
 			}
 		} else {

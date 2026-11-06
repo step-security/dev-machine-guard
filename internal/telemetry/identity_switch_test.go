@@ -197,7 +197,7 @@ func TestSerialRunSuperseded(t *testing.T) {
 	}
 	// A service-account run in automatic mode reports under the machine
 	// identity until the serial row is retired, whatever the marker says.
-	fallback := device.Identity{Source: device.IdentitySourceSerial, DeviceID: "SER1", Template: device.AutoIdentityTemplate, AutoFallback: true}
+	fallback := device.Identity{Source: device.IdentitySourceSerial, DeviceID: "SER1", Serial: "SER1", Template: device.AutoIdentityTemplate, AutoFallback: true}
 	if serialRunSuperseded(exec, fallback, nil) {
 		t.Fatal("a service-account fallback run is not superseded by the marker alone")
 	}

@@ -151,7 +151,7 @@ func ResolveIdentity(exec executor.Executor, serial, hostname, user string) Iden
 // skipped: an upload under the serial would restore that row as a duplicate
 // seat next to the per-user devices.
 func autoServiceAccountIdentity(exec executor.Executor, id Identity, serial string) Identity {
-	if AutoSerialRowRetired(exec) {
+	if AutoSerialRowRetired(exec, serial) {
 		return id
 	}
 	out := Identity{Serial: serial, Source: IdentitySourceSerial, Template: id.Template, AutoFallback: true}

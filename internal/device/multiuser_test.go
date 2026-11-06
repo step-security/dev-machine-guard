@@ -24,7 +24,10 @@ func withMachineStateDir(t *testing.T, edition string, tsAppCompat bool) string 
 	restore := SetMachineStateDirForTest(dir)
 	prevProbe := probeWindowsEdition
 	probeWindowsEdition = func() (string, bool) { return edition, tsAppCompat }
-	t.Cleanup(func() { restore(); probeWindowsEdition = prevProbe })
+	// The machine identity markers are compared with, without a probe.
+	prevMachine := currentMachineID
+	currentMachineID = func(executor.Executor) string { return "SER1" }
+	t.Cleanup(func() { restore(); probeWindowsEdition = prevProbe; currentMachineID = prevMachine })
 	return dir
 }
 
@@ -382,27 +385,109 @@ func TestSeenUsers_AppendWaitsForTheCompactionLock(t *testing.T) {
 	}
 }
 
-// A lock that cannot be had in time never costs the visit: the append goes
-// ahead and only the compaction is skipped.
-func TestSeenUsers_AppendGivesUpOnTheLockButNotTheVisit(t *testing.T) {
+// The visit file is never written without its lock. While a compactor holds
+// it (its snapshot taken), an append that times out leaves the file
+// untouched; once the compactor has replaced the file and released, the next
+// append lands on the compacted file. A visit is delayed, never lost.
+func TestSeenUsers_AppendDefersWhenTheLockIsBusy(t *testing.T) {
 	withTestLockTarget(t)
 	dir := t.TempDir()
 	oversizedSeenUsers(t, dir)
 	prev := seenUsersLockWait
 	seenUsersLockWait = 50 * time.Millisecond
 	t.Cleanup(func() { seenUsersLockWait = prev })
+	before, _ := os.ReadFile(filepath.Join(dir, seenUsersFile))
+	// A compactor holds the lock and has taken its snapshot.
 	release, locked := lockSeenUsers()
 	if !locked {
 		t.Fatal("the lock must be free")
 	}
-	defer release()
 	withSeenUserDay(t, 101)
 	if err := appendSeenUser(dir, "asmith-0123456789ab"); err != nil {
 		t.Fatal(err)
 	}
+	if after, _ := os.ReadFile(filepath.Join(dir, seenUsersFile)); string(after) != string(before) {
+		t.Fatal("an append that could not take the lock must not touch the file")
+	}
+	// The compactor replaces the file from its snapshot and releases.
+	compactSeenUsersLocked(dir)
+	release()
+	if err := appendSeenUser(dir, "asmith-0123456789ab"); err != nil {
+		t.Fatal(err)
+	}
 	data, _ := os.ReadFile(filepath.Join(dir, seenUsersFile))
-	if !strings.HasSuffix(string(data), "asmith-0123456789ab 101\n") || len(data) <= compactSeenUsersBytes {
-		t.Fatalf("the visit must be appended and the compaction skipped (len %d)", len(data))
+	if string(data) != "jdoe-0123456789ab 100\nasmith-0123456789ab 101\n" {
+		t.Fatalf("file = %q, want the compacted line plus the deferred visit", data)
+	}
+}
+
+// A marker captured into an image names the builder. On a clone it is
+// ignored: the rules are evaluated afresh, the builder's retired serial row
+// never suppresses this host's machine-identity fallback, and the first
+// positive decision writes this machine's own marker.
+func TestMultiUserMarker_InheritedFromAnotherMachineIsIgnored(t *testing.T) {
+	dir := withMachineStateDir(t, "Professional", false) // this machine: SER1
+	withConfigDeviceID(t, "")
+	inherited := multiUserMarker{Since: 1, Reason: autoReasonEdition, RetiredSerialID: "SER-BUILDER", MachineID: "SER-BUILDER"}
+	if err := writeMultiUserMarker(dir, inherited); err != nil {
+		t.Fatal(err)
+	}
+	mock := windowsMock(`AVD-HOST-07\jdoe`)
+	if tpl, _ := autoIdentity(mock); tpl != "" {
+		t.Fatalf("an inherited marker must not switch an ordinary edition: %q", tpl)
+	}
+	if AutoSerialRowRetired(mock, "SER1") {
+		t.Fatal("the builder's retired row is not this host's")
+	}
+	if SerialRowRetirePending("SER1", "SER1") {
+		t.Fatal("an inherited marker owes no retire")
+	}
+	if AutoIdentitySuperseded(mock) {
+		t.Fatal("an inherited marker supersedes nothing")
+	}
+	// On a multi-session edition the clone's own rules switch it, and the
+	// marker is rewritten for this machine without the builder's retire.
+	ResetAutoIdentityForTest()
+	probeWindowsEdition = func() (string, bool) { return "EnterpriseMultiSession", false }
+	if tpl, _ := autoIdentity(mock); tpl != AutoIdentityTemplate {
+		t.Fatalf("the clone's own edition must decide: %q", tpl)
+	}
+	m, ok := readMultiUserMarker(dir)
+	if !ok || m.MachineID != "SER1" || m.RetiredSerialID != "" || m.Reason != autoReasonEdition {
+		t.Fatalf("marker after the clone's own decision = %+v", m)
+	}
+	if err := MarkSerialRowRetired("SER1"); err != nil {
+		t.Fatal(err)
+	}
+	if !AutoSerialRowRetired(mock, "SER1") {
+		t.Fatal("this host's own retire must count")
+	}
+	if AutoSerialRowRetired(mock, "SER-OTHER") {
+		t.Fatal("a retire counts only for the row it names")
+	}
+}
+
+// Markers written by earlier agents carry no machine id and keep working;
+// recording a retire stamps the machine, and the retire counts only for the
+// row it names.
+func TestMultiUserMarker_LegacyWithoutMachineIDIsHonoured(t *testing.T) {
+	dir := withMachineStateDir(t, "Professional", false)
+	withConfigDeviceID(t, "")
+	if err := writeMultiUserMarker(dir, multiUserMarker{Since: 1, Reason: autoReasonUsers}); err != nil {
+		t.Fatal(err)
+	}
+	mock := windowsMock(`AVD-HOST-07\jdoe`)
+	if tpl, _ := autoIdentity(mock); tpl != AutoIdentityTemplate {
+		t.Fatalf("a legacy marker must still switch the host: %q", tpl)
+	}
+	if err := MarkSerialRowRetired("SER1"); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := readMultiUserMarker(dir); m.MachineID != "SER1" {
+		t.Fatalf("recording the retire must stamp the machine: %+v", m)
+	}
+	if !AutoSerialRowRetired(mock, "SER1") || AutoSerialRowRetired(mock, "SER2") {
+		t.Fatal("a recorded retire counts for the row it names only")
 	}
 }
 

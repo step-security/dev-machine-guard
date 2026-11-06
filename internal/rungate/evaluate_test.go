@@ -44,7 +44,7 @@ func gateServer(t *testing.T, status int, body string) *atomic.Int32 {
 func seedDeviceID(t *testing.T) {
 	t.Helper()
 	d := Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}
-	if err := recordCheckin("SER-CACHED", d, time.Unix(1_753_160_800, 0)); err != nil {
+	if err := recordCheckin("SER-CACHED", "", d, time.Unix(1_753_160_800, 0)); err != nil {
 		t.Fatalf("seed cache: %v", err)
 	}
 }
@@ -319,7 +319,7 @@ func TestEvaluateConfiguredDeviceIDChanges(t *testing.T) {
 	t.Cleanup(srv.Close)
 	config.APIEndpoint = srv.URL
 	seedDeviceID(t)
-	if err := StampLastFullRun("SER-CACHED", time.Now()); err != nil {
+	if err := StampLastFullRun("SER-CACHED", "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	mock := executor.NewMock()
@@ -339,7 +339,7 @@ func TestEvaluateConfiguredDeviceIDChanges(t *testing.T) {
 		if !ok || st.DeviceID != wantID || st.LastFullRunAt != 0 {
 			t.Fatalf("state = %+v, want fresh cadence for %s", st, wantID)
 		}
-		if err := StampLastFullRun(wantID, time.Now()); err != nil {
+		if err := StampLastFullRun(wantID, "", time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -366,10 +366,10 @@ func TestEvaluatePersistsIdentityAcrossBypassesAndOfflineRuns(t *testing.T) {
 				t.Setenv("STEPSEC_DISABLE_RUN_GATE", "1")
 			}
 			now := time.Now()
-			if err := recordCheckin("hardware-A", Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}, now); err != nil {
+			if err := recordCheckin("hardware-A", "", Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}, now); err != nil {
 				t.Fatal(err)
 			}
-			if err := StampLastFullRun("hardware-A", now.Add(-5*time.Hour)); err != nil {
+			if err := StampLastFullRun("hardware-A", "", now.Add(-5*time.Hour)); err != nil {
 				t.Fatal(err)
 			}
 			config.DeviceID = "custom-B"
@@ -383,7 +383,7 @@ func TestEvaluatePersistsIdentityAcrossBypassesAndOfflineRuns(t *testing.T) {
 			if !ok || st.DeviceID != "custom-B" || st.ConfiguredDeviceID != "custom-B" || st.LastFullRunAt != 0 || st.GatingEnabled {
 				t.Fatalf("persisted cadence was not reset before completion: %+v", st)
 			}
-			if err := StampLastFullRun("custom-B", now); err != nil {
+			if err := StampLastFullRun("custom-B", "", now); err != nil {
 				t.Fatal(err)
 			}
 			config.DeviceID = ""
@@ -421,10 +421,10 @@ func TestEvaluateRevalidatesCachedDeviceID(t *testing.T) {
 	t.Cleanup(srv.Close)
 	config.APIEndpoint = srv.URL
 	now := time.Now()
-	if err := recordCheckin("machine-id-old", Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}, now); err != nil {
+	if err := recordCheckin("machine-id-old", "", Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := StampLastFullRun("machine-id-old", now); err != nil {
+	if err := StampLastFullRun("machine-id-old", "", now); err != nil {
 		t.Fatal(err)
 	}
 	mock := executor.NewMock()
@@ -463,10 +463,10 @@ func TestEvaluate_TemplateIdentityKeepsMatchingCache(t *testing.T) {
 	t.Cleanup(device.ResetIDCache)
 	d := Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}
 	jdoe := "avd-host-07-jdoe-" + device.UserTokenFingerprint(`contoso\jdoe`)
-	if err := recordCheckin(jdoe, d, time.Now()); err != nil {
+	if err := recordCheckin(jdoe, "", d, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := StampLastFullRun(jdoe, time.Now()); err != nil {
+	if err := StampLastFullRun(jdoe, "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	gateServer(t, http.StatusServiceUnavailable, "")

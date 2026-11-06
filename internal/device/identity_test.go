@@ -398,13 +398,13 @@ func TestResolveIdentity_AutoModeUnderServiceAccount(t *testing.T) {
 	if scope := IdentityUserScope(system); scope != "" {
 		t.Fatalf("the fallback keeps the shared state, got scope %q", scope)
 	}
-	if AutoSerialRowRetired(system) {
+	if AutoSerialRowRetired(system, "SER1") {
 		t.Fatal("nothing retired yet")
 	}
 	if err := MarkSerialRowRetired("SER1"); err != nil {
 		t.Fatal(err)
 	}
-	if !AutoSerialRowRetired(system) {
+	if !AutoSerialRowRetired(system, "SER1") {
 		t.Fatal("the marker must record the retire")
 	}
 	id = ResolveIdentity(system, "SER1", "AVD-HOST-07", `NT AUTHORITY\SYSTEM`)

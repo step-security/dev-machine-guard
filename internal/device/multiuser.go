@@ -71,6 +71,56 @@ type multiUserMarker struct {
 	Since           int64  `json:"since"`
 	Reason          string `json:"reason"` // "edition" | "users"
 	RetiredSerialID string `json:"retired_serial_id,omitempty"`
+	// MachineID is the machine identity of the host the marker was written
+	// on. A marker captured into an image names the image builder; on a
+	// clone it is ignored (markerFor), so the builder's decision, and the
+	// serial row it retired, never carry over. Absent in markers written
+	// by earlier agents, which are honoured as they are.
+	MachineID string `json:"machine_id,omitempty"`
+}
+
+// markerMachineIDTimeout bounds the machine-identity probe a marker
+// comparison may need (the process-wide SerialNumber, probed once).
+const markerMachineIDTimeout = 10 * time.Second
+
+// currentMachineID is the machine identity markers are compared with: the
+// identity this process already resolved, else a hardware probe. It never
+// mints or persists an id for a comparison, so it is "" on a host without a
+// readable serial; such a host's marker is then honoured as it is, which is
+// why a cloned image of one needs the marker removed before capture. A var
+// so tests pin it without a probe.
+var currentMachineID = func(exec executor.Executor) string {
+	idMu.Lock()
+	cached := cachedID
+	idMu.Unlock()
+	if cached != "" {
+		return cached
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), markerMachineIDTimeout)
+	defer cancel()
+	if id, hardware := probeSerial(ctx, exec); hardware && usableSerial(id) {
+		return id
+	}
+	return ""
+}
+
+// markerFor returns the sticky marker when a valid one exists for this
+// machine. A marker that names another machine was inherited from the image
+// this host was cloned from: it is reported absent, so the rules are
+// evaluated afresh here and the first positive decision writes this
+// machine's own marker. A marker without a machine id predates the field,
+// and a host whose own identity is unknown cannot tell a marker foreign;
+// both are honoured as they are.
+func markerFor(dir, machineID string) (*multiUserMarker, bool) {
+	m, ok := readMultiUserMarker(dir)
+	if !ok {
+		return nil, false
+	}
+	if m.MachineID != "" && machineID != "" && !strings.EqualFold(m.MachineID, machineID) {
+		logger.Debug("multi-user marker was written on another machine (%s); ignoring it on this one", m.MachineID)
+		return nil, false
+	}
+	return m, true
 }
 
 // machineStateDir is where the shared-host files live. A var so tests can
@@ -173,6 +223,13 @@ func autoIdentityUncached(exec executor.Executor) (template, reason string) {
 		return "", ""
 	}
 	marker, exists := readMultiUserMarker(dir)
+	machineID := ""
+	if exists && marker.MachineID != "" {
+		// Only a marker that names a machine needs the comparison; the
+		// probe behind it is the process-wide one every run makes anyway.
+		machineID = currentMachineID(exec)
+		marker, exists = markerFor(dir, machineID)
+	}
 	edition, tsAppCompat := "", false
 	if !exists {
 		edition, tsAppCompat = probeWindowsEdition()
@@ -193,7 +250,10 @@ func autoIdentityUncached(exec executor.Executor) (template, reason string) {
 		// next run, which yields the same answer. A diagnostic query keeps
 		// its decision to itself: the scan that follows writes the marker
 		// from the visits it records.
-		_ = writeMultiUserMarker(dir, multiUserMarker{Since: time.Now().Unix(), Reason: why})
+		if machineID == "" {
+			machineID = currentMachineID(exec)
+		}
+		_ = writeMultiUserMarker(dir, multiUserMarker{Since: time.Now().Unix(), Reason: why, MachineID: machineID})
 	}
 	return AutoIdentityTemplate, autoReasonDisplay(why)
 }
@@ -223,7 +283,7 @@ func AutoIdentitySuperseded(exec executor.Executor) bool {
 	if dir == "" {
 		return false
 	}
-	_, exists := readMultiUserMarker(dir)
+	_, exists := markerFor(dir, currentMachineID(exec))
 	return exists
 }
 
@@ -231,8 +291,9 @@ func AutoIdentitySuperseded(exec executor.Executor) bool {
 // identities has already removed this host's machine-identity row (the
 // sticky marker records the retire). A service-account run in automatic mode
 // reports under the machine identity until then and is skipped afterwards
-// (Identity.AutoFallback).
-func AutoSerialRowRetired(exec executor.Executor) bool {
+// (Identity.AutoFallback). Only a retire of machineID itself counts: a
+// marker inherited from an image names the builder's row, not this host's.
+func AutoSerialRowRetired(exec executor.Executor, machineID string) bool {
 	if exec.GOOS() != model.PlatformWindows {
 		return false
 	}
@@ -240,8 +301,8 @@ func AutoSerialRowRetired(exec executor.Executor) bool {
 	if dir == "" {
 		return false
 	}
-	m, ok := readMultiUserMarker(dir)
-	return ok && m.RetiredSerialID != ""
+	m, ok := markerFor(dir, machineID)
+	return ok && m.RetiredSerialID != "" && strings.EqualFold(m.RetiredSerialID, machineID)
 }
 
 // AutoIdentityReason returns the human-readable reason the automatic
@@ -523,25 +584,26 @@ func appendSeenUser(dir, token string) error {
 		return err
 	}
 	// The append and the compaction share one lock, so a compaction never
-	// replaces the file with a snapshot that misses this visit. A lock that
-	// cannot be had in time does not lose the visit either: the append goes
-	// ahead, and only the compaction insists on the lock.
+	// replaces the file with a snapshot that misses this visit. The file is
+	// never written without it: a visit that cannot take the lock in time
+	// is left for a later run (every scan records its user), which costs a
+	// delay, never the visit.
 	release, locked := lockSeenUsers()
+	if !locked {
+		logger.Debug("seen-users: the visit file is busy; %s's visit today is recorded by a later run", token)
+		return nil
+	}
+	defer release()
 	f, err := os.OpenFile(filepath.Join(dir, seenUsersFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644) // #nosec G302 G304 -- readable by every user's run
 	if err != nil {
-		release()
 		return err
 	}
 	_, err = f.WriteString(strings.Join(lines, ""))
 	_ = f.Close()
 	if err != nil {
-		release()
 		return err
 	}
-	if locked {
-		compactSeenUsersLocked(dir)
-	}
-	release()
+	compactSeenUsersLocked(dir)
 	return nil
 }
 
@@ -718,7 +780,7 @@ func SerialRowRetirePending(serialID, lastRunDeviceID string) bool {
 	if dir == "" || !usableSerial(serialID) {
 		return false
 	}
-	m, ok := readMultiUserMarker(dir)
+	m, ok := markerFor(dir, serialID)
 	if !ok || m.RetiredSerialID != "" {
 		return false
 	}
@@ -726,13 +788,16 @@ func SerialRowRetirePending(serialID, lastRunDeviceID string) bool {
 }
 
 // MarkSerialRowRetired records that serialID was retired, so the switch never
-// retires it again.
+// retires it again. A marker from an earlier agent gains the machine id here.
 func MarkSerialRowRetired(serialID string) error {
 	dir := machineStateDir()
-	m, ok := readMultiUserMarker(dir)
+	m, ok := markerFor(dir, serialID)
 	if !ok {
 		return nil
 	}
 	m.RetiredSerialID = serialID
+	if m.MachineID == "" {
+		m.MachineID = serialID
+	}
 	return writeMultiUserMarker(dir, *m)
 }

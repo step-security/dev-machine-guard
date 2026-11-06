@@ -227,6 +227,7 @@ func main() {
 		level = progress.LevelError
 	}
 	log := progress.NewLogger(level)
+	device.SetLogger(log)
 	if captureErr != nil {
 		// Non-fatal: a read-only $HOME shouldn't block the run.
 		log.Warn("file logging disabled: %v", captureErr)

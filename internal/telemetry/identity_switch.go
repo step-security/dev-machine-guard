@@ -103,7 +103,7 @@ func serialRunSuperseded(exec executor.Executor, ident device.Identity, wslGuest
 	// re-read here, after the lock, so a retire that landed while this run
 	// was resolving its identity is seen.
 	if ident.AutoFallback {
-		return device.AutoSerialRowRetired(exec)
+		return device.AutoSerialRowRetired(exec, ident.Serial)
 	}
 	return device.AutoIdentitySuperseded(exec)
 }

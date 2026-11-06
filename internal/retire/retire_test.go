@@ -137,8 +137,52 @@ func TestPost_RejectsUnusableInputs(t *testing.T) {
 // seedState writes a last-run.json carrying a run-gate device id at path.
 func seedState(t *testing.T, path, deviceID string) {
 	t.Helper()
-	if err := heartbeat.UpdateRunGate(path, func(rg *heartbeat.RunGate) { rg.DeviceID = deviceID }); err != nil {
+	seedStateFrom(t, path, deviceID, "")
+}
+
+// seedStateFrom seeds a run-gate record that names the machine it was
+// recorded on ("" for a record an older agent wrote).
+func seedStateFrom(t *testing.T, path, deviceID, machineID string) {
+	t.Helper()
+	if err := heartbeat.UpdateRunGate(path, func(rg *heartbeat.RunGate) { rg.DeviceID = deviceID; rg.MachineID = machineID }); err != nil {
 		t.Fatalf("seed %s: %v", path, err)
+	}
+}
+
+// A host cloned from an image carries the builder's state tree. Its
+// uninstall retires this machine's devices and the records of older agents,
+// never a device another machine recorded.
+func TestCollectIdentities_SkipsRecordsOfAnotherMachine(t *testing.T) {
+	home := t.TempDir()
+	paths.SetOverride(home)
+	t.Cleanup(func() { paths.SetOverride("") })
+	prev := config.DeviceID
+	config.DeviceID = "{hostname}-{user}"
+	t.Cleanup(func() { config.DeviceID = prev })
+	device.ResetIDCache()
+	t.Cleanup(device.ResetIDCache)
+
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetHostname("avd-07")
+	mock.SetUsername("jdoe")
+	mock.SetFile("/sys/class/dmi/id/product_serial", []byte("LNX-CLONE\n"))
+
+	seed := func(user, id, machine string) {
+		dir := filepath.Join(home, "users", user)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		seedStateFrom(t, filepath.Join(dir, heartbeat.Filename), id, machine)
+	}
+	seed("builder", "avd-builder-admin", "LNX-BUILDER") // captured into the image
+	seed("asmith", "avd-07-asmith", "LNX-CLONE")        // scanned on this clone
+	seed("legacy", "avd-07-legacy", "")                 // an older agent's record
+
+	ids := CollectIdentities(context.Background(), mock, progress.NewNoop())
+	want := []string{"avd-07-jdoe-" + device.UserTokenFingerprint("jdoe"), "avd-07-asmith", "avd-07-legacy"}
+	if strings.Join(ids, ",") != strings.Join(want, ",") {
+		t.Fatalf("ids = %v, want %v", ids, want)
 	}
 }
 
@@ -152,6 +196,8 @@ func TestCollectIdentities_FromUserStateDirs(t *testing.T) {
 
 	// The MSI uninstall runs as SYSTEM: the template cannot be completed, so
 	// only the cached per-user ids can be retired.
+	device.ResetIDCache()
+	t.Cleanup(device.ResetIDCache)
 	mock := executor.NewMock()
 	mock.SetGOOS("windows")
 	mock.SetHostname("avd-host-07")
@@ -228,12 +274,12 @@ func TestCollectCachedIDs_SearchesEveryRoot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got := collectCachedIDs(context.Background(), []string{empty, machine})
+	got := collectCachedIDs(context.Background(), []string{empty, machine}, "", progress.NewNoop())
 	want := []string{"host-dev1", "host-dev2"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("collectCachedIDs = %v, want %v", got, want)
 	}
-	if got := collectCachedIDs(context.Background(), []string{""}); len(got) != 0 {
+	if got := collectCachedIDs(context.Background(), []string{""}, "", progress.NewNoop()); len(got) != 0 {
 		t.Fatalf("empty root must yield nothing, got %v", got)
 	}
 }
@@ -254,12 +300,12 @@ func TestCollectCachedIDs_BoundsFilesAndBudget(t *testing.T) {
 	}
 	put("big", `{"schema_version":1,"run_gate":{"device_id":"host-big","pad":"`+strings.Repeat("x", maxCachedIDFileBytes)+`"}}`)
 	put("ok", `{"schema_version":1,"run_gate":{"device_id":"host-ok"}}`)
-	if got := collectCachedIDs(context.Background(), []string{root}); strings.Join(got, ",") != "host-ok" {
+	if got := collectCachedIDs(context.Background(), []string{root}, "", progress.NewNoop()); strings.Join(got, ",") != "host-ok" {
 		t.Fatalf("collectCachedIDs = %v, want [host-ok] (oversized file skipped)", got)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if got := collectCachedIDs(ctx, []string{root}); len(got) != 0 {
+	if got := collectCachedIDs(ctx, []string{root}, "", progress.NewNoop()); len(got) != 0 {
 		t.Fatalf("a spent budget must stop the collection, got %v", got)
 	}
 }
