@@ -151,6 +151,8 @@ type Payload struct {
 	MavenInventory      *model.MavenInventory      `json:"maven_inventory,omitempty"`
 	MavenConfigAudit    *model.MavenConfigAudit    `json:"maven_config_audit,omitempty"`
 	GradleConfigAudit   *model.GradleConfigAudit   `json:"gradle_config_audit,omitempty"`
+	SwiftInventory      *model.SwiftInventory      `json:"swift_inventory,omitempty"`
+	SwiftConfigAudit    *model.SwiftConfigAudit    `json:"swift_config_audit,omitempty"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -1273,6 +1275,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	endPhase(phaseCtx, phaseCancel, tracker, log, "maven_scan")
 	postPhase()
 
+	// SwiftPM and Xcode metadata use the raw executor and the same developer as Go/Cargo.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "swift_scan")
+	log.Progress("Collecting Swift packages and configuration...")
+	swiftInventory, swiftConfigAudit := detector.NewSwiftScanner(exec, log).Scan(phaseCtx, browserTarget, searchDirs, cfg.IncludeNetworkVolumes)
+	log.Progress("  Swift: %d projects, %d package facts (inventory %s, config %s)", len(swiftInventory.Projects), len(swiftInventory.Packages), swiftInventory.Status, swiftConfigAudit.Status)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "swift_scan")
+	postPhase()
+
 	// npm + pip configuration audits — surface-only inventory of every
 	// .npmrc and pip.conf on the host, plus the merged effective views
 	// each tool would resolve. We use the user-aware executor so npm and
@@ -1456,6 +1466,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		MavenInventory:          mavenInventory,
 		MavenConfigAudit:        mavenConfigAudit,
 		GradleConfigAudit:       gradleConfigAudit,
+		SwiftInventory:          swiftInventory,
+		SwiftConfigAudit:        swiftConfigAudit,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,

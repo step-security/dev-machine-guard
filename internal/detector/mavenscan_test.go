@@ -826,3 +826,131 @@ func TestMavenScanQueuedMetadataCanceled(t *testing.T) {
 	})
 
 }
+
+// A configuration folder that cannot be listed may hide project files, so the
+// project itself is partial, not only its walk and audit context.
+func TestMavenScanUnlistedProjectFolder(t *testing.T) {
+	for _, tc := range []struct{ name, blocked string }{
+		{"control", ""},
+		{"gradle folder", "gradle"},
+		{"legacy locks", filepath.Join("gradle", "dependency-locks")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := goTestHome(t)
+			root := filepath.Join(home, "projects")
+			dir := filepath.Join(root, "app")
+			goWrite(t, filepath.Join(dir, "build.gradle"), "", 0o600)
+			goWrite(t, filepath.Join(dir, "gradle", "libs.versions.toml"), "[libraries]\na = \"org.example:a:1.0\"\n", 0o600)
+			goWrite(t, filepath.Join(dir, "gradle", "dependency-locks", "compileClasspath.lockfile"), "org.example:a:1.0\n", 0o600)
+			scanner, _ := mavenTestScanner(t, home)
+			blocked := filepath.Join(dir, tc.blocked)
+			scanner.protection = func(string, *bool) (func(string) string, func(string) bool) {
+				return func(p string) string {
+					if tc.blocked != "" && (p == blocked || strings.HasPrefix(p, blocked+string(filepath.Separator))) {
+						return "skipped_protected"
+					}
+					return ""
+				}, func(string) bool { return false }
+			}
+			inv, _, gradle := scanner.Scan(context.Background(), goTestTarget(home), []string{root}, nil)
+			src := mavenSource(t, inv, "project", dir)
+			if tc.blocked == "" {
+				if src.Status != "complete" || gradle.Status != "complete" {
+					t.Errorf("project = %+v, gradle = %s %v", src, gradle.Status, gradle.Reasons)
+				}
+				return
+			}
+			if src.Status != "partial" || !slices.Contains(src.Reasons, "skipped_protected") {
+				t.Errorf("project = %+v", src)
+			}
+		})
+	}
+}
+
+// A profile ID Maven accepts but the audit cannot report still declares its
+// repositories, so their findings are kept and coverage is partial.
+func TestMavenScanUnsupportedProfileRepositories(t *testing.T) {
+	home := goTestHome(t)
+	root := filepath.Join(home, "projects")
+	dir := filepath.Join(root, "app")
+	goWrite(t, filepath.Join(dir, "pom.xml"), `<project><groupId>org.example</groupId><artifactId>app</artifactId><version>1</version>
+<profiles><profile><id>team ci</id><repositories><repository><id>team</id><url>http://team.example.invalid/maven</url>
+<releases><checksumPolicy>warn</checksumPolicy></releases></repository></repositories></profile></profiles></project>`, 0o600)
+	scanner, _ := mavenTestScanner(t, home)
+	_, maven, _ := scanner.Scan(context.Background(), goTestTarget(home), []string{root}, nil)
+	keys := []string{}
+	for _, f := range maven.Findings {
+		keys = append(keys, f.Code+" "+f.Key)
+	}
+	for _, want := range []string{"maven-001 repositories.0.url", "maven-002 repositories.0.releases_checksum_policy"} {
+		if !slices.Contains(keys, want) {
+			t.Errorf("findings %v lack %s", keys, want)
+		}
+	}
+	if maven.Status != "partial" {
+		t.Errorf("audit = %s %v", maven.Status, maven.Reasons)
+	}
+}
+
+// mavenListTrap records every directory the scan lists.
+type mavenListTrap struct {
+	*mavenTrap
+	listed *[]string
+}
+
+func (x *mavenListTrap) GuardedFiles(roots []string, guard func(string) string, max int64) executor.Executor {
+	return &mavenListTrap{x.mavenTrap.GuardedFiles(roots, guard, max).(*mavenTrap), x.listed}
+}
+func (x *mavenListTrap) ReadDirLimit(path string, max int) ([]os.DirEntry, bool, error) {
+	*x.listed = append(*x.listed, path)
+	return x.mavenTrap.ReadDirLimit(path, max)
+}
+
+// Symlinked default tool homes are pruned at their physical path, so a home
+// search never walks them as ordinary directories.
+func TestMavenScanSymlinkedToolHomes(t *testing.T) {
+	home := goTestHome(t)
+	m2, gradleHome := filepath.Join(home, "tools", "m2"), filepath.Join(home, "tools", "gradle-home")
+	goWrite(t, filepath.Join(m2, "settings.xml"), "<settings/>", 0o600)
+	goWrite(t, filepath.Join(m2, "repository", "org", "example", "a", "1.0", "a-1.0.pom"), mavenTestPOM("org.example", "a", "1.0"), 0o600)
+	goWrite(t, filepath.Join(m2, "wrapper", "dists", "apache-maven-3.9.9-bin", "conf", "settings.xml"), "<settings/>", 0o600)
+	goWrite(t, filepath.Join(gradleHome, "gradle.properties"), "org.gradle.caching=true\n", 0o600)
+	goWrite(t, filepath.Join(gradleHome, "caches", "modules-2", "files-2.1", "org.example", "b", "1.0", mavenKey40, "b-1.0.jar"), "JAR", 0o600)
+	for target, link := range map[string]string{m2: ".m2", gradleHome: ".gradle"} {
+		if err := os.Symlink(target, filepath.Join(home, link)); err != nil {
+			t.Skip("symlinks unavailable:", err)
+		}
+	}
+	project := filepath.Join(home, "projects", "app")
+	goWrite(t, filepath.Join(project, "pom.xml"), mavenTestPOM("org.example", "app", "1"), 0o600)
+	scanner, x := mavenTestScanner(t, home)
+	listed := []string{}
+	trapped := &mavenListTrap{x, &listed}
+	protection := scanner.protection
+	scanner = NewMavenScanner(trapped, progress.NewNoop())
+	scanner.protection = protection
+	inv, maven, gradle := scanner.Scan(context.Background(), goTestTarget(home), []string{home}, nil)
+	mavenAssertRefs(t, inv)
+	for _, p := range listed {
+		if p == m2 || p == gradleHome || goPathWithin(p, filepath.Join(m2, "wrapper")) {
+			t.Errorf("walk listed tool home %s", p)
+		}
+	}
+	projects := []string{}
+	for _, p := range inv.Projects {
+		projects = append(projects, p.ProjectPath)
+	}
+	if !slices.Equal(projects, []string{project}) {
+		t.Errorf("projects = %v, want only %s", projects, project)
+	}
+	for _, a := range []*model.RubyConfigAudit{maven, gradle} {
+		for _, f := range a.Files {
+			if f.Scope == "project" && f.Path != filepath.Join(project, "pom.xml") {
+				t.Errorf("tool-home file audited as project configuration: %+v", f)
+			}
+		}
+	}
+	if len(mavenPackages(inv, "cached_artifact", "org.example:a")) != 1 || len(mavenPackages(inv, "cached_artifact", "org.example:b")) != 1 {
+		t.Errorf("cached evidence lost: %s", mavenJSON(t, inv.Packages))
+	}
+}

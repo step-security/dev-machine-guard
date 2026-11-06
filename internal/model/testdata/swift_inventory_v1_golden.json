@@ -1,0 +1,1468 @@
+{
+  "swift_inventory": {
+    "schema_version": 1,
+    "status": "partial",
+    "reasons": [
+      "parse_error"
+    ],
+    "sources": [
+      {
+        "source_id": "fcb32e63a27434170b892e90881068cf40482edde4560849e510752350067f8e",
+        "kind": "cache_root",
+        "path": "/Users/swift-fixture/Library/Caches/org.swift.swiftpm",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "9038dd3320638c7d8e55900097e06f98f72e94501c4aefebaf4c8cc09e54f1b1",
+          "eedf29af2d7554eb73c6cdda282e9d1c5badef944aea41828110cfccaed4a2aa"
+        ]
+      },
+      {
+        "source_id": "9038dd3320638c7d8e55900097e06f98f72e94501c4aefebaf4c8cc09e54f1b1",
+        "kind": "cached_registry_package",
+        "path": "/Users/swift-fixture/Library/Caches/org.swift.swiftpm/registry/downloads/exampleregistry/HelloWorld/1.0.0/.registry-metadata",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "fcb32e63a27434170b892e90881068cf40482edde4560849e510752350067f8e"
+      },
+      {
+        "source_id": "eedf29af2d7554eb73c6cdda282e9d1c5badef944aea41828110cfccaed4a2aa",
+        "kind": "cached_repository",
+        "path": "/Users/swift-fixture/Library/Caches/org.swift.swiftpm/repositories/swift-algorithms-1a2b3c4d",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "fcb32e63a27434170b892e90881068cf40482edde4560849e510752350067f8e"
+      },
+      {
+        "source_id": "c03f2081e0732cd8586da0cd6c9a7c6520645d72426a3f16c72dddaf93641e89",
+        "kind": "cache_root",
+        "path": "/Users/swift-fixture/Library/Developer/Xcode/DerivedData",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "34623520ace822df19fbcb8198da0f75a74b736957d5dd918ca47370bffd926d",
+          "77c975ac77a0e262c14f9e69b00f73494db7fd8bde55fa91eae2f53e6260c6fb"
+        ]
+      },
+      {
+        "source_id": "34623520ace822df19fbcb8198da0f75a74b736957d5dd918ca47370bffd926d",
+        "kind": "workspace_state",
+        "path": "/Users/swift-fixture/Library/Developer/Xcode/DerivedData/App-abc/SourcePackages/workspace-state.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "c03f2081e0732cd8586da0cd6c9a7c6520645d72426a3f16c72dddaf93641e89"
+      },
+      {
+        "source_id": "77c975ac77a0e262c14f9e69b00f73494db7fd8bde55fa91eae2f53e6260c6fb",
+        "kind": "workspace_state",
+        "path": "/Users/swift-fixture/Library/Developer/Xcode/DerivedData/Other-def/SourcePackages/workspace-state.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "c03f2081e0732cd8586da0cd6c9a7c6520645d72426a3f16c72dddaf93641e89"
+      },
+      {
+        "source_id": "fa6100031d6759a0f2f251a05b2c6a951fa205cc93201e80e2c80a1a52a251c5",
+        "kind": "project_search_root",
+        "path": "/Users/swift-fixture/empty",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": []
+      },
+      {
+        "source_id": "2c0e8b2dfc1ee7058757c9a0712e6a9bfcdfd6917619304562acad9584e9f81a",
+        "kind": "project_search_root",
+        "path": "/Users/swift-fixture/missing",
+        "status": "complete",
+        "presence": "absent",
+        "reasons": []
+      },
+      {
+        "source_id": "83f6144ff17888013b86134b93b5e5722a5f50003678289118762bad81f55998",
+        "kind": "project_search_root",
+        "path": "/Users/swift-fixture/projects",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "parse_error"
+        ],
+        "discovered_sources": [
+          "25394e2dbacace45d10088e934f27eb28728c1effe3a9e553fdbb732c33f6012",
+          "2c5fe995ceffaae48a20ad01b3859c3fd3e9539d370c0605fdf175fe201d1178",
+          "312be6872bd2c8297513e47eb6df570ce10088ab8213397f756d8d4da2e62b03",
+          "7b4d9441c6eb228680b65d57bbdd3f82145d903eba0ef3402d8c226dc9329a9a",
+          "8457317b7e90d833243fc5d5ad6dfe9993bcfbdc302e33657a842c74634d9107",
+          "99246b966f8dc19a9792ff78823a1f9172a6bd58251168f4099357f1aafc58c3",
+          "9f324bf29840ca30befd9bd476e19d8ae576f6002cb22ce7a0c47de68c2d01f9",
+          "add697127576159b79eff2cf73626f09d62914f871a993615b2cbb065bf0889a",
+          "bffb255ce9957bde4f47cb17edb10ddcfe4b5cb9d78c621799409df3ce695453"
+        ]
+      },
+      {
+        "source_id": "8457317b7e90d833243fc5d5ad6dfe9993bcfbdc302e33657a842c74634d9107",
+        "kind": "project",
+        "path": "/Users/swift-fixture/projects/app",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "83f6144ff17888013b86134b93b5e5722a5f50003678289118762bad81f55998",
+        "discovered_sources": [
+          "086dd87f4da36aa3229125533ea500caf3faa3442f2d1bbfd1b1ee863f5c2e30",
+          "37644a0263321065396a1cf5402765fd832abd4569a07306bed87ed913fcc557",
+          "4abd6421a0ca6f51cd6ed6049c42b43601c8ea25a73ddcd795587682ee8840fd",
+          "b76f296392def1e4a7d261953274e99ede6d27f091fc3298dbd90b3828b18cef"
+        ]
+      },
+      {
+        "source_id": "4abd6421a0ca6f51cd6ed6049c42b43601c8ea25a73ddcd795587682ee8840fd",
+        "kind": "workspace_state",
+        "path": "/Users/swift-fixture/projects/app/.build/workspace-state.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "8457317b7e90d833243fc5d5ad6dfe9993bcfbdc302e33657a842c74634d9107"
+      },
+      {
+        "source_id": "086dd87f4da36aa3229125533ea500caf3faa3442f2d1bbfd1b1ee863f5c2e30",
+        "kind": "lockfile",
+        "path": "/Users/swift-fixture/projects/app/Package.resolved",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "8457317b7e90d833243fc5d5ad6dfe9993bcfbdc302e33657a842c74634d9107"
+      },
+      {
+        "source_id": "37644a0263321065396a1cf5402765fd832abd4569a07306bed87ed913fcc557",
+        "kind": "manifest",
+        "path": "/Users/swift-fixture/projects/app/Package.swift",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "8457317b7e90d833243fc5d5ad6dfe9993bcfbdc302e33657a842c74634d9107"
+      },
+      {
+        "source_id": "b76f296392def1e4a7d261953274e99ede6d27f091fc3298dbd90b3828b18cef",
+        "kind": "manifest",
+        "path": "/Users/swift-fixture/projects/app/Package@swift-5.9.swift",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "8457317b7e90d833243fc5d5ad6dfe9993bcfbdc302e33657a842c74634d9107"
+      },
+      {
+        "source_id": "2c5fe995ceffaae48a20ad01b3859c3fd3e9539d370c0605fdf175fe201d1178",
+        "kind": "project",
+        "path": "/Users/swift-fixture/projects/broken",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "parse_error"
+        ],
+        "parent_source_id": "83f6144ff17888013b86134b93b5e5722a5f50003678289118762bad81f55998",
+        "discovered_sources": [
+          "2584ae6a460539b3115d1d897f079e5442841ada882d94930a6d637867d901af",
+          "3d0a4baf1cca4516391cb7f470d4e2f42d59b69a7baf49f97d18b8113abbc50c"
+        ]
+      },
+      {
+        "source_id": "2584ae6a460539b3115d1d897f079e5442841ada882d94930a6d637867d901af",
+        "kind": "lockfile",
+        "path": "/Users/swift-fixture/projects/broken/Package.resolved",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "parse_error"
+        ],
+        "parent_source_id": "2c5fe995ceffaae48a20ad01b3859c3fd3e9539d370c0605fdf175fe201d1178"
+      },
+      {
+        "source_id": "3d0a4baf1cca4516391cb7f470d4e2f42d59b69a7baf49f97d18b8113abbc50c",
+        "kind": "manifest",
+        "path": "/Users/swift-fixture/projects/broken/Package.swift",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "2c5fe995ceffaae48a20ad01b3859c3fd3e9539d370c0605fdf175fe201d1178"
+      },
+      {
+        "source_id": "add697127576159b79eff2cf73626f09d62914f871a993615b2cbb065bf0889a",
+        "kind": "project",
+        "path": "/Users/swift-fixture/projects/ios/App.xcodeproj",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "83f6144ff17888013b86134b93b5e5722a5f50003678289118762bad81f55998",
+        "discovered_sources": [
+          "997c245ef5f55d65a9ed3d0e3dbc337736be30223f7c1aba64f357ceb36fd6ae"
+        ]
+      },
+      {
+        "source_id": "997c245ef5f55d65a9ed3d0e3dbc337736be30223f7c1aba64f357ceb36fd6ae",
+        "kind": "lockfile",
+        "path": "/Users/swift-fixture/projects/ios/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "add697127576159b79eff2cf73626f09d62914f871a993615b2cbb065bf0889a"
+      },
+      {
+        "source_id": "bffb255ce9957bde4f47cb17edb10ddcfe4b5cb9d78c621799409df3ce695453",
+        "kind": "project",
+        "path": "/Users/swift-fixture/projects/ios/Suite.xcworkspace",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "83f6144ff17888013b86134b93b5e5722a5f50003678289118762bad81f55998",
+        "discovered_sources": [
+          "4c82d11cbed82833e399b2b960076ead60077d52e20f052dfe64fd168d4ac073"
+        ]
+      },
+      {
+        "source_id": "4c82d11cbed82833e399b2b960076ead60077d52e20f052dfe64fd168d4ac073",
+        "kind": "lockfile",
+        "path": "/Users/swift-fixture/projects/ios/Suite.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "bffb255ce9957bde4f47cb17edb10ddcfe4b5cb9d78c621799409df3ce695453"
+      },
+      {
+        "source_id": "9f324bf29840ca30befd9bd476e19d8ae576f6002cb22ce7a0c47de68c2d01f9",
+        "kind": "project",
+        "path": "/Users/swift-fixture/projects/mirrored",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "83f6144ff17888013b86134b93b5e5722a5f50003678289118762bad81f55998",
+        "discovered_sources": [
+          "40fe4543008229935ce1efdc799dbea1e1342c3d5be0c8a1dde92722e6b52f77",
+          "83afa0011be10d2e3c7650ad302be22bff8f2ab71e9270767bfccf46f7500923",
+          "e4148359be0c08cfdbf93985a7c202ea7d3ff7fadf41e705d966a2893422fe6a"
+        ]
+      },
+      {
+        "source_id": "40fe4543008229935ce1efdc799dbea1e1342c3d5be0c8a1dde92722e6b52f77",
+        "kind": "workspace_state",
+        "path": "/Users/swift-fixture/projects/mirrored/.build/workspace-state.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "9f324bf29840ca30befd9bd476e19d8ae576f6002cb22ce7a0c47de68c2d01f9"
+      },
+      {
+        "source_id": "e4148359be0c08cfdbf93985a7c202ea7d3ff7fadf41e705d966a2893422fe6a",
+        "kind": "lockfile",
+        "path": "/Users/swift-fixture/projects/mirrored/Package.resolved",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "9f324bf29840ca30befd9bd476e19d8ae576f6002cb22ce7a0c47de68c2d01f9"
+      },
+      {
+        "source_id": "83afa0011be10d2e3c7650ad302be22bff8f2ab71e9270767bfccf46f7500923",
+        "kind": "manifest",
+        "path": "/Users/swift-fixture/projects/mirrored/Package.swift",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "9f324bf29840ca30befd9bd476e19d8ae576f6002cb22ce7a0c47de68c2d01f9"
+      },
+      {
+        "source_id": "7b4d9441c6eb228680b65d57bbdd3f82145d903eba0ef3402d8c226dc9329a9a",
+        "kind": "project",
+        "path": "/Users/swift-fixture/projects/plugin",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "83f6144ff17888013b86134b93b5e5722a5f50003678289118762bad81f55998",
+        "discovered_sources": [
+          "ad66fb56400e9d808ffcf15e1a50da241c599d84150306e81c56ba985d051ee4",
+          "c74fbd9a79c26bc9ee582155fdc6a4d93b93148048c09e2aed7c3f53d53e4e59"
+        ]
+      },
+      {
+        "source_id": "ad66fb56400e9d808ffcf15e1a50da241c599d84150306e81c56ba985d051ee4",
+        "kind": "workspace_state",
+        "path": "/Users/swift-fixture/projects/plugin/.build/workspace-state.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "7b4d9441c6eb228680b65d57bbdd3f82145d903eba0ef3402d8c226dc9329a9a"
+      },
+      {
+        "source_id": "c74fbd9a79c26bc9ee582155fdc6a4d93b93148048c09e2aed7c3f53d53e4e59",
+        "kind": "manifest",
+        "path": "/Users/swift-fixture/projects/plugin/Package.swift",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "7b4d9441c6eb228680b65d57bbdd3f82145d903eba0ef3402d8c226dc9329a9a"
+      },
+      {
+        "source_id": "25394e2dbacace45d10088e934f27eb28728c1effe3a9e553fdbb732c33f6012",
+        "kind": "project",
+        "path": "/Users/swift-fixture/projects/registry-app",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "83f6144ff17888013b86134b93b5e5722a5f50003678289118762bad81f55998",
+        "discovered_sources": [
+          "96746a024b78f0fa39369bf3437cb938a5a90fc8dbcf4939ec1b831ddbaf00fe",
+          "b80e328513f271a614c18d3ef9c77398969150256e1929a9fb126d31c47d08d5"
+        ]
+      },
+      {
+        "source_id": "96746a024b78f0fa39369bf3437cb938a5a90fc8dbcf4939ec1b831ddbaf00fe",
+        "kind": "lockfile",
+        "path": "/Users/swift-fixture/projects/registry-app/Package.resolved",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "25394e2dbacace45d10088e934f27eb28728c1effe3a9e553fdbb732c33f6012"
+      },
+      {
+        "source_id": "b80e328513f271a614c18d3ef9c77398969150256e1929a9fb126d31c47d08d5",
+        "kind": "manifest",
+        "path": "/Users/swift-fixture/projects/registry-app/Package.swift",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "25394e2dbacace45d10088e934f27eb28728c1effe3a9e553fdbb732c33f6012"
+      },
+      {
+        "source_id": "312be6872bd2c8297513e47eb6df570ce10088ab8213397f756d8d4da2e62b03",
+        "kind": "workspace_state",
+        "path": "/Users/swift-fixture/projects/scratch/workspace-state.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "83f6144ff17888013b86134b93b5e5722a5f50003678289118762bad81f55998"
+      },
+      {
+        "source_id": "99246b966f8dc19a9792ff78823a1f9172a6bd58251168f4099357f1aafc58c3",
+        "kind": "project",
+        "path": "/Users/swift-fixture/projects/tool",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "83f6144ff17888013b86134b93b5e5722a5f50003678289118762bad81f55998",
+        "discovered_sources": [
+          "472c204d1aafdd304082dcecb45ecdb8ec0a49d3f5a210715c3b506e47f6b5a0",
+          "aefded097b5776474e3eb529bbc1e5df2184ccc4fa02344d441fb0668f8c5ff3",
+          "afe8a4c11f402f4aa8e19b662b5ade8fe65dd8f3f478c51bfde6cce4837911bd"
+        ]
+      },
+      {
+        "source_id": "472c204d1aafdd304082dcecb45ecdb8ec0a49d3f5a210715c3b506e47f6b5a0",
+        "kind": "workspace_state",
+        "path": "/Users/swift-fixture/projects/tool/.build/workspace-state.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "99246b966f8dc19a9792ff78823a1f9172a6bd58251168f4099357f1aafc58c3"
+      },
+      {
+        "source_id": "aefded097b5776474e3eb529bbc1e5df2184ccc4fa02344d441fb0668f8c5ff3",
+        "kind": "lockfile",
+        "path": "/Users/swift-fixture/projects/tool/Package.resolved",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "99246b966f8dc19a9792ff78823a1f9172a6bd58251168f4099357f1aafc58c3"
+      },
+      {
+        "source_id": "afe8a4c11f402f4aa8e19b662b5ade8fe65dd8f3f478c51bfde6cce4837911bd",
+        "kind": "manifest",
+        "path": "/Users/swift-fixture/projects/tool/Package.swift",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "99246b966f8dc19a9792ff78823a1f9172a6bd58251168f4099357f1aafc58c3"
+      }
+    ],
+    "projects": [
+      {
+        "source_id": "8457317b7e90d833243fc5d5ad6dfe9993bcfbdc302e33657a842c74634d9107",
+        "project_path": "/Users/swift-fixture/projects/app",
+        "tool": "swiftpm"
+      },
+      {
+        "source_id": "2c5fe995ceffaae48a20ad01b3859c3fd3e9539d370c0605fdf175fe201d1178",
+        "project_path": "/Users/swift-fixture/projects/broken",
+        "tool": "swiftpm"
+      },
+      {
+        "source_id": "add697127576159b79eff2cf73626f09d62914f871a993615b2cbb065bf0889a",
+        "project_path": "/Users/swift-fixture/projects/ios/App.xcodeproj",
+        "tool": "xcode"
+      },
+      {
+        "source_id": "bffb255ce9957bde4f47cb17edb10ddcfe4b5cb9d78c621799409df3ce695453",
+        "project_path": "/Users/swift-fixture/projects/ios/Suite.xcworkspace",
+        "tool": "xcode"
+      },
+      {
+        "source_id": "9f324bf29840ca30befd9bd476e19d8ae576f6002cb22ce7a0c47de68c2d01f9",
+        "project_path": "/Users/swift-fixture/projects/mirrored",
+        "tool": "swiftpm"
+      },
+      {
+        "source_id": "7b4d9441c6eb228680b65d57bbdd3f82145d903eba0ef3402d8c226dc9329a9a",
+        "project_path": "/Users/swift-fixture/projects/plugin",
+        "tool": "swiftpm"
+      },
+      {
+        "source_id": "25394e2dbacace45d10088e934f27eb28728c1effe3a9e553fdbb732c33f6012",
+        "project_path": "/Users/swift-fixture/projects/registry-app",
+        "tool": "swiftpm"
+      },
+      {
+        "source_id": "99246b966f8dc19a9792ff78823a1f9172a6bd58251168f4099357f1aafc58c3",
+        "project_path": "/Users/swift-fixture/projects/tool",
+        "tool": "swiftpm"
+      }
+    ],
+    "packages": [
+      {
+        "source_id": "9038dd3320638c7d8e55900097e06f98f72e94501c4aefebaf4c8cc09e54f1b1",
+        "source_path": "/Users/swift-fixture/Library/Caches/org.swift.swiftpm/registry/downloads/exampleregistry/HelloWorld/1.0.0/.registry-metadata",
+        "package_name": "exampleregistry.helloworld",
+        "evidence": "cached_registry_package",
+        "tool": "unknown",
+        "scope": "user",
+        "version_status": "known",
+        "version": "1.0.0",
+        "origin": {
+          "kind": "registry",
+          "url": "http://127.0.0.1:8080"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "eedf29af2d7554eb73c6cdda282e9d1c5badef944aea41828110cfccaed4a2aa",
+        "source_path": "/Users/swift-fixture/Library/Caches/org.swift.swiftpm/repositories/swift-algorithms-1a2b3c4d",
+        "package_name": "swift-algorithms",
+        "evidence": "cached_repository",
+        "tool": "unknown",
+        "scope": "user",
+        "version_status": "unknown",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-algorithms.git"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "34623520ace822df19fbcb8198da0f75a74b736957d5dd918ca47370bffd926d",
+        "source_path": "/Users/swift-fixture/Library/Developer/Xcode/DerivedData/App-abc/SourcePackages/workspace-state.json",
+        "project_path": "/Users/swift-fixture/projects/ios/App.xcodeproj",
+        "package_name": "swift-algorithms",
+        "evidence": "managed_dependency",
+        "tool": "xcode",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.2.1",
+        "revision": "87e50f483c54e6efd60e885f7f5aa946cee68023",
+        "managed_state": "checkout",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-algorithms.git"
+        },
+        "installation": {
+          "path": "/Users/swift-fixture/Library/Developer/Xcode/DerivedData/App-abc/SourcePackages/checkouts/swift-algorithms",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "34623520ace822df19fbcb8198da0f75a74b736957d5dd918ca47370bffd926d",
+        "source_path": "/Users/swift-fixture/Library/Developer/Xcode/DerivedData/App-abc/SourcePackages/workspace-state.json",
+        "project_path": "/Users/swift-fixture/projects/ios/App.xcodeproj",
+        "package_name": "swift-numerics",
+        "evidence": "managed_dependency",
+        "tool": "xcode",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.1.1",
+        "revision": "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
+        "managed_state": "checkout",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-numerics.git"
+        },
+        "installation": {
+          "path": "/Users/swift-fixture/Library/Developer/Xcode/DerivedData/App-abc/SourcePackages/checkouts/swift-numerics",
+          "path_status": "resolved",
+          "presence": "absent"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "77c975ac77a0e262c14f9e69b00f73494db7fd8bde55fa91eae2f53e6260c6fb",
+        "source_path": "/Users/swift-fixture/Library/Developer/Xcode/DerivedData/Other-def/SourcePackages/workspace-state.json",
+        "package_name": "local library",
+        "evidence": "managed_dependency",
+        "tool": "xcode",
+        "scope": "user",
+        "version_status": "unknown",
+        "managed_state": "filesystem",
+        "origin": {
+          "kind": "path",
+          "path": "/home/superping/swift-inventory-lab-20261104/second-pass/Local Library"
+        },
+        "installation": {
+          "path": "/home/superping/swift-inventory-lab-20261104/second-pass/Local Library",
+          "path_status": "resolved",
+          "presence": "absent"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "4abd6421a0ca6f51cd6ed6049c42b43601c8ea25a73ddcd795587682ee8840fd",
+        "source_path": "/Users/swift-fixture/projects/app/.build/workspace-state.json",
+        "project_path": "/Users/swift-fixture/projects/app",
+        "package_name": "swift-algorithms",
+        "evidence": "managed_dependency",
+        "tool": "swiftpm",
+        "scope": "project",
+        "version_status": "unknown",
+        "managed_state": "edited",
+        "based_on": {
+          "version": "1.2.1",
+          "revision": "87e50f483c54e6efd60e885f7f5aa946cee68023"
+        },
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-algorithms.git"
+        },
+        "installation": {
+          "path": "/Users/swift-fixture/projects/app/Packages/swift-algorithms",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "4abd6421a0ca6f51cd6ed6049c42b43601c8ea25a73ddcd795587682ee8840fd",
+        "source_path": "/Users/swift-fixture/projects/app/.build/workspace-state.json",
+        "project_path": "/Users/swift-fixture/projects/app",
+        "package_name": "swift-numerics",
+        "evidence": "managed_dependency",
+        "tool": "swiftpm",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.1.1",
+        "revision": "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
+        "managed_state": "checkout",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-numerics.git"
+        },
+        "installation": {
+          "path": "/Users/swift-fixture/projects/app/.build/checkouts/swift-numerics",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "086dd87f4da36aa3229125533ea500caf3faa3442f2d1bbfd1b1ee863f5c2e30",
+        "source_path": "/Users/swift-fixture/projects/app/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/app",
+        "package_name": "swift-algorithms",
+        "evidence": "locked_package",
+        "tool": "swiftpm",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.2.1",
+        "revision": "87e50f483c54e6efd60e885f7f5aa946cee68023",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-algorithms.git"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "086dd87f4da36aa3229125533ea500caf3faa3442f2d1bbfd1b1ee863f5c2e30",
+        "source_path": "/Users/swift-fixture/projects/app/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/app",
+        "package_name": "swift-numerics",
+        "evidence": "locked_package",
+        "tool": "swiftpm",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.1.1",
+        "revision": "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-numerics.git"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "997c245ef5f55d65a9ed3d0e3dbc337736be30223f7c1aba64f357ceb36fd6ae",
+        "source_path": "/Users/swift-fixture/projects/ios/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/ios/App.xcodeproj",
+        "package_name": "openapikit",
+        "evidence": "locked_package",
+        "tool": "xcode",
+        "scope": "project",
+        "version_status": "known",
+        "version": "6.4.0",
+        "revision": "5b72eb9a6b23b1fec439d9a0bf38f115400421f9",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/mattpolzin/OpenAPIKit"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "997c245ef5f55d65a9ed3d0e3dbc337736be30223f7c1aba64f357ceb36fd6ae",
+        "source_path": "/Users/swift-fixture/projects/ios/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/ios/App.xcodeproj",
+        "package_name": "swift-algorithms",
+        "evidence": "locked_package",
+        "tool": "xcode",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.2.1",
+        "revision": "87e50f483c54e6efd60e885f7f5aa946cee68023",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-algorithms"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "997c245ef5f55d65a9ed3d0e3dbc337736be30223f7c1aba64f357ceb36fd6ae",
+        "source_path": "/Users/swift-fixture/projects/ios/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/ios/App.xcodeproj",
+        "package_name": "swift-argument-parser",
+        "evidence": "locked_package",
+        "tool": "xcode",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.8.2",
+        "revision": "6a52f3251125d74daf04fcbd5e6f08a75d074382",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-argument-parser"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "997c245ef5f55d65a9ed3d0e3dbc337736be30223f7c1aba64f357ceb36fd6ae",
+        "source_path": "/Users/swift-fixture/projects/ios/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/ios/App.xcodeproj",
+        "package_name": "swift-collections",
+        "evidence": "locked_package",
+        "tool": "xcode",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.7.5",
+        "revision": "f96b909e1a9e469620bc5037c1e24e00153f376f",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-collections"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "997c245ef5f55d65a9ed3d0e3dbc337736be30223f7c1aba64f357ceb36fd6ae",
+        "source_path": "/Users/swift-fixture/projects/ios/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/ios/App.xcodeproj",
+        "package_name": "swift-http-types",
+        "evidence": "locked_package",
+        "tool": "xcode",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.8.0",
+        "revision": "bff4b6903cdc99dda49649dd52f46c11cfd3ed50",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-http-types"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "997c245ef5f55d65a9ed3d0e3dbc337736be30223f7c1aba64f357ceb36fd6ae",
+        "source_path": "/Users/swift-fixture/projects/ios/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/ios/App.xcodeproj",
+        "package_name": "swift-numerics",
+        "evidence": "locked_package",
+        "tool": "xcode",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.1.1",
+        "revision": "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-numerics.git"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "997c245ef5f55d65a9ed3d0e3dbc337736be30223f7c1aba64f357ceb36fd6ae",
+        "source_path": "/Users/swift-fixture/projects/ios/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/ios/App.xcodeproj",
+        "package_name": "swift-openapi-generator",
+        "evidence": "locked_package",
+        "tool": "xcode",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.14.3",
+        "revision": "75962579db43e88440bbad021c74570f0955d1fd",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-openapi-generator.git"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "997c245ef5f55d65a9ed3d0e3dbc337736be30223f7c1aba64f357ceb36fd6ae",
+        "source_path": "/Users/swift-fixture/projects/ios/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/ios/App.xcodeproj",
+        "package_name": "swift-openapi-runtime",
+        "evidence": "locked_package",
+        "tool": "xcode",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.13.4",
+        "revision": "b9ebb3f06f1dac717156a04f0919ad444cbcf8f5",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-openapi-runtime.git"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "997c245ef5f55d65a9ed3d0e3dbc337736be30223f7c1aba64f357ceb36fd6ae",
+        "source_path": "/Users/swift-fixture/projects/ios/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/ios/App.xcodeproj",
+        "package_name": "swift-openapi-urlsession",
+        "evidence": "locked_package",
+        "tool": "xcode",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.4.0",
+        "revision": "c97e0f0187d95542b4a254f5bb4dc67f43bf73c9",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-openapi-urlsession.git"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "997c245ef5f55d65a9ed3d0e3dbc337736be30223f7c1aba64f357ceb36fd6ae",
+        "source_path": "/Users/swift-fixture/projects/ios/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/ios/App.xcodeproj",
+        "package_name": "yams",
+        "evidence": "locked_package",
+        "tool": "xcode",
+        "scope": "project",
+        "version_status": "known",
+        "version": "6.2.2",
+        "revision": "a27b21e0c81c5bf42049b897a62aaf387e80f279",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/jpsim/Yams"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "4c82d11cbed82833e399b2b960076ead60077d52e20f052dfe64fd168d4ac073",
+        "source_path": "/Users/swift-fixture/projects/ios/Suite.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/ios/Suite.xcworkspace",
+        "package_name": "swift-algorithms",
+        "evidence": "locked_package",
+        "tool": "xcode",
+        "scope": "project",
+        "version_status": "unknown",
+        "revision": "5b7143f8e291dee0e14c118fd0212487f0b37af5",
+        "branch": "main",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-algorithms.git"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "4c82d11cbed82833e399b2b960076ead60077d52e20f052dfe64fd168d4ac073",
+        "source_path": "/Users/swift-fixture/projects/ios/Suite.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/ios/Suite.xcworkspace",
+        "package_name": "swift-numerics",
+        "evidence": "locked_package",
+        "tool": "xcode",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.1.1",
+        "revision": "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-numerics.git"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "40fe4543008229935ce1efdc799dbea1e1342c3d5be0c8a1dde92722e6b52f77",
+        "source_path": "/Users/swift-fixture/projects/mirrored/.build/workspace-state.json",
+        "project_path": "/Users/swift-fixture/projects/mirrored",
+        "package_name": "renamedalgorithms",
+        "evidence": "managed_dependency",
+        "tool": "swiftpm",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.2.1",
+        "revision": "87e50f483c54e6efd60e885f7f5aa946cee68023",
+        "managed_state": "checkout",
+        "origin": {
+          "kind": "path",
+          "path": "/Users/swift-fixture/lab/third-pass-20261105/RenamedAlgorithms.git"
+        },
+        "installation": {
+          "path": "/Users/swift-fixture/projects/mirrored/.build/checkouts/RenamedAlgorithms",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "40fe4543008229935ce1efdc799dbea1e1342c3d5be0c8a1dde92722e6b52f77",
+        "source_path": "/Users/swift-fixture/projects/mirrored/.build/workspace-state.json",
+        "project_path": "/Users/swift-fixture/projects/mirrored",
+        "package_name": "swift-numerics",
+        "evidence": "managed_dependency",
+        "tool": "swiftpm",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.1.1",
+        "revision": "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
+        "managed_state": "checkout",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-numerics.git"
+        },
+        "installation": {
+          "path": "/Users/swift-fixture/projects/mirrored/.build/checkouts/swift-numerics",
+          "path_status": "resolved",
+          "presence": "absent"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "e4148359be0c08cfdbf93985a7c202ea7d3ff7fadf41e705d966a2893422fe6a",
+        "source_path": "/Users/swift-fixture/projects/mirrored/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/mirrored",
+        "package_name": "swift-algorithms",
+        "evidence": "locked_package",
+        "tool": "swiftpm",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.2.1",
+        "revision": "87e50f483c54e6efd60e885f7f5aa946cee68023",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-algorithms.git"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "e4148359be0c08cfdbf93985a7c202ea7d3ff7fadf41e705d966a2893422fe6a",
+        "source_path": "/Users/swift-fixture/projects/mirrored/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/mirrored",
+        "package_name": "swift-numerics",
+        "evidence": "locked_package",
+        "tool": "swiftpm",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.1.1",
+        "revision": "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-numerics.git"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "ad66fb56400e9d808ffcf15e1a50da241c599d84150306e81c56ba985d051ee4",
+        "source_path": "/Users/swift-fixture/projects/plugin/.build/workspace-state.json",
+        "project_path": "/Users/swift-fixture/projects/plugin",
+        "package_name": "swiftlintplugins",
+        "evidence": "artifact_reference",
+        "tool": "swiftpm",
+        "scope": "project",
+        "version_status": "known",
+        "version": "0.63.2",
+        "revision": "8a4640d14777685ba8f14e832373160498fbab92",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/SimplyDanny/SwiftLintPlugins.git"
+        },
+        "installation": {
+          "path": "/Users/swift-fixture/lab/projects/BinaryPlugin/.build/artifacts/swiftlintplugins/SwiftLintBinary/SwiftLintBinary.artifactbundle",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "artifact": {
+          "target_name": "SwiftLintBinary",
+          "kind": "artifact_archive",
+          "url": "https://github.com/realm/SwiftLint/releases/download/0.63.2/SwiftLintBinary.artifactbundle.zip"
+        },
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "12befab676fc972ffde2ec295d016d53c3a85f64aabd9c7fee0032d681e307e9",
+            "source_id": "ad66fb56400e9d808ffcf15e1a50da241c599d84150306e81c56ba985d051ee4",
+            "source_kind": "workspace_state",
+            "source_path": "/Users/swift-fixture/projects/plugin/.build/workspace-state.json",
+            "verification": "not_verified"
+          }
+        ],
+        "reasons": []
+      },
+      {
+        "source_id": "ad66fb56400e9d808ffcf15e1a50da241c599d84150306e81c56ba985d051ee4",
+        "source_path": "/Users/swift-fixture/projects/plugin/.build/workspace-state.json",
+        "project_path": "/Users/swift-fixture/projects/plugin",
+        "package_name": "swiftlintplugins",
+        "evidence": "managed_dependency",
+        "tool": "swiftpm",
+        "scope": "project",
+        "version_status": "known",
+        "version": "0.63.2",
+        "revision": "8a4640d14777685ba8f14e832373160498fbab92",
+        "managed_state": "checkout",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/SimplyDanny/SwiftLintPlugins.git"
+        },
+        "installation": {
+          "path": "/Users/swift-fixture/projects/plugin/.build/checkouts/SwiftLintPlugins",
+          "path_status": "resolved",
+          "presence": "absent"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "96746a024b78f0fa39369bf3437cb938a5a90fc8dbcf4939ec1b831ddbaf00fe",
+        "source_path": "/Users/swift-fixture/projects/registry-app/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/registry-app",
+        "package_name": "exampleregistry.helloworld",
+        "evidence": "locked_package",
+        "tool": "swiftpm",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.0.0",
+        "origin": {
+          "kind": "unknown"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "312be6872bd2c8297513e47eb6df570ce10088ab8213397f756d8d4da2e62b03",
+        "source_path": "/Users/swift-fixture/projects/scratch/workspace-state.json",
+        "package_name": "renamedalgorithms",
+        "evidence": "managed_dependency",
+        "tool": "unknown",
+        "scope": "unknown",
+        "version_status": "known",
+        "version": "1.2.1",
+        "revision": "87e50f483c54e6efd60e885f7f5aa946cee68023",
+        "managed_state": "checkout",
+        "origin": {
+          "kind": "path",
+          "path": "/Users/swift-fixture/lab/third-pass-20261105/RenamedAlgorithms.git"
+        },
+        "installation": {
+          "path": "/Users/swift-fixture/projects/scratch/checkouts/RenamedAlgorithms",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "312be6872bd2c8297513e47eb6df570ce10088ab8213397f756d8d4da2e62b03",
+        "source_path": "/Users/swift-fixture/projects/scratch/workspace-state.json",
+        "package_name": "swift-numerics",
+        "evidence": "managed_dependency",
+        "tool": "unknown",
+        "scope": "unknown",
+        "version_status": "known",
+        "version": "1.1.1",
+        "revision": "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
+        "managed_state": "checkout",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-numerics.git"
+        },
+        "installation": {
+          "path": "/Users/swift-fixture/projects/scratch/checkouts/swift-numerics",
+          "path_status": "resolved",
+          "presence": "absent"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "472c204d1aafdd304082dcecb45ecdb8ec0a49d3f5a210715c3b506e47f6b5a0",
+        "source_path": "/Users/swift-fixture/projects/tool/.build/workspace-state.json",
+        "project_path": "/Users/swift-fixture/projects/tool",
+        "package_name": "mybinarytoolplugin",
+        "evidence": "artifact_reference",
+        "tool": "swiftpm",
+        "scope": "project",
+        "version_status": "unknown",
+        "origin": {
+          "kind": "path",
+          "path": "/Users/swift-fixture/lab/third-pass-20261105/reference/Fixtures/Miscellaneous/Plugins/MyBinaryToolPlugin"
+        },
+        "installation": {
+          "path": "/Users/swift-fixture/lab/third-pass-20261105/reference/Fixtures/Miscellaneous/Plugins/MyBinaryToolPlugin/Binaries/MyVendedSourceGenBuildTool.artifactbundle",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "artifact": {
+          "target_name": "MyVendedSourceGenBuildTool",
+          "kind": "artifact_archive"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "472c204d1aafdd304082dcecb45ecdb8ec0a49d3f5a210715c3b506e47f6b5a0",
+        "source_path": "/Users/swift-fixture/projects/tool/.build/workspace-state.json",
+        "project_path": "/Users/swift-fixture/projects/tool",
+        "package_name": "mybinarytoolplugin",
+        "evidence": "managed_dependency",
+        "tool": "swiftpm",
+        "scope": "project",
+        "version_status": "unknown",
+        "managed_state": "filesystem",
+        "origin": {
+          "kind": "path",
+          "path": "/Users/swift-fixture/lab/third-pass-20261105/reference/Fixtures/Miscellaneous/Plugins/MyBinaryToolPlugin"
+        },
+        "installation": {
+          "path": "/Users/swift-fixture/lab/third-pass-20261105/reference/Fixtures/Miscellaneous/Plugins/MyBinaryToolPlugin",
+          "path_status": "resolved",
+          "presence": "present"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "aefded097b5776474e3eb529bbc1e5df2184ccc4fa02344d441fb0668f8c5ff3",
+        "source_path": "/Users/swift-fixture/projects/tool/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/tool",
+        "package_name": "swift-algorithms",
+        "evidence": "locked_package",
+        "tool": "swiftpm",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.2.1",
+        "revision": "87e50f483c54e6efd60e885f7f5aa946cee68023",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-algorithms.git"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      },
+      {
+        "source_id": "aefded097b5776474e3eb529bbc1e5df2184ccc4fa02344d441fb0668f8c5ff3",
+        "source_path": "/Users/swift-fixture/projects/tool/Package.resolved",
+        "project_path": "/Users/swift-fixture/projects/tool",
+        "package_name": "swift-numerics",
+        "evidence": "locked_package",
+        "tool": "swiftpm",
+        "scope": "project",
+        "version_status": "known",
+        "version": "1.1.1",
+        "revision": "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
+        "origin": {
+          "kind": "git",
+          "url": "https://github.com/apple/swift-numerics.git"
+        },
+        "recorded_checksums": [],
+        "reasons": []
+      }
+    ]
+  },
+  "swift_config_audit": {
+    "schema_version": 1,
+    "status": "complete",
+    "reasons": [],
+    "files": [
+      {
+        "source_id": "5aafc9edd0d9ce51239442fb3094c21312ae44ac15348ade17bb74bc8c0c6537",
+        "manager": "swiftpm",
+        "scope": "process",
+        "path": "/Users/swift-fixture/ci/mirrors.json",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "mirrors.0.mirror",
+            "display": "https://example.invalid/modern.git",
+            "source_id": "5aafc9edd0d9ce51239442fb3094c21312ae44ac15348ade17bb74bc8c0c6537",
+            "redacted": false
+          },
+          {
+            "key": "mirrors.0.original",
+            "display": "https://example.invalid/original.git",
+            "source_id": "5aafc9edd0d9ce51239442fb3094c21312ae44ac15348ade17bb74bc8c0c6537",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "2bb12a707e67274e5ea7f2b5faeaf806c5d3bfa385f77482fd9e7ecc159315dd",
+        "manager": "swiftpm",
+        "scope": "project",
+        "path": "/Users/swift-fixture/projects/app/.swiftpm/configuration/mirrors.json",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "mirrors.0.mirror",
+            "display": "https://example.invalid/modern.git",
+            "source_id": "2bb12a707e67274e5ea7f2b5faeaf806c5d3bfa385f77482fd9e7ecc159315dd",
+            "redacted": false
+          },
+          {
+            "key": "mirrors.0.original",
+            "display": "https://example.invalid/original.git",
+            "source_id": "2bb12a707e67274e5ea7f2b5faeaf806c5d3bfa385f77482fd9e7ecc159315dd",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "033963a386d311c33ee8cf53f7721bc45c5c9878c5e18007c36327aa13243b50",
+        "manager": "swiftpm",
+        "scope": "project",
+        "path": "/Users/swift-fixture/projects/mirrored/.swiftpm/config",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "mirrors.0.mirror",
+            "display": "https://mirror.example.invalid/algorithms.git",
+            "source_id": "033963a386d311c33ee8cf53f7721bc45c5c9878c5e18007c36327aa13243b50",
+            "redacted": true
+          },
+          {
+            "key": "mirrors.0.mirror.literal_auth",
+            "display": "true",
+            "source_id": "033963a386d311c33ee8cf53f7721bc45c5c9878c5e18007c36327aa13243b50",
+            "redacted": false
+          },
+          {
+            "key": "mirrors.0.original",
+            "display": "https://github.com/apple/swift-algorithms.git",
+            "source_id": "033963a386d311c33ee8cf53f7721bc45c5c9878c5e18007c36327aa13243b50",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "a7f1c3988e85aebcf398a498aa3ad821546cacfb1fe359ffd302496a942a0ed7",
+        "manager": "swiftpm",
+        "scope": "project",
+        "path": "/Users/swift-fixture/projects/registry-app/.swiftpm/configuration/registries.json",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "registries.0.scope",
+            "display": "roundtrip",
+            "source_id": "a7f1c3988e85aebcf398a498aa3ad821546cacfb1fe359ffd302496a942a0ed7",
+            "redacted": false
+          },
+          {
+            "key": "registries.0.url",
+            "display": "https://registry.example.invalid",
+            "source_id": "a7f1c3988e85aebcf398a498aa3ad821546cacfb1fe359ffd302496a942a0ed7",
+            "redacted": false
+          },
+          {
+            "key": "security.default.signing.onUnsigned",
+            "display": "silentAllow",
+            "source_id": "a7f1c3988e85aebcf398a498aa3ad821546cacfb1fe359ffd302496a942a0ed7",
+            "redacted": false
+          },
+          {
+            "key": "security.default.signing.onUntrustedCertificate",
+            "display": "silentAllow",
+            "source_id": "a7f1c3988e85aebcf398a498aa3ad821546cacfb1fe359ffd302496a942a0ed7",
+            "redacted": false
+          },
+          {
+            "key": "security.scope_overrides.0.scope",
+            "display": "example",
+            "source_id": "a7f1c3988e85aebcf398a498aa3ad821546cacfb1fe359ffd302496a942a0ed7",
+            "redacted": false
+          },
+          {
+            "key": "security.scope_overrides.0.signing.includeDefaultTrustedRootCertificates",
+            "display": "false",
+            "source_id": "a7f1c3988e85aebcf398a498aa3ad821546cacfb1fe359ffd302496a942a0ed7",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "965ce7fa6edba5f3ec8f2622f9cb741bea7277a407b374116eb3fd9d2f142668",
+        "manager": "swiftpm",
+        "scope": "user",
+        "path": "/Users/swift-fixture/Library/org.swift.swiftpm/configuration/mirrors.json",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+        "manager": "swiftpm",
+        "scope": "user",
+        "path": "/Users/swift-fixture/Library/org.swift.swiftpm/configuration/registries.json",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "registries.0.scope",
+            "display": "[default]",
+            "source_id": "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+            "redacted": false
+          },
+          {
+            "key": "registries.0.url",
+            "display": "https://registry.example.invalid/project",
+            "source_id": "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+            "redacted": false
+          },
+          {
+            "key": "registries.1.scope",
+            "display": "insecure",
+            "source_id": "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+            "redacted": false
+          },
+          {
+            "key": "registries.1.url",
+            "display": "http://registry.example.invalid/plain",
+            "source_id": "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+            "redacted": false
+          },
+          {
+            "key": "registries.2.scope",
+            "display": "local",
+            "source_id": "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+            "redacted": false
+          },
+          {
+            "key": "registries.2.url",
+            "display": "https://registry.example.invalid/local",
+            "source_id": "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "99575eac70019d9f5b6863d399a4ad52f36ef4517c0885f8d72cbf4b035ce947",
+        "manager": "swiftpm",
+        "scope": "user",
+        "path": "/Users/swift-fixture/Library/org.swift.swiftpm/mirrors.json",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "mirrors.0.mirror",
+            "display": "https://example.invalid/legacy.git",
+            "source_id": "99575eac70019d9f5b6863d399a4ad52f36ef4517c0885f8d72cbf4b035ce947",
+            "redacted": false
+          },
+          {
+            "key": "mirrors.0.original",
+            "display": "https://example.invalid/original.git",
+            "source_id": "99575eac70019d9f5b6863d399a4ad52f36ef4517c0885f8d72cbf4b035ce947",
+            "redacted": false
+          }
+        ]
+      }
+    ],
+    "contexts": [
+      {
+        "manager": "swiftpm",
+        "config_source_ids": [
+          "5aafc9edd0d9ce51239442fb3094c21312ae44ac15348ade17bb74bc8c0c6537",
+          "965ce7fa6edba5f3ec8f2622f9cb741bea7277a407b374116eb3fd9d2f142668",
+          "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+          "99575eac70019d9f5b6863d399a4ad52f36ef4517c0885f8d72cbf4b035ce947"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "swiftpm",
+        "project_path": "/Users/swift-fixture/projects/app",
+        "config_source_ids": [
+          "5aafc9edd0d9ce51239442fb3094c21312ae44ac15348ade17bb74bc8c0c6537",
+          "2bb12a707e67274e5ea7f2b5faeaf806c5d3bfa385f77482fd9e7ecc159315dd",
+          "965ce7fa6edba5f3ec8f2622f9cb741bea7277a407b374116eb3fd9d2f142668",
+          "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+          "99575eac70019d9f5b6863d399a4ad52f36ef4517c0885f8d72cbf4b035ce947"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "swiftpm",
+        "project_path": "/Users/swift-fixture/projects/broken",
+        "config_source_ids": [
+          "5aafc9edd0d9ce51239442fb3094c21312ae44ac15348ade17bb74bc8c0c6537",
+          "965ce7fa6edba5f3ec8f2622f9cb741bea7277a407b374116eb3fd9d2f142668",
+          "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+          "99575eac70019d9f5b6863d399a4ad52f36ef4517c0885f8d72cbf4b035ce947"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "swiftpm",
+        "project_path": "/Users/swift-fixture/projects/ios/App.xcodeproj",
+        "config_source_ids": [
+          "5aafc9edd0d9ce51239442fb3094c21312ae44ac15348ade17bb74bc8c0c6537",
+          "965ce7fa6edba5f3ec8f2622f9cb741bea7277a407b374116eb3fd9d2f142668",
+          "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+          "99575eac70019d9f5b6863d399a4ad52f36ef4517c0885f8d72cbf4b035ce947"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "swiftpm",
+        "project_path": "/Users/swift-fixture/projects/ios/Suite.xcworkspace",
+        "config_source_ids": [
+          "5aafc9edd0d9ce51239442fb3094c21312ae44ac15348ade17bb74bc8c0c6537",
+          "965ce7fa6edba5f3ec8f2622f9cb741bea7277a407b374116eb3fd9d2f142668",
+          "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+          "99575eac70019d9f5b6863d399a4ad52f36ef4517c0885f8d72cbf4b035ce947"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "swiftpm",
+        "project_path": "/Users/swift-fixture/projects/mirrored",
+        "config_source_ids": [
+          "5aafc9edd0d9ce51239442fb3094c21312ae44ac15348ade17bb74bc8c0c6537",
+          "033963a386d311c33ee8cf53f7721bc45c5c9878c5e18007c36327aa13243b50",
+          "965ce7fa6edba5f3ec8f2622f9cb741bea7277a407b374116eb3fd9d2f142668",
+          "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+          "99575eac70019d9f5b6863d399a4ad52f36ef4517c0885f8d72cbf4b035ce947"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "swiftpm",
+        "project_path": "/Users/swift-fixture/projects/plugin",
+        "config_source_ids": [
+          "5aafc9edd0d9ce51239442fb3094c21312ae44ac15348ade17bb74bc8c0c6537",
+          "965ce7fa6edba5f3ec8f2622f9cb741bea7277a407b374116eb3fd9d2f142668",
+          "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+          "99575eac70019d9f5b6863d399a4ad52f36ef4517c0885f8d72cbf4b035ce947"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "swiftpm",
+        "project_path": "/Users/swift-fixture/projects/registry-app",
+        "config_source_ids": [
+          "5aafc9edd0d9ce51239442fb3094c21312ae44ac15348ade17bb74bc8c0c6537",
+          "a7f1c3988e85aebcf398a498aa3ad821546cacfb1fe359ffd302496a942a0ed7",
+          "965ce7fa6edba5f3ec8f2622f9cb741bea7277a407b374116eb3fd9d2f142668",
+          "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+          "99575eac70019d9f5b6863d399a4ad52f36ef4517c0885f8d72cbf4b035ce947"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "swiftpm",
+        "project_path": "/Users/swift-fixture/projects/tool",
+        "config_source_ids": [
+          "5aafc9edd0d9ce51239442fb3094c21312ae44ac15348ade17bb74bc8c0c6537",
+          "965ce7fa6edba5f3ec8f2622f9cb741bea7277a407b374116eb3fd9d2f142668",
+          "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+          "99575eac70019d9f5b6863d399a4ad52f36ef4517c0885f8d72cbf4b035ce947"
+        ],
+        "selection_status": "observed"
+      }
+    ],
+    "credential_files": [
+      {
+        "path": "/Users/swift-fixture/.netrc",
+        "status": "present",
+        "presence": "present"
+      }
+    ],
+    "findings": [
+      {
+        "code": "swift-001",
+        "severity": "MEDIUM",
+        "source_id": "9263322f308fbb60e597e886126c919fef313c6037f50e646d861bfdf321e33e",
+        "key": "registries.1.url",
+        "detail": "A configured SwiftPM registry or mirror destination uses an unencrypted HTTP URL."
+      },
+      {
+        "code": "swift-002",
+        "severity": "MEDIUM",
+        "source_id": "033963a386d311c33ee8cf53f7721bc45c5c9878c5e18007c36327aa13243b50",
+        "key": "mirrors.0.mirror.literal_auth",
+        "detail": "A configured SwiftPM URL contains a literal credential."
+      },
+      {
+        "code": "swift-003",
+        "severity": "LOW",
+        "source_id": "a7f1c3988e85aebcf398a498aa3ad821546cacfb1fe359ffd302496a942a0ed7",
+        "key": "security.default.signing.onUnsigned",
+        "detail": "Registry signing warnings suppressed; signature validation itself is not disabled."
+      },
+      {
+        "code": "swift-003",
+        "severity": "LOW",
+        "source_id": "a7f1c3988e85aebcf398a498aa3ad821546cacfb1fe359ffd302496a942a0ed7",
+        "key": "security.default.signing.onUntrustedCertificate",
+        "detail": "Registry signing warnings suppressed; signature validation itself is not disabled."
+      }
+    ]
+  }
+}

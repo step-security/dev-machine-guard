@@ -53,6 +53,28 @@ var (
 // MavenLabel reports whether s is a safe Maven ID or profile label.
 func MavenLabel(s string) bool { return mavenLabelPattern.MatchString(s) }
 
+// MavenXMLEnd reads the rest of a document after its root element, which
+// may hold only comments, processing instructions and whitespace.
+func MavenXMLEnd(dec *xml.Decoder) error {
+	for {
+		tok, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			return errors.New("second root element")
+		case xml.CharData:
+			if strings.TrimSpace(string(t)) != "" {
+				return errors.New("text after the root element")
+			}
+		}
+	}
+}
+
 // MavenConfigKind is the source-ID kind for a Maven or Gradle configuration scope.
 func MavenConfigKind(manager, scope string) string { return manager + "_config_" + scope }
 
@@ -745,6 +767,9 @@ func (a *MavenConfigSnapshot) parseSettings(f *model.RubyConfigFile, data []byte
 	dec, err := MavenXML(data)
 	if err == nil {
 		err = dec.Decode(&doc)
+	}
+	if err == nil {
+		err = MavenXMLEnd(dec)
 	}
 	if err != nil {
 		a.fileReason(f, "invalid", "parse_error")

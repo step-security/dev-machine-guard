@@ -1,0 +1,27 @@
+{
+  "object" : {
+    "artifacts" : [
+
+    ],
+    "dependencies" : [
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "local library",
+          "kind" : "fileSystem",
+          "location" : "/home/superping/swift-inventory-lab-20261104/second-pass/Local Library",
+          "name" : "LocalLibrary"
+        },
+        "state" : {
+          "name" : "fileSystem",
+          "path" : "/home/superping/swift-inventory-lab-20261104/second-pass/Local Library"
+        },
+        "subpath" : "local library"
+      }
+    ],
+    "prebuilts" : [
+
+    ]
+  },
+  "version" : 7
+}
