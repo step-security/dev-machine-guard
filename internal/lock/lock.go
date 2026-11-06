@@ -48,9 +48,21 @@ func Acquire(_ executor.Executor) (*Lock, error) {
 // make sure no scan still reporting under the previous identity is running
 // before that identity's row is retired.
 func AcquireMachineWide() (*Lock, error) {
-	old := setLockTarget(unscopedTarget(lockTarget(), paths.UserScope()))
-	release, err := acquire()
-	setLockTarget(old)
+	release, err := acquireTarget(unscopedTarget(lockTarget(), paths.UserScope()))
+	if err != nil {
+		return nil, err
+	}
+	return &Lock{release: release}, nil
+}
+
+// AcquireSibling takes a second machine-wide lock, named after the instance
+// lock with the given suffix, without blocking. Writers of a shared
+// machine-wide file take it so they exclude one another without excluding
+// scans. Like the instance lock it is an OS lock the kernel drops when its
+// holder exits, so there is never a stale lock to reclaim.
+func AcquireSibling(suffix string) (*Lock, error) {
+	base := unscopedTarget(lockTarget(), paths.UserScope())
+	release, err := acquireTarget(scopedTarget(base, suffix))
 	if err != nil {
 		return nil, err
 	}

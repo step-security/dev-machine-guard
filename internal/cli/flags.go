@@ -340,6 +340,20 @@ var flagTable = []flagSpec{
 			}
 			return nil
 		}},
+	{name: "--multi-user-detection", kind: flagValue, saves: []string{"multi_user_detection"}, section: helpConfigure,
+		missing: "--multi-user-detection requires a value (edition, users or off; \"-\" clears it)",
+		help: `  --multi-user-detection MODE   How a Windows host with no device identity template
+                                decides it is shared: edition (default: multi-session
+                                editions and the RD Session Host role), users (also two
+                                developers seen scanning on two days each), off`,
+		set: func(c *Config, v string) error {
+			v = strings.ToLower(strings.TrimSpace(v))
+			switch v {
+			case "", "-", "edition", "users", "off":
+				return c.saveClearable("multi_user_detection", v)
+			}
+			return fmt.Errorf("--multi-user-detection accepts edition, users or off, got %q", v)
+		}},
 	func() flagSpec {
 		f := configFlag("--scan-frequency", "scan_frequency_hours",
 			"  --scan-frequency HOURS        Scheduled scan frequency")

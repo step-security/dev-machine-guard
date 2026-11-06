@@ -27,7 +27,7 @@ func TestStampLastFullRunCreatesAndUpdates(t *testing.T) {
 	path := withTempState(t)
 	now := time.Unix(1_753_160_800, 0)
 
-	if err := StampLastFullRun("SER123", now); err != nil {
+	if err := StampLastFullRun("SER123", "", now); err != nil {
 		t.Fatalf("StampLastFullRun on absent file: %v", err)
 	}
 	st, ok := readState()
@@ -46,7 +46,7 @@ func TestStampLastFullRunCreatesAndUpdates(t *testing.T) {
 	}
 
 	later := now.Add(4 * time.Hour)
-	if err := StampLastFullRun("SER123", later); err != nil {
+	if err := StampLastFullRun("SER123", "", later); err != nil {
 		t.Fatalf("StampLastFullRun update: %v", err)
 	}
 	st, _ = readState()
@@ -59,11 +59,11 @@ func TestStampAndRecordPreserveEachOther(t *testing.T) {
 	withTempState(t)
 	now := time.Unix(1_753_160_800, 0)
 
-	if err := StampLastFullRun("SER123", now); err != nil {
+	if err := StampLastFullRun("SER123", "", now); err != nil {
 		t.Fatalf("stamp: %v", err)
 	}
 	d := Directive{Mode: ModeSkip, Reason: "not_due", GatingEnabled: true, EffectiveIntervalMinutes: 240}
-	if err := recordCheckin("SER123", d, now.Add(time.Minute)); err != nil {
+	if err := recordCheckin("SER123", "", d, now.Add(time.Minute)); err != nil {
 		t.Fatalf("recordCheckin: %v", err)
 	}
 
@@ -78,7 +78,7 @@ func TestStampAndRecordPreserveEachOther(t *testing.T) {
 		t.Errorf("check-in fields not persisted: %+v", st)
 	}
 
-	if err := StampLastFullRun("SER123", now.Add(2*time.Hour)); err != nil {
+	if err := StampLastFullRun("SER123", "", now.Add(2*time.Hour)); err != nil {
 		t.Fatalf("second stamp: %v", err)
 	}
 	st, _ = readState()
@@ -96,7 +96,7 @@ func TestHeartbeatAndGateShareFile(t *testing.T) {
 
 	// A prior run left a check-in cache.
 	d := Directive{Mode: ModeSkip, Reason: "not_due", GatingEnabled: true, EffectiveIntervalMinutes: 240}
-	if err := recordCheckin("SER123", d, now); err != nil {
+	if err := recordCheckin("SER123", "", d, now); err != nil {
 		t.Fatalf("recordCheckin: %v", err)
 	}
 	// This run's heartbeat stamps the breadcrumb first.
@@ -124,7 +124,7 @@ func TestFutureSchemaReadUnusableThenOverwritten(t *testing.T) {
 	// ...but is overwritten, not refused: the breadcrumb must always write and
 	// the gate cache is fail-open-safe, so we don't preserve unknown schemas.
 	now := time.Unix(1_753_160_800, 0)
-	if err := StampLastFullRun("SER123", now); err != nil {
+	if err := StampLastFullRun("SER123", "", now); err != nil {
 		t.Fatalf("StampLastFullRun over future-schema file: %v", err)
 	}
 	st, ok := readState()
@@ -142,7 +142,7 @@ func TestCorruptFileIsRecreated(t *testing.T) {
 		t.Fatal("corrupt file must read as unusable")
 	}
 	now := time.Unix(1_753_160_800, 0)
-	if err := StampLastFullRun("SER123", now); err != nil {
+	if err := StampLastFullRun("SER123", "", now); err != nil {
 		t.Fatalf("stamp over corrupt file: %v", err)
 	}
 	st, ok := readState()
@@ -157,14 +157,14 @@ func TestCompletionStampBindsIdentityWithoutCheckin(t *testing.T) {
 	t.Cleanup(func() { config.DeviceID = old })
 	config.DeviceID = ""
 	now := time.Now()
-	if err := recordCheckin("hardware-A", Directive{GatingEnabled: true, EffectiveIntervalMinutes: 240}, now); err != nil {
+	if err := recordCheckin("hardware-A", "", Directive{GatingEnabled: true, EffectiveIntervalMinutes: 240}, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := StampLastFullRun("hardware-A", now.Add(-5*time.Hour)); err != nil {
+	if err := StampLastFullRun("hardware-A", "", now.Add(-5*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	config.DeviceID = "custom-B"
-	if err := StampLastFullRun("custom-B", now); err != nil {
+	if err := StampLastFullRun("custom-B", "", now); err != nil {
 		t.Fatal(err)
 	}
 	st, ok := readState()
@@ -173,5 +173,34 @@ func TestCompletionStampBindsIdentityWithoutCheckin(t *testing.T) {
 	}
 	if st.GatingEnabled || st.EffectiveIntervalMinutes != 0 || st.DirectiveFetchedAt != 0 {
 		t.Fatalf("completion retained A's directive: %+v", st)
+	}
+}
+
+// The check-in records the machine identity next to the device id, so an
+// uninstall can tell this machine's cached records from ones an image
+// carried over; a guest check-in (no machine id) leaves the field alone.
+func TestRecordCheckinStoresMachineID(t *testing.T) {
+	withTempState(t)
+	now := time.Unix(1_753_160_800, 0)
+	d := Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}
+	if err := recordCheckin("host-jdoe", "SER-1", d, now); err != nil {
+		t.Fatal(err)
+	}
+	st, ok := readState()
+	if !ok || st.MachineID != "SER-1" {
+		t.Fatalf("state = %+v, want machine_id SER-1", st)
+	}
+	if err := persistIdentity("host-jdoe", ""); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ = readState(); st.MachineID != "SER-1" {
+		t.Fatalf("an empty machine id must not clear the record: %+v", st)
+	}
+	// Another identity discards the record, machine id included.
+	if err := persistIdentity("host-asmith", ""); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ = readState(); st.MachineID != "" || st.DeviceID != "host-asmith" {
+		t.Fatalf("state after identity change = %+v", st)
 	}
 }

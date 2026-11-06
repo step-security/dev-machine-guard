@@ -26,7 +26,7 @@ literal text and these tokens:
 |-------|------------|
 | `{serial}` | the machine identity: the hardware serial, or on Linux user runs the machine-wide id file root wrote (`/etc/stepsecurity/device-id`), or a generated id persisted when no source answers |
 | `{hostname}` | the machine name, lower-cased |
-| `{user}` | the logged-in user: email local part, `DOMAIN\` stripped, lower-cased |
+| `{user}` | the signed-in user: the short name (an email's local part, `DOMAIN\` stripped, lower-cased) plus a twelve-character fingerprint of the whole account name, for example `jdoe-8c4e2cb3a1d7` for `CONTOSO\JDoe`. Two accounts that share a short name (`CORP\alice` and `HOST\alice`, `alice@a.example` and `alice@b.example`) therefore never share a device, state or lock, and a name with no Latin characters still yields `user-<fingerprint>` |
 
 ### Which template?
 
@@ -71,12 +71,13 @@ Precedence, highest first:
 }
 ```
 
-Check what a machine resolves to:
+Check what a machine resolves to (`identity --json` prints the same facts as
+one object, which is what the loaders read to report under the agent's id):
 
 ```
 stepsecurity-dev-machine-guard configure show
   Device ID:               {hostname}-{user}
-    resolves now to:       avd-host-07-jdoe (source: config)
+    resolves now to:       avd-host-07-jdoe-8c4e2cb3a1d7 (source: config)
   Retire On Uninstall:     true (uninstall retires this device in the dashboard)
 ```
 
@@ -91,8 +92,15 @@ stepsecurity-dev-machine-guard configure show
   the dashboard can show that a configured identity was reused on new
   hardware (a rebuilt host).
 * **`{user}` under a service account** (`NT AUTHORITY\SYSTEM`, `LOCAL
-  SERVICE`, a machine account) cannot be completed. The run is **skipped**
-  with a log line rather than reporting under a made-up id. The MSI's own
+  SERVICE`, a machine account) cannot be completed. With a configured
+  template the run is **skipped** with a log line rather than reporting under
+  a made-up id. In automatic mode (nothing configured, see below) such a run
+  reports under the hardware serial, exactly as it did before per-user
+  identities existed, until the host's user sessions have performed the
+  one-time switch; from then on it is skipped, since a serial upload would
+  restore the row the switch removed. A device-context loader install
+  therefore keeps producing machine-level telemetry after an agent upgrade
+  and moves to per-user devices once its tasks run per session. The MSI's own
   install step already runs as SYSTEM and defers the first scan to the
   scheduled task, which fires as the logged-in user.
 * An **unknown token** (`{site}`) logs a warning and falls back to the
@@ -112,8 +120,13 @@ state dir, so the ids never flip back):
   Enterprise multi-session (`EditionID` = `EnterpriseMultiSession`, the
   Azure Virtual Desktop image) or the Server RDSH SKU, or the Remote Desktop
   Session Host role is installed;
-* two or more different developers have run scans on it (every scan records
-  its user in `seen-users.txt` in the machine-wide state dir).
+* with `multi_user_detection: users` in config.json (`configure
+  --multi-user-detection users`): two or more developers have each run scans
+  on it on two different days (every scan records its user and the day in
+  `seen-users.txt` in the machine-wide state dir). A single visit never
+  counts, so a technician's one-off session cannot change a workstation's
+  identity. The default, `edition`, applies only the first rule; `off` never
+  switches.
 
 On a multi-user host the agent applies `{hostname}-{user}` exactly as if it
 had been configured (`device_id_source` reports `auto`; `configure show`
@@ -140,7 +153,7 @@ Limits in this version: automatic mode is Windows-only (macOS and Linux keep
 the hardware serial unless a template is configured) and needs the
 machine-wide state dir of an elevated install (`C:\ProgramData\StepSecurity`).
 To force serial-only identities on a shared host, configure the explicit
-template `{serial}`.
+template `{serial}` or set `multi_user_detection: off`.
 
 ### Per-user state on shared hosts
 
@@ -154,11 +167,11 @@ Windows scheduled task is registered with
 `MultipleInstancesPolicy=Parallel` so a second session's instance is not
 dropped while the first user's scan runs.
 
-**Golden images:** do not capture `last-run.json`, `scan-state.json` or
-`node-scan-cache.json` into an image. The agent detects a cached device id
-that no longer matches its own and ignores it, but a clean image avoids the
-first-run noise entirely. Install at provisioning time, or delete those
-files before capture.
+**Golden images:** state captured into an image is recognised and set aside
+on the clones (cached ids and markers that name another machine are ignored,
+the hardware serial is probed afresh), so a sealed image with the agent
+installed works as it is. See "Installing into a master image (Sysprep)" in
+section 2 for what the clone does and the optional pre-capture cleanup.
 
 ## 2. Install at provisioning time
 
@@ -188,6 +201,58 @@ The first scan runs when a user logs in (the companion at-logon task) or at
 the next scheduled tick, as that user. See
 [deploying-via-sccm.md](deploying-via-sccm.md) for the full MSI property
 table and the Intune/SCCM walkthroughs.
+
+### Installing into a master image (Sysprep)
+
+Pooled hosts are commonly built from one master image: the agent is
+installed on a (not necessarily domain-joined) builder VM, the builder is
+sealed with `Sysprep /generalize`, and every session host is deployed from
+the captured image. That path is supported as it is:
+
+1. Install on the builder with the tenant values and the identity choice
+   (`msiexec /i ... BOOTSTRAPFILE=...` or the inline properties above, the
+   template `{hostname}-{user}` or automatic mode, never a literal id or a
+   configured `user_id`: both would be copied into every clone).
+2. Optionally run a validation scan on the builder (`send-telemetry
+   --force-scan` as a signed-in user, or `identity --json` to see what a run
+   would report). Retire the builder's own device afterwards if it was
+   registered.
+3. Seal and capture: `Sysprep.exe /oobe /generalize /shutdown`, then capture
+   the image (for example into an Azure Compute Gallery version).
+
+What a clone does on its first runs, whatever the builder left behind:
+
+- **Identity.** Every run probes the hardware serial. A machine-wide
+  `device-id` file or a SYSTEM `state\device-id` cache that names another
+  machine (the builder) loses to the probed serial; an elevated run rewrites
+  the file, a user run reports the serial and leaves the file to the next
+  elevated run. `{hostname}` expands to the clone's own name.
+- **Automatic mode.** `multi-user.json` records the machine it was written
+  on. A marker from another machine is ignored: the edition rule is
+  evaluated on the clone, the first positive decision writes the clone's own
+  marker, and the builder's `retired_serial_id` never counts, so a
+  service-account run on the clone keeps reporting under the machine
+  identity until the clone's own identity switch retires its serial row.
+  `seen-users.txt` is bound the same way: a visit history another machine
+  wrote counts for nothing under the `users` rule and is replaced by the
+  clone's own first recorded visit.
+- **Scheduled tasks** are bound to the INTERACTIVE group and to SYSTEM, not
+  to the builder's account, so they run as the users who sign in to the
+  clone.
+- **Cached run records.** `last-run.json` files record the machine they were
+  written on. The run gate discards a record whose device id is not the
+  clone's own, and `uninstall --retire` skips records that name another
+  machine, so a clone's uninstall never retires the builder's device or a
+  device of another clone.
+
+Nothing is deleted automatically. For a pristine image, remove these before
+sealing (keep `config.json` and the binaries): `multi-user.json`,
+`seen-users.txt`, the machine-wide `device-id` file, `state\device-id`,
+`users\*`, `last-run.json`, `scan-state.json`, `node-scan-cache.json`,
+`run-metrics.jsonl`. One case needs it: a builder whose firmware has no
+usable serial gets a generated machine id, and a generated id captured into
+the image cannot be told from the clone's own, so every clone would share
+it. Remove the `device-id` files there before capture.
 
 ## 3. Retiring a device
 
@@ -243,12 +308,13 @@ at least the inactive threshold. Retired devices are purged 30 days later.
 
 | Symptom | Check |
 |---------|-------|
-| Device missing after a scan | `configure show` → *resolves now to*; a `{user}` template under SYSTEM reads *incomplete* and the run is skipped |
+| Device missing after a scan | `configure show` → *resolves now to*; a configured `{user}` template under SYSTEM reads *incomplete* and the run is skipped (automatic mode resolves to the hardware serial there until the host has switched) |
 | A host suddenly has per-user devices and its old device is gone | automatic mode kicked in (`multi-user.json` under `C:\ProgramData\StepSecurity` says why); the old row was removed through the retire API with reason `identity_changed` (hidden at once, purged after the standard retention). Configure `{serial}` to opt out |
 | Is this a VM? | the device sheet shows the virtualization type and vendor; the agent logs `Virtualization: virtual (azure, imds)` or `physical` on every scan |
 | Two rows for one host after a rebuild | the template is not set, or `STEPSEC_DEVICE_ID` differs between the image and the running host |
 | Only one user's inventory on a shared host | the template lacks `{user}`; with it, look for `users\<user>\last-run.json` under the install dir |
 | "cached device id … differs from resolved" in `agent.error.log` | a state file from another machine (golden image or roamed profile); harmless, the run proceeds under the right id |
+| A clone reports the image builder's device id, or an uninstall on a clone retires a device of another host | the builder had no usable hardware serial, so its generated id was captured into the image; remove the `device-id` files before sealing (section 2, "Installing into a master image") |
 | Retire did nothing | `uninstall` logs `Retired device <id>`; a 404 means the backend predates the feature, a transport error means the machine was already offline — auto-retire covers both |
 
 Logs: `C:\ProgramData\StepSecurity\agent.error.log` (scheduled runs) and

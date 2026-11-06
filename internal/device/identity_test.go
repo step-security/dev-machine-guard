@@ -105,20 +105,21 @@ func TestResolveIdentity_EnvBeatsConfig(t *testing.T) {
 	mock := executor.NewMock()
 	mock.SetEnv(EnvDeviceID, "from-env-{user}")
 	id := ResolveIdentity(mock, "SER", "Host1", "jdoe")
-	if id.DeviceID != "from-env-jdoe" || id.Source != IdentitySourceEnv {
+	jdoe := "jdoe-" + UserTokenFingerprint("jdoe")
+	if id.DeviceID != "from-env-"+jdoe || id.Source != IdentitySourceEnv {
 		t.Fatalf("env override not applied: %+v", id)
 	}
-	if !id.PerUser || id.UserScope != "jdoe" {
+	if !id.PerUser || id.UserScope != jdoe {
 		t.Fatalf("per-user scope not derived from the env template: %+v", id)
 	}
 	// IdentityUserScope reads the env template too (the mock's default user
 	// is "testuser").
-	if got := IdentityUserScope(mock); got != "testuser" {
-		t.Fatalf("scope from the env template = %q, want testuser", got)
+	if got, want := IdentityUserScope(mock), "testuser-"+UserTokenFingerprint("testuser"); got != want {
+		t.Fatalf("scope from the env template = %q, want %q", got, want)
 	}
 	mock.SetUsername("CONTOSO\\JDoe")
-	if got := IdentityUserScope(mock); got != "jdoe" {
-		t.Fatalf("IdentityUserScope = %q, want jdoe", got)
+	if got, want := IdentityUserScope(mock), "jdoe-"+UserTokenFingerprint(`contoso\jdoe`); got != want {
+		t.Fatalf("IdentityUserScope = %q, want %q", got, want)
 	}
 }
 
@@ -269,7 +270,7 @@ func TestResolvedDeviceID_ProbesOnlyWhenNeeded(t *testing.T) {
 	mock.SetCommand("", "", 1, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
 	mock.SetCommand("", "", 1, "system_profiler", "SPHardwareDataType")
 	id := ResolvedDeviceID(context.Background(), mock)
-	if id.DeviceID != "mac-jdoe" || id.Serial != "" {
+	if id.DeviceID != "mac-jdoe-"+UserTokenFingerprint("jdoe") || id.Serial != "" {
 		t.Fatalf("template without {serial} must not need one: %+v", id)
 	}
 
@@ -280,7 +281,7 @@ func TestResolvedDeviceID_ProbesOnlyWhenNeeded(t *testing.T) {
 	t.Cleanup(func() { userIDFile = old })
 	withConfigDeviceID(t, "{serial}-{user}")
 	id = ResolvedDeviceID(context.Background(), mock)
-	if id.Incomplete || !strings.HasSuffix(id.DeviceID, "-jdoe") || id.Serial == "" {
+	if id.Incomplete || !strings.HasSuffix(id.DeviceID, "-jdoe-"+UserTokenFingerprint("jdoe")) || id.Serial == "" {
 		t.Fatalf("{serial} must use the generated machine id: %+v", id)
 	}
 }
@@ -294,12 +295,12 @@ func TestIdentityUserScope(t *testing.T) {
 		t.Fatalf("no {user} token must yield no scope, got %q", got)
 	}
 	withConfigDeviceID(t, "{hostname}-{user}")
-	if got := IdentityUserScope(mock); got != "jdoe" {
-		t.Fatalf("scope = %q, want jdoe", got)
+	if got, want := IdentityUserScope(mock), "jdoe-"+UserTokenFingerprint(`contoso\jdoe`); got != want {
+		t.Fatalf("scope = %q, want %q", got, want)
 	}
 	mock.SetEnv("USER_EMAIL", "Jane.Doe@example.com")
-	if got := IdentityUserScope(mock); got != "jane.doe" {
-		t.Fatalf("scope must honour the email override, got %q", got)
+	if got, want := IdentityUserScope(mock), "jane.doe-"+UserTokenFingerprint("jane.doe@example.com"); got != want {
+		t.Fatalf("scope must honour the email override, got %q, want %q", got, want)
 	}
 	mock.SetEnv("USER_EMAIL", "")
 	mock.SetUsername(`NT AUTHORITY\SYSTEM`)
@@ -320,7 +321,7 @@ func TestResolvedDeviceID_NamelessHostProbesSerial(t *testing.T) {
 	mock.SetUsername("jdoe")
 	mock.SetCommand(`"IOPlatformSerialNumber" = "PROBED"`, "", 0, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
 	id := ResolvedDeviceID(context.Background(), mock)
-	if id.Incomplete || id.DeviceID != "PROBED-jdoe" || id.Source != IdentitySourceConfig {
+	if id.Incomplete || id.DeviceID != "PROBED-jdoe-"+UserTokenFingerprint("jdoe") || id.Source != IdentitySourceConfig {
 		t.Fatalf("a nameless host must resolve {hostname} through the serial: %+v", id)
 	}
 }
@@ -334,5 +335,91 @@ func TestIdentityUserScope_UnknownTokenKeepsSharedState(t *testing.T) {
 	withConfigDeviceID(t, "{hostname}-{user}-{site}")
 	if got := IdentityUserScope(mock); got != "" {
 		t.Fatalf("unknown token: scope = %q, want none", got)
+	}
+}
+
+// Two principals that share a short name never share a device, a state
+// scope or a lock: the token carries a fingerprint of the whole principal.
+// Case differences in the principal do not change it.
+func TestUserToken_DistinctPrincipalsNeverCollide(t *testing.T) {
+	principals := []string{`CORP\alice`, `HOST\alice`, "alice@a.example", "alice@b.example", "alice"}
+	seen := map[string]string{}
+	for _, p := range principals {
+		tok := userToken("windows", false, p)
+		if !strings.HasPrefix(tok, "alice-") || len(tok) != len("alice-")+UserTokenFingerprintLen {
+			t.Errorf("userToken(%q) = %q, want alice-<fingerprint>", p, tok)
+		}
+		if prev, dup := seen[tok]; dup {
+			t.Errorf("%q and %q collide on %q", prev, p, tok)
+		}
+		seen[tok] = p
+	}
+	if userToken("windows", false, `corp\ALICE`) != userToken("windows", false, `CORP\alice`) {
+		t.Error("the principal's case must not change the token")
+	}
+	withConfigDeviceID(t, "{hostname}-{user}")
+	a := ResolveIdentity(executor.NewMock(), "SER", "h1", `CORP\alice`)
+	b := ResolveIdentity(executor.NewMock(), "SER", "h1", `HOST\alice`)
+	if a.DeviceID == b.DeviceID || a.UserScope == b.UserScope || a.UserScope == "" {
+		t.Fatalf("CORP\\alice and HOST\\alice must be separate devices with separate state: %+v vs %+v", a, b)
+	}
+}
+
+// A name whose readable part sanitizes away (a non-Latin display name) still
+// gets a user part and a state scope, never a hostname-only id with shared
+// state.
+func TestUserToken_NonLatinNameKeepsAScope(t *testing.T) {
+	withConfigDeviceID(t, "{hostname}-{user}")
+	id := ResolveIdentity(executor.NewMock(), "SER", "h1", `AVD\张三`)
+	want := "h1-user-" + UserTokenFingerprint(`avd\张三`)
+	if id.Incomplete || id.DeviceID != want {
+		t.Fatalf("device id = %q (incomplete=%v), want %q", id.DeviceID, id.Incomplete, want)
+	}
+	if id.UserScope != "user-"+UserTokenFingerprint(`avd\张三`) {
+		t.Fatalf("user scope = %q, want a fingerprint scope", id.UserScope)
+	}
+	other := ResolveIdentity(executor.NewMock(), "SER", "h1", `AVD\李四`)
+	if other.DeviceID == id.DeviceID {
+		t.Fatal("two non-Latin names must not collide")
+	}
+}
+
+// A service-account run (SYSTEM) on a host in automatic per-user mode reports
+// under the machine identity, as before per-user identities existed, until
+// the per-user runs have retired the serial row; then it is skipped.
+func TestResolveIdentity_AutoModeUnderServiceAccount(t *testing.T) {
+	withMachineStateDir(t, "EnterpriseMultiSession", false)
+	withConfigDeviceID(t, "")
+	system := windowsMock(`NT AUTHORITY\SYSTEM`)
+	id := ResolveIdentity(system, "SER1", "AVD-HOST-07", `NT AUTHORITY\SYSTEM`)
+	if id.Incomplete || id.DeviceID != "SER1" || id.Source != IdentitySourceSerial || !id.AutoFallback || id.Template != AutoIdentityTemplate {
+		t.Fatalf("SYSTEM before the switch must fall back to the machine identity: %+v", id)
+	}
+	if scope := IdentityUserScope(system); scope != "" {
+		t.Fatalf("the fallback keeps the shared state, got scope %q", scope)
+	}
+	if AutoSerialRowRetired(system, "SER1") {
+		t.Fatal("nothing retired yet")
+	}
+	if err := MarkSerialRowRetired("SER1"); err != nil {
+		t.Fatal(err)
+	}
+	if !AutoSerialRowRetired(system, "SER1") {
+		t.Fatal("the marker must record the retire")
+	}
+	id = ResolveIdentity(system, "SER1", "AVD-HOST-07", `NT AUTHORITY\SYSTEM`)
+	if !id.Incomplete || id.DeviceID != "" || id.AutoFallback {
+		t.Fatalf("SYSTEM after the switch must be skipped, not restore the serial row: %+v", id)
+	}
+	// A user session is never affected by the rule.
+	user := ResolveIdentity(windowsMock(`AVD-HOST-07\jdoe`), "SER1", "AVD-HOST-07", `AVD-HOST-07\jdoe`)
+	if user.Incomplete || user.Source != IdentitySourceAuto || user.AutoFallback {
+		t.Fatalf("a user session resolves per user: %+v", user)
+	}
+	// An explicit {user} template under SYSTEM stays incomplete: the admin
+	// asked for per-user devices only.
+	withConfigDeviceID(t, "{hostname}-{user}")
+	if id := ResolveIdentity(system, "SER1", "AVD-HOST-07", `NT AUTHORITY\SYSTEM`); !id.Incomplete || id.AutoFallback {
+		t.Fatalf("an explicit template is not relaxed for SYSTEM: %+v", id)
 	}
 }

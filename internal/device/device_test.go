@@ -402,7 +402,7 @@ func TestGather_DeviceIDAndSerialDiffer(t *testing.T) {
 	mock.SetUsername("CONTOSO\\JDoe")
 
 	dev := Gather(context.Background(), mock)
-	if dev.DeviceID != "avd-host-07-jdoe" {
+	if dev.DeviceID != "avd-host-07-jdoe-"+UserTokenFingerprint(`contoso\jdoe`) {
 		t.Fatalf("device id = %q", dev.DeviceID)
 	}
 	if dev.SerialNumber != "SERIAL123" {
@@ -411,7 +411,7 @@ func TestGather_DeviceIDAndSerialDiffer(t *testing.T) {
 	if dev.DeviceIDSource != IdentitySourceConfig || !dev.IdentityPerUser || dev.IdentityIncomplete {
 		t.Fatalf("unexpected identity metadata: %+v", dev)
 	}
-	if got := ID(dev); got != "avd-host-07-jdoe" {
+	if got := ID(dev); got != "avd-host-07-jdoe-"+UserTokenFingerprint(`contoso\jdoe`) {
 		t.Fatalf("ID(dev) = %q, want the resolved template", got)
 	}
 
