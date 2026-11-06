@@ -488,6 +488,10 @@ func TestCondaSanitizeURL(t *testing.T) {
 	}{
 		{"conda-forge", "conda-forge", false},
 		{"pkgs/main", "pkgs/main", false},
+		{"t/CANARY/private", goRedacted, true},
+		{"conda.anaconda.org/t/CANARY/private", goRedacted, true},
+		{"/srv/t/local", "/srv/t/local", false},
+		{"C:/conda/t/local", "C:/conda/t/local", false},
 		{"https://user:CANARY@x.example.invalid/ch", "https://x.example.invalid/ch", true},
 		{"/srv/conda/local", "/srv/conda/local", false},
 		{`C:\conda\local`, `C:\conda\local`, false},
@@ -565,4 +569,49 @@ func TestCondaConfigBudget(t *testing.T) {
 			t.Fatalf("audit exceeds cap: %d", len(data))
 		}
 	})
+}
+
+func TestCondaConfigChannelTokens(t *testing.T) {
+	for _, tc := range []struct {
+		name, channel string
+		literal       bool
+	}{
+		{"leading token", "t/CANARY/private", true},
+		{"embedded token", "conda.anaconda.org/t/CANARY/private", true},
+		{"braced reference", "t/${TOKEN}/private", false},
+		{"dollar reference", "t/$TOKEN/private", false},
+		{"percent reference", "t/%TOKEN%/private", false},
+		{"posix path", "/srv/t/local", false},
+		{"windows path", "C:/conda/t/local", false},
+		{"ordinary label", "conda-forge", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, scope := condaConfigTest(t)
+			userPath := filepath.Join(scope.Home, ".condarc")
+			project := filepath.Join(scope.Home, "project", "environment.yml")
+			m.SetFile(userPath, []byte("channels: ["+strconv.Quote(tc.channel)+"]\n"))
+			m.SetEnv("CONDA_CHANNELS", tc.channel)
+			snapshot := NewCondaConfigDetector(m).Detect(t.Context(), scope)
+			snapshot.Manifest(project, []string{tc.channel}, "present", nil)
+			audit := snapshot.Finish()
+			data, err := json.Marshal(audit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), "CANARY") {
+				t.Fatal("channel credential survived serialization")
+			}
+			for _, loc := range []struct{ scope, path string }{{"user", userPath}, {"project", project}, {"process", ""}} {
+				settings := condaSettings(condaFile(t, audit, loc.scope, loc.path))
+				if got := settings["auth_configured"] == "true"; got != tc.literal {
+					t.Errorf("%s literal auth = %v, want %v", loc.scope, got, tc.literal)
+				}
+				if loc.scope != "process" {
+					if got := condaFindingKeys(audit)["conda-003 "+loc.scope+" auth_configured"]; got != tc.literal {
+						t.Errorf("%s credential finding = %v, want %v", loc.scope, got, tc.literal)
+					}
+				}
+			}
+		})
+	}
 }

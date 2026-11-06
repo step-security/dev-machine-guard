@@ -1204,6 +1204,10 @@ func (k *piCollector) manifestFiles(root, kind string, man *piManifest, fallback
 	seen := map[string]bool{}
 	var overrides []string
 	for i, entry := range entries {
+		if k.a.s.ctx.Err() != nil {
+			piPartial(k.p, model.AgentScanErrLimitExceeded, root)
+			break
+		}
 		if strings.HasPrefix(entry, "!") || strings.HasPrefix(entry, "+") || strings.HasPrefix(entry, "-") {
 			overrides = append(overrides, entry)
 			continue
@@ -1500,6 +1504,10 @@ func (k *piCollector) entrypoints(dir string) (piGroup, bool) {
 // expandGlob expands a manifest glob below root. Matches inside dot
 // directories are dropped, except through "..".
 func (k *piCollector) expandGlob(pattern, root string) []string {
+	if k.a.s.ctx.Err() != nil || len(pattern) > maxPathBytes {
+		piPartial(k.p, model.AgentScanErrLimitExceeded, root)
+		return nil
+	}
 	alts, ok := piExpandBraces(filepath.ToSlash(pattern))
 	if !ok || piUnsupportedGlob(pattern) {
 		piPartial(k.p, model.AgentScanErrUnsupportedSchema, root)
@@ -1533,6 +1541,10 @@ func (k *piCollector) expandGlob(pattern, root string) []string {
 }
 
 func (k *piCollector) globWalk(dir string, segs []string, depth int, add func(string)) {
+	if k.a.s.ctx.Err() != nil {
+		piPartial(k.p, model.AgentScanErrLimitExceeded, dir)
+		return
+	}
 	if len(segs) == 0 {
 		add(dir)
 		return

@@ -3424,3 +3424,58 @@ func TestPiNPMRegistryProvenance(t *testing.T) {
 		})
 	}
 }
+
+func TestPiGlobBounds(t *testing.T) {
+	root := filepath.Join(testHome, "package")
+	relative := "a/b/c/d/e/f/g/h/extension.ts"
+	full := filepath.Join(root, filepath.FromSlash(relative))
+	for _, tc := range []struct {
+		name, pattern     string
+		canceled, limited bool
+	}{
+		{"literal prefix", "a/b/c/d/e/f/g/h/*.ts", false, false},
+		{"absolute glob", filepath.Join(root, "a/b/c/d/e/f/g/h/*.ts"), false, false},
+		{"overlong prefix", strings.Repeat("a/", maxPathBytes) + "*.ts", false, true},
+		{"cancelled literal", relative, true, true},
+		{"cancelled glob", "a/b/*.ts", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, fs := newPluginMock()
+			fs.addFile(full, "")
+			fs.commit()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tc.canceled {
+				cancel()
+			}
+			d := NewSkillsDetector(m)
+			p := &model.PluginObservation{}
+			s := &pluginScan{ctx: ctx, d: d}
+			k := &piCollector{a: &piAdapter{s: s}, gd: d, p: p}
+			got := k.expandGlob(tc.pattern, root)
+			if tc.canceled {
+				k.globWalk(root, strings.Split(filepath.ToSlash(tc.pattern), "/"), 0, func(path string) { got = append(got, path) })
+				man := &piManifest{pi: map[string][]string{"extensions": {tc.pattern}}}
+				if files := k.manifestFiles(root, "extensions", man, piNoFallback); len(files) != 0 {
+					t.Errorf("cancelled manifest returned %v", files)
+				}
+			}
+			if tc.limited {
+				wantErrors := 1
+				if tc.canceled {
+					wantErrors = 3
+				}
+				if len(got) != 0 || len(p.Errors) != wantErrors {
+					t.Fatalf("matches=%v errors=%v, want bounded partial result", got, p.Errors)
+				}
+				for _, err := range p.Errors {
+					if err.Code != model.AgentScanErrLimitExceeded || err.SourcePath != root {
+						t.Errorf("error=%v, want root limit error", err)
+					}
+				}
+			} else if !slices.Equal(got, []string{full}) || len(p.Errors) != 0 {
+				t.Fatalf("matches=%v errors=%v, want %s", got, p.Errors, full)
+			}
+		})
+	}
+}
