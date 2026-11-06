@@ -8,6 +8,7 @@ Commands:
   install              Install scheduled scanning (enterprise)
   uninstall            Remove scheduled scanning (enterprise)
   send-telemetry       Upload scan results to the StepSecurity dashboard (enterprise)
+  identity             Show the device identity this machine reports under (--json for one object)
   hooks                Install/uninstall AI coding agent hooks (run 'BINARY hooks --help')
 
 Output formats (community mode, mutually exclusive):
@@ -92,6 +93,10 @@ Non-interactive configure (for MSI / SCCM / Intune deployments):
                                 tag. "-" clears it.
   --retire-on-uninstall[=BOOL]  Make 'uninstall' retire this device in the dashboard
                                 before removing the scheduler job (default false)
+  --multi-user-detection MODE   How a Windows host with no device identity template
+                                decides it is shared: edition (default: multi-session
+                                editions and the RD Session Host role), users (also two
+                                developers seen scanning on two days each), off
   --scan-frequency HOURS        Scheduled scan frequency
   --max-execution-duration D    Whole-run watchdog (e.g. 2h, 30m; off to disable)
   --auto-update=BOOL            Windows MSI self-update on (default) or off

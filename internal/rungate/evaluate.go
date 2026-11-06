@@ -88,6 +88,7 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 		stOK = false
 	}
 	deviceID := strings.TrimSpace(guestDeviceID)
+	machineID := ""
 	if deviceID != "" {
 		log.Debug("run-gate: gating as WSL guest %s", deviceID)
 	} else {
@@ -99,6 +100,10 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 		if id.Issue != "" {
 			log.Warn("run-gate: %s", id.Issue)
 		}
+		if id.AutoFallback {
+			log.Progress("Run gate: automatic per-user identity %q applies to user sessions; this service-account run reports under the machine identity %s",
+				id.Template, id.DeviceID)
+		}
 		if id.Incomplete {
 			// Skipped regardless of --force-scan: there is no identity to
 			// force a run under. main logs the skip; this is its only trace.
@@ -109,6 +114,9 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 				WSL:    wslWithOverride(WSLDirective{})}
 		}
 		deviceID = id.DeviceID
+		if usableSerial(id.Serial) {
+			machineID = id.Serial
+		}
 	}
 	if deviceID == "" || deviceID == "unknown" {
 		log.Debug("run-gate: no usable device id — failing open")
@@ -126,7 +134,7 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 
 	// Persist the reset before any network result or force/kill-switch exit.
 	if previousID != deviceID || previousConfiguredID != configuredID {
-		if err := persistIdentity(deviceID); err != nil {
+		if err := persistIdentity(deviceID, machineID); err != nil {
 			log.Debug("run-gate: could not persist device identity: %v", err)
 		}
 	}
@@ -156,7 +164,7 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 			// Persist the resolved id + gating fields even on "full" answers so
 			// skipped wakeups never re-probe and the offline fallback stays
 			// current. Best-effort.
-			if perr := recordCheckin(deviceID, directive, in.Now); perr != nil {
+			if perr := recordCheckin(deviceID, machineID, directive, in.Now); perr != nil {
 				log.Debug("run-gate: could not persist check-in state: %v", perr)
 			}
 		} else {

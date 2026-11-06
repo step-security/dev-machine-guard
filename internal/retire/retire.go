@@ -51,13 +51,33 @@ const (
 	attemptTimeout = 2 * time.Second
 	attempts       = 2
 	retryBackoff   = 300 * time.Millisecond
-	// TotalBudget caps the whole retire step across every identity, so a
-	// machine with many per-user state dirs still uninstalls promptly.
+	// TotalBudget caps collecting the identities, and is the floor of the
+	// budget for retiring them (BudgetFor).
 	TotalBudget = 10 * time.Second
+	// perIdentityBudget is what BudgetFor adds per identity beyond the
+	// first: one attempt plus its retry.
+	perIdentityBudget = 2*attemptTimeout + retryBackoff
+	// MaxBudget caps BudgetFor so a host with many per-user rows still
+	// uninstalls promptly; rows the budget leaves behind are covered by the
+	// dashboard's auto-retire.
+	MaxBudget = 60 * time.Second
 	// MaxIdentities caps how many ids CollectIdentities returns.
-	MaxIdentities = 20
+	MaxIdentities = 100
 	maxErrorBody  = 4 << 10
 )
+
+// BudgetFor is the time budget for retiring n identities: TotalBudget plus
+// perIdentityBudget for every identity beyond the first, capped at MaxBudget.
+func BudgetFor(n int) time.Duration {
+	budget := TotalBudget
+	if n > 1 {
+		budget += time.Duration(n-1) * perIdentityBudget
+	}
+	if budget > MaxBudget {
+		return MaxBudget
+	}
+	return budget
+}
 
 // ErrNotSupported is returned for a 404: the backend predates the retire
 // endpoint. Callers treat it as a warning, not a failure.
@@ -185,7 +205,8 @@ func CollectIdentities(ctx context.Context, exec executor.Executor, log *progres
 		ids = append(ids, id)
 	}
 
-	if id := device.ResolvedDeviceID(ctx, exec); !id.Incomplete {
+	id := device.ResolvedDeviceID(ctx, exec)
+	if !id.Incomplete {
 		add(id.DeviceID)
 	} else {
 		log.Debug("retire: identity template %q is incomplete in this context; relying on cached per-user ids", id.Template)
@@ -195,8 +216,18 @@ func CollectIdentities(ctx context.Context, exec executor.Executor, log *progres
 	// runs kept their state: an MSI uninstall custom action runs as SYSTEM,
 	// whose own home is the systemprofile folder, while the elevated install
 	// writes everything under C:\ProgramData\StepSecurity. Search both.
-	for _, id := range collectCachedIDs(ctx, stateRoots()) {
-		add(id)
+	// The resolver probes the machine identity only when the template needs
+	// it; the cached records are compared against it, so resolve it here
+	// (once per process, bounded by ctx).
+	machineID := id.Serial
+	if machineID == "" {
+		machineID = device.SerialNumber(ctx, exec)
+	}
+	if machineID == "unknown" {
+		machineID = ""
+	}
+	for _, cached := range collectCachedIDs(ctx, stateRoots(), machineID, log) {
+		add(cached)
 	}
 	return capIDs(ids)
 }
@@ -234,7 +265,9 @@ func stateRoots() []string {
 // user-writable, so neither the number of files read per root nor the size
 // of one may depend on what a user planted there.
 const (
-	maxCachedIDFiles     = 64
+	// maxCachedIDFiles covers every per-user cache a host at MaxIdentities
+	// can have, plus the top-level heartbeat of the same root.
+	maxCachedIDFiles     = MaxIdentities + 1
 	maxCachedIDFileBytes = 64 * 1024
 )
 
@@ -242,8 +275,12 @@ const (
 // roots: last-run.json at the top level and users/*/last-run.json for
 // per-user identities. Order is deterministic (roots in order, users sorted).
 // Stops at the uninstall budget (ctx), reads at most maxCachedIDFiles files
-// per root and skips any larger than maxCachedIDFileBytes.
-func collectCachedIDs(ctx context.Context, roots []string) []string {
+// per root and skips any larger than maxCachedIDFileBytes. A record that
+// names another machine (machineID known and different) was captured into
+// the image this host was cloned from: its device belongs to that machine,
+// so it is not a candidate here. Records without a machine id (older
+// agents) are kept.
+func collectCachedIDs(ctx context.Context, roots []string, machineID string, log *progress.Logger) []string {
 	var ids []string
 	for _, root := range roots {
 		var files []string
@@ -266,6 +303,10 @@ func collectCachedIDs(ctx context.Context, roots []string) []string {
 			}
 			rec, err := heartbeat.Load(f)
 			if err != nil || rec == nil || rec.RunGate == nil {
+				continue
+			}
+			if m := rec.RunGate.MachineID; m != "" && machineID != "" && !strings.EqualFold(m, machineID) {
+				log.Debug("retire: %s was recorded by another machine (%s); not retiring %s from here", f, m, rec.RunGate.DeviceID)
 				continue
 			}
 			ids = append(ids, rec.RunGate.DeviceID)

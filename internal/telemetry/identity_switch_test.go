@@ -195,6 +195,19 @@ func TestSerialRunSuperseded(t *testing.T) {
 	if serialRunSuperseded(exec, serial, &model.WSLGuest{}) {
 		t.Fatal("WSL guests are never skipped")
 	}
+	// A service-account run in automatic mode reports under the machine
+	// identity until the serial row is retired, whatever the marker says.
+	fallback := device.Identity{Source: device.IdentitySourceSerial, DeviceID: "SER1", Serial: "SER1", Template: device.AutoIdentityTemplate, AutoFallback: true}
+	if serialRunSuperseded(exec, fallback, nil) {
+		t.Fatal("a service-account fallback run is not superseded by the marker alone")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "multi-user.json"), []byte(`{"since":1,"reason":"users","retired_serial_id":"SER1"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !serialRunSuperseded(exec, fallback, nil) {
+		t.Fatal("once the serial row is retired a service-account fallback run must be skipped")
+	}
+	writeMarker(t, dir, "users")
 	auto := device.Identity{Source: device.IdentitySourceAuto, DeviceID: "host-dev1"}
 	if serialRunSuperseded(exec, auto, nil) {
 		t.Fatal("a per-user run is not superseded")
