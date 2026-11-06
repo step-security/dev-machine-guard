@@ -191,6 +191,7 @@ func swiftAlnum(r rune) bool {
 // SwiftConfigScope comes from the resolved developer, never a login shell.
 type SwiftConfigScope struct {
 	Username, Home string
+	Roots          []string // approved filesystem scope: home plus configured search roots
 	Protected      func(string) string
 	// Library guards readers rooted at LibraryRoots (macOS only).
 	Library         func(string) string
@@ -245,6 +246,7 @@ func emptySwiftAudit() model.RubyConfigAudit {
 }
 
 func (d *SwiftConfigDetector) Detect(ctx context.Context, scope SwiftConfigScope) *SwiftConfigSnapshot {
+	scope.Roots = append([]string{scope.Home}, scope.Roots...)
 	a := &SwiftConfigSnapshot{exec: d.exec, ctx: ctx, scope: scope, audit: emptySwiftAudit(), files: map[string]*model.RubyConfigFile{},
 		projects: map[string]*swiftProjectConfig{}, credentials: map[string]bool{}, protected: map[string]bool{}}
 	a.bytes = swiftAuditSize(a.audit) + 128
@@ -296,6 +298,7 @@ func (d *SwiftConfigDetector) Detect(ctx context.Context, scope SwiftConfigScope
 	dot := filepath.Join(home, ".swiftpm")
 	if dir := env["XDG_CONFIG_HOME"]; dir != "" {
 		dot = filepath.Join(dir, "swiftpm")
+		a.scope.Roots = append(a.scope.Roots, dot)
 	}
 	a.DotSwiftPM = []string{dot}
 	// SwiftPM's security state (fingerprints, signing history) is never read,
@@ -308,6 +311,7 @@ func (d *SwiftConfigDetector) Detect(ctx context.Context, scope SwiftConfigScope
 		a.protect(filepath.Join(base, "security"))
 	}
 	if p := env["SWIFTPM_MIRROR_CONFIG"]; p != "" {
+		a.scope.Roots = append(a.scope.Roots, p)
 		a.process = a.readFile("process", p, a.parseMirrors)
 	}
 	if goos == model.PlatformDarwin {
@@ -335,7 +339,7 @@ func (a *SwiftConfigSnapshot) legacy(dir, root string) []*model.RubyConfigFile {
 		a.Partial("deadline_exceeded")
 		return nil
 	}
-	files := a.exec.GuardedFiles([]string{dir}, a.ContentGuard, 0)
+	files := a.exec.GuardedFiles(a.scope.Roots, a.ContentGuard, 0)
 	if root != "" {
 		files = a.exec.GuardedFiles([]string{root}, a.LibraryGuard, 0)
 	}
@@ -491,10 +495,10 @@ func (a *SwiftConfigSnapshot) setting(f *model.RubyConfigFile, key, value string
 }
 
 // readFile observes one file. A file under a macOS Library root is read only
-// through that root's reader; elsewhere a missing file cannot establish its
-// own root through a parent symlink.
+// through that root's reader. Other files use independently approved roots
+// so a config symlink cannot grant access to another home.
 func (a *SwiftConfigSnapshot) readFile(scope, p string, parse func(*model.RubyConfigFile, []byte)) *model.RubyConfigFile {
-	files := a.exec.GuardedFiles([]string{filepath.Dir(p), p}, a.ContentGuard, swiftConfigBytes)
+	files := a.exec.GuardedFiles(a.scope.Roots, a.ContentGuard, swiftConfigBytes)
 	if root := a.libraryRoot(p); root != "" {
 		files = a.exec.GuardedFiles([]string{root}, a.LibraryGuard, swiftConfigBytes)
 	}

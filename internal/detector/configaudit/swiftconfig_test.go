@@ -781,3 +781,73 @@ func TestSwiftConfigPhysicalAliases(t *testing.T) {
 		})
 	}
 }
+
+func TestSwiftConfigRoots(t *testing.T) {
+	for _, mode := range []string{"leaf", "parent", "legacy", "project", "inside", "approved", "process", "xdg"} {
+		t.Run(mode, func(t *testing.T) {
+			x, scope := swiftConfigTest(t, model.PlatformLinux)
+			scope.ProcessVerified = mode == "process" || mode == "xdg"
+			dest, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == "inside" {
+				dest = filepath.Join(scope.Home, "config-store")
+			}
+			if mode == "approved" {
+				scope.Roots = []string{dest}
+			}
+			if mode == "xdg" {
+				x.env["XDG_CONFIG_HOME"] = dest
+				dest = filepath.Join(dest, "swiftpm", "configuration")
+			}
+			physical := filepath.Join(dest, "registries.json")
+			swiftConfigWrite(t, physical, `{"version":1,"registries":{"[default]":{"url":"https://registry.example.invalid"}}}`)
+			logical := filepath.Join(scope.Home, ".swiftpm", "configuration", "registries.json")
+			project := filepath.Join(scope.Home, "src", "app")
+			if mode == "project" {
+				logical = filepath.Join(project, ".swiftpm", "configuration", "registries.json")
+			}
+			if mode == "process" {
+				physical = filepath.Join(dest, "mirrors.json")
+				swiftConfigWrite(t, physical, `{"version":1,"object":[{"original":"https://example.invalid/widgets.git","mirror":"https://mirror.example.invalid/widgets.git"}]}`)
+				x.env["SWIFTPM_MIRROR_CONFIG"] = physical
+			} else if mode != "xdg" {
+				target, link := physical, logical
+				if mode == "parent" {
+					target, link = dest, filepath.Dir(logical)
+				}
+				if mode == "legacy" {
+					target, link = dest, filepath.Join(scope.Home, ".swiftpm", "config")
+				}
+				if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, link); err != nil {
+					t.Fatal(err)
+				}
+			}
+			snapshot := NewSwiftConfigDetector(x).Detect(t.Context(), scope)
+			if mode == "project" {
+				snapshot.Project(project, SwiftProjectFiles{Registries: logical})
+			}
+			audit := snapshot.Finish()
+			allowed := mode == "inside" || mode == "approved" || mode == "process" || mode == "xdg"
+			if allowed {
+				f := swiftConfigFile(t, audit, physical)
+				if f.Status != "present" || len(f.Settings) == 0 || x.reads[physical] != 1 {
+					t.Fatalf("approved config lost: %+v, reads=%d", f, x.reads[physical])
+				}
+			} else {
+				for _, f := range audit.Files {
+					if len(f.Settings) != 0 {
+						t.Fatalf("outside-root config read: %+v", f)
+					}
+				}
+				if x.reads[physical] != 0 || !slices.Contains(audit.Reasons, "outside_approved_roots") {
+					t.Fatalf("outside-root config not refused: reads=%d reasons=%v", x.reads[physical], audit.Reasons)
+				}
+			}
+		})
+	}
+}

@@ -119,7 +119,7 @@ func (s *SwiftScanner) Scan(ctx context.Context, target *user.User, searchDirs [
 	}
 	current, err := s.exec.CurrentUser()
 	verified := err == nil && current != nil && target.Uid != "" && current.Uid == target.Uid
-	c.config = configDetector.Detect(ctx, configaudit.SwiftConfigScope{Username: target.Username, Home: c.home, Protected: guard,
+	c.config = configDetector.Detect(ctx, configaudit.SwiftConfigScope{Username: target.Username, Home: c.home, Roots: c.roots, Protected: guard,
 		Library: configaudit.SwiftLibraryGuard(guard, volume, c.libRoots), LibraryRoots: c.libRoots, Volume: volume, ProcessVerified: verified})
 	for _, r := range c.config.InventoryReasons {
 		c.degrade(nil, r)
