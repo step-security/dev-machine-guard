@@ -217,6 +217,8 @@ func (t *tick) load() error {
 	}
 	t.d.Logf("self-update: %s; rebuilding on %s", reason, cur)
 	t.enqueue(EventStateCorrupt, "", cur.String(), reason, EventStateCorrupt)
+	// The bootstrap runs cur (versions\ or seed\) until the state says otherwise.
+	t.setRunning(cur.String())
 	return nil
 }
 
@@ -384,11 +386,7 @@ func (t *tick) adoptNewerSeed() error {
 		t.d.Logf("self-update: Windows Installer is running; seed %s adoption waits for the next tick", seed)
 		return nil
 	}
-	verify := t.d.VerifySeed
-	if verify == nil {
-		verify = t.d.VerifyPublisher
-	}
-	note, err := t.L.CopySeedVersion(seed, t.now, verify)
+	note, err := t.L.CopySeedVersion(seed, t.now, t.seedVerifier())
 	if err != nil {
 		t.d.Logf("self-update: copying seed %s: %v", seed, err)
 		return nil // retried next tick; the seed stays the bootstrap's fallback
@@ -412,6 +410,44 @@ func (t *tick) adoptNewerSeed() error {
 	}
 	t.setRunning(seed.String())
 	return nil
+}
+
+func (t *tick) seedVerifier() func(string) error {
+	if t.d.VerifySeed != nil {
+		return t.d.VerifySeed
+	}
+	return t.d.VerifyPublisher
+}
+
+// stageFromSeed copies seed\<v> into versions\<v> instead of downloading
+// v: typically a restage of current after the MSI's adopt-seed couldn't
+// place it. The seed is trusted as adoptNewerSeed trusts it (admin-only
+// dir, publisher-checked); the release's signatures are not consulted.
+// ok=false means download v instead; a non-nil err means the rename stayed
+// blocked, so a download would fail the same way and the tick gives up.
+func (t *tick) stageFromSeed(v updatestate.Version) (ok bool, err error) {
+	if !updatestate.VersionDirUsable(t.L.SeedDir(v)) || (t.d.InstallerBusy != nil && t.d.InstallerBusy()) {
+		return false, nil
+	}
+	if _, err := updatestate.EnsureProtectedDir(t.L.VersionsDir()); err != nil {
+		return false, nil
+	}
+	note, err := t.L.CopySeedVersion(v, t.now, t.seedVerifier())
+	if updatestate.RenameBlocked(err) {
+		return false, err
+	}
+	if err != nil {
+		t.d.Logf("self-update: copying seed %s failed, downloading it instead: %v", v, err)
+		return false, nil
+	}
+	if note != "" {
+		t.d.Logf("self-update: %s", note)
+	}
+	if err := updatestate.VerifyVersionDir(t.L.VersionDir(v), v); err != nil {
+		t.d.Logf("self-update: versions\\%s unusable after copying the seed, downloading it instead: %v", v, err)
+		return false, nil
+	}
+	return true, nil
 }
 
 // keep is the set of version dirs GC must not touch.
@@ -787,8 +823,11 @@ func (t *tick) update(ctx context.Context, probationClosed bool) int {
 	if target == st.Current {
 		// Current's dir was missing or damaged and is now restaged in place:
 		// the pointer already names it, so there is nothing to switch.
+		// update_ok (restaged) clears the earlier failure on the console.
 		t.d.Logf("self-update: restaged current %s", target)
+		t.enqueue(EventOK, target, target, "restaged", "")
 		t.countRestage(target)
+		t.setRunning(target)
 		return t.finish(ctx, ExitOK)
 	}
 
@@ -914,10 +953,16 @@ func (t *tick) stage(ctx context.Context, rel *Release) (string, error) {
 			return "", nil
 		}
 		trash := filepath.Join(t.L.VersionsDir(), updatestate.TrashPrefix+v.String()+"-"+uuid.NewString()[:8])
-		if err := os.Rename(dir, trash); err != nil {
+		if err := updatestate.RenameDir(dir, trash); err != nil {
 			return EventStageFailed, fmt.Errorf("move invalid %s aside: %w", dir, err)
 		}
 		_ = os.RemoveAll(trash)
+	}
+	if ok, err := t.stageFromSeed(v); ok || err != nil {
+		if err != nil {
+			return EventStageFailed, err
+		}
+		return "", nil
 	}
 	if err := t.d.Client.VerifySignatures(rel); err != nil {
 		return EventVerifyFailed, err
@@ -968,7 +1013,7 @@ func (t *tick) stage(ctx context.Context, rel *Release) (string, error) {
 	if err := checkpoint("S4.manifest"); err != nil {
 		return EventStageFailed, err
 	}
-	if err := os.Rename(staging, dir); err != nil {
+	if err := updatestate.RenameDir(staging, dir); err != nil {
 		return EventStageFailed, err
 	}
 	committed = true
