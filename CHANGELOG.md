@@ -35,6 +35,7 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
 ### Fixed
 
+- **Conda artifact URLs with a one-character scheme are cleaned.** A record `url` or `channel` such as `X://host/t/<token>/...` was read as a Windows drive path, which skipped the token and userinfo redaction; a drive-letter path never carries `://`, so such a value is now sanitized as a URL (found by the Conda metadata fuzzer).
 - **A seen-users visit is never written without the visit-file lock.** A visit that cannot take the lock within two seconds is left for a later run instead of being appended beside a running compaction, which could have dropped it.
 - **Scans fired under a Windows service account are flagged `no_user_logged_in`.** Only an empty or unknown user and `root` were recognised before, so a SYSTEM-context run reported `NT AUTHORITY\SYSTEM` as the developer and overwrote the device's real user in the dashboard.
 
