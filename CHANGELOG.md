@@ -35,6 +35,7 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
 ### Fixed
 
+- **`uninstall` run from the agent of an MSI install no longer fails before retiring.** A CLI `uninstall` on an MSI install runs the `versions\\` agent, whose own image cannot be deleted while it runs; the teardown exited 1 at that point, after the tasks and the update state were already gone and before the device was retired. The image is now left in place with a warning (the MSI's own uninstall action, `msiexec /x`, is unaffected) and the retire runs.
 - **Conda artifact URLs with a one-character scheme are cleaned.** A record `url` or `channel` such as `X://host/t/<token>/...` was read as a Windows drive path, which skipped the token and userinfo redaction; a drive-letter path never carries `://`, so such a value is now sanitized as a URL (found by the Conda metadata fuzzer).
 - **A seen-users visit is never written without the visit-file lock.** A visit that cannot take the lock within two seconds is left for a later run instead of being appended beside a running compaction, which could have dropped it.
 - **Scans fired under a Windows service account are flagged `no_user_logged_in`.** Only an empty or unknown user and `root` were recognised before, so a SYSTEM-context run reported `NT AUTHORITY\SYSTEM` as the developer and overwrote the device's real user in the dashboard.
