@@ -95,5 +95,15 @@ func machineLastRunDeviceID() string {
 // just retired, and the marker would then keep that row from being retired
 // again. WSL guests report under their host's identity and are never skipped.
 func serialRunSuperseded(exec executor.Executor, ident device.Identity, wslGuest *model.WSLGuest) bool {
-	return wslGuest == nil && ident.Source == device.IdentitySourceSerial && device.AutoIdentitySuperseded(exec)
+	if wslGuest != nil || ident.Source != device.IdentitySourceSerial {
+		return false
+	}
+	// A service-account run in automatic mode (AutoFallback) is overtaken
+	// the moment the per-user runs retire the serial row; the marker is
+	// re-read here, after the lock, so a retire that landed while this run
+	// was resolving its identity is seen.
+	if ident.AutoFallback {
+		return device.AutoSerialRowRetired(exec, ident.Serial)
+	}
+	return device.AutoIdentitySuperseded(exec)
 }

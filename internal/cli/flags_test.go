@@ -14,10 +14,11 @@ import (
 
 // flagSamples are valid values for flags whose value is validated.
 var flagSamples = map[string]string{
-	"--color":               "never",
-	"--log-level":           "debug",
-	"--auto-update":         "false",
-	"--retire-on-uninstall": "true",
+	"--color":                "never",
+	"--log-level":            "debug",
+	"--auto-update":          "false",
+	"--retire-on-uninstall":  "true",
+	"--multi-user-detection": "users",
 }
 
 // sampleArgs is one valid spelling of f.

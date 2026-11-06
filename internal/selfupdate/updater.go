@@ -725,7 +725,9 @@ func (t *tick) update(ctx context.Context, probationClosed bool) int {
 	}
 
 	// S3 Target.
-	rel, err := t.d.Client.Latest(ctx)
+	rel, err := t.d.Client.LatestFor(ctx, CheckInfo{
+		Current: st.Current, Reason: checkReason(st, t.now, probationClosed, currentValid),
+	})
 	t.st.LastCheck = t.now.UTC()
 	if err != nil {
 		t.d.Logf("self-update: %v", err)
@@ -868,6 +870,22 @@ func (t *tick) switchTo(ctx context.Context, v updatestate.Version) int {
 }
 
 // waitInstance polls the scan instance mutex for up to the switch wait.
+// checkReason names the first condition that made this tick due.
+func checkReason(st *updatestate.State, now time.Time, probationClosed, currentValid bool) string {
+	switch {
+	case !currentValid:
+		return CheckInvalidCurrent
+	case st.LastCheck.IsZero():
+		return CheckFirst
+	case st.LastCheck.After(now):
+		return CheckClockSkew
+	case probationClosed:
+		return CheckProbationClosed
+	default:
+		return CheckInterval
+	}
+}
+
 func (t *tick) waitInstance(ctx context.Context) (func(), bool) {
 	deadline := time.Now().Add(duration(knobSwitchWait))
 	for {

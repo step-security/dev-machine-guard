@@ -665,9 +665,12 @@ if isConfigured(ctx, exec) {
   else a generated and persisted id; placeholder serials rejected by `usableSerial`), and
   `device.ResolveIdentity` (identity.go) layers the configured identity on top:
   `STEPSEC_DEVICE_ID` > `config.DeviceID` (config.json `device_id`) > automatic per-user template on
-  a shared Windows host (multiuser.go: sticky marker, multi-session edition or 2+ scanning users;
-  the switch removes the old serial row once, retire reason `identity_changed`) > machine identity; a literal or
-  a template over `{serial}` `{hostname}` `{user}`; template expansions are sanitized (a literal id is used as given)
+  a shared Windows host (multiuser.go: sticky marker; multi-session edition, or with
+  `config.MultiUserDetection` = users two developers seen on two days each; the switch removes the old
+  serial row once, retire reason `identity_changed`) > machine identity; a literal or
+  a template over `{serial}` `{hostname}` `{user}`; `{user}` = short name + 12-hex sha256 fingerprint of the
+  full principal (`device.UserTokenFingerprint`, mirrored by every loader) so principals sharing a short name
+  never collide; template expansions are sanitized (a literal id is used as given)
   (`device.SanitizeDeviceID`), the machine-identity path is byte-identical. `Gather` stores the
   result on `Device.DeviceID`/`DeviceIDSource`; `Device.SerialNumber` stays the machine identity.
 - **Virtualization is one call: `device.DetectVirtualization`** (virt.go; memoized per process on
@@ -676,8 +679,10 @@ if isConfigured(ctx, exec) {
   `systemd-detect-virt --vm`, cpuinfo `hypervisor`. Never the CPUID hypervisor bit on Windows
   (Hyper-V/VBS hosts set it). Reported as `Device.Virtualization` (type virtual|physical|unknown,
   vendor, source); "physical" means no hypervisor was detected, never a proof.
-  Never read the serial as the id anywhere else. An `IdentityIncomplete` identity ({user} under a
-  service account) skips the run — no beacon, no upload, no phantom row.
+  Never read the serial as the id anywhere else. An `IdentityIncomplete` identity (a configured {user}
+  template under a service account) skips the run — no beacon, no upload, no phantom row. In automatic
+  mode a service-account run gets `Identity.AutoFallback` (the serial, as before the feature) until
+  `device.AutoSerialRowRetired`, then it is incomplete. The `identity --json` verb exposes the result.
   `device.IsServiceAccount` is the single no-user predicate.
 - **Uninstall collects, tears down, then retires.** `uninstall` collects the identities to retire
   while the state files exist, removes the scheduler (so no scan can report afterwards), then calls

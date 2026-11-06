@@ -1378,3 +1378,39 @@ func TestRestageBackoffAfterRepeatedDeletion(t *testing.T) {
 		t.Fatalf("restage counter not reset: %+v", r)
 	}
 }
+
+// Each update check says why the tick checked.
+func TestUpdateCheckReason(t *testing.T) {
+	e := newEnv(t)
+	e.api.setTarget("1.19.0")
+	e.tick() // no state, versions\1.19.0 missing
+	if q := e.api.latestRequests[len(e.api.latestRequests)-1]; !strings.Contains(q, "reason="+CheckInvalidCurrent) || !strings.Contains(q, "current=1.19.0") {
+		t.Fatalf("first check query = %s", q)
+	}
+	e.now = e.now.Add(7 * time.Hour) // current valid now; past the 6 h check interval
+	e.tick()
+	if q := e.api.latestRequests[len(e.api.latestRequests)-1]; !strings.Contains(q, "reason="+CheckInterval) {
+		t.Fatalf("interval check query = %s", q)
+	}
+}
+
+func TestCheckReasonOrder(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	st := func(last time.Time) *updatestate.State { return &updatestate.State{LastCheck: last} }
+	for _, tc := range []struct {
+		name           string
+		st             *updatestate.State
+		probation, cur bool
+		want           string
+	}{
+		{"invalid current wins", st(time.Time{}), true, false, CheckInvalidCurrent},
+		{"first check", st(time.Time{}), false, true, CheckFirst},
+		{"clock ahead", st(now.Add(time.Hour)), false, true, CheckClockSkew},
+		{"probation closed", st(now.Add(-time.Hour)), true, true, CheckProbationClosed},
+		{"interval", st(now.Add(-7 * time.Hour)), false, true, CheckInterval},
+	} {
+		if got := checkReason(tc.st, now, tc.probation, tc.cur); got != tc.want {
+			t.Errorf("%s: %s, want %s", tc.name, got, tc.want)
+		}
+	}
+}

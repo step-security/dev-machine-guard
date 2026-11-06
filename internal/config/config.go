@@ -82,6 +82,43 @@ var MaxExecutionDuration string
 // `--no-retire` override it per invocation.
 var RetireOnUninstall bool
 
+// MultiUserDetection selects how a Windows host with no identity template
+// decides it is shared and switches to automatic per-user identities
+// (device/multiuser.go): "edition" (the default) trusts only the multi-session
+// editions and the RD Session Host role; "users" also counts developers seen
+// scanning on two different days, two of whom flip the host; "off" never
+// switches (the machine identity, like the explicit {serial} template).
+// config.json multi_user_detection, `configure --multi-user-detection`.
+var MultiUserDetection string
+
+// MultiUserDetection values.
+const (
+	MultiUserDetectionEdition = "edition"
+	MultiUserDetectionUsers   = "users"
+	MultiUserDetectionOff     = "off"
+)
+
+// ValidMultiUserDetection reports whether s is a multi_user_detection value.
+func ValidMultiUserDetection(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case MultiUserDetectionEdition, MultiUserDetectionUsers, MultiUserDetectionOff:
+		return true
+	}
+	return false
+}
+
+// MultiUserDetectionMode returns the multi_user_detection mode in force:
+// "edition" unless a valid other value is configured.
+func MultiUserDetectionMode() string {
+	switch strings.ToLower(strings.TrimSpace(MultiUserDetection)) {
+	case MultiUserDetectionUsers:
+		return MultiUserDetectionUsers
+	case MultiUserDetectionOff:
+		return MultiUserDetectionOff
+	}
+	return MultiUserDetectionEdition
+}
+
 // DeviceTag is the optional label an admin sets in the agent configuration
 // only (config.json `device_tag`, MSI DEVICETAG, bootstrap.json,
 // `configure --device-tag`); the dashboard displays it and never changes it.
@@ -139,6 +176,7 @@ type ConfigFile struct {
 	UserID                string   `json:"user_id,omitempty"`
 	DeviceID              string   `json:"device_id,omitempty"`
 	DeviceTag             string   `json:"device_tag,omitempty"`
+	MultiUserDetection    string   `json:"multi_user_detection,omitempty"`
 	CustomerID            string   `json:"customer_id,omitempty"`
 	APIEndpoint           string   `json:"api_endpoint,omitempty"`
 	APIKey                string   `json:"api_key,omitempty"`
@@ -370,6 +408,10 @@ func Load() {
 	// never stop a scan, and `configure` rejects it where it can be fixed.
 	if tag := strings.TrimSpace(cfg.DeviceTag); tag != "" && DeviceTag == "" && ValidDeviceTag(tag) {
 		DeviceTag = tag
+	}
+	// An invalid mode falls back to the default rather than stopping a scan.
+	if mode := strings.TrimSpace(cfg.MultiUserDetection); mode != "" && MultiUserDetection == "" && ValidMultiUserDetection(mode) {
+		MultiUserDetection = strings.ToLower(mode)
 	}
 	if cfg.CustomerID != "" && isPlaceholder(CustomerID) {
 		CustomerID = cfg.CustomerID
@@ -819,6 +861,7 @@ func ShowConfigure(resolvedIdentity string) {
 		fmt.Printf("  %-24s %s\n", "  resolves now to:", resolvedIdentity)
 	}
 	fmt.Printf("  %-24s %s\n", "Device Tag:", displayDeviceTag(cfg.DeviceTag))
+	fmt.Printf("  %-24s %s\n", "Multi-User Detection:", displayMultiUserDetection(cfg.MultiUserDetection))
 	fmt.Printf("  %-24s %s\n", "Customer ID:", displayValue(cfg.CustomerID))
 	fmt.Printf("  %-24s %s\n", "API Endpoint:", displayValue(cfg.APIEndpoint))
 	fmt.Printf("  %-24s %s\n", "API Key:", maskSecret(cfg.APIKey))
@@ -855,6 +898,16 @@ func displayDeviceTag(v string) string {
 		return "(not set)"
 	}
 	return v
+}
+
+func displayMultiUserDetection(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case MultiUserDetectionUsers:
+		return "users (multi-session editions, or two developers seen on two days each)"
+	case MultiUserDetectionOff:
+		return "off (never switches to per-user identities)"
+	}
+	return "edition (default: multi-session editions and the RD Session Host role)"
 }
 
 func displayDeviceID(v string) string {

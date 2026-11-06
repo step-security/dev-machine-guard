@@ -52,6 +52,14 @@ func CondaSanitizeURL(raw string) (string, bool) {
 	if err != nil || condaTokenPattern.MatchString(decoded) {
 		return goRedacted, true
 	}
+	// A value with a scheme separator must parse as a URL with a well-formed
+	// scheme: the shared sanitizer reads "0://host/..." as a drive-letter
+	// path and would pass it through unexamined.
+	if strings.Contains(clean, "://") {
+		if u, err := url.Parse(clean); err != nil || !condaSchemePattern.MatchString(u.Scheme) {
+			return goRedacted, true
+		}
+	}
 	display, r := SanitizeRubyURL(clean)
 	return display, redacted || r
 }

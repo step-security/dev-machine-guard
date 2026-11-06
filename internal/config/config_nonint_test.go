@@ -352,6 +352,7 @@ func TestShowConfigure_PrintsDeviceIdentity(t *testing.T) {
 	for _, want := range []string{
 		"Device ID:               {hostname}",
 		"resolves now to:       avd-host-07 (source: config)",
+		"Multi-User Detection:    edition (default",
 		"Retire On Uninstall:     true",
 	} {
 		if !strings.Contains(out, want) {
@@ -512,5 +513,38 @@ func TestRunConfigureNonInteractive_CredentialsRequirement(t *testing.T) {
 				t.Fatalf("err = %v, want %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// multi_user_detection: loaded when valid, shown by configure show, and an
+// invalid value falls back to the default rather than stopping a scan.
+func TestMultiUserDetection_LoadShowAndValidate(t *testing.T) {
+	withHome(t)
+	prev := MultiUserDetection
+	t.Cleanup(func() { MultiUserDetection = prev })
+	for _, tc := range []struct{ in, mode string }{
+		{"", MultiUserDetectionEdition}, {"USERS", MultiUserDetectionUsers}, {"off", MultiUserDetectionOff}, {"sometimes", MultiUserDetectionEdition},
+	} {
+		MultiUserDetection = tc.in
+		if got := MultiUserDetectionMode(); got != tc.mode {
+			t.Errorf("MultiUserDetectionMode(%q) = %q, want %q", tc.in, got, tc.mode)
+		}
+	}
+	if ValidMultiUserDetection("sometimes") || !ValidMultiUserDetection("Users") {
+		t.Error("ValidMultiUserDetection accepts edition, users and off only")
+	}
+	MultiUserDetection = ""
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{
+		"customer_id": "c", "api_endpoint": "https://e", "api_key": "sk-abcdef", "multi_user_detection": "users",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	Load()
+	if MultiUserDetection != MultiUserDetectionUsers {
+		t.Fatalf("Load must apply a valid multi_user_detection, got %q", MultiUserDetection)
+	}
+	out := captureStdout(t, func() { ShowConfigure("") })
+	if !strings.Contains(out, "Multi-User Detection:    users (") {
+		t.Errorf("configure show must print the mode:\n%s", out)
 	}
 }

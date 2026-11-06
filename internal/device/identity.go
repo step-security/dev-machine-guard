@@ -43,6 +43,11 @@ const (
 	maxDeviceIDLen      = 128
 	longIDPrefixLen     = 115
 	longIDHashSuffixLen = 12
+	// UserTokenFingerprintLen is the length of the sha256 hex fingerprint of
+	// the full principal appended to the {user} token (see userToken): 48
+	// bits, so two accounts sharing a short name on one host cannot be made
+	// to collide by chance or by choosing a domain name.
+	UserTokenFingerprintLen = 12
 )
 
 // Identity is the resolved device identity for this run.
@@ -57,7 +62,7 @@ type Identity struct {
 	DeviceID string
 	Serial   string
 	Source   string // IdentitySource*
-	Template string // the raw env/config value; "" when Source == serial
+	Template string // the raw env/config/automatic value; "" when Source == serial, except for an AutoFallback
 	// PerUser is true when the template contained {user}: each logged-in user
 	// of this machine is a separate device, and the agent keeps per-user state.
 	PerUser bool
@@ -76,6 +81,15 @@ type Identity struct {
 	// AutoReason says why the automatic per-user identity applies ("" unless
 	// Source is IdentitySourceAuto): "multi-session edition" or "2+ users seen".
 	AutoReason string
+	// AutoFallback is true when the automatic per-user identity is in force
+	// on this host but this process runs under a service account (SYSTEM, a
+	// loader's device-context task), which cannot complete {user}, so it
+	// reports under the machine identity instead: what such a run reported
+	// before per-user identities existed. It lasts until the host's per-user
+	// runs have retired the serial row; from then on such a run is Incomplete
+	// and skipped, as its upload would restore that row. Template keeps the
+	// automatic template so the fallback is recognisable.
+	AutoFallback bool
 }
 
 // IdentityTemplate returns the identity template in force: STEPSEC_DEVICE_ID
@@ -120,7 +134,31 @@ func ResolveIdentity(exec executor.Executor, serial, hostname, user string) Iden
 	if id.Source == IdentitySourceAuto {
 		id.AutoReason = autoReason
 	}
+	if source == IdentitySourceAuto && id.Incomplete && isServiceAccount(exec.GOOS(), exec.IsRoot(), user) {
+		id = autoServiceAccountIdentity(exec, id, serial)
+	}
 	return id
+}
+
+// autoServiceAccountIdentity decides what a service-account run (SYSTEM, a
+// loader's device-context task) reports under on a host in automatic
+// per-user mode, where {user} cannot be completed. Until the host's per-user
+// runs have removed the serial row it is the machine identity (AutoFallback),
+// exactly what such a run reported before per-user identities existed, so a
+// device-context scheduler keeps producing machine-level telemetry after an
+// agent upgrade instead of skipping every run. Once the serial row has been
+// retired (the sticky marker records it) the run stays Incomplete and is
+// skipped: an upload under the serial would restore that row as a duplicate
+// seat next to the per-user devices.
+func autoServiceAccountIdentity(exec executor.Executor, id Identity, serial string) Identity {
+	if AutoSerialRowRetired(exec, serial) {
+		return id
+	}
+	out := Identity{Serial: serial, Source: IdentitySourceSerial, Template: id.Template, AutoFallback: true}
+	if usableSerial(serial) {
+		out.DeviceID = serial
+	}
+	return out
 }
 
 // AttachIdentity resolves the identity for a gathered Device and records it on
@@ -243,22 +281,42 @@ func hostnameToken(hostname, serial string) string {
 	}
 }
 
-// userToken reduces a user identity to the form used inside a device id: a
-// service account becomes empty, an email keeps its local part, a DOMAIN\user
-// loses the domain, and the result is lowercased. The empty result is what
-// makes a {user} template incomplete under SYSTEM.
+// userToken reduces a user identity to the token used inside a device id. A
+// service account becomes empty, which is what makes a {user} template
+// incomplete under SYSTEM. Otherwise the token is the readable short name
+// (an email's local part, DOMAIN\ stripped, lowercased, sanitized) plus a
+// fingerprint of the whole lowercased principal: CORP\alice and HOST\alice,
+// or alice@a.example and alice@b.example, share a short name but never a
+// device, a state scope or a lock, and a name whose readable part sanitizes
+// to nothing (a non-Latin display name) still yields a usable token instead
+// of a hostname-only id with shared state. The loaders apply the same rule.
 func userToken(platform string, root bool, user string) string {
 	u := strings.TrimSpace(user)
 	if isServiceAccount(platform, root, u) {
 		return ""
 	}
-	if at := strings.Index(u, "@"); at >= 0 {
-		u = u[:at]
+	principal := strings.ToLower(u)
+	short := principal
+	if at := strings.Index(short, "@"); at >= 0 {
+		short = short[:at]
 	}
-	if bs := strings.LastIndex(u, `\`); bs >= 0 {
-		u = u[bs+1:]
+	if bs := strings.LastIndex(short, `\`); bs >= 0 {
+		short = short[bs+1:]
 	}
-	return strings.ToLower(strings.TrimSpace(u))
+	short = SanitizeDeviceID(short)
+	fp := UserTokenFingerprint(principal)
+	if short == "" {
+		return "user-" + fp
+	}
+	return short + "-" + fp
+}
+
+// UserTokenFingerprint is the fingerprint part of a {user} token: the first
+// UserTokenFingerprintLen hex digits of the sha256 of the lowercased full
+// principal (DOMAIN\user, or the whole email).
+func UserTokenFingerprint(principal string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(principal))))
+	return hex.EncodeToString(sum[:])[:UserTokenFingerprintLen]
 }
 
 // IsServiceAccount reports whether a user identity names a daemon context
