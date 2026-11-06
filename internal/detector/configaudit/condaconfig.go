@@ -86,10 +86,12 @@ func CondaChannelDisplay(raw string) (string, bool) {
 // condaURLCredential reports an embedded secret: userinfo or a token path.
 // A $VAR, ${VAR} or %VAR% reference holds no secret, so it is blanked first.
 func condaURLCredential(raw string) bool {
-	raw = condaReferencePattern.ReplaceAllString(raw, "")
 	if !strings.Contains(raw, "://") {
-		return condaChannelPattern.MatchString(raw) && condaLiteralTokenPattern.MatchString("/"+raw)
+		label := condaReferencePattern.ReplaceAllString(raw, "reference")
+		literal := condaReferencePattern.ReplaceAllString(raw, "")
+		return condaChannelPattern.MatchString(label) && condaLiteralTokenPattern.MatchString("/"+literal)
 	}
+	raw = condaReferencePattern.ReplaceAllString(raw, "")
 	if condaLiteralTokenPattern.MatchString(raw) {
 		return true
 	}

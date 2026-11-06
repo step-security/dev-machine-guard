@@ -3426,7 +3426,7 @@ func TestPiNPMRegistryProvenance(t *testing.T) {
 }
 
 func TestPiGlobBounds(t *testing.T) {
-	root := filepath.Join(testHome, "package")
+	root := filepath.Join(t.TempDir(), "package")
 	relative := "a/b/c/d/e/f/g/h/extension.ts"
 	full := filepath.Join(root, filepath.FromSlash(relative))
 	for _, tc := range []struct {

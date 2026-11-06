@@ -578,6 +578,9 @@ func TestCondaConfigChannelTokens(t *testing.T) {
 	}{
 		{"leading token", "t/CANARY/private", true},
 		{"embedded token", "conda.anaconda.org/t/CANARY/private", true},
+		{"channel reference", "conda.anaconda.org/t/CANARY/${CHANNEL}", true},
+		{"token and channel references", "conda.anaconda.org/t/${TOKEN}/${CHANNEL}", false},
+		{"mixed token", "t/CANARY${TOKEN}/$CHANNEL", true},
 		{"braced reference", "t/${TOKEN}/private", false},
 		{"dollar reference", "t/$TOKEN/private", false},
 		{"percent reference", "t/%TOKEN%/private", false},
