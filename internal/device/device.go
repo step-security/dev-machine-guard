@@ -120,11 +120,44 @@ func SerialNumber(ctx context.Context, exec executor.Executor) string {
 	return id
 }
 
-// ResetIDCache drops the process-wide identity. For tests.
+// ResetIDCache drops the process-wide identity and the hardware probe
+// result. For tests.
 func ResetIDCache() {
 	idMu.Lock()
 	defer idMu.Unlock()
 	cachedID = ""
+	hardwareProbe.mu.Lock()
+	hardwareProbe.done, hardwareProbe.id = false, ""
+	hardwareProbe.mu.Unlock()
+}
+
+// hardwareProbe memoizes the hardware probe: whichever of a marker
+// comparison, a visit record or SerialNumber asks first pays for it, and
+// the others reuse the answer (on Windows the WMI fallback is a PowerShell
+// launch). Only a usable hardware result is remembered; a probe that fell
+// back to a per-install id or was cut short is retried by the next caller.
+var hardwareProbe struct {
+	mu   sync.Mutex // its own lock: SerialNumber holds idMu while it resolves
+	done bool
+	id   string
+}
+
+// cachedProbeSerial is probeSerial behind the process-wide memo. The lock is
+// never held across the probe itself.
+func cachedProbeSerial(ctx context.Context, exec executor.Executor) (id string, hardware bool) {
+	hardwareProbe.mu.Lock()
+	done, cached := hardwareProbe.done, hardwareProbe.id
+	hardwareProbe.mu.Unlock()
+	if done {
+		return cached, true
+	}
+	id, hardware = probeSerial(ctx, exec)
+	if hardware && usableSerial(id) {
+		hardwareProbe.mu.Lock()
+		hardwareProbe.done, hardwareProbe.id = true, id
+		hardwareProbe.mu.Unlock()
+	}
+	return id, hardware
 }
 
 // probeSerial reports whether id came from the hardware rather than a

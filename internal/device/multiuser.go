@@ -83,12 +83,14 @@ type multiUserMarker struct {
 // comparison may need (the process-wide SerialNumber, probed once).
 const markerMachineIDTimeout = 10 * time.Second
 
-// currentMachineID is the machine identity markers are compared with: the
-// identity this process already resolved, else a hardware probe. It never
-// mints or persists an id for a comparison, so it is "" on a host without a
-// readable serial; such a host's marker is then honoured as it is, which is
-// why a cloned image of one needs the marker removed before capture. A var
-// so tests pin it without a probe.
+// currentMachineID is the machine identity markers and visit files are
+// compared with: the identity this process already resolved, else the
+// process-wide hardware probe (cachedProbeSerial, so SerialNumber reuses the
+// answer rather than probing again). It never mints or persists an id for a
+// comparison, so it is "" on a host without a readable serial; such a
+// host's marker is then honoured as it is, which is why a cloned image of
+// one needs the marker removed before capture. A var so tests pin it
+// without a probe.
 var currentMachineID = func(exec executor.Executor) string {
 	idMu.Lock()
 	cached := cachedID
@@ -98,7 +100,7 @@ var currentMachineID = func(exec executor.Executor) string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), markerMachineIDTimeout)
 	defer cancel()
-	if id, hardware := probeSerial(ctx, exec); hardware && usableSerial(id) {
+	if id, hardware := cachedProbeSerial(ctx, exec); hardware && usableSerial(id) {
 		return id
 	}
 	return ""

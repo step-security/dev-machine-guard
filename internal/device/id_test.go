@@ -225,6 +225,48 @@ func TestNoGeneratedIDOnTimeout(t *testing.T) {
 	}
 }
 
+// countingReads counts reads of the DMI serial so a test can tell how many
+// times the hardware was probed.
+type countingReads struct {
+	*executor.Mock
+	probes int
+}
+
+func (c *countingReads) ReadFile(path string) ([]byte, error) {
+	if path == "/sys/class/dmi/id/product_serial" {
+		c.probes++
+	}
+	return c.Mock.ReadFile(path)
+}
+
+// The hardware is probed once per process whichever caller asks first: a
+// marker comparison (currentMachineID) and SerialNumber share the result,
+// and a reset forgets it.
+func TestHardwareProbeIsSharedAcrossCallers(t *testing.T) {
+	t.Cleanup(ResetIDCache)
+	ResetIDCache()
+	mock := executor.NewMock()
+	mock.SetGOOS("linux")
+	mock.SetFile("/sys/class/dmi/id/product_serial", []byte("HW-1\n"))
+	exec := &countingReads{Mock: mock}
+	if got := currentMachineID(exec); got != "HW-1" {
+		t.Fatalf("currentMachineID = %q", got)
+	}
+	if got := SerialNumber(context.Background(), exec); got != "HW-1" {
+		t.Fatalf("SerialNumber = %q", got)
+	}
+	if got := currentMachineID(exec); got != "HW-1" {
+		t.Fatalf("currentMachineID after SerialNumber = %q", got)
+	}
+	if exec.probes != 1 {
+		t.Fatalf("hardware probed %d times, want 1", exec.probes)
+	}
+	ResetIDCache()
+	if got := SerialNumber(context.Background(), exec); got != "HW-1" || exec.probes != 2 {
+		t.Fatalf("after a reset the hardware is probed again: id %q, probes %d", got, exec.probes)
+	}
+}
+
 // Without a readable hardware serial the stored file still decides for a
 // non-elevated run (Linux DMI is root-only), and nothing is written.
 func TestUserKeepsStoredIDWhenProbeFallsBack(t *testing.T) {

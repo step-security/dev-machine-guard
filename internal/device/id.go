@@ -52,7 +52,7 @@ func resolveID(ctx context.Context, exec executor.Executor) string {
 	root := exec.IsRoot()
 	if !root {
 		stored := readIDFile(exec, path)
-		id, hardware := probeSerial(ctx, exec)
+		id, hardware := cachedProbeSerial(ctx, exec)
 		switch {
 		case stored == "":
 			if !usableSerial(id) {
@@ -67,7 +67,7 @@ func resolveID(ctx context.Context, exec executor.Executor) string {
 		}
 		return stored
 	}
-	id, hardware := probeSerial(ctx, exec)
+	id, hardware := cachedProbeSerial(ctx, exec)
 	if !usableSerial(id) {
 		return generatedID(ctx, exec, root, path)
 	}
