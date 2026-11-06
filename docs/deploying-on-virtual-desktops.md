@@ -233,6 +233,9 @@ What a clone does on its first runs, whatever the builder left behind:
   marker, and the builder's `retired_serial_id` never counts, so a
   service-account run on the clone keeps reporting under the machine
   identity until the clone's own identity switch retires its serial row.
+  `seen-users.txt` is bound the same way: a visit history another machine
+  wrote counts for nothing under the `users` rule and is replaced by the
+  clone's own first recorded visit.
 - **Scheduled tasks** are bound to the INTERACTIVE group and to SYSTEM, not
   to the builder's account, so they run as the users who sign in to the
   clone.

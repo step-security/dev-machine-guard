@@ -237,7 +237,10 @@ func autoIdentityUncached(exec executor.Executor) (template, reason string) {
 	usersRule := mode == config.MultiUserDetectionUsers
 	var established []string
 	if usersRule && !exists {
-		established = establishedSeenUsers(dir)
+		if machineID == "" {
+			machineID = currentMachineID(exec)
+		}
+		established = establishedSeenUsers(dir, machineID)
 	}
 	on, why := multiUserHost(edition, tsAppCompat, established, exists, usersRule)
 	if !on {
@@ -337,7 +340,7 @@ func RecordScanUser(exec executor.Executor) {
 	if token == "" {
 		return
 	}
-	_ = appendSeenUser(dir, token)
+	_ = recordSeenUser(dir, token, currentMachineID(exec))
 }
 
 // pendingVisit is a visit the `identity` verb assumes without recording it:
@@ -396,12 +399,43 @@ type seenUser struct {
 // seenUserDay is today's UTC day number; a var so tests can move the clock.
 var seenUserDay = func() int64 { return time.Now().Unix() / 86400 }
 
+// seenUsersMachinePrefix starts the header line that binds seen-users.txt
+// to the machine that wrote it ("# machine <id>"). A file whose header
+// names another machine was captured into an image: its visits are the
+// builder's and are discarded on the clone before a visit is recorded or
+// the users rule is applied, so two developers established on the builder
+// never switch a clone. A file without a header (earlier agents) is taken
+// as this machine's.
+const seenUsersMachinePrefix = "# machine "
+
+// seenUsersMachine returns the machine the file is bound to ("" when it is
+// not bound).
+func seenUsersMachine(data []byte) string {
+	for _, line := range strings.Split(string(data), "\n") {
+		if m, ok := strings.CutPrefix(line, seenUsersMachinePrefix); ok {
+			return strings.TrimSpace(m)
+		}
+	}
+	return ""
+}
+
+// seenUsersInherited reports whether a file bound to another machine is in
+// hand: machineID known, the file bound, and the two differ.
+func seenUsersInherited(data []byte, machineID string) bool {
+	bound := seenUsersMachine(data)
+	return machineID != "" && bound != "" && !strings.EqualFold(bound, machineID)
+}
+
 // parseSeenUsers reads "<token> <day>[,<day>]" lines; tokens are lowercased
-// and deduplicated in first-seen order, unparsable days are dropped.
+// and deduplicated in first-seen order, unparsable days are dropped. Header
+// lines ("# ...") carry no visit.
 func parseSeenUsers(data []byte) []seenUser {
 	index := map[string]int{}
 	var users []seenUser
 	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
 		fields := strings.Fields(strings.ToLower(line))
 		if len(fields) == 0 {
 			continue
@@ -479,9 +513,15 @@ func readSeenUserRecords(dir string) []seenUser {
 
 // establishedSeenUsers returns the tokens the users rule counts: developers
 // seen scanning on seenUserDaysNeeded different days, the prospective visit
-// of this process (ProspectiveScanUser) included.
-func establishedSeenUsers(dir string) []string {
-	records := readSeenUserRecords(dir)
+// of this process (ProspectiveScanUser) included. A history another machine
+// wrote (an image builder's) counts for nothing here.
+func establishedSeenUsers(dir, machineID string) []string {
+	var records []seenUser
+	if dir != "" {
+		if data, ok := readBounded(filepath.Join(dir, seenUsersFile), maxSeenUsersBytes); ok && !seenUsersInherited(data, machineID) {
+			records = parseSeenUsers(data)
+		}
+	}
 	pendingVisit.mu.Lock()
 	token, day := pendingVisit.token, pendingVisit.day
 	pendingVisit.mu.Unlock()
@@ -558,13 +598,36 @@ func readSeenUsers(dir string) []string {
 // an earlier agent recorded under the bare short name (legacyVisitCarriable)
 // gets that visit carried over first. An oversized file is compacted under
 // the machine-wide lock (compactSeenUsers).
-func appendSeenUser(dir, token string) error {
+func appendSeenUser(dir, token string) error { return recordSeenUser(dir, token, "") }
+
+// recordSeenUser records token's visit today in the file bound to machineID
+// ("" records without binding). Everything happens under the visit-file
+// lock, the read included: the file is never written without it, and a
+// visit that cannot take the lock in time is left for a later run (every
+// scan records its user), which costs a delay, never the visit. A file
+// another machine wrote is replaced, not appended to.
+func recordSeenUser(dir, token, machineID string) error {
 	token = strings.ToLower(strings.TrimSpace(token))
 	if token == "" {
 		return nil
 	}
+	if err := os.MkdirAll(dir, 0o755); err != nil { // #nosec G301 -- shared install dir
+		return err
+	}
+	release, locked := lockSeenUsers()
+	if !locked {
+		logger.Debug("seen-users: the visit file is busy; %s's visit today is recorded by a later run", token)
+		return nil
+	}
+	defer release()
+	path := filepath.Join(dir, seenUsersFile)
+	data, exists := readBounded(path, maxSeenUsersBytes)
+	inherited := exists && seenUsersInherited(data, machineID)
+	var records []seenUser
+	if exists && !inherited {
+		records = parseSeenUsers(data)
+	}
 	day := seenUserDay()
-	records := readSeenUserRecords(dir)
 	var lines []string
 	known := false
 	for _, u := range records {
@@ -580,21 +643,14 @@ func appendSeenUser(dir, token string) error {
 		lines = append(lines, formatVisit(token, legacySeenDay))
 	}
 	lines = append(lines, formatVisit(token, day))
-	if err := os.MkdirAll(dir, 0o755); err != nil { // #nosec G301 -- shared install dir
-		return err
+	if inherited {
+		logger.Debug("seen-users: the visit file was written on another machine (%s); starting this machine's own", seenUsersMachine(data))
+		return replaceSeenUsers(dir, seenUsersHeader(machineID)+strings.Join(lines, ""))
 	}
-	// The append and the compaction share one lock, so a compaction never
-	// replaces the file with a snapshot that misses this visit. The file is
-	// never written without it: a visit that cannot take the lock in time
-	// is left for a later run (every scan records its user), which costs a
-	// delay, never the visit.
-	release, locked := lockSeenUsers()
-	if !locked {
-		logger.Debug("seen-users: the visit file is busy; %s's visit today is recorded by a later run", token)
-		return nil
+	if !exists && machineID != "" {
+		lines = append([]string{seenUsersHeader(machineID)}, lines...)
 	}
-	defer release()
-	f, err := os.OpenFile(filepath.Join(dir, seenUsersFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644) // #nosec G302 G304 -- readable by every user's run
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644) // #nosec G302 G304 -- readable by every user's run
 	if err != nil {
 		return err
 	}
@@ -604,6 +660,38 @@ func appendSeenUser(dir, token string) error {
 		return err
 	}
 	compactSeenUsersLocked(dir)
+	return nil
+}
+
+// seenUsersHeader is the binding line for machineID ("" when unknown).
+func seenUsersHeader(machineID string) string {
+	if machineID == "" {
+		return ""
+	}
+	return seenUsersMachinePrefix + machineID + "\n"
+}
+
+// replaceSeenUsers writes the whole file atomically (temp file + rename; the
+// Windows rename cannot overwrite, so the old file is removed first). The
+// caller holds the visit-file lock.
+func replaceSeenUsers(dir, content string) error {
+	path := filepath.Join(dir, seenUsersFile)
+	tmp, err := os.CreateTemp(dir, ".seen-users-*.tmp")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.WriteString(content); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	_ = tmp.Close()
+	_ = os.Chmod(tmp.Name(), 0o644) // #nosec G302 -- readable by every user's run
+	_ = os.Remove(path)             // Windows Rename won't overwrite; no-op on POSIX
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
 	return nil
 }
 
@@ -701,25 +789,16 @@ func compactSeenUsersLocked(dir string) {
 	if err != nil || info.Size() <= compactSeenUsersBytes {
 		return
 	}
-	records := readSeenUserRecords(dir)
+	data, ok := readBounded(path, maxSeenUsersBytes)
+	if !ok {
+		return
+	}
+	records := parseSeenUsers(data)
 	if records == nil {
 		return
 	}
-	tmp, err := os.CreateTemp(dir, ".seen-users-*.tmp")
-	if err != nil {
-		return
-	}
-	if _, err := tmp.WriteString(formatSeenUsers(records)); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmp.Name())
-		return
-	}
-	_ = tmp.Close()
-	_ = os.Chmod(tmp.Name(), 0o644) // #nosec G302 -- readable by every user's run
-	_ = os.Remove(path)             // Windows Rename won't overwrite; no-op on POSIX
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		_ = os.Remove(tmp.Name())
-	}
+	// The binding survives the rewrite.
+	_ = replaceSeenUsers(dir, seenUsersHeader(seenUsersMachine(data))+formatSeenUsers(records))
 }
 
 // readMultiUserMarker returns the sticky marker when a valid one exists.

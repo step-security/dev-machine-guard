@@ -244,13 +244,13 @@ func TestRecordScanUser_CarriesAnUnambiguousLegacyVisit(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, seenUsersFile), []byte("jdoe\nasmith\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := establishedSeenUsers(dir); len(got) != 0 {
+	if got := establishedSeenUsers(dir, ""); len(got) != 0 {
 		t.Fatalf("legacy lines alone are one visit each, got %v", got)
 	}
 	withSeenUserDay(t, 200)
 	RecordScanUser(windowsMock(`CONTOSO\JDoe`))
 	jdoe := "jdoe-" + UserTokenFingerprint(`contoso\jdoe`)
-	if got := establishedSeenUsers(dir); strings.Join(got, ",") != jdoe {
+	if got := establishedSeenUsers(dir, ""); strings.Join(got, ",") != jdoe {
 		t.Fatalf("established = %v, want [%s] (legacy visit carried over)", got, jdoe)
 	}
 	// A third day appends nothing: the token is established.
@@ -418,6 +418,74 @@ func TestSeenUsers_AppendDefersWhenTheLockIsBusy(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(dir, seenUsersFile))
 	if string(data) != "jdoe-0123456789ab 100\nasmith-0123456789ab 101\n" {
 		t.Fatalf("file = %q, want the compacted line plus the deferred visit", data)
+	}
+}
+
+// seen-users.txt is bound to the machine that wrote it. A file captured into
+// an image (the builder's established developers) counts for nothing on a
+// clone, is replaced by the clone's own first visit, and never switches the
+// clone under the users rule; a file without a binding (earlier agents) is
+// this machine's, and compaction keeps the binding.
+func TestSeenUsers_InheritedHistoryIsDiscarded(t *testing.T) {
+	withTestLockTarget(t)
+	dir := withMachineStateDir(t, "Professional", false) // this machine: SER1
+	withConfigDeviceID(t, "")
+	withMultiUserDetection(t, config.MultiUserDetectionUsers)
+	path := filepath.Join(dir, seenUsersFile)
+	jdoe := "jdoe-" + UserTokenFingerprint(`host\jdoe`)
+	asmith := "asmith-" + UserTokenFingerprint(`avd-host-07\asmith`)
+	inherited := seenUsersMachinePrefix + "SER-BUILDER\n" + jdoe + " 100,101\n" + asmith + " 100,101\n"
+	if err := os.WriteFile(path, []byte(inherited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := establishedSeenUsers(dir, "SER1"); len(got) != 0 {
+		t.Fatalf("the builder's developers count for nothing here, got %v", got)
+	}
+	if got := establishedSeenUsers(dir, ""); len(got) != 2 {
+		t.Fatalf("an unknown machine identity honours the file, got %v", got)
+	}
+	mock := windowsMock(`AVD-HOST-07\asmith`)
+	if tpl, _ := autoIdentity(mock); tpl != "" {
+		t.Fatalf("inherited visits must not switch the clone: %q", tpl)
+	}
+	// The clone's first recorded visit replaces the inherited history.
+	withSeenUserDay(t, 200)
+	RecordScanUser(mock)
+	data, _ := os.ReadFile(path)
+	if want := seenUsersMachinePrefix + "SER1\n" + asmith + " 200\n"; string(data) != want {
+		t.Fatalf("file = %q, want %q", data, want)
+	}
+	// A file without a binding is this machine's: appended to as before.
+	if err := os.WriteFile(path, []byte(jdoe+" 100\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordSeenUser(dir, asmith, "SER1"); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ = os.ReadFile(path); string(data) != jdoe+" 100\n"+asmith+" 200\n" {
+		t.Fatalf("unbound file = %q", data)
+	}
+	// A fresh file is bound from its first line, and compaction keeps that.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordSeenUser(dir, asmith, "SER1"); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ = os.ReadFile(path); !strings.HasPrefix(string(data), seenUsersMachinePrefix+"SER1\n") {
+		t.Fatalf("a new file must be bound: %q", data)
+	}
+	var b strings.Builder
+	b.WriteString(seenUsersMachinePrefix + "SER1\n")
+	for b.Len() <= compactSeenUsersBytes {
+		b.WriteString(jdoe + " 100\n")
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	compactSeenUsersLocked(dir)
+	if data, _ = os.ReadFile(path); string(data) != seenUsersMachinePrefix+"SER1\n"+jdoe+" 100\n" {
+		t.Fatalf("compacted file = %q", data)
 	}
 }
 
