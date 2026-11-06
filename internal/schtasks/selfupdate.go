@@ -237,36 +237,54 @@ func removeAllExceptRetry(dir, keep string) error {
 
 // removeAllExcept deletes every file under dir except keep, then every
 // directory that became empty. Directories on keep's path stay. A missing
-// dir is not an error.
+// dir is not an error. The walk and the deletes go through an os.Root so a
+// symlink planted under dir can neither be followed nor redirect a delete.
 func removeAllExcept(dir, keep string) error {
-	keep = filepath.Clean(keep)
-	var dirs []string
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	keepRel := ""
+	if isWithin(keep, dir) {
+		keepRel = filepath.ToSlash(filepath.Clean(keep)[len(filepath.Clean(dir))+1:])
+	}
+	var files, dirs []string
 	var firstErr error
 	note := func(err error) {
 		if err != nil && firstErr == nil && !errors.Is(err, fs.ErrNotExist) {
 			firstErr = err
 		}
 	}
-	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	_ = fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			note(err)
 			return nil
 		}
-		if d.IsDir() {
+		switch {
+		case d.IsDir():
 			dirs = append(dirs, path)
-			return nil
+		case !strings.EqualFold(path, keepRel):
+			files = append(files, path)
 		}
-		if strings.EqualFold(filepath.Clean(path), keep) {
-			return nil
-		}
-		note(os.Remove(path))
 		return nil
 	})
+	for _, f := range files {
+		note(root.Remove(filepath.FromSlash(f)))
+	}
 	for i := len(dirs) - 1; i >= 0; i-- {
-		if isWithin(keep, dirs[i]) {
+		d := dirs[i]
+		if d == "." || (keepRel != "" && strings.HasPrefix(strings.ToLower(keepRel), strings.ToLower(d)+"/")) {
 			continue
 		}
-		note(os.Remove(dirs[i]))
+		note(root.Remove(filepath.FromSlash(d)))
+	}
+	_ = root.Close()
+	if keepRel == "" {
+		note(os.Remove(dir))
 	}
 	return firstErr
 }
