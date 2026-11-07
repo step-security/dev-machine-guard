@@ -40,6 +40,8 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
 ### Fixed
 
+- Package-manager registry overrides are read from the developer login shell during scheduled scans.
+
 - Package configuration audits redact credentials in effective settings, URLs, mixed environment-reference values and inline private keys. Parse failures report safe error text instead of copying file contents into telemetry.
 - Conda channel labels containing token paths are redacted even without a URL scheme, and Swift URL-like values are validated before Windows-path handling.
 - Yarn ancestor configuration discovery respects protected-directory checks. Pi manifest glob expansion checks input bounds and cancellation before recursive work.
