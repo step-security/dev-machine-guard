@@ -197,6 +197,15 @@ Or set the identity machine-wide and let any install path pick it up:
 [Environment]::SetEnvironmentVariable("STEPSEC_DEVICE_ID", "{hostname}-{user}", "Machine")
 ```
 
+Image managers that run a script when a host is created (Nerdio scripted
+actions, a Custom Script Extension) can install from an MSI and tenant file
+staged in the image instead of installing into the image:
+`packaging/windows/Install-DevMachineGuard.ps1` installs or upgrades from the
+staged MSI, verifies the scheduled tasks and the tenant, and ends with one
+`DMG-PROVISION: ok` or `DMG-PROVISION: failed <reason>` line (exit 0 or 1)
+the image manager shows per host; `-Uninstall` is the scale-in hook. See
+`packaging/windows/README.md`.
+
 The first scan runs when a user logs in (the companion at-logon task) or at
 the next scheduled tick, as that user. See
 [deploying-via-sccm.md](deploying-via-sccm.md) for the full MSI property

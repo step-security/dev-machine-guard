@@ -84,6 +84,34 @@ three are also accepted as `device_id` / `device_tag` /
 `retire_on_uninstall` keys in a `BOOTSTRAPFILE`. See
 `docs/deploying-on-virtual-desktops.md`.
 
+## Provisioning script for image managers
+
+`Install-DevMachineGuard.ps1` (this directory) is the host-creation step for
+image managers such as Nerdio scripted actions, Azure Virtual Desktop custom
+script extensions or Intune remediation scripts, running as SYSTEM. Stage the
+MSI and the tenant file in the master image (for example `C:\StepSecurity\`
+holding `stepsecurity-dev-machine-guard-<version>-x64.msi` and
+`bootstrap.json` from the dashboard's Windows MSI install page), copy the
+script next to them, and have the image manager run it when a host is
+created:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -NoProfile -File C:\StepSecurity\Install-DevMachineGuard.ps1
+```
+
+It picks the newest staged MSI (or `-MsiPath`), the tenant file (or
+`-BootstrapPath`), runs `msiexec /i ... /qn /norestart BOOTSTRAPFILE=...`
+unless that version or a newer one is already installed, verifies the three
+scheduled tasks and the tenant in `C:\ProgramData\StepSecurity\config.json`,
+logs to `C:\ProgramData\StepSecurity\provision.log` (the MSI's verbose log
+next to it) and ends with exactly one line, `DMG-PROVISION: ok version=<v>
+tasks=3` or `DMG-PROVISION: failed <reason>`, with exit code 0 or 1, so the
+image manager shows the outcome per host. `-Uninstall` runs the MSI uninstall
+by product code (which retires the device when `retire_on_uninstall` is set)
+for scale-in hooks. The API key never appears in the log or the output.
+Nothing runs on the imaging machine, and agent releases reach the hosts
+through self-update, so an agent version never needs a new image.
+
 ## Self-update and `AUTOUPDATE`
 
 MSI installs update themselves: the SYSTEM update task stages a newer
