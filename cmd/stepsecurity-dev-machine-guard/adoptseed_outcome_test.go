@@ -61,3 +61,23 @@ func TestAdoptSeedOutcomeReadsOnlyTheTail(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// Lines more than adoptSeedRunWindow before the newest belong to an older
+// adopt-seed run and are dropped even when fewer than adoptSeedMaxLines
+// recent lines exist; a line exactly at the window still counts.
+func TestAdoptSeedOutcomeRunWindow(t *testing.T) {
+	p := writeLog(t,
+		"2026-11-04T21:17:59Z bootstrap: adopt-seed: older run, 2m1s before",
+		"2026-11-04T21:20:00Z bootstrap: adopt-seed: copying seed 1.18.1: rename a b: Access is denied.",
+	)
+	if got := adoptSeedOutcome(p); got != "adopt-seed: copying seed 1.18.1: rename a b: Access is denied." {
+		t.Fatalf("got %q", got)
+	}
+	p = writeLog(t,
+		"2026-11-04T21:18:00Z bootstrap: adopt-seed: exactly 2m before",
+		"2026-11-04T21:20:00Z bootstrap: adopt-seed: newest",
+	)
+	if got := adoptSeedOutcome(p); got != "adopt-seed: exactly 2m before | adopt-seed: newest" {
+		t.Fatalf("boundary: got %q", got)
+	}
+}
