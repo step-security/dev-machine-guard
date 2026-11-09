@@ -272,13 +272,17 @@ func reportBootstrapFallback() {
 	if env == "" || runtime.GOOS != model.PlatformWindows {
 		return
 	}
-	named := ""
+	named, logPath := "", ""
 	if l, err := ownLayout(); err == nil {
+		logPath = l.LogFile()
 		if st, _, err := updatestate.Load(l.StateFile()); err == nil && st != nil {
 			named = st.Current
 		}
 	}
 	reason, from, to := parseBootstrapFallback(env, named, os.Getenv(telemetry.EnvBootstrapVersion), buildinfo.Version)
+	if logPath != "" {
+		reason = withAdoptSeedOutcome(reason, logPath)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), deviceProbeTimeout)
 	defer cancel()
 	err := telemetry.PostUpdateEvent(ctx, nil, telemetry.UpdateEvent{
