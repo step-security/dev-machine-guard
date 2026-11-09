@@ -33,6 +33,7 @@ type env struct {
 	busy     int // AcquireInstance fails this many more times
 	sendErr  error
 	drift    []string
+	running  string // last SetRunningVersion
 
 	mu   sync.Mutex
 	sent []updatestate.OutboxEvent // since the last events() call
@@ -133,8 +134,9 @@ func (e *env) deps() *Deps {
 			e.mu.Unlock()
 			return nil
 		},
-		Now:  func() time.Time { return e.now },
-		Logf: func(f string, a ...any) { e.t.Logf("[updater] "+f, a...) },
+		SetRunningVersion: func(v string) { e.running = v },
+		Now:               func() time.Time { return e.now },
+		Logf:              func(f string, a ...any) { e.t.Logf("[updater] "+f, a...) },
 	}
 }
 
@@ -256,13 +258,41 @@ func TestMissingStateRebuildsOnSeed(t *testing.T) {
 	e := newEnv(t)
 	e.api.setTarget("1.19.0")
 	e.tick()
-	wantEvents(t, e.events(), EventStateCorrupt)
+	wantEvents(t, e.events(), EventStateCorrupt, EventOK)
+	if ok := e.lastSent(EventOK); ok.From != "1.19.0" || ok.To != "1.19.0" || ok.Error != "restaged" {
+		t.Fatalf("update_ok = %+v, want 1.19.0 -> 1.19.0 restaged", ok)
+	}
 	if st := e.state(); st.Current != "1.19.0" {
 		t.Fatalf("current = %s", st.Current)
 	}
-	// versions\1.19.0 was absent, so it is staged from the release.
+	// versions\1.19.0 was absent (the MSI's adopt-seed never placed it), so
+	// it is copied from the seed, not downloaded, and RunningVersion is set.
 	if err := updatestate.VerifyVersionDir(e.L.VersionDir(mustV("1.19.0")), mustV("1.19.0")); err != nil {
 		t.Fatalf("seed version not staged: %v", err)
+	}
+	if n := e.api.githubHits["stepsecurity-dev-machine-guard-1.19.0-windows_amd64.exe"]; n != 0 {
+		t.Fatalf("downloaded 1.19.0 %d times; want a copy of the seed", n)
+	}
+	if e.running != "1.19.0" {
+		t.Fatalf("RunningVersion = %q, want 1.19.0", e.running)
+	}
+}
+
+// A seed that fails verification is not copied: the restage downloads.
+func TestRestageDownloadsWhenSeedUnverifiable(t *testing.T) {
+	e := newEnv(t)
+	e.api.setTarget("1.19.0")
+	d := e.deps()
+	d.VerifySeed = func(string) error { return errors.New("bad signature") }
+	Run(context.Background(), d)
+	if err := updatestate.VerifyVersionDir(e.L.VersionDir(mustV("1.19.0")), mustV("1.19.0")); err != nil {
+		t.Fatalf("not restaged: %v", err)
+	}
+	if n := e.api.githubHits["stepsecurity-dev-machine-guard-1.19.0-windows_amd64.exe"]; n != 1 {
+		t.Fatalf("downloads = %d, want 1", n)
+	}
+	if e.running != "1.19.0" {
+		t.Fatalf("RunningVersion = %q, want 1.19.0", e.running)
 	}
 }
 
@@ -274,7 +304,7 @@ func TestCorruptStateIsReported(t *testing.T) {
 	if code := e.tick(); code != ExitOK {
 		t.Fatalf("tick = %d", code)
 	}
-	wantEvents(t, e.events(), EventStateCorrupt)
+	wantEvents(t, e.events(), EventStateCorrupt, EventOK)
 	if ev := e.lastSentOrNil(EventStateCorrupt); ev == nil || ev.Error == "" {
 		t.Fatal("no reason on update_state_corrupt")
 	}

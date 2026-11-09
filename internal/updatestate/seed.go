@@ -53,7 +53,7 @@ func (l Layout) CopySeedVersion(v Version, now time.Time, verifyPublisher func(p
 			return "", nil
 		}
 		trash := filepath.Join(l.VersionsDir(), fmt.Sprintf("%s%s-%x", TrashPrefix, v, now.UnixNano()))
-		if err := os.Rename(dst, trash); err != nil {
+		if err := RenameDir(dst, trash); err != nil {
 			return "", fmt.Errorf("moving unverifiable %s aside: %w", dst, err)
 		}
 		_ = os.RemoveAll(trash)
@@ -94,7 +94,7 @@ func (l Layout) CopySeedVersion(v Version, now time.Time, verifyPublisher func(p
 	if err := faultinject.Point("adopt.copied"); err != nil {
 		return "", err
 	}
-	if err := os.Rename(staging, dst); err != nil {
+	if err := RenameDir(staging, dst); err != nil {
 		return "", err
 	}
 	done = true
