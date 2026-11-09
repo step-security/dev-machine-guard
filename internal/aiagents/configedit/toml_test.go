@@ -21,8 +21,8 @@ func TestEnsureCodexHooksFlagAppendsWhenAbsent(t *testing.T) {
 	if !strings.Contains(s, "[features]") {
 		t.Errorf("missing [features]: %s", s)
 	}
-	if !strings.Contains(s, "codex_hooks = true") {
-		t.Errorf("missing codex_hooks: %s", s)
+	if !strings.Contains(s, "\nhooks = true") {
+		t.Errorf("missing hooks: %s", s)
 	}
 	// Original line preserved.
 	if !strings.HasPrefix(s, `model = "gpt-5"`) {
@@ -48,8 +48,8 @@ other_flag = true
 		t.Errorf("expected changed=true")
 	}
 	s := string(out)
-	if !strings.Contains(s, "codex_hooks = true") {
-		t.Errorf("missing codex_hooks: %s", s)
+	if !strings.Contains(s, "\nhooks = true") {
+		t.Errorf("missing hooks: %s", s)
 	}
 	// Original keys still present and order preserved.
 	if !strings.Contains(s, "other_flag = true") {
@@ -62,7 +62,7 @@ other_flag = true
 
 func TestEnsureCodexHooksFlagFlipsFalseToTrue(t *testing.T) {
 	in := []byte(`[features]
-codex_hooks = false
+hooks = false
 `)
 	out, changed, err := EnsureCodexHooksFlag(in)
 	if err != nil {
@@ -71,17 +71,17 @@ codex_hooks = false
 	if !changed {
 		t.Errorf("expected changed=true")
 	}
-	if !strings.Contains(string(out), "codex_hooks = true") {
+	if !strings.Contains(string(out), "\nhooks = true") {
 		t.Errorf("flag not flipped: %s", out)
 	}
-	if strings.Contains(string(out), "codex_hooks = false") {
+	if strings.Contains(string(out), "\nhooks = false") {
 		t.Errorf("old false value still present: %s", out)
 	}
 }
 
 func TestEnsureCodexHooksFlagNoOpWhenTrue(t *testing.T) {
 	in := []byte(`[features]
-codex_hooks = true
+hooks = true
 other = false
 `)
 	out, changed, err := EnsureCodexHooksFlag(in)
@@ -122,26 +122,27 @@ enabled = true
 		`sandbox = "workspace-write"`,
 		"[telemetry]",
 		"enabled = true",
-		"codex_hooks = true",
+		"\nhooks = true",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("expected output to contain %q; got %s", want, s)
 		}
 	}
-	// codex_hooks must land in [features], not [telemetry].
+	// hooks must land in [features], not [telemetry].
+	// Anchor to line-start so a future `codex_hooks` line can't satisfy the index.
 	featStart := strings.Index(s, "[features]")
 	telStart := strings.Index(s, "[telemetry]")
-	codexAt := strings.Index(s, "codex_hooks")
+	codexAt := strings.Index(s, "\nhooks = true")
 	if !(featStart < codexAt && codexAt < telStart) {
-		t.Errorf("codex_hooks landed outside [features]: %s", s)
+		t.Errorf("hooks landed outside [features]: %s", s)
 	}
 }
 
 func TestEnsureCodexHooksFlagIgnoresLiteralsInsideMultilineStrings(t *testing.T) {
-	// The literal text `[features]` and `codex_hooks = true` appear
+	// The literal text `[features]` and `hooks = true` appear
 	// inside a triple-quoted string. The patcher must NOT treat them as
 	// real TOML structure, and must still append a real [features] table.
-	in := []byte("docstring = \"\"\"\n[features]\ncodex_hooks = true\n\"\"\"\n")
+	in := []byte("docstring = \"\"\"\n[features]\nhooks = true\n\"\"\"\n")
 	out, changed, err := EnsureCodexHooksFlag(in)
 	if err != nil {
 		t.Fatal(err)
@@ -152,10 +153,10 @@ func TestEnsureCodexHooksFlagIgnoresLiteralsInsideMultilineStrings(t *testing.T)
 	// Output must still contain the docstring intact and a NEW real
 	// [features] table at the end.
 	s := string(out)
-	if !strings.Contains(s, "docstring = \"\"\"\n[features]\ncodex_hooks = true\n\"\"\"") {
+	if !strings.Contains(s, "docstring = \"\"\"\n[features]\nhooks = true\n\"\"\"") {
 		t.Errorf("docstring corrupted: %s", s)
 	}
-	if !strings.HasSuffix(s, "[features]\ncodex_hooks = true\n") {
+	if !strings.HasSuffix(s, "[features]\nhooks = true\n") {
 		t.Errorf("real [features] table not appended: %s", s)
 	}
 	// Validates as TOML.
@@ -168,7 +169,7 @@ func TestEnsureCodexHooksFlagIgnoresLiteralsInsideMultilineStrings(t *testing.T)
 func TestCodexHooksEnabledIgnoresLiteralsInsideStrings(t *testing.T) {
 	// The flag appears inside a literal multiline string, NOT as a real
 	// key. CodexHooksEnabled must report false.
-	in := []byte("docstring = \"\"\"\n[features]\ncodex_hooks = true\n\"\"\"\n")
+	in := []byte("docstring = \"\"\"\n[features]\nhooks = true\n\"\"\"\n")
 	if CodexHooksEnabled(in) {
 		t.Errorf("multiline string content must not be detected as enabled flag")
 	}
@@ -187,7 +188,7 @@ func TestEnsureCodexHooksFlagRejectsPatchProducingInvalidTOML(t *testing.T) {
 }
 
 func TestCodexHooksEnabledIgnoresCommentedFlag(t *testing.T) {
-	in := []byte("# [features]\n# codex_hooks = true\n")
+	in := []byte("# [features]\n# hooks = true\n")
 	if CodexHooksEnabled(in) {
 		t.Fatal("commented flag must not count as enabled")
 	}
@@ -201,9 +202,9 @@ func TestCodexHooksEnabled(t *testing.T) {
 	}{
 		{"absent", `model = "gpt-5"`, false},
 		{"missing key", "[features]\nother = true\n", false},
-		{"false", "[features]\ncodex_hooks = false\n", false},
-		{"true", "[features]\ncodex_hooks = true\n", true},
-		{"true with comment", "[features]\ncodex_hooks = true # on\n", true},
+		{"false", "[features]\nhooks = false\n", false},
+		{"true", "[features]\nhooks = true\n", true},
+		{"true with comment", "[features]\nhooks = true # on\n", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
