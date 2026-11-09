@@ -518,7 +518,14 @@ func main() {
 			log.Error("Scheduled installation is not supported on %s", runtime.GOOS)
 			os.Exit(1)
 		}
-		retireDevicesOnUninstall(exec, log, retireIDs)
+		// The scheduler is gone, but a scan already mid-flight (or one a
+		// failed stop left behind) would report after the retire and
+		// restore the device: wait for every instance lock on this host
+		// and keep them while posting.
+		if release, idle := holdScansForRetire(log, retireIDs); idle {
+			retireDevicesOnUninstall(exec, log, retireIDs)
+			release()
+		}
 
 	case "hooks install":
 		if !featuregate.IsEnabled(featuregate.FeatureAIAgentHooks) {
@@ -922,6 +929,24 @@ func retireCandidatesOnUninstall(exec executor.Executor, log *progress.Logger, c
 		log.Warn("retire: no device id could be resolved; the device stays registered until it is retired from the dashboard or by inactivity")
 	}
 	return ids
+}
+
+// holdScansForRetire waits (bounded by retire.ScanHoldBudget) until no scan
+// runs on this host and returns the lock release, or idle=false with a
+// warning when one still runs: the retire is then skipped so a late upload
+// cannot restore a device the dashboard just dropped. Nothing to retire
+// means nothing to wait for.
+func holdScansForRetire(log *progress.Logger, ids []string) (release func(), idle bool) {
+	if len(ids) == 0 {
+		return func() {}, true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), retire.ScanHoldBudget)
+	defer cancel()
+	release, idle = retire.HoldScans(ctx, log)
+	if !idle {
+		log.Warn("a scan is still running after %s; not retiring: the device stays registered until it is retired from the dashboard or by inactivity (run `uninstall --retire` once the scan has finished)", retire.ScanHoldBudget)
+	}
+	return release, idle
 }
 
 // retireDevicesOnUninstall posts the retire for each collected identity once

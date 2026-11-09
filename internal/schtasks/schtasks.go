@@ -174,6 +174,30 @@ func RunNow(exec executor.Executor, log *progress.Logger) error {
 	return nil
 }
 
+// ReconcileTaskSettings re-applies the scan tasks' settings to whatever is
+// registered now: power and retry settings, the execution limit and, on a
+// per-user host, MultipleInstancesPolicy=Parallel. The policy is decided at
+// install time from the identity in force then, but a host turns multi-user
+// later (automatic mode's sticky marker, a changed template) and a
+// self-update swaps binaries without touching the tasks, so a host that
+// became per-user would keep IgnoreNew and drop a second session's scan
+// while the first still runs. The SYSTEM updater calls this on every tick.
+// Reports whether the identity is per-user and whether the tasks were
+// registered at all (a loader install or no install is a no-op).
+func ReconcileTaskSettings(exec executor.Executor, log *progress.Logger, maxExec time.Duration) (perUser, registered bool) {
+	ctx := context.Background()
+	if !isConfigured(ctx, exec) {
+		log.Debug("task settings reconcile: %q is not registered; nothing to do", taskName)
+		return false, false
+	}
+	timeLimit := executionTimeLimit(maxExec)
+	applyBatterySettings(ctx, exec, log, taskName, timeLimit)
+	if _, _, code, err := exec.Run(ctx, "schtasks", "/query", "/tn", logonTaskName); err == nil && code == 0 {
+		applyBatterySettings(ctx, exec, log, logonTaskName, timeLimit)
+	}
+	return perUserIdentity(exec), true
+}
+
 // Uninstall removes the scheduled task. For an MSI bootstrap install it also
 // removes the update task, stops running DMG processes and deletes the
 // self-update state (see uninstallBootstrap).

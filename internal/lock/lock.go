@@ -69,6 +69,39 @@ func AcquireSibling(suffix string) (*Lock, error) {
 	return &Lock{release: release}, nil
 }
 
+// AcquireAll takes the machine-wide instance lock and the per-user lock of
+// every given state scope, without blocking, so the caller knows that no scan
+// runs under any identity on this host; it releases what it took and returns
+// an error wrapping ErrHeld on the first lock it cannot take. Uninstall uses
+// it before retiring the host's devices: a scan that reported after the
+// retire would restore them.
+func AcquireAll(scopes []string) (*Lock, error) {
+	base := unscopedTarget(lockTarget(), paths.UserScope())
+	targets := []string{base}
+	seen := map[string]bool{base: true}
+	for _, s := range scopes {
+		if t := scopedTarget(base, s); s != "" && !seen[t] {
+			seen[t] = true
+			targets = append(targets, t)
+		}
+	}
+	var releases []func()
+	releaseAll := func() {
+		for i := len(releases) - 1; i >= 0; i-- {
+			releases[i]()
+		}
+	}
+	for _, t := range targets {
+		release, err := acquireTarget(t)
+		if err != nil {
+			releaseAll()
+			return nil, err
+		}
+		releases = append(releases, release)
+	}
+	return &Lock{release: releaseAll}, nil
+}
+
 // SetTargetForTest points the lock at another file (Unix) or mutex name
 // (Windows) and returns a func restoring the previous one. Tests only.
 func SetTargetForTest(target string) (restore func()) {

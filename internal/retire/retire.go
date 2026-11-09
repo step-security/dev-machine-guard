@@ -30,6 +30,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/heartbeat"
+	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
@@ -313,4 +314,66 @@ func collectCachedIDs(ctx context.Context, roots []string, machineID string, log
 		}
 	}
 	return ids
+}
+
+// ScanHoldBudget bounds how long an uninstall waits for running scans to
+// finish before it gives up on retiring. An MSI uninstall action and an MDM
+// script both tolerate it; a scan normally reports within seconds of its
+// upload.
+const ScanHoldBudget = 30 * time.Second
+
+// scanHoldPoll is how often HoldScans retries the instance locks.
+var scanHoldPoll = 500 * time.Millisecond
+
+// HoldScans waits, within ctx, until no scan runs under any identity on this
+// host (the machine-wide instance lock and every per-user lock can be taken)
+// and returns a release func that keeps them held while the caller retires,
+// so no scan starts in between. idle is false when a scan still ran at the
+// deadline; the caller must then leave the device registered, because a scan
+// that reports after the retire restores it. Uninstall removes the scheduler
+// first, but a stop that failed or a scan already mid-flight survive that.
+// When the locks cannot be inspected at all (not ErrHeld) nothing can be
+// scanning either, since scans need the same lock, so the retire proceeds.
+func HoldScans(ctx context.Context, log *progress.Logger) (release func(), idle bool) {
+	return holdScans(ctx, stateScopes(), log)
+}
+
+func holdScans(ctx context.Context, scopes []string, log *progress.Logger) (release func(), idle bool) {
+	for {
+		lk, err := lock.AcquireAll(scopes)
+		if err == nil {
+			return lk.Release, true
+		}
+		if !errors.Is(err, lock.ErrHeld) {
+			log.Debug("retire: instance locks unavailable (%v); no scan can run without them, retiring", err)
+			return func() {}, true
+		}
+		log.Debug("retire: a scan is still running (%v); waiting", err)
+		select {
+		case <-ctx.Done():
+			return func() {}, false
+		case <-time.After(scanHoldPoll):
+		}
+	}
+}
+
+// stateScopes lists the per-user state scopes (users/<scope> directories)
+// under the state roots, the same places CollectIdentities reads.
+func stateScopes() []string {
+	seen := map[string]bool{}
+	var scopes []string
+	for _, root := range stateRoots() {
+		entries, err := os.ReadDir(filepath.Join(root, "users"))
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() && !seen[e.Name()] {
+				seen[e.Name()] = true
+				scopes = append(scopes, e.Name())
+			}
+		}
+	}
+	sort.Strings(scopes)
+	return scopes
 }
