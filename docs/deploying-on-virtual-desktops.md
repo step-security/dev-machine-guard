@@ -35,22 +35,8 @@ literal text and these tokens:
 | *(none: hardware serial)* | physical/virtual machine | new device, old one lingers | nothing changes | last scan wins, inventories overwrite each other |
 | `{hostname}` | host name | **same device**, history kept, "hardware serial changed" recorded | nothing changes | last scan wins, inventories overwrite each other |
 | `{hostname}-{user}` **(recommended for pooled desktops)** | host + user | same device per user | a new device on the new host; the old one goes inactive and auto-retires | **each user is their own device**, scanned and attributed separately |
-| `{user}` | developer | same device | **same device** (follows the user; hostname and serial fields show the last host; not retired by an uninstall) | each user is their own device |
+| `{user}` | developer | same device | **same device** (follows the user; hostname and serial fields flip) | each user is their own device |
 | `asset-12345` (literal) | whatever you say | same device | nothing changes | last scan wins |
-
-### Which template for which pool
-
-Pick by how people reach the hosts. In a pool where each session lands on a
-**random host** (the common pooled host pool: 100 people, 50 hosts, a different
-host every day), use `{user}`: one device per person wherever they sign in,
-so the seat count is the number of users, not the number of host-and-user
-pairs seen in the retention window. On such a device the host name and
-hardware serial fields show the last host the person used, and an uninstall
-on any host does not retire it (it lives on with the user; auto-retire by
-inactivity covers people who leave). In a pool where a person **keeps a
-host** (personal desktops, or pooled hosts with a sticky assignment), use
-`{hostname}-{user}`, which is what automatic mode picks: a rebuilt host keeps
-its devices' history and an uninstall retires exactly that host's devices.
 
 Each device is a seat. With `{hostname}-{user}` the seat count is the number
 of (host, user) pairs that have checked in recently and not been retired, so
@@ -323,13 +309,9 @@ Three ways to retire:
    uninstall` retires the device before removing the scheduled task.
    `uninstall --retire` forces it; `--no-retire` suppresses it. A major
    upgrade through the MSI never retires. The call is best-effort: a dead
-   network never blocks the uninstall. For a `{hostname}-{user}` template
-   the agent retires every per-user device it has state for, which is how an
-   MSI uninstall running as SYSTEM covers all of a host's users. A roaming
-   template (`{user}` without `{hostname}` or `{serial}`) is the exception:
-   those devices follow their users to other hosts, so an uninstall leaves
-   them alone (only the host's own machine-identity record is retired) and
-   auto-retire by inactivity covers users who leave.
+   network never blocks the uninstall. For a `{user}` template the agent
+   retires every per-user device it has state for, which is how an MSI
+   uninstall running as SYSTEM covers all of a host's users.
 2. **From your orchestrator.** When a host pool scales in or a pipeline
    deletes a VM, call the management API with a tenant API key (`developer-
    mdm:write` permission):

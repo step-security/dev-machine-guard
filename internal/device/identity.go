@@ -443,17 +443,6 @@ func IdentityUserScope(exec executor.Executor) string {
 	return SanitizeDeviceID(userToken(exec.GOOS(), exec.IsRoot(), developerIdentity(context.Background(), exec)))
 }
 
-// TemplateRoams reports whether an identity template follows the user across
-// machines: it contains {user} and neither {hostname} nor {serial}, so the
-// same person is the same device on every host they sign in to. Such a device
-// is not bound to any host, which is why an uninstall does not retire it.
-func TemplateRoams(template string) bool {
-	lower := strings.ToLower(template)
-	return strings.Contains(lower, TokenUser) &&
-		!strings.Contains(lower, TokenHostname) &&
-		!strings.Contains(lower, TokenSerial)
-}
-
 // TemplateForReport is the template the payload reports as
 // device_id_template: the template in force when it carries a token (the
 // automatic template included), "" for the hardware serial and for a literal

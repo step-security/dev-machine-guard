@@ -12,8 +12,7 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 ### Added
 
 - **Master-image builder switch.** `configure --image-builder` (MSI `IMAGEBUILDER=1`) writes a marker bound to the machine's hardware id; while it names the machine, enterprise scans exit before any beacon or upload, so an image team can sign in to the imaging machine without registering it as a device. Hosts built from the image carry another hardware id, ignore the marker and scan normally. The switch is deliberately not a bootstrap.json key. `identity --json` reports `image_builder`, `configure show` prints it, `--image-builder=false` removes it.
-- **Roaming identities are not retired by an uninstall.** With a template that contains `{user}` but neither `{hostname}` nor `{serial}`, a device follows its user across hosts, so `uninstall` no longer retires the per-user devices it has state for (the host's own machine-identity record is still retired); auto-retire by inactivity covers users who leave.
-- **`device_id_template` in the payload.** Every upload reports the identity template in force when it carries a token (the automatic `{hostname}-{user}` included), so the dashboard can tell a device that roams with its user from one bound to a host.
+- **`device_id_template` in the payload.** Every upload reports the identity template in force when it carries a token (the automatic `{hostname}-{user}` included), so the dashboard can tell how a device's id was built; absent for the hardware serial and for a literal id.
 
 ## [1.19.0] - 2026-11-06
 
