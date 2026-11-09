@@ -649,7 +649,7 @@
       "--device-id"
     ],
     "result": {
-      "error": "--device-id requires a value (a literal id, or a template over {serial} {hostname} {user}; \"-\" clears it)"
+      "error": "--device-id requires a value (a literal id, or a template over {serial} {hostname}; \"-\" clears it)"
     }
   },
   {
@@ -953,7 +953,7 @@
     "args": [
       "configure",
       "--device-id",
-      "{hostname}-{user}"
+      "{hostname}"
     ],
     "result": {
       "Command": "configure"

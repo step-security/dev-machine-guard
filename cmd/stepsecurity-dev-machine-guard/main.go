@@ -170,25 +170,26 @@ func main() {
 			paths.SetOverride(cfg.InstallDir)
 		}
 	}
-	// Per-user state: when the device identity template contains {user},
-	// each logged-in user of this machine is a separate device, so the
-	// run-gate cache, delta scan state, node cache and run metrics live under
-	// <install dir>/users/<user>. Set before the heartbeat below stamps
-	// last-run.json. Probes nothing (no serial), so it is free here.
+	// Per-session state: on a host that scans every signed-in session
+	// separately, the run-gate cache, delta scan state, node cache and run
+	// metrics of a session live under <install dir>/users/<user token>, all
+	// of them reporting under the one machine device. Set before the
+	// heartbeat below stamps last-run.json. Probes nothing (no serial), so it
+	// is free here.
 	// A scan first records who is running it in the machine-wide state: a
-	// second developer on the same host is what flips it to automatic
-	// per-user identities (device/multiuser.go), and that must be known
-	// before the scope below is chosen.
+	// second developer on the same host is what switches it to per-session
+	// scanning under the users rule (device/multiuser.go), and that must be
+	// known before the scope below is chosen.
 	// `identity` must answer what that scan would do, so it assumes today's
-	// visit here, before the automatic-mode decision below is cached,
-	// without recording it.
+	// visit here, before the per-session decision below is cached, without
+	// recording it.
 	switch cfg.Command {
 	case "send-telemetry":
 		device.RecordScanUser(exec)
 	case "identity":
 		device.ProspectiveScanUser(exec)
 	}
-	paths.SetUserScope(device.IdentityUserScope(exec))
+	paths.SetUserScope(device.SessionScope(exec))
 	installDir := paths.Home() // "" when SetDisabled or home unresolved
 	logFilePath := ""
 	if installDir != "" {
@@ -489,7 +490,7 @@ func main() {
 	case "uninstall":
 		_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
 		// Collect the identities to retire while config.json and the
-		// per-user state files are still on disk (the MSI removes nothing
+		// per-session state files are still on disk (the MSI removes nothing
 		// before this custom action, but a teardown script may wipe the
 		// install dir right after), tear the scheduler down so no scan can
 		// start or finish reporting, and only then retire: a scan that
@@ -828,17 +829,18 @@ func resolvedIdentityLine(exec executor.Executor) string {
 	defer cancel()
 	id := device.ResolvedDeviceID(ctx, exec)
 	if id.Incomplete {
-		return fmt.Sprintf("(incomplete: template %q needs a logged-in user; this context has none)", id.Template)
-	}
-	if id.AutoFallback {
-		return fmt.Sprintf("%s (source: serial; automatic per-user identity %q applies to user sessions, this context has none)", id.DeviceID, id.Template)
+		return fmt.Sprintf("(incomplete: template %q cannot be completed on this machine)", id.Template)
 	}
 	line := fmt.Sprintf("%s (source: %s)", id.DeviceID, id.Source)
-	switch id.Source {
-	case device.IdentitySourceEnv:
+	if id.Source == device.IdentitySourceEnv {
 		line += " via " + device.EnvDeviceID
-	case device.IdentitySourceAuto:
-		line = fmt.Sprintf("%s (source: auto, %s)", id.DeviceID, id.AutoReason)
+	}
+	if id.PerSession {
+		if id.UserToken == "" {
+			line += "; per-session scanning is on and this context has no signed-in user, so a scan here is skipped"
+		} else {
+			line += fmt.Sprintf("; per-session scanning is on (%s), this session reports as user %s", device.PerSessionReason(exec), id.UserToken)
+		}
 	}
 	if id.Issue != "" {
 		line += " — " + id.Issue
@@ -847,17 +849,17 @@ func resolvedIdentityLine(exec executor.Executor) string {
 }
 
 // identityView is the `identity --json` object: the id every backend call of
-// a run uses, where it came from and the per-user state scope. The loaders
+// a run uses, where it came from, and the session facts (whether this host
+// scans per session and which user token this session reports). The loaders
 // read it to report run failures under the same id as the agent.
 type identityView struct {
 	DeviceID     string `json:"device_id"`
 	Source       string `json:"source"`
 	Template     string `json:"template,omitempty"`
-	PerUser      bool   `json:"per_user"`
-	UserScope    string `json:"user_scope,omitempty"`
+	PerSession   bool   `json:"per_session"`
+	SessionScope string `json:"session_scope,omitempty"`
+	UserToken    string `json:"user_token,omitempty"`
 	Incomplete   bool   `json:"incomplete"`
-	AutoFallback bool   `json:"auto_fallback,omitempty"`
-	AutoReason   string `json:"auto_reason,omitempty"`
 	Serial       string `json:"serial,omitempty"`
 	Issue        string `json:"issue,omitempty"`
 	// ImageBuilder is true when the machine-bound master-image switch is on
@@ -878,15 +880,16 @@ func printIdentity(exec executor.Executor, cfg *cli.Config) {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		enc.SetEscapeHTML(false)
-		_ = enc.Encode(identityView{DeviceID: id.DeviceID, Source: id.Source, Template: id.Template, PerUser: id.PerUser,
-			UserScope: id.UserScope, Incomplete: id.Incomplete, AutoFallback: id.AutoFallback, AutoReason: id.AutoReason,
+		_ = enc.Encode(identityView{DeviceID: id.DeviceID, Source: id.Source, Template: id.Template, PerSession: id.PerSession,
+			SessionScope: id.SessionScope, UserToken: id.UserToken, Incomplete: id.Incomplete,
 			Serial: id.Serial, Issue: id.Issue, ImageBuilder: device.ImageBuilderActive(exec)})
 		return
 	}
 	fmt.Printf("%-16s %s\n", "Device ID:", resolvedIdentityLine(exec))
 	fmt.Printf("%-16s %s\n", "Template:", displayOrNone(id.Template))
-	fmt.Printf("%-16s %v\n", "Per user:", id.PerUser)
-	fmt.Printf("%-16s %s\n", "User scope:", displayOrNone(id.UserScope))
+	fmt.Printf("%-16s %v\n", "Per session:", id.PerSession)
+	fmt.Printf("%-16s %s\n", "Session scope:", displayOrNone(id.SessionScope))
+	fmt.Printf("%-16s %s\n", "User token:", displayOrNone(id.UserToken))
 	fmt.Printf("%-16s %s\n", "Serial:", displayOrNone(id.Serial))
 	fmt.Printf("%-16s %v\n", "Image builder:", device.ImageBuilderActive(exec))
 }
@@ -910,9 +913,10 @@ func displayOrNone(v string) string {
 // (`--retire` / `--no-retire`, else config.json's retire_on_uninstall, written
 // at provisioning time so a plain `msiexec /x` needs no extra arguments) and
 // collects every identity to retire while the state is still on disk: the
-// resolved one plus each cached per-user id, which is how an MSI custom
-// action running as SYSTEM retires a {user}-template fleet's rows. Nil when
-// nothing is to be retired.
+// resolved machine identity plus every id the cached run records on this
+// host were written under (an older build's per-user ids included), so an
+// MSI custom action running as SYSTEM leaves no row behind. Nil when nothing
+// is to be retired.
 func retireCandidatesOnUninstall(exec executor.Executor, log *progress.Logger, cfg *cli.Config) []string {
 	retireWanted := cfg.UninstallRetire || (config.RetireOnUninstall && !cfg.UninstallNoRetire)
 	if !retireWanted {

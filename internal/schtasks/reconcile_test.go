@@ -2,6 +2,7 @@ package schtasks
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -41,13 +42,25 @@ func reconcileExec(t *testing.T, registered bool) (*scriptedExec, map[string]str
 	return ex, imported
 }
 
-func TestReconcileTaskSettings_AppliesParallelOnceHostIsPerUser(t *testing.T) {
-	ex, imported := reconcileExec(t, true)
-	ex.SetEnv(device.EnvDeviceID, "{hostname}-{user}")
+// withSharedHost makes the mock a Windows host whose sticky marker says it
+// scans every signed-in session separately.
+func withSharedHost(t *testing.T, ex *scriptedExec) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Cleanup(device.SetMachineStateDirForTest(dir))
+	ex.SetGOOS("windows")
+	if err := os.WriteFile(filepath.Join(dir, "multi-user.json"), []byte(`{"since":1,"reason":"edition"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
 
-	perUser, registered := ReconcileTaskSettings(ex, newTestLogger(), 4*time.Hour)
-	if !perUser || !registered {
-		t.Fatalf("perUser=%v registered=%v, want true/true", perUser, registered)
+func TestReconcileTaskSettings_AppliesParallelOnceHostScansPerSession(t *testing.T) {
+	ex, imported := reconcileExec(t, true)
+	withSharedHost(t, ex)
+
+	perSession, registered := ReconcileTaskSettings(ex, newTestLogger(), 4*time.Hour)
+	if !perSession || !registered {
+		t.Fatalf("perSession=%v registered=%v, want true/true", perSession, registered)
 	}
 	for _, name := range []string{taskName, logonTaskName} {
 		xml, ok := imported[name]
@@ -60,12 +73,14 @@ func TestReconcileTaskSettings_AppliesParallelOnceHostIsPerUser(t *testing.T) {
 	}
 }
 
-func TestReconcileTaskSettings_SharedIdentityKeepsIgnoreNew(t *testing.T) {
+func TestReconcileTaskSettings_SingleUserHostKeepsIgnoreNew(t *testing.T) {
 	ex, imported := reconcileExec(t, true)
+	t.Cleanup(device.SetMachineStateDirForTest(t.TempDir()))
+	ex.SetGOOS("windows")
 
-	perUser, registered := ReconcileTaskSettings(ex, newTestLogger(), 4*time.Hour)
-	if perUser || !registered {
-		t.Fatalf("perUser=%v registered=%v, want false/true", perUser, registered)
+	perSession, registered := ReconcileTaskSettings(ex, newTestLogger(), 4*time.Hour)
+	if perSession || !registered {
+		t.Fatalf("perSession=%v registered=%v, want false/true", perSession, registered)
 	}
 	for name, xml := range imported {
 		if strings.Contains(xml, "Parallel") {
@@ -76,11 +91,11 @@ func TestReconcileTaskSettings_SharedIdentityKeepsIgnoreNew(t *testing.T) {
 
 func TestReconcileTaskSettings_NoTaskIsNoop(t *testing.T) {
 	ex, imported := reconcileExec(t, false)
-	ex.SetEnv(device.EnvDeviceID, "{hostname}-{user}")
+	withSharedHost(t, ex)
 
-	perUser, registered := ReconcileTaskSettings(ex, newTestLogger(), 4*time.Hour)
-	if perUser || registered {
-		t.Fatalf("perUser=%v registered=%v, want false/false", perUser, registered)
+	perSession, registered := ReconcileTaskSettings(ex, newTestLogger(), 4*time.Hour)
+	if perSession || registered {
+		t.Fatalf("perSession=%v registered=%v, want false/false", perSession, registered)
 	}
 	if len(imported) != 0 {
 		t.Errorf("re-imported %v although no task is registered", imported)

@@ -29,9 +29,8 @@ type systemIDCache struct {
 // reads the shared ProgramData device-id file, which users can write (M-9).
 // A configured device_id is resolved the way the scan resolves it: a literal
 // as given; a template expanded with the host name and the machine identity
-// (systemMachineID). {user} has no expansion under SYSTEM, so such a template
-// yields "" (incomplete) and device-scoped posts are skipped rather than sent
-// under a literal or a guessed id; the scan reports under each user's id.
+// (systemMachineID). A template that still carries the retired {user} token
+// falls back to the machine identity, as the scan does.
 // Only a hardware result or a literal configured id is cached: a template's
 // expansion is recomputed from the hardware cache each time, so a later probe
 // failure never leaves SYSTEM with an id the user scans do not use. "" when
@@ -43,8 +42,8 @@ func SystemID(ctx context.Context, exec executor.Executor, cachePath string, pro
 		return template
 	}
 	lower := strings.ToLower(template)
-	if strings.Contains(lower, TokenUser) {
-		return ""
+	if strings.Contains(lower, legacyTokenUser) {
+		template, lower = "", ""
 	}
 	hostname := ""
 	if strings.Contains(lower, TokenHostname) {
@@ -60,11 +59,11 @@ func SystemID(ctx context.Context, exec executor.Executor, cachePath string, pro
 	if template == "" {
 		return machine
 	}
-	id := resolveWith(template, IdentitySourceConfig, machine, hostname, "", exec.GOOS(), false)
+	id := resolveWith(template, IdentitySourceConfig, machine, hostname)
 	if id.Source == IdentitySourceSerial && machine == "" {
 		// An unknown token falls back to the machine identity, as the scan does.
 		machine = systemMachineID(ctx, exec, cachePath, probeTimeout)
-		id = resolveWith(template, IdentitySourceConfig, machine, hostname, "", exec.GOOS(), false)
+		id = resolveWith(template, IdentitySourceConfig, machine, hostname)
 	}
 	if id.Incomplete || id.DeviceID == "" {
 		return ""

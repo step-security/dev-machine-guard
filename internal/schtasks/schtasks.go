@@ -176,15 +176,15 @@ func RunNow(exec executor.Executor, log *progress.Logger) error {
 
 // ReconcileTaskSettings re-applies the scan tasks' settings to whatever is
 // registered now: power and retry settings, the execution limit and, on a
-// per-user host, MultipleInstancesPolicy=Parallel. The policy is decided at
-// install time from the identity in force then, but a host turns multi-user
-// later (automatic mode's sticky marker, a changed template) and a
-// self-update swaps binaries without touching the tasks, so a host that
-// became per-user would keep IgnoreNew and drop a second session's scan
-// while the first still runs. The SYSTEM updater calls this on every tick.
-// Reports whether the identity is per-user and whether the tasks were
-// registered at all (a loader install or no install is a no-op).
-func ReconcileTaskSettings(exec executor.Executor, log *progress.Logger, maxExec time.Duration) (perUser, registered bool) {
+// host that scans per session, MultipleInstancesPolicy=Parallel. The policy
+// is decided at install time from what the host is then, but a host turns
+// shared later (the sticky marker, a second established developer) and a
+// self-update swaps binaries without touching the tasks, so such a host
+// would keep IgnoreNew and drop a second session's scan while the first
+// still runs. The SYSTEM updater calls this on every tick. Reports whether
+// the host scans per session and whether the tasks were registered at all (a
+// loader install or no install is a no-op).
+func ReconcileTaskSettings(exec executor.Executor, log *progress.Logger, maxExec time.Duration) (perSession, registered bool) {
 	ctx := context.Background()
 	if !isConfigured(ctx, exec) {
 		log.Debug("task settings reconcile: %q is not registered; nothing to do", taskName)
@@ -195,7 +195,7 @@ func ReconcileTaskSettings(exec executor.Executor, log *progress.Logger, maxExec
 	if _, _, code, err := exec.Run(ctx, "schtasks", "/query", "/tn", logonTaskName); err == nil && code == 0 {
 		applyBatterySettings(ctx, exec, log, logonTaskName, timeLimit)
 	}
-	return perUserIdentity(exec), true
+	return perSessionScanning(exec), true
 }
 
 // Uninstall removes the scheduled task. For an MSI bootstrap install it also
@@ -362,7 +362,7 @@ func applyBatterySettings(ctx context.Context, exec executor.Executor, log *prog
 		return
 	}
 
-	patched, changed := patchBatterySettings(decodeTaskXML(stdout), timeLimit, perUserIdentity(exec))
+	patched, changed := patchBatterySettings(decodeTaskXML(stdout), timeLimit, perSessionScanning(exec))
 	if !changed {
 		if bad := settingsMismatches(patched, timeLimit); len(bad) > 0 {
 			log.Warn("could not patch settings for task %q (unrecognized task XML): %s", name, strings.Join(bad, ", "))
@@ -499,9 +499,9 @@ const (
 // perUser additionally sets MultipleInstancesPolicy=Parallel. The /ru
 // INTERACTIVE task fires in every logged-on session; with the default
 // IgnoreNew policy a second session's instance is dropped while the first
-// user's scan is still running, so on a multi-session host with a {user}
-// identity only one user would ever be scanned per tick. With a shared
-// identity the default stays: the singleton lock already serialises overlaps.
+// user's scan is still running, so on a host that scans per session only one
+// user would ever be scanned per tick. With shared scanning the default
+// stays: the singleton lock already serialises overlaps.
 func patchBatterySettings(xml, timeLimit string, perUser bool) (string, bool) {
 	out := xml
 	out = setXMLElement(out, "DisallowStartIfOnBatteries", "false")
@@ -515,19 +515,19 @@ func patchBatterySettings(xml, timeLimit string, perUser bool) (string, bool) {
 	return out, out != xml
 }
 
-// perUserIdentity reports whether the device identity makes each logged-on
-// user a separate device ({user} token). Resolved the same way the scheduled
-// runs resolve it (STEPSEC_DEVICE_ID, else the config the installer just
-// wrote, else the automatic mode): on a multi-session edition the automatic
-// template is already in force at install time, so those hosts register
-// Parallel from the start. A host that turns multi-user later through a
-// second developer keeps IgnoreNew until the next install or upgrade
-// re-registers the tasks; the per-user locks are what make that safe, and
-// Parallel is not applied unconditionally because a long scan on a
-// single-user machine would then spawn a lock-refused instance every tick.
-func perUserIdentity(exec executor.Executor) bool {
-	template, _ := device.IdentityTemplate(exec)
-	return strings.Contains(strings.ToLower(template), device.TokenUser)
+// perSessionScanning reports whether this host scans every signed-in
+// session separately (device.PerSessionScanning: a multi-session edition, the
+// RD Session Host role, the sticky marker, or two established developers
+// under the users rule). The /ru INTERACTIVE task then fires in every
+// logged-on session and needs MultipleInstancesPolicy=Parallel, or a second
+// session's instance is dropped while the first user's scan is still running.
+// With shared scanning the default stays: the singleton lock already
+// serialises overlaps, and Parallel would spawn a lock-refused instance every
+// tick a scan runs long. A host that becomes shared after install is caught
+// by ReconcileTaskSettings on the next updater tick.
+func perSessionScanning(exec executor.Executor) bool {
+	on, _ := device.PerSessionScanning(exec)
+	return on
 }
 
 // setRestartOnFailure forces <RestartOnFailure><Interval>..</Interval>

@@ -166,21 +166,21 @@ func TestRunConfigureNonInteractive_DeviceIDAndRetireFlags(t *testing.T) {
 		"customer_id":         "cust-1",
 		"api_endpoint":        "https://api.example.com",
 		"api_key":             "sk-abcdef",
-		"device_id":           " {hostname}-{user} ",
+		"device_id":           " {hostname}-vdi ",
 		"retire_on_uninstall": true,
 	}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	cfg := loadExisting()
-	if cfg.DeviceID != "{hostname}-{user}" {
+	if cfg.DeviceID != "{hostname}-vdi" {
 		t.Errorf("DeviceID: got %q", cfg.DeviceID)
 	}
 	if cfg.RetireOnUninstall == nil || !*cfg.RetireOnUninstall {
 		t.Errorf("RetireOnUninstall: got %v", cfg.RetireOnUninstall)
 	}
 	raw, _ := os.ReadFile(filepath.Join(withHomeDir(t), ".stepsecurity", "config.json"))
-	for _, want := range []string{`"device_id": "{hostname}-{user}"`, `"retire_on_uninstall": true`} {
+	for _, want := range []string{`"device_id": "{hostname}-vdi"`, `"retire_on_uninstall": true`} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("config.json missing %s:\n%s", want, raw)
 		}
@@ -192,7 +192,7 @@ func TestRunConfigureNonInteractive_DeviceIDAndRetireFlags(t *testing.T) {
 		t.Fatalf("second configure: %v", err)
 	}
 	cfg = loadExisting()
-	if cfg.DeviceID != "{hostname}-{user}" {
+	if cfg.DeviceID != "{hostname}-vdi" {
 		t.Errorf("omitted --device-id must keep the template, got %q", cfg.DeviceID)
 	}
 	if cfg.RetireOnUninstall != nil {
@@ -314,7 +314,7 @@ func TestLoad_DeviceIDAndRetireOnUninstall(t *testing.T) {
 	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	content := `{"customer_id":"c","api_endpoint":"https://e","api_key":"k","device_id":" {hostname}-{user} ","retire_on_uninstall":true}`
+	content := `{"customer_id":"c","api_endpoint":"https://e","api_key":"k","device_id":" {hostname}-vdi ","retire_on_uninstall":true}`
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +326,7 @@ func TestLoad_DeviceIDAndRetireOnUninstall(t *testing.T) {
 		CustomerID, APIEndpoint, APIKey = prevCust, prevEnd, prevKey
 	})
 	Load()
-	if DeviceID != "{hostname}-{user}" {
+	if DeviceID != "{hostname}-vdi" {
 		t.Fatalf("DeviceID = %q", DeviceID)
 	}
 	if !RetireOnUninstall {
@@ -367,7 +367,7 @@ func TestShowConfigure_PrintsDeviceIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	out = captureStdout(t, func() { ShowConfigure("", "") })
-	if !strings.Contains(out, "auto (per-user on multi-session hosts, hardware serial elsewhere)") {
+	if !strings.Contains(out, "Device ID:               hardware serial (default)") {
 		t.Errorf("default identity label missing:\n%s", out)
 	}
 }

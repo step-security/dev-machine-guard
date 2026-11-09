@@ -71,11 +71,12 @@ type Payload struct {
 	CustomerID           string                 `json:"customer_id"`
 	DeviceID             string                 `json:"device_id"`
 	SerialNumber         string                 `json:"serial_number"`
-	DeviceIDSource       string                 `json:"device_id_source,omitempty"`   // env | config | auto | serial | wsl_guest
+	DeviceIDSource       string                 `json:"device_id_source,omitempty"`   // env | config | serial | wsl_guest
 	DeviceIDTemplate     string                 `json:"device_id_template,omitempty"` // the template in force when it carries a token; "" for serial or literal ids
 	DeviceTag            string                 `json:"device_tag"`                   // config.json device_tag; always present so the backend can tell "cleared" from "older agent"
 	Virtualization       *model.Virtualization  `json:"virtualization,omitempty"`
 	UserIdentity         string                 `json:"user_identity"`
+	UserToken            string                 `json:"user_token,omitempty"` // the signed-in user's token (short name + fingerprint); the backend files this upload under that user of the device. "" for a service account
 	Hostname             string                 `json:"hostname"`
 	Platform             string                 `json:"platform"`
 	OSVersion            string                 `json:"os_version"`
@@ -455,12 +456,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	fmt.Fprintf(os.Stderr, "==========================================\n\n")
 
 	// Resolve the identity before the lock so a refused run is attributable
-	// under the same id the scan would report (a configured or automatic
-	// identity, not only the serial). An incomplete identity leaves it empty
-	// and the lock_held beacon is skipped; the run gate reports that case.
+	// under the same id the scan would report (a configured identity, not
+	// only the serial). An incomplete identity leaves it empty and the
+	// lock_held beacon is skipped; the run gate reports that case. The
+	// session's user token is recorded for every beacon of this run.
 	serialCtx, serialCancel := context.WithTimeout(ctx, serialProbeTimeout)
 	ident := device.ResolvedDeviceID(serialCtx, exec)
 	serialCancel()
+	setRunUserToken(ident.UserToken)
 	probed := model.Device{SerialNumber: ident.Serial, DeviceID: ident.DeviceID, DeviceIDSource: ident.Source, IdentityIncomplete: ident.Incomplete}
 	wslGuest := wslGuestFromConfig(cfg)
 	if wslGuest != nil {
@@ -494,14 +497,6 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		log.Progress("Lock released (PID: %d)", os.Getpid())
 	}()
 	log.Progress("Lock acquired (PID: %d)", os.Getpid())
-
-	// A run under the machine identity that waited in the gate or on the
-	// lock may have been overtaken by another user's switch to per-user
-	// identities; its upload would restore the row that switch just retired.
-	if serialRunSuperseded(exec, ident, wslGuest) {
-		log.Progress("Identity switch: this host became multi-user while this run was waiting; skipping this run under the machine identity %s (the next run reports per user)", deviceID)
-		return nil
-	}
 
 	// Scheduler info — first tracked phase. Gathers launchd/schtasks/systemd
 	// state (interval, last/next run, RunAtLoad, last exit, missed runs) for
@@ -541,7 +536,17 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// "started" post has happened yet, so returning here leaves no trace.
 	if dev.IdentityIncomplete {
 		endPhase(phaseCtx, phaseCancel, tracker, log, "device_info")
-		log.Progress("Device identity template requires a logged-in user; none found (running as %q) — skipping this run", dev.UserIdentity)
+		log.Progress("Device identity template %q cannot be completed on this machine — skipping this run", dev.DeviceIDTemplate)
+		return nil
+	}
+	// A host that scans every signed-in session separately has nothing to
+	// scan in a run with no signed-in user (SYSTEM, a device-context task):
+	// its users' sessions report for themselves, and a SYSTEM-profile scan
+	// would only file an empty inventory under the device. The run gate
+	// refused it already; this guards the paths that bypass the gate.
+	if dev.PerSessionScanning && dev.UserToken == "" && wslGuest == nil {
+		endPhase(phaseCtx, phaseCancel, tracker, log, "device_info")
+		log.Progress("Per-session scanning is on for this host and this run has no signed-in user (running as %q); the session tasks report per user — skipping this run", dev.UserIdentity)
 		return nil
 	}
 	deviceID = device.ID(dev)
@@ -558,13 +563,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 			return fmt.Errorf("device identity could not be determined")
 		}
 	}
-	// A host that just became multi-user retires the row it used to report
-	// under (once), before anything is posted under the new identity.
-	retireSerialRowOnIdentitySwitch(ctx, exec, log, &dev, wslGuest)
+	setRunUserToken(dev.UserToken)
 	// Gather decided whether this is a developer session or a daemon context
-	// (service accounts included); the identity template's {user} token
-	// applies the same rule, so the warning, the Developer: line, the
-	// telemetry field and the token agree.
+	// (service accounts included); the user token applies the same rule, so
+	// the warning, the Developer: line, the telemetry field and the token
+	// agree.
 	noUserLoggedIn := dev.NoUserLoggedIn
 	if dev.DeviceIDSource == "" || dev.DeviceIDSource == device.IdentitySourceSerial {
 		log.Progress("Device ID: %s", deviceID)
@@ -582,7 +585,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	if noUserLoggedIn {
 		log.Progress("Developer: (no user logged in)")
 	} else {
-		log.Progress("Developer: %s", dev.UserIdentity)
+		log.Progress("Developer: %s (user token %s)", dev.UserIdentity, dev.UserToken)
 	}
 	log.Debug("device gathered: hostname=%q platform=%q device_id=%q source=%q serial=%q user_identity=%q no_user=%v",
 		dev.Hostname, dev.Platform, deviceID, dev.DeviceIDSource, dev.SerialNumber, dev.UserIdentity, noUserLoggedIn)

@@ -450,11 +450,11 @@ func TestParseHooks_AcceptsInstallDir(t *testing.T) {
 // test that asserts the binary always exits 0 on `_hook` invocations.
 
 func TestParse_ConfigureDeviceIDAndRetireOnUninstall(t *testing.T) {
-	cfg, err := Parse([]string{"configure", "--device-id", "{hostname}-{user}", "--retire-on-uninstall"})
+	cfg, err := Parse([]string{"configure", "--device-id", "{hostname}", "--retire-on-uninstall"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ConfigValues["device_id"] != "{hostname}-{user}" {
+	if cfg.ConfigValues["device_id"] != "{hostname}" {
 		t.Errorf("device_id = %v", cfg.ConfigValues["device_id"])
 	}
 	if cfg.ConfigValues["retire_on_uninstall"] != true {

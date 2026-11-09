@@ -658,32 +658,37 @@ if isConfigured(ctx, exec) {
   `config.InstallDir` > `$STEPSECURITY_HOME` > `~/.stepsecurity`. A `""` return means output is
   **disabled** — callers MUST skip writing. Per-run state files (`last-run.json`,
   `scan-state.json`, `node-scan-cache.json`, `run-metrics.jsonl`) go through `paths.StateDir()`,
-  which is `Home()` or `Home()/users/<user>` when the device identity is per-user.
+  which is `Home()` or `Home()/users/<user token>` when the host scans per session.
 - **Device identity is one call: `device.ID(dev)` (or `device.IDForGuest`) on a `device.Gather`
   result; the run gate uses `device.ResolvedDeviceID`.** Two layers: `device.SerialNumber` resolves
   the MACHINE identity once per process (hardware serial, else the machine-wide id file root wrote,
   else a generated and persisted id; placeholder serials rejected by `usableSerial`), and
   `device.ResolveIdentity` (identity.go) layers the configured identity on top:
-  `STEPSEC_DEVICE_ID` > `config.DeviceID` (config.json `device_id`) > automatic per-user template on
-  a shared Windows host (multiuser.go: sticky marker; multi-session edition, or with
-  `config.MultiUserDetection` = users two developers seen on two days each; the switch removes the old
-  serial row once, retire reason `identity_changed`) > machine identity; a literal or
-  a template over `{serial}` `{hostname}` `{user}`; `{user}` = short name + 12-hex sha256 fingerprint of the
-  full principal (`device.UserTokenFingerprint`, mirrored by every loader) so principals sharing a short name
-  never collide; template expansions are sanitized (a literal id is used as given)
-  (`device.SanitizeDeviceID`), the machine-identity path is byte-identical. `Gather` stores the
-  result on `Device.DeviceID`/`DeviceIDSource`; `Device.SerialNumber` stays the machine identity.
+  `STEPSEC_DEVICE_ID` > `config.DeviceID` (config.json `device_id`) > machine identity; a literal or
+  a template over `{serial}` `{hostname}` only (a `{user}` or unknown token logs a warning and falls
+  back to the machine identity: a device is the machine, never a person); template expansions are
+  sanitized (a literal id is used as given) (`device.SanitizeDeviceID`), the machine-identity path is
+  byte-identical. `Gather` stores the result on `Device.DeviceID`/`DeviceIDSource`/`DeviceIDTemplate`;
+  `Device.SerialNumber` stays the machine identity. Users are reported inside the device:
+  `Device.UserToken` (`user_token`) = short name + 12-hex sha256 fingerprint of the full principal
+  (`device.UserToken`/`UserTokenFingerprint`, mirrored by every loader; "" for a service account) rides
+  on every upload and run-status beacon and is the run-config `user_token` query parameter.
+- **Per-session scanning is one call: `device.PerSessionScanning(exec)`** (multiuser.go; sticky
+  `multi-user.json` marker bound to the machine id; multi-session edition / RDSH role, or with
+  `config.MultiUserDetection` = users two developers seen on two days each; `off` never). When on,
+  `device.SessionScope(exec)` (the user token) scopes `paths.StateDir()` and the instance lock, the
+  scan task is registered `MultipleInstancesPolicy=Parallel` (reconciled on every updater tick), and
+  a run with no signed-in user is skipped (`rungate.ReasonNoSessionUser`; no beacon, no upload).
 - **Virtualization is one call: `device.DetectVirtualization`** (virt.go; memoized per process on
   its own context). Evidence order: cloud metadata service (probed only when SMBIOS/DMI already
   names that cloud's hypervisor family), SMBIOS/DMI vendor strings, macOS `kern.hv_vmm_present`,
   `systemd-detect-virt --vm`, cpuinfo `hypervisor`. Never the CPUID hypervisor bit on Windows
   (Hyper-V/VBS hosts set it). Reported as `Device.Virtualization` (type virtual|physical|unknown,
   vendor, source); "physical" means no hypervisor was detected, never a proof.
-  Never read the serial as the id anywhere else. An `IdentityIncomplete` identity (a configured {user}
-  template under a service account) skips the run — no beacon, no upload, no phantom row. In automatic
-  mode a service-account run gets `Identity.AutoFallback` (the serial, as before the feature) until
-  `device.AutoSerialRowRetired`, then it is incomplete. The `identity --json` verb exposes the result.
-  `device.IsServiceAccount` is the single no-user predicate.
+  Never read the serial as the id anywhere else. An `IdentityIncomplete` identity (a `{serial}`
+  template on a host with no usable serial) skips the run — no beacon, no upload, no phantom row.
+  The `identity --json` verb exposes the result. `device.IsServiceAccount` is the single no-user
+  predicate.
 - **Uninstall collects, tears down, then retires.** `uninstall` collects the identities to retire
   while the state files exist, removes the scheduler (so no scan can report afterwards), then calls
   `internal/retire` (best-effort, bounded) when `--retire` or config `retire_on_uninstall` says so; `--no-retire`

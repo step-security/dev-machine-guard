@@ -77,7 +77,7 @@ WiX's `WixQuietExec` (Util extension) → the bootstrap or the seed agent
 PowerShell egress — a common enterprise posture.
 
 Optional properties `DEVICEID` (device identity template, e.g.
-`{hostname}-{user}`), `DEVICETAG` (dashboard label, selectable by the
+`{hostname}`), `DEVICETAG` (dashboard label, selectable by the
 dashboard's retirement scope) and `RETIREONUNINSTALL=1` are forwarded to
 `configure --device-id` / `--device-tag` / `--retire-on-uninstall`; all
 three are also accepted as `device_id` / `device_tag` /

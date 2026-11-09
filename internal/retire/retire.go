@@ -40,9 +40,6 @@ import (
 const (
 	// ReasonUninstall: `uninstall --retire` / retire_on_uninstall.
 	ReasonUninstall = "agent_uninstall"
-	// ReasonIdentityChanged: a host switched to the automatic per-user identity
-	// and its previous machine-identity row is being retired.
-	ReasonIdentityChanged = "identity_changed"
 )
 
 const (
@@ -58,7 +55,7 @@ const (
 	// perIdentityBudget is what BudgetFor adds per identity beyond the
 	// first: one attempt plus its retry.
 	perIdentityBudget = 2*attemptTimeout + retryBackoff
-	// MaxBudget caps BudgetFor so a host with many per-user rows still
+	// MaxBudget caps BudgetFor so a host with many cached ids still
 	// uninstalls promptly; rows the budget leaves behind are covered by the
 	// dashboard's auto-retire.
 	MaxBudget = 60 * time.Second
@@ -118,7 +115,7 @@ func Post(ctx context.Context, endpoint, apiKey, customerID, deviceID, agentVers
 		"/developer-mdm-agent/devices/" + url.PathEscape(deviceID) + "/retire"
 
 	// device_tag lets the backend apply the tenant's retirement scope to a
-	// row that predates the tag (the serial row at the identity switch).
+	// row that predates the tag.
 	body, err := json.Marshal(map[string]string{
 		"agent_version": agentVersion,
 		"platform":      platform,
@@ -190,10 +187,10 @@ func post(ctx context.Context, target, apiKey string, body []byte) (status strin
 // CollectIdentities returns every device id this installation may have
 // registered under: the identity resolved right now (when complete), plus the
 // run-gate cache of every state file under the install dir — last-run.json at
-// the top level and users/*/last-run.json for per-user identities. The latter
-// is what lets an MSI uninstall, which runs as SYSTEM and therefore cannot
-// complete a {user} template itself, retire each logged-in user's device.
-// Deduplicated, ordered, capped at MaxIdentities.
+// the top level and users/*/last-run.json for the per-session state. A
+// session's record normally names the machine identity too, and the per-user
+// ids an older build wrote go with it, so an MSI uninstall running as SYSTEM
+// leaves no row behind. Deduplicated, ordered, capped at MaxIdentities.
 func CollectIdentities(ctx context.Context, exec executor.Executor, log *progress.Logger) []string {
 	seen := map[string]bool{}
 	var ids []string
@@ -210,7 +207,7 @@ func CollectIdentities(ctx context.Context, exec executor.Executor, log *progres
 	if !id.Incomplete {
 		add(id.DeviceID)
 	} else {
-		log.Debug("retire: identity template %q is incomplete in this context; relying on cached per-user ids", id.Template)
+		log.Debug("retire: identity template %q cannot be completed in this context; relying on the cached run records", id.Template)
 	}
 
 	// The install dir this process resolves is not always where the scheduled
@@ -262,19 +259,19 @@ func stateRoots() []string {
 	return roots
 }
 
-// Bounds on identity collection: the users tree and the per-user caches are
+// Bounds on identity collection: the users tree and the per-session caches are
 // user-writable, so neither the number of files read per root nor the size
 // of one may depend on what a user planted there.
 const (
-	// maxCachedIDFiles covers every per-user cache a host at MaxIdentities
+	// maxCachedIDFiles covers every per-session cache a host at MaxIdentities
 	// can have, plus the top-level heartbeat of the same root.
 	maxCachedIDFiles     = MaxIdentities + 1
 	maxCachedIDFileBytes = 64 * 1024
 )
 
 // collectCachedIDs reads the run-gate cache of every state file under the
-// roots: last-run.json at the top level and users/*/last-run.json for
-// per-user identities. Order is deterministic (roots in order, users sorted).
+// roots: last-run.json at the top level and users/*/last-run.json for the
+// per-session state. Order is deterministic (roots in order, users sorted).
 // Stops at the uninstall budget (ctx), reads at most maxCachedIDFiles files
 // per root and skips any larger than maxCachedIDFileBytes. A record that
 // names another machine (machineID known and different) was captured into
@@ -326,7 +323,7 @@ const ScanHoldBudget = 30 * time.Second
 var scanHoldPoll = 500 * time.Millisecond
 
 // HoldScans waits, within ctx, until no scan runs under any identity on this
-// host (the machine-wide instance lock and every per-user lock can be taken)
+// host (the machine-wide instance lock and every per-session lock can be taken)
 // and returns a release func that keeps them held while the caller retires,
 // so no scan starts in between. idle is false when a scan still ran at the
 // deadline; the caller must then leave the device registered, because a scan
@@ -357,7 +354,7 @@ func holdScans(ctx context.Context, scopes []string, log *progress.Logger) (rele
 	}
 }
 
-// stateScopes lists the per-user state scopes (users/<scope> directories)
+// stateScopes lists the per-session state scopes (users/<scope> directories)
 // under the state roots, the same places CollectIdentities reads.
 func stateScopes() []string {
 	seen := map[string]bool{}

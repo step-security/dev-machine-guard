@@ -60,7 +60,7 @@ func TestHoldScans_HoldsIdleHostAndGivesUpWhileAScanRuns(t *testing.T) {
 	release()
 }
 
-func TestStateScopes_ListsPerUserStateDirs(t *testing.T) {
+func TestStateScopes_ListsPerSessionStateDirs(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv(paths.HomeEnvVar, root)
 	for _, d := range []string{"dev2-aaaaaaaaaaaa", "dev1-bbbbbbbbbbbb"} {

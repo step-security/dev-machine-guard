@@ -57,15 +57,15 @@ func SetOverride(s string) {
 	cliDisabled = false
 }
 
-// userScope names the per-user state subdirectory (users/<scope>) when the
-// device identity template contains {user}: every logged-in user of the
-// machine is then a separate device, so the run-gate cache, delta scan state,
-// node cache and run metrics must not be shared between them. "" (the
-// default) keeps every file directly under Home(). Set once at startup by main
-// from device.IdentityUserScope; never mutated thereafter.
+// userScope names the per-session state subdirectory (users/<scope>) when
+// the host scans every signed-in session separately: the run-gate cache,
+// delta scan state, node cache and run metrics of one session must not be
+// shared with another's. "" (the default) keeps every file directly under
+// Home(). Set once at startup by main from device.SessionScope; never mutated
+// thereafter.
 var userScope string
 
-// SetUserScope installs the per-user state scope. The value must already be
+// SetUserScope installs the per-session state scope. The value must already be
 // key-safe (device.SanitizeDeviceID output); anything that could escape the
 // install dir — path separators, "." or ".." — is rejected and leaves state
 // shared, which fails safe rather than writing outside Home().
@@ -77,13 +77,13 @@ func SetUserScope(s string) {
 	userScope = s
 }
 
-// UserScope returns the per-user state scope set by SetUserScope ("" when
+// UserScope returns the per-session state scope set by SetUserScope ("" when
 // state is shared). The lock package suffixes its PID file with it.
 func UserScope() string { return userScope }
 
 // StateDir returns the directory for per-run state files (last-run.json,
 // scan-state.json, node-scan-cache.json, run-metrics.jsonl): Home() itself, or
-// Home()/users/<scope> when a per-user identity is in force. Returns "" when
+// Home()/users/<scope> when per-session scanning is in force. Returns "" when
 // Home() is disabled, with the same "skip writing" contract. The scoped
 // directory is created best-effort on first use; on Windows the install dir's
 // Users:Modify ACL propagates to it, so each session's user can write their
@@ -184,7 +184,7 @@ func LegacyHome() string {
 
 // ScanStateFile returns the absolute path to scan-state.json, or "" when
 // Home() is disabled. Callers must treat "" as "state tracking unavailable".
-// Lives under StateDir(), so it is per-user when the identity is.
+// Lives under StateDir(), so it is per session when the host scans per session.
 func ScanStateFile() string {
 	dir := StateDir()
 	if dir == "" {

@@ -28,7 +28,7 @@ func ID(dev model.Device) string {
 		return ""
 	}
 	return resolveWith(strings.TrimSpace(config.DeviceID), IdentitySourceConfig,
-		dev.SerialNumber, dev.Hostname, dev.UserIdentity, dev.Platform, false).DeviceID
+		dev.SerialNumber, dev.Hostname).DeviceID
 }
 
 // IDForGuest gives the host/distro identity precedence over an inherited host
@@ -83,8 +83,8 @@ func Gather(ctx context.Context, exec executor.Executor) model.Device {
 	return dev
 }
 
-// developerIdentity is the user the {user} identity token and the per-user
-// state scope derive from: the provisioned user_id when one was configured
+// developerIdentity is the user the user token (and with it the per-session
+// state scope) derives from: the provisioned user_id when one was configured
 // (an ephemeral device with no detectable user, see configure --user-id),
 // else the detected session user (the USER_EMAIL family of overrides, then
 // the logged-in user), "unknown" when there is none. Gather applies the same

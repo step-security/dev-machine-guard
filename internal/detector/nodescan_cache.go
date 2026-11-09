@@ -42,7 +42,7 @@ func newScanCache() *scanCache {
 }
 
 // scanCacheFile returns the cache path under paths.StateDir() (the install
-// dir, or its per-user subdirectory when the device identity is per-user).
+// dir, or its per-session subdirectory when the host scans per session).
 // Returns "" when the install dir is disabled — caller must treat "" as
 // "cache disabled, scan everything". Override with STEPSEC_NODE_SCAN_CACHE for
 // tests.

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -459,14 +460,14 @@ func identityMock(user string) *executor.Mock {
 
 func TestEvaluate_TemplateIdentityKeepsMatchingCache(t *testing.T) {
 	withTempState(t)
-	withTemplate(t, "{hostname}-{user}")
+	withTemplate(t, "{hostname}")
 	t.Cleanup(device.ResetIDCache)
 	d := Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}
-	jdoe := "avd-host-07-jdoe-" + device.UserTokenFingerprint(`contoso\jdoe`)
-	if err := recordCheckin(jdoe, "", d, time.Now()); err != nil {
+	const host = "avd-host-07"
+	if err := recordCheckin(host, "", d, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := StampLastFullRun(jdoe, "", time.Now()); err != nil {
+	if err := StampLastFullRun(host, "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	gateServer(t, http.StatusServiceUnavailable, "")
@@ -477,28 +478,46 @@ func TestEvaluate_TemplateIdentityKeepsMatchingCache(t *testing.T) {
 	}
 }
 
-func TestEvaluate_IdentityIncompleteSkipsWithoutCheckin(t *testing.T) {
+// A host that scans every signed-in session separately has nothing to scan
+// in a run with no signed-in user: the gate skips it before any check-in or
+// beacon, --force-scan included.
+func TestEvaluate_NoSessionUserSkipsWithoutCheckin(t *testing.T) {
 	withTempState(t)
-	withTemplate(t, "{hostname}-{user}")
+	withTemplate(t, "")
 	t.Cleanup(device.ResetIDCache)
+	dir := t.TempDir()
+	t.Cleanup(device.SetMachineStateDirForTest(dir))
+	if err := os.WriteFile(filepath.Join(dir, "multi-user.json"), []byte(`{"since":1,"reason":"edition"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	hits := gateServer(t, 0, `{`+fullDirective+`}`)
 
 	for _, force := range []bool{false, true} {
-		res := Evaluate(context.Background(), identityMock(`NT AUTHORITY\SYSTEM`), progress.NewNoop(), force, "")
-		if !res.Skip || res.Reason != ReasonIdentityIncomplete {
-			t.Fatalf("force=%v: result = %+v, want identity_incomplete skip", force, res)
+		m := identityMock(`NT AUTHORITY\SYSTEM`)
+		m.SetFile(`C:\ProgramData\StepSecurity\device-id`, []byte("SER-1\n"))
+		res := Evaluate(context.Background(), m, progress.NewNoop(), force, "")
+		if !res.Skip || res.Reason != ReasonNoSessionUser {
+			t.Fatalf("force=%v: result = %+v, want no_session_user skip", force, res)
 		}
 	}
 	if hits.Load() != 0 {
-		t.Fatalf("an incomplete identity must never check in, hits = %d", hits.Load())
+		t.Fatalf("a run without a session user must never check in, hits = %d", hits.Load())
 	}
 }
 
-func TestEvaluate_RecordsTemplateResolvedID(t *testing.T) {
+// The check-in carries the session's user token so the backend keeps the
+// cadence per device and user, and the resolved id is what the state records.
+func TestEvaluate_RecordsTemplateResolvedIDAndSendsUserToken(t *testing.T) {
 	withTempState(t)
-	withTemplate(t, "{serial}-{user}")
+	withTemplate(t, "{serial}-vdi")
 	t.Cleanup(device.ResetIDCache)
-	gateServer(t, 0, `{`+fullDirective+`}`)
+	var query atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query.Store(r.URL.RawQuery)
+		_, _ = w.Write([]byte(`{` + fullDirective + `}`))
+	}))
+	t.Cleanup(srv.Close)
+	config.APIEndpoint, config.APIKey, config.CustomerID = srv.URL, "k", "acme"
 	m := identityMock(`CONTOSO\JDoe`)
 	m.SetGOOS("linux")
 	m.SetFile("/sys/class/dmi/id/product_serial", []byte("LNX-77\n"))
@@ -508,7 +527,11 @@ func TestEvaluate_RecordsTemplateResolvedID(t *testing.T) {
 		t.Fatalf("full directive must proceed: %+v", res)
 	}
 	st, ok := readState()
-	if want := "LNX-77-jdoe-" + device.UserTokenFingerprint(`contoso\jdoe`); !ok || st.DeviceID != want {
-		t.Fatalf("state = %+v (ok=%v), want device id %s", st, ok, want)
+	if !ok || st.DeviceID != "LNX-77-vdi" {
+		t.Fatalf("state = %+v (ok=%v), want device id LNX-77-vdi", st, ok)
+	}
+	q, _ := query.Load().(string)
+	if want := "user_token=jdoe-" + device.UserTokenFingerprint(`contoso\jdoe`); !strings.Contains(q, want) {
+		t.Fatalf("check-in query = %q, want %s", q, want)
 	}
 }

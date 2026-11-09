@@ -95,9 +95,6 @@ func runSelfCheck() int {
 		}
 	}
 	sc.DeviceID = selfCheckDeviceID(context.Background(), executor.NewReal(), system, cachePath)
-	// A {user} template has no expansion as SYSTEM: report that explicitly so
-	// the smoke validator does not quarantine a healthy release over it.
-	sc.DeviceIDPerUser = system && sc.DeviceID == "" && strings.Contains(strings.ToLower(config.DeviceID), device.TokenUser)
 	if err := json.NewEncoder(os.Stdout).Encode(sc); err != nil {
 		return selfCheckExitFailed
 	}
@@ -150,13 +147,13 @@ func runSelfUpdate(args []string) int {
 	exec := executor.NewReal()
 	machineConfig := config.ConfigFilePath()
 
-	// The scan tasks' settings follow the host's identity mode, which can
-	// change after install (automatic mode's sticky marker) while a
+	// The scan tasks' settings follow whether the host scans per session,
+	// which can change after install (the sticky multi-user marker) while a
 	// self-update never re-registers tasks: reconcile them on every tick so a
-	// host that became multi-user runs one scan per signed-in session.
+	// host that became shared runs one scan per signed-in session.
 	if runtime.GOOS == model.PlatformWindows {
-		if perUser, registered := schtasks.ReconcileTaskSettings(exec, progress.NewLogger(progress.LevelWarn), telemetry.ExecutionDeadline(config.MaxExecutionDuration)); registered {
-			logf("self-update: scan task settings reconciled (per-user identity: %v)", perUser)
+		if perSession, registered := schtasks.ReconcileTaskSettings(exec, progress.NewLogger(progress.LevelWarn), telemetry.ExecutionDeadline(config.MaxExecutionDuration)); registered {
+			logf("self-update: scan task settings reconciled (per-session scanning: %v)", perSession)
 		}
 	}
 
@@ -202,9 +199,10 @@ func runSelfUpdate(args []string) int {
 		RefreshDeviceID: func(context.Context) { _ = deviceID() },
 		Send: func(ctx context.Context, ev updatestate.OutboxEvent) error {
 			if deviceID() == "" {
-				// A per-user identity template leaves SYSTEM without a device
-				// of its own (the scans report per user); there is no row to
-				// attribute the event to, so it is logged and dropped.
+				// No usable identity in the SYSTEM context (no hardware
+				// serial, cached id or MachineGuid, or a {serial} template
+				// that cannot be completed): there is no row to attribute
+				// the event to, so it is logged and dropped.
 				logf("self-update: event %s not posted: no device identity in the SYSTEM context", ev.Event)
 				return nil
 			}

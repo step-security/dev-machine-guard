@@ -36,14 +36,15 @@ func Normalize(value, kind string) (string, error) {
 // Device identity template tokens the agent expands on every scan (see
 // internal/device, which config cannot import). Lower-case; matched
 // case-insensitively.
-var deviceTemplateTokens = map[string]bool{"{serial}": true, "{hostname}": true, "{user}": true}
+var deviceTemplateTokens = map[string]bool{"{serial}": true, "{hostname}": true}
 
 // NormalizeDevice validates an explicitly configured device ID. "-" clears
-// the override and is returned as "". A template over {serial}, {hostname}
-// and {user} is returned trimmed: the agent expands and sanitizes it on each
+// the override and is returned as "". A template over {serial} and
+// {hostname} is returned trimmed: the agent expands and sanitizes it on each
 // scan, so only its shape is checked here (known tokens, balanced braces,
-// literal text from the ID allowlist, at most 256 characters). Anything else
-// is a literal and must satisfy Normalize.
+// literal text from the ID allowlist, at most 256 characters). A device is
+// the machine, so there is no user token: {user} is rejected like any other
+// unknown token. Anything else is a literal and must satisfy Normalize.
 func NormalizeDevice(value string) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "-" {
@@ -53,7 +54,7 @@ func NormalizeDevice(value string) (string, error) {
 		return Normalize(value, "device")
 	}
 	invalid := func(why string) (string, error) {
-		return "", fmt.Errorf("Invalid device ID template %q: %s. Use the tokens {serial}, {hostname} and {user}, joined by letters, digits, @, ., _, +, or -.", trimmed, why) //nolint:staticcheck // ST1005: matches the ID diagnostics.
+		return "", fmt.Errorf("Invalid device ID template %q: %s. Use the tokens {serial} and {hostname}, joined by letters, digits, @, ., _, +, or -.", trimmed, why) //nolint:staticcheck // ST1005: matches the ID diagnostics.
 	}
 	if len(trimmed) > 256 {
 		return invalid("longer than 256 characters")
