@@ -22,6 +22,8 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/faultinject"
 	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/schtasks"
 	"github.com/step-security/dev-machine-guard/internal/selfupdate"
 	"github.com/step-security/dev-machine-guard/internal/telemetry"
 	"github.com/step-security/dev-machine-guard/internal/updatestate"
@@ -147,6 +149,16 @@ func runSelfUpdate(args []string) int {
 	})
 	exec := executor.NewReal()
 	machineConfig := config.ConfigFilePath()
+
+	// The scan tasks' settings follow the host's identity mode, which can
+	// change after install (automatic mode's sticky marker) while a
+	// self-update never re-registers tasks: reconcile them on every tick so a
+	// host that became multi-user runs one scan per signed-in session.
+	if runtime.GOOS == model.PlatformWindows {
+		if perUser, registered := schtasks.ReconcileTaskSettings(exec, progress.NewLogger(progress.LevelWarn), telemetry.ExecutionDeadline(config.MaxExecutionDuration)); registered {
+			logf("self-update: scan task settings reconciled (per-user identity: %v)", perUser)
+		}
+	}
 
 	deps := &selfupdate.Deps{
 		Layout:  layout,
