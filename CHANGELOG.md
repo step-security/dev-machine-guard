@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [Unreleased]
+
+### Added
+
+- **Master-image builder switch.** `configure --image-builder` (MSI `IMAGEBUILDER=1`) writes a marker bound to the machine's hardware id; while it names the machine, enterprise scans exit before any beacon or upload, so an image team can sign in to the imaging machine without registering it as a device. Hosts built from the image carry another hardware id, ignore the marker and scan normally. The switch is deliberately not a bootstrap.json key. `identity --json` reports `image_builder`, `configure show` prints it, `--image-builder=false` removes it.
+- **`device_id_template` in the payload.** Every upload reports the identity template in force when it carries a token (the automatic `{hostname}-{user}` included), so the dashboard can tell how a device's id was built; absent for the hardware serial and for a literal id.
+- **Provisioning script for image managers.** `packaging/windows/Install-DevMachineGuard.ps1` installs or upgrades the agent on a new session host from an MSI and tenant file staged in the master image, verifies the scheduled tasks and the tenant, logs under `C:\ProgramData\StepSecurity`, and ends with one `DMG-PROVISION: ok` or `DMG-PROVISION: failed <reason>` line (exit 0 or 1) for Nerdio scripted actions, custom script extensions and similar host-creation hooks; `-Uninstall` is the scale-in counterpart.
+
 ## [1.19.0] - 2026-11-06
 
 ### Added

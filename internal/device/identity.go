@@ -169,6 +169,7 @@ func AttachIdentity(exec executor.Executor, dev *model.Device) {
 	id := ResolveIdentity(exec, dev.SerialNumber, dev.Hostname, dev.UserIdentity)
 	dev.DeviceID = id.DeviceID
 	dev.DeviceIDSource = id.Source
+	dev.DeviceIDTemplate = TemplateForReport(id.Template)
 	dev.IdentityPerUser = id.PerUser
 	dev.IdentityIncomplete = id.Incomplete
 }
@@ -440,4 +441,15 @@ func IdentityUserScope(exec executor.Executor) string {
 		return ""
 	}
 	return SanitizeDeviceID(userToken(exec.GOOS(), exec.IsRoot(), developerIdentity(context.Background(), exec)))
+}
+
+// TemplateForReport is the template the payload reports as
+// device_id_template: the template in force when it carries a token (the
+// automatic template included), "" for the hardware serial and for a literal
+// id, which the backend already sees as device_id.
+func TemplateForReport(template string) string {
+	if strings.Contains(template, "{") {
+		return template
+	}
+	return ""
 }

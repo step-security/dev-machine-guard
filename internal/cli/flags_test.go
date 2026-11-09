@@ -18,6 +18,7 @@ var flagSamples = map[string]string{
 	"--log-level":            "debug",
 	"--auto-update":          "false",
 	"--retire-on-uninstall":  "true",
+	"--image-builder":        "true",
 	"--multi-user-detection": "users",
 }
 

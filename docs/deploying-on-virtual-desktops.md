@@ -197,6 +197,15 @@ Or set the identity machine-wide and let any install path pick it up:
 [Environment]::SetEnvironmentVariable("STEPSEC_DEVICE_ID", "{hostname}-{user}", "Machine")
 ```
 
+Image managers that run a script when a host is created (Nerdio scripted
+actions, a Custom Script Extension) can install from an MSI and tenant file
+staged in the image instead of installing into the image:
+`packaging/windows/Install-DevMachineGuard.ps1` installs or upgrades from the
+staged MSI, verifies the scheduled tasks and the tenant, and ends with one
+`DMG-PROVISION: ok` or `DMG-PROVISION: failed <reason>` line (exit 0 or 1)
+the image manager shows per host; `-Uninstall` is the scale-in hook. See
+`packaging/windows/README.md`.
+
 The first scan runs when a user logs in (the companion at-logon task) or at
 the next scheduled tick, as that user. See
 [deploying-via-sccm.md](deploying-via-sccm.md) for the full MSI property
@@ -213,10 +222,20 @@ the captured image. That path is supported as it is:
    (`msiexec /i ... BOOTSTRAPFILE=...` or the inline properties above, the
    template `{hostname}-{user}` or automatic mode, never a literal id or a
    configured `user_id`: both would be copied into every clone).
-2. Optionally run a validation scan on the builder (`send-telemetry
-   --force-scan` as a signed-in user, or `identity --json` to see what a run
-   would report). Retire the builder's own device afterwards if it was
-   registered.
+2. Mark the builder: `IMAGEBUILDER=1` on the `msiexec` line, or
+   `stepsecurity-dev-machine-guard configure --image-builder` afterwards.
+   The switch is a marker bound to the builder's hardware id
+   (`image-builder.json` in `C:\ProgramData\StepSecurity`): scans on the
+   imaging machine exit before any beacon, so an admin can sign in to update
+   the image without registering it as a device, while every host built from
+   the image carries another hardware id, ignores the marker and scans
+   normally. `configure show` and `identity --json` report it;
+   `configure --image-builder=false` turns scans back on. The switch is never
+   a bootstrap.json key: that file is copied into the image and replayed by
+   provisioning scripts on every host. Without the switch, a validation scan
+   on the builder (`send-telemetry --force-scan` as a signed-in user, or
+   `identity --json` to see what a run would report) registers the builder's
+   own device; retire it from the dashboard afterwards.
 3. Seal and capture: `Sysprep.exe /oobe /generalize /shutdown`, then capture
    the image (for example into an Azure Compute Gallery version).
 
@@ -244,6 +263,25 @@ What a clone does on its first runs, whatever the builder left behind:
   clone's own, and `uninstall --retire` skips records that name another
   machine, so a clone's uninstall never retires the builder's device or a
   device of another clone.
+
+### Staging the installer and installing at host creation
+
+The alternative to installing into the image: copy only the MSI and the
+bootstrap file into the image (for example `C:\StepSecurity\agent.msi` and
+`C:\StepSecurity\bootstrap.json`) and let the host-creation step of the image
+manager (an Azure Virtual Desktop scripted action, a Nerdio scripted action, a
+Custom Script Extension) run the install on each new host. Nothing ever runs
+on the imaging machine, the first scan happens when the first user signs in,
+and a failed install is visible per host in the image manager.
+`packaging/windows/Install-DevMachineGuard.ps1` is a provisioning script for
+that step: it installs or upgrades from the staged MSI with the bootstrap
+file, verifies the scheduled tasks and the tenant in `config.json`, writes a
+log under `C:\ProgramData\StepSecurity`, and ends with a single
+`DMG-PROVISION: ok` or `DMG-PROVISION: failed <reason>` line and exit code
+0 or 1; `-Uninstall` runs the MSI uninstall (which retires the device when
+`retire_on_uninstall` is set) for scale-in hooks. Agent releases reach the
+hosts through self-update either way, so an agent version never requires a
+new image.
 
 Nothing is deleted automatically. For a pristine image, remove these before
 sealing (keep `config.json` and the binaries): `multi-user.json`,

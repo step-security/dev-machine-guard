@@ -116,6 +116,13 @@ type Config struct {
 	UninstallRetire   bool
 	UninstallNoRetire bool
 
+	// ImageBuilder is `configure --image-builder[=BOOL]`: nil leaves the
+	// master-image switch unchanged (the MSI passes an unset property as an
+	// empty value), true writes the machine-bound marker that keeps scans off
+	// on the imaging machine, false removes it. Not a config.json key: a
+	// bootstrap file is copied into every clone, the switch must not be.
+	ImageBuilder *bool
+
 	// IgnoreTelemetryError opts the `install` subcommand into treating an
 	// initial-telemetry POST failure as a warning rather than a fatal exit.
 	// Default behavior (flag absent) preserves dev-workflow ergonomics —
