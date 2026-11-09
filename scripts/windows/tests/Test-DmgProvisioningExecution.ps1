@@ -18,7 +18,9 @@ function Snapshot([string]$action) {
 }
 function Scenario([string[]]$Actions,[int[]]$Codes,[int]$Budget=300) {
     $s=@{oi=0;ii=0;before=0;after=0;delays=0;budget=$Budget;actions=$Actions;codes=$Codes;order=New-Object Collections.Generic.List[string]}
-    $o={ $s.order.Add('observe');$i=[Math]::Min($s.oi,$s.actions.Length-1);$s.oi++; Snapshot $s.actions[$i] }.GetNewClosure()
+    # Closures capture variables, not script-local functions under -Command.
+    $snapshot=${function:Snapshot}
+    $o={ $s.order.Add('observe');$i=[Math]::Min($s.oi,$s.actions.Length-1);$s.oi++; & $snapshot $s.actions[$i] }.GetNewClosure()
     $install={param($action) $s.order.Add('install:'+$action);$code=$s.codes[$s.ii];$s.ii++; [pscustomobject]@{TimedOut=($code -eq -1);ExitCode=$code} }.GetNewClosure()
     $before={param($action) $s.order.Add('journal');$s.before++ }.GetNewClosure()
     $after={param($code) $s.order.Add('complete');$s.after++ }.GetNewClosure()
@@ -121,10 +123,11 @@ Check 'expired deadline must not accept an initially healthy observation' {
 foreach ($phase in @('initial','postcheck','retry')) {
     Check "deadline expiring during $phase observation cannot return ready" {
         $s=@{budget=20;observations=0;installs=0;phase=$phase}
+        $snapshot=${function:Snapshot}
         $observe={
             $s.observations++
-            if ($s.phase -eq 'initial' -or $s.observations -gt 1) { $s.budget=0; return Snapshot 'noop' }
-            return Snapshot 'install'
+            if ($s.phase -eq 'initial' -or $s.observations -gt 1) { $s.budget=0; return & $snapshot 'noop' }
+            return & $snapshot 'install'
         }.GetNewClosure()
         $remaining={ $s.budget }.GetNewClosure()
         $install={param($action) $s.installs++;$code=0;if($s.phase -eq 'retry'){$code=1618};[pscustomobject]@{TimedOut=$false;ExitCode=$code} }.GetNewClosure()
