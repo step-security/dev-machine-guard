@@ -4,10 +4,13 @@ import (
 	"context"
 	"os/user"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 const sampleYarnClassic = `# v1 yarnrc
@@ -296,5 +299,35 @@ func TestYarnDetector_SourceApplicability(t *testing.T) {
 				t.Errorf("context directory = %q, want %q", audit.ContextDirectory, wantCtx)
 			}
 		})
+	}
+}
+
+func TestYarnDetector_ProtectedAncestors(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS privacy guard")
+	}
+	home := t.TempDir()
+	root := filepath.Join(home, "Documents", "team", "project")
+	blocked := []string{filepath.Join(home, "Documents", ".yarnrc.yml"), filepath.Join(home, "Documents", "team", ".yarnrc"), filepath.Join(home, "Documents", "team", ".custom.yml")}
+	allowed := []string{filepath.Join(home, ".yarnrc.yml"), filepath.Join(root, ".yarnrc.yml")}
+	for _, path := range append(slices.Clone(blocked), allowed...) {
+		mustWriteFile(t, path, "")
+	}
+	for _, guarded := range []bool{true, false} {
+		d := NewYarnDetector(executor.NewMock())
+		if guarded {
+			d.WithSkipper(tcc.New(home))
+		}
+		found := d.findProjectYarnConfigs(t.Context(), root, ".custom.yml")
+		for _, path := range blocked {
+			if got := slices.Contains(found, path); got == guarded {
+				t.Errorf("guarded=%v: protected ancestor %s found=%v", guarded, path, got)
+			}
+		}
+		for _, path := range allowed {
+			if !slices.Contains(found, path) {
+				t.Errorf("guarded=%v: allowed config %s omitted", guarded, path)
+			}
+		}
 	}
 }

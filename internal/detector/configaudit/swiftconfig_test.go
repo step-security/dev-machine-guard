@@ -111,6 +111,11 @@ func TestSwiftURL(t *testing.T) {
 		{"git+ssh://example.invalid/o/r.git/", "git+ssh://example.invalid/o/r.git/", false, true},
 		{"git@GitHub.com:apple/x.git", "git@github.com:apple/x.git", false, true},
 		{"/src/Local Library", "/src/Local Library", false, true},
+		{"C:/src/it@local", "C:/src/it@local", false, true},
+		{"/src/it@local", "/src/it@local", false, true},
+		{"/src/http://local", "/src/http://local", false, true},
+		{"C://user:CANARY@host.example.invalid/pkg?token=CANARY", "", true, false},
+		{"C://host.example.invalid/pkg#CANARY", "", false, false},
 		{`C:\src\lib`, `C:\src\lib`, false, true},
 		{`\\server\share\lib`, `\\server\share\lib`, false, true},
 		{"file:///src/Renamed.git", "file:///src/Renamed.git", false, true},
@@ -198,6 +203,28 @@ func TestSwiftConfigMirrors(t *testing.T) {
 	if got := swiftFindingKeys(audit); !slices.Equal(got, []string{"swift-001 mirrors.2.mirror", "swift-002 mirrors.1.original.literal_auth"}) {
 		t.Errorf("findings = %v", got)
 	}
+
+	t.Run("drive-like URL", func(t *testing.T) {
+		x, scope := swiftConfigTest(t, model.PlatformLinux)
+		config := filepath.Join(scope.Home, ".swiftpm", "configuration")
+		raw := "C://user:CANARY@host.example.invalid/pkg?token=CANARY_QUERY"
+		swiftConfigWrite(t, filepath.Join(config, "mirrors.json"), `{"version":1,"object":[{"original":"https://example.invalid/repo","mirror":"`+raw+`"}]}`)
+		swiftConfigWrite(t, filepath.Join(config, "registries.json"), `{"version":1,"registries":{"[default]":{"url":"`+raw+`"}}}`)
+		audit := NewSwiftConfigDetector(x).Detect(t.Context(), scope).Finish()
+		if strings.Contains(swiftJSONString(t, audit), "CANARY") {
+			t.Fatal("URL credential survived serialization")
+		}
+		for _, file := range []string{"mirrors.json", "registries.json"} {
+			settings := swiftConfigSettings(swiftConfigFile(t, audit, filepath.Join(config, file)))
+			key := "mirrors.0.mirror"
+			if file == "registries.json" {
+				key = "registries.0.url"
+			}
+			if settings[key] != goRedacted || settings[key+".literal_auth"] != "true" {
+				t.Errorf("%s = %v, want redacted URL and literal auth", file, settings)
+			}
+		}
+	})
 
 	t.Run("order independent", func(t *testing.T) {
 		x, scope := swiftConfigTest(t, model.PlatformLinux)

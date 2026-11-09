@@ -215,7 +215,10 @@ func (d *YarnDetector) findProjectYarnConfigs(ctx context.Context, dir, rcName s
 			}
 			for _, name := range []string{".yarnrc", ".yarnrc.yml", rcName} {
 				c := filepath.Join(p, name)
-				if info, err := os.Lstat(c); name != "" && err == nil && !info.IsDir() {
+				if name == "" || d.skipper.WithinProtected(c) {
+					continue
+				}
+				if info, err := os.Lstat(c); err == nil && !info.IsDir() {
 					results = append(results, c)
 				}
 			}

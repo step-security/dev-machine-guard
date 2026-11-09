@@ -81,7 +81,7 @@ func SwiftURL(raw string) (display string, literalAuth, ok bool) {
 	if raw == "" || !composerSafeText(raw, 4096) {
 		return "", false, false
 	}
-	if SwiftAbsPath(raw) {
+	if SwiftAbsPath(raw) && (raw[0] == '/' || raw[0] == '\\' || !strings.Contains(raw, "://")) {
 		return raw, false, true
 	}
 	if !strings.Contains(raw, "://") {
