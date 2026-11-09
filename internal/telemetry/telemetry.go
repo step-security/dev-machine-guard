@@ -71,8 +71,9 @@ type Payload struct {
 	CustomerID           string                 `json:"customer_id"`
 	DeviceID             string                 `json:"device_id"`
 	SerialNumber         string                 `json:"serial_number"`
-	DeviceIDSource       string                 `json:"device_id_source,omitempty"` // env | config | auto | serial | wsl_guest
-	DeviceTag            string                 `json:"device_tag"`                 // config.json device_tag; always present so the backend can tell "cleared" from "older agent"
+	DeviceIDSource       string                 `json:"device_id_source,omitempty"`   // env | config | auto | serial | wsl_guest
+	DeviceIDTemplate     string                 `json:"device_id_template,omitempty"` // the template in force when it carries a token; "" for serial or literal ids
+	DeviceTag            string                 `json:"device_tag"`                   // config.json device_tag; always present so the backend can tell "cleared" from "older agent"
 	Virtualization       *model.Virtualization  `json:"virtualization,omitempty"`
 	UserIdentity         string                 `json:"user_identity"`
 	Hostname             string                 `json:"hostname"`
@@ -1407,6 +1408,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		PayloadSchemaVersion: schemaVersion,
 		CustomerID:           config.CustomerID,
 		DeviceIDSource:       identitySource,
+		DeviceIDTemplate:     dev.DeviceIDTemplate,
 		DeviceTag:            dev.DeviceTag,
 		Virtualization:       dev.Virtualization,
 		WSL:                  dev.WSL,

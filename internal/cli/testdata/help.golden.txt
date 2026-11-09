@@ -93,6 +93,9 @@ Non-interactive configure (for MSI / SCCM / Intune deployments):
                                 tag. "-" clears it.
   --retire-on-uninstall[=BOOL]  Make 'uninstall' retire this device in the dashboard
                                 before removing the scheduler job (default false)
+  --image-builder[=BOOL]        Mark this machine as a master-image builder: scans
+                                stay off here while every host built from the image
+                                scans normally (default false; empty = unchanged)
   --multi-user-detection MODE   How a Windows host with no device identity template
                                 decides it is shared: edition (default: multi-session
                                 editions and the RD Session Host role), users (also two

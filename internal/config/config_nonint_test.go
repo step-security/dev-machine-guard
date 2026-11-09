@@ -348,7 +348,7 @@ func TestShowConfigure_PrintsDeviceIdentity(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	out := captureStdout(t, func() { ShowConfigure("avd-host-07 (source: config)") })
+	out := captureStdout(t, func() { ShowConfigure("avd-host-07 (source: config)", "") })
 	for _, want := range []string{
 		"Device ID:               {hostname}",
 		"resolves now to:       avd-host-07 (source: config)",
@@ -359,14 +359,14 @@ func TestShowConfigure_PrintsDeviceIdentity(t *testing.T) {
 			t.Errorf("configure show missing %q:\n%s", want, out)
 		}
 	}
-	out = captureStdout(t, func() { ShowConfigure("") })
+	out = captureStdout(t, func() { ShowConfigure("", "") })
 	if strings.Contains(out, "resolves now to") {
 		t.Errorf("empty resolved line must be omitted:\n%s", out)
 	}
 	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_id": "-"}}); err != nil {
 		t.Fatal(err)
 	}
-	out = captureStdout(t, func() { ShowConfigure("") })
+	out = captureStdout(t, func() { ShowConfigure("", "") })
 	if !strings.Contains(out, "auto (per-user on multi-session hosts, hardware serial elsewhere)") {
 		t.Errorf("default identity label missing:\n%s", out)
 	}
@@ -543,7 +543,7 @@ func TestMultiUserDetection_LoadShowAndValidate(t *testing.T) {
 	if MultiUserDetection != MultiUserDetectionUsers {
 		t.Fatalf("Load must apply a valid multi_user_detection, got %q", MultiUserDetection)
 	}
-	out := captureStdout(t, func() { ShowConfigure("") })
+	out := captureStdout(t, func() { ShowConfigure("", "") })
 	if !strings.Contains(out, "Multi-User Detection:    users (") {
 		t.Errorf("configure show must print the mode:\n%s", out)
 	}

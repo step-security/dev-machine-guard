@@ -68,6 +68,8 @@ var goldenArgvs = [][]string{
 	{"configure", "--device-tag", "t1"}, {"configure", "--device-tag=t1"}, {"configure", "--device-tag"}, {"configure", "--device-tag=-"}, {"configure", "--device-tag="},
 	{"configure", "--retire-on-uninstall"}, {"configure", "--retire-on-uninstall=true"}, {"configure", "--retire-on-uninstall=false"},
 	{"configure", "--retire-on-uninstall="}, {"configure", "--retire-on-uninstall=maybe"}, {"configure", "--retire-on-uninstall", "true"},
+	{"configure", "--image-builder"}, {"configure", "--image-builder=true"}, {"configure", "--image-builder=false"},
+	{"configure", "--image-builder="}, {"configure", "--image-builder=maybe"},
 	{"uninstall", "--retire"}, {"uninstall", "--no-retire"}, {"uninstall", "--retire", "--no-retire"}, {"send-telemetry", "--retire"},
 	{"configure", "--non-interactive", "--customer-id", "c1", "--api-endpoint", "https://e", "--api-key", "k", "--scan-frequency", "4"},
 	{"--verbose"}, {"--override-gate"},

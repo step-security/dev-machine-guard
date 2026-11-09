@@ -282,6 +282,9 @@ func main() {
 				_ = capture.Stop()
 				os.Exit(1)
 			}
+		} else if cfg.ImageBuilder != nil {
+			// `configure --image-builder` alone: the switch below is the
+			// whole request, no prompts.
 		} else {
 			if err := config.RunConfigure(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -291,8 +294,24 @@ func main() {
 			}
 		}
 
+		// The master-image switch is a machine-bound marker, not a config
+		// key (a bootstrap file travels into every clone, the switch must
+		// not), so it is applied here after the config was written.
+		if cfg.ImageBuilder != nil {
+			if err := device.SetImageBuilder(exec, *cfg.ImageBuilder); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				_ = capture.Stop()
+				os.Exit(1)
+			}
+			if *cfg.ImageBuilder {
+				fmt.Println("Image builder: scans are off on this machine; hosts built from its image scan normally")
+			} else {
+				fmt.Println("Image builder: scans are on again on this machine")
+			}
+		}
+
 	case "configure show":
-		config.ShowConfigure(resolvedIdentityLine(exec))
+		config.ShowConfigure(resolvedIdentityLine(exec), imageBuilderLine(exec))
 
 	case "identity":
 		printIdentity(exec, cfg)
@@ -305,6 +324,14 @@ func main() {
 		if !config.IsEnterpriseMode() {
 			log.Error("Enterprise configuration not found. Run '%s configure' or download the script from your StepSecurity dashboard.", os.Args[0])
 			os.Exit(1)
+		}
+		// The master-image builder never scans: an image team signs in to
+		// update the image, and that session must not register the imaging
+		// machine as a device. Before any beacon, so nothing reaches the
+		// backend; clones carry another machine id and are not affected.
+		if device.ImageBuilderActive(exec) {
+			log.Progress("Image builder: scans are off on this machine (configure --image-builder=false to turn them back on)")
+			return
 		}
 		reportBootstrapFallback()
 		// Server-driven run gate: exit 0 quietly when the backend says this
@@ -826,6 +853,9 @@ type identityView struct {
 	AutoReason   string `json:"auto_reason,omitempty"`
 	Serial       string `json:"serial,omitempty"`
 	Issue        string `json:"issue,omitempty"`
+	// ImageBuilder is true when the machine-bound master-image switch is on
+	// here: scans exit before any beacon (configure --image-builder).
+	ImageBuilder bool `json:"image_builder"`
 }
 
 // printIdentity is the `identity` verb. It exits 0 even for an incomplete
@@ -843,7 +873,7 @@ func printIdentity(exec executor.Executor, cfg *cli.Config) {
 		enc.SetEscapeHTML(false)
 		_ = enc.Encode(identityView{DeviceID: id.DeviceID, Source: id.Source, Template: id.Template, PerUser: id.PerUser,
 			UserScope: id.UserScope, Incomplete: id.Incomplete, AutoFallback: id.AutoFallback, AutoReason: id.AutoReason,
-			Serial: id.Serial, Issue: id.Issue})
+			Serial: id.Serial, Issue: id.Issue, ImageBuilder: device.ImageBuilderActive(exec)})
 		return
 	}
 	fmt.Printf("%-16s %s\n", "Device ID:", resolvedIdentityLine(exec))
@@ -851,6 +881,15 @@ func printIdentity(exec executor.Executor, cfg *cli.Config) {
 	fmt.Printf("%-16s %v\n", "Per user:", id.PerUser)
 	fmt.Printf("%-16s %s\n", "User scope:", displayOrNone(id.UserScope))
 	fmt.Printf("%-16s %s\n", "Serial:", displayOrNone(id.Serial))
+	fmt.Printf("%-16s %v\n", "Image builder:", device.ImageBuilderActive(exec))
+}
+
+// imageBuilderLine is the `configure show` value of the master-image switch.
+func imageBuilderLine(exec executor.Executor) string {
+	if device.ImageBuilderActive(exec) {
+		return "true (scans are off on this machine; hosts built from its image scan normally)"
+	}
+	return "false (default)"
 }
 
 func displayOrNone(v string) string {

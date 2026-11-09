@@ -75,6 +75,11 @@ type Device struct {
 	SerialNumber   string `json:"serial_number"`
 	DeviceID       string `json:"device_id,omitempty"`
 	DeviceIDSource string `json:"device_id_source,omitempty"`
+	// DeviceIDTemplate is the identity template in force when it carries a
+	// token ("{hostname}-{user}", "{user}"), so the backend can tell a device
+	// that follows its user across hosts from one bound to a host. Empty for
+	// the hardware serial and for a literal id.
+	DeviceIDTemplate string `json:"device_id_template,omitempty"`
 	// DeviceTag is the admin-set label from the agent configuration
 	// (config.json device_tag); empty when none is configured.
 	DeviceTag string `json:"device_tag,omitempty"`

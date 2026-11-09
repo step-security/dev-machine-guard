@@ -18,6 +18,7 @@
       "HTMLOutputFile": "",
       "HooksAgent": "",
       "IgnoreTelemetryError": false,
+      "ImageBuilder": null,
       "IncludeBundledPlugins": false,
       "IncludeNetworkVolumes": null,
       "IncludeTCCProtected": null,
@@ -1057,6 +1058,54 @@
     ],
     "result": {
       "error": "unknown option: true, run 'BINARY --help' for usage information"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--image-builder"
+    ],
+    "result": {
+      "Command": "configure",
+      "ImageBuilder": true
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--image-builder=true"
+    ],
+    "result": {
+      "Command": "configure",
+      "ImageBuilder": true
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--image-builder=false"
+    ],
+    "result": {
+      "Command": "configure",
+      "ImageBuilder": false
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--image-builder="
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--image-builder=maybe"
+    ],
+    "result": {
+      "error": "--image-builder accepts true or false, got \"maybe\""
     }
   },
   {

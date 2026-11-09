@@ -274,12 +274,12 @@ func TestCollectCachedIDs_SearchesEveryRoot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got := collectCachedIDs(context.Background(), []string{empty, machine}, "", progress.NewNoop())
+	got := collectCachedIDs(context.Background(), []string{empty, machine}, "", true, progress.NewNoop())
 	want := []string{"host-dev1", "host-dev2"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("collectCachedIDs = %v, want %v", got, want)
 	}
-	if got := collectCachedIDs(context.Background(), []string{""}, "", progress.NewNoop()); len(got) != 0 {
+	if got := collectCachedIDs(context.Background(), []string{""}, "", true, progress.NewNoop()); len(got) != 0 {
 		t.Fatalf("empty root must yield nothing, got %v", got)
 	}
 }
@@ -300,12 +300,12 @@ func TestCollectCachedIDs_BoundsFilesAndBudget(t *testing.T) {
 	}
 	put("big", `{"schema_version":1,"run_gate":{"device_id":"host-big","pad":"`+strings.Repeat("x", maxCachedIDFileBytes)+`"}}`)
 	put("ok", `{"schema_version":1,"run_gate":{"device_id":"host-ok"}}`)
-	if got := collectCachedIDs(context.Background(), []string{root}, "", progress.NewNoop()); strings.Join(got, ",") != "host-ok" {
+	if got := collectCachedIDs(context.Background(), []string{root}, "", true, progress.NewNoop()); strings.Join(got, ",") != "host-ok" {
 		t.Fatalf("collectCachedIDs = %v, want [host-ok] (oversized file skipped)", got)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if got := collectCachedIDs(ctx, []string{root}, "", progress.NewNoop()); len(got) != 0 {
+	if got := collectCachedIDs(ctx, []string{root}, "", true, progress.NewNoop()); len(got) != 0 {
 		t.Fatalf("a spent budget must stop the collection, got %v", got)
 	}
 }
@@ -357,5 +357,48 @@ func TestCollectIdentities_ManyUsersInOneRoot(t *testing.T) {
 	ids := CollectIdentities(context.Background(), mock, progress.NewNoop())
 	if len(ids) != users+1 {
 		t.Fatalf("collected %d ids, want %d per-user ids plus the machine row", len(ids), users+1)
+	}
+}
+
+// A roaming identity ({user} without a host token) is the same device on
+// every host: an uninstall keeps the per-user records out of the retire and
+// only the host's own machine record is offered.
+func TestCollectIdentities_RoamingTemplateSkipsPerUserRecords(t *testing.T) {
+	home := t.TempDir()
+	paths.SetOverride(home)
+	t.Cleanup(func() { paths.SetOverride("") })
+	prev := config.DeviceID
+	config.DeviceID = "{user}"
+	t.Cleanup(func() { config.DeviceID = prev })
+	device.ResetIDCache()
+	t.Cleanup(device.ResetIDCache)
+	mock := executor.NewMock()
+	mock.SetGOOS("windows")
+	mock.SetHostname("avd-host-07")
+
+	seedState(t, filepath.Join(home, heartbeat.Filename), "0000-0014-2040")
+	for _, u := range []string{"jdoe", "asmith"} {
+		dir := filepath.Join(home, "users", u)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		seedState(t, filepath.Join(dir, heartbeat.Filename), u+"-aaaaaaaaaaaa")
+	}
+
+	mock.SetUsername(`NT AUTHORITY\SYSTEM`)
+	if ids := CollectIdentities(context.Background(), mock, progress.NewNoop()); strings.Join(ids, ",") != "0000-0014-2040" {
+		t.Fatalf("SYSTEM uninstall under a roaming template: ids = %v, want only the machine record", ids)
+	}
+	// A signed-in user's own roaming device is not retired either.
+	mock.SetUsername(`CONTOSO\JDoe`)
+	if ids := CollectIdentities(context.Background(), mock, progress.NewNoop()); strings.Join(ids, ",") != "0000-0014-2040" {
+		t.Fatalf("user uninstall under a roaming template: ids = %v, want only the machine record", ids)
+	}
+	// The host-bound template keeps retiring the per-user records.
+	config.DeviceID = "{hostname}-{user}"
+	device.ResetIDCache()
+	mock.SetUsername(`NT AUTHORITY\SYSTEM`)
+	if ids := CollectIdentities(context.Background(), mock, progress.NewNoop()); len(ids) != 3 {
+		t.Fatalf("host-bound template: ids = %v, want the machine record and both users", ids)
 	}
 }
