@@ -3,8 +3,10 @@ package retire
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -14,8 +16,18 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
+// testLockTarget is a lock target valid on the host OS: a file for flock, a
+// mutex name on Windows (a path is not a valid kernel object name there).
+func testLockTarget(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("StepSecurityDMGRetireTest-%d", time.Now().UnixNano())
+	}
+	return filepath.Join(t.TempDir(), "instance.flock")
+}
+
 func TestHoldScans_HoldsIdleHostAndGivesUpWhileAScanRuns(t *testing.T) {
-	t.Cleanup(lock.SetTargetForTest(filepath.Join(t.TempDir(), "instance.flock")))
+	t.Cleanup(lock.SetTargetForTest(testLockTarget(t)))
 	orig := scanHoldPoll
 	scanHoldPoll = time.Millisecond
 	t.Cleanup(func() { scanHoldPoll = orig })
