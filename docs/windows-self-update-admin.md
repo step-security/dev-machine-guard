@@ -131,7 +131,7 @@ Exclude, or set to monitor only for writes and renames by SYSTEM:
 | Exclude | Why |
 |---|---|
 | Folder `C:\Program Files\StepSecurity\` (with `versions\`, `seed\`, `state\`) | New versions are written and renamed here |
-| Processes `stepsecurity-dev-machine-guard.exe`, `stepsecurity-dev-machine-guard-task.exe`, `stepsecurity-dev-machine-guard-bootstrap.exe` | The updater and scans run as these |
+| Processes, by full path: `C:\Program Files\StepSecurity\stepsecurity-dev-machine-guard-bootstrap.exe`, and `stepsecurity-dev-machine-guard.exe` / `stepsecurity-dev-machine-guard-task.exe` under `C:\Program Files\StepSecurity\seed\*\` and `C:\Program Files\StepSecurity\versions\*\` | The updater and scans run as these. Use full paths (or path-constrained EDR rules), never bare file names: a name-only process exclusion also covers a same-named executable anywhere else |
 
 When the rename stays blocked, the error names the process holding the
 files, for example `Access is denied. (held by MsMpEng.exe pid 4120
@@ -448,7 +448,7 @@ appears on hover.
 
 | Console label (event) | What it means | What to do |
 |---|---|---|
-| Updated (`update_ok`) | The device switched to the new version. With reason `seed_adopted`, it moved to a newer version from an MSI. With reason `restaged` (from and to are the same version), the current version's files were missing and were restored, for example after a blocked MSI install. | Nothing. Expect "Update confirmed" after the next successful scan. |
+| Updated (`update_ok`) | The device switched to the new version. With reason `seed_adopted`, it moved to a newer version from an MSI. With reason `restaged` (from and to are the same version), the current version's files were missing and were restored, for example after a blocked MSI install. | Nothing. After a switch, expect "Update confirmed" after the next successful scan. A `restaged` repair starts no probation, so no confirmation follows; "Updated" stays the latest event. |
 | Update confirmed (`update_confirmed`) | The new version completed a scan and is kept. Reason `smoke_only`: no scan ran in the probation window, so it was confirmed by a self-test. | Nothing. |
 | Rolled back (`update_rolled_back`) | The new version failed on this device and the device went back to the version in "to". It won't take that version again. Reasons: `bad_runs` (crashed, hung or couldn't start twice), `smoke_failed` (failed its self-test), `pointer_invalid` (its files were damaged), `inconclusive` (no successful scan in 72 hours; retried after 7 days). | One device: check for software that kills or blocks processes in `C:\Program Files\StepSecurity\versions\`. Many devices: contact StepSecurity support. |
 | Download failed (`update_download_failed`) | The release files couldn't be downloaded from GitHub or the mirror. | Allow `github.com` and `release-assets.githubusercontent.com` for the machine (see [Requirements](#requirements)), or configure a mirror. Retried at the next check. |
