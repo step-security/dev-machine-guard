@@ -1,58 +1,66 @@
-# Dev Container lifecycle PoC
+# Monitor development containers
 
-This opt-in Linux integration keeps container lifecycle separate from scan status.
-Install the PoC `stepsecurity-dev-machine-guard` binary on the container's PATH
-when building its image. Generate scripts on the host with the same version:
+Use Dev Machine Guard (DMG) to monitor Linux development containers and show their
+workspace, owner, and lifecycle status in the StepSecurity console. Container
+status is separate from scan results: a running container may still have a
+failed or pending scan.
+
+## Before you start
+
+- Install a DMG version that includes the `container` commands in your Linux
+  container image. Make `stepsecurity-dev-machine-guard` available on `PATH`.
+- Obtain your organization's DMG configuration from the StepSecurity console.
+- Use the same container user for setup, startup, and shutdown reporting.
+- The shutdown script below requires Docker access on the host.
+
+Provide `DMG_CUSTOMER_ID`, `DMG_API_ENDPOINT`, and `DMG_API_KEY` through your
+container runtime's secret configuration, or configure DMG inside the container
+before starting it. Do not commit credentials to your project or bake a configured
+device identity into a reusable image.
+
+## Start DMG with your container
+
+From your project directory on the host, generate the integration scripts using
+the same DMG version installed in the container:
 
 ```sh
 stepsecurity-dev-machine-guard container scripts --output .devcontainer/dmg
 ```
 
-Merge the generated `postStartCommand` into your existing devcontainer.json:
+Add the generated startup command to `.devcontainer/devcontainer.json`:
 
 ```json
-{"postStartCommand":"sh .devcontainer/dmg/start.sh"}
+{
+  "postStartCommand": "sh .devcontainer/dmg/start.sh"
+}
 ```
 
-Provide DMG_CUSTOMER_ID, DMG_API_ENDPOINT and DMG_API_KEY through your runtime
-secret mechanism, or configure DMG before starting. Do not commit credentials or
-put enrolled state in a reusable image. `container start` creates private state
-under the executing user's `~/.stepsecurity/container`, uses a generated device
-ID, and starts one worker. `container setup` performs configuration without
-starting the worker. `--state-dir DIR` is available for direct commands; generated
-scripts use the default. Do not share this directory between container instances.
+If you already have a `postStartCommand`, incorporate the DMG command into your
+existing startup script rather than replacing the other commands.
 
-Stop from the host using the generated wrapper:
+The startup script runs **inside the container**. It configures that instance if
+needed, starts DMG, and waits for it to become ready. Starting DMG again while it
+is already running does not launch a second worker.
+
+To start DMG manually inside a container:
 
 ```sh
-sh .devcontainer/dmg/stop.sh my-container vscode
+stepsecurity-dev-machine-guard container start
 ```
 
-The second argument must be the user that ran postStartCommand (use root only
-when startup ran as root). This selects the same private state and control socket.
-The wrapper quiesces scanning and heartbeats and reports stopped before stopping
-the container. If reporting fails it warns and still stops the container.
-Ordinary stop/start reuses the device ID; each restart gets a new lifecycle run.
+## Add ownership and workspace details
 
-There is no standard Dev Container stop hook. Closing an editor, directly running
-`docker stop`, killing a container, or losing its host can bypass the wrapper.
-Heartbeats run every 30 seconds; the backend derives offline after 120 seconds
-without a heartbeat. Offline does not prove that the container was destroyed.
-No permanent retirement, credential revocation, uninstall, or deletion occurs.
+The console uses DMG's existing user identity for ownership. When the container
+has no usable user identity, configure an explicit user ID before the first
+`container setup` or `container start`:
 
-Deploy the API's DeveloperMDMContainerLifecycle table and lifecycle handler before
-using these scripts. The PoC uses the existing tenant onboarding credential; it
-does not provide per-device authentication. Lifecycle events include an ordered
-server generation and sequence so old events cannot reactivate a stopped run.
-Normal scan telemetry continues through the existing telemetry endpoint.
+```sh
+stepsecurity-dev-machine-guard configure --user-id developer@example.com
+```
 
-## Ownership and workspace
+This does not override a normal user identity detected from the operating system.
 
-Assigned owner uses the existing DMG user identity. Provision `configure --user-id`
-before container setup when the OS account has no usable user identity. Do not
-assume this overrides a detected normal OS user.
-
-Inside the container, use the same user for setup and start:
+Workspace details are optional. Set them **inside the container**, before startup:
 
 ```sh
 stepsecurity-dev-machine-guard container setup \
@@ -62,14 +70,60 @@ stepsecurity-dev-machine-guard container setup \
 stepsecurity-dev-machine-guard container start
 ```
 
-Metadata is optional and explicitly supplied. Supported environments are `docker`,
-`devcontainer`, and `codespaces`; selecting one does not certify runtime support.
-Repository URLs must use HTTPS without credentials, query parameters or fragments.
-Workspace labels are limited to 128 UTF-8 bytes and must not contain control characters.
-Omitted flags preserve configured values; an empty value clears the corresponding
-field. Changes take effect on the next lifecycle start and do not alter a running
-instance or its device ID. Metadata is stored privately, outside the workspace,
-and each new run sends a full snapshot. No local paths or Git secrets are discovered.
+- `--workspace-name`: a friendly label, up to 128 UTF-8 bytes, without control characters.
+- `--repository-url`: an HTTPS URL without credentials, query parameters, or fragments.
+- `--environment`: a display label: `docker`, `devcontainer`, or `codespaces`.
+  The label does not configure startup or shutdown integration for that environment.
 
-The console retains reported start and stop times for the current run. Offline
-means missing heartbeats, not a reported stop or confirmed deletion.
+Omitting a flag keeps its configured value; passing an empty value clears it.
+Updates appear after the next DMG lifecycle start. Running setup does not interrupt
+an active worker. DMG does not automatically discover workspace paths or repository
+URLs.
+
+## Stop your container
+
+For an explicit stop report, run the generated wrapper **from the Docker host**:
+
+```sh
+sh .devcontainer/dmg/stop.sh example-container vscode
+```
+
+Replace `example-container` with the Docker container name and `vscode` with the
+user that started DMG inside it. Use `root` only if DMG also started as root.
+
+The wrapper asks DMG to stop scanning and report its stopped state, then stops
+the Docker container. If reporting fails, it prints a warning and still stops
+the container.
+
+To stop only DMG and leave the container running, execute this inside the container:
+
+```sh
+stepsecurity-dev-machine-guard container stop
+```
+
+Closing an editor, calling `docker stop` directly, or losing the container's host
+can bypass shutdown reporting. In those cases, the console uses missed heartbeats
+to show the container as offline.
+
+## Understand the status
+
+| Status | Meaning |
+| --- | --- |
+| Running | DMG is sending heartbeats, normally every 30 seconds. |
+| Stopped | DMG explicitly reported a stop. |
+| Offline | No heartbeat has arrived for two minutes. The container may have stopped or become unreachable. |
+
+Offline does not confirm that a container was deleted. Stopping DMG does not
+retire the device or delete its history. Start and stop timestamps are shown when
+available; a missing heartbeat does not establish a stop time.
+
+## Preserve each container's identity
+
+DMG stores private state in the executing user's `~/.stepsecurity/container`.
+Stopping and starting the same container preserves its device ID when this state
+is retained. Recreating a container without its state creates a new identity.
+
+Keep state outside the shared project directory. Never share it between container
+instances or include enrolled state in a reusable image. Direct commands support
+`--state-dir DIR`; the generated scripts use the default directory, so use a
+consistent path if you write your own wrappers.
