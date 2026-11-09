@@ -81,7 +81,10 @@ Optional properties `DEVICEID` (device identity template, e.g.
 dashboard's retirement scope) and `RETIREONUNINSTALL=1` are forwarded to
 `configure --device-id` / `--device-tag` / `--retire-on-uninstall`; all
 three are also accepted as `device_id` / `device_tag` /
-`retire_on_uninstall` keys in a `BOOTSTRAPFILE`. See
+`retire_on_uninstall` keys in a `BOOTSTRAPFILE`. `IMAGEBUILDER=1` marks a
+master-image builder (`configure --image-builder`): scans stay off on that
+machine while every host built from its image scans normally; it is bound to
+the builder's hardware id and deliberately has no bootstrap key. See
 `docs/deploying-on-virtual-desktops.md`.
 
 ## Provisioning script for image managers

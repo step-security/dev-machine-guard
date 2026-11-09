@@ -206,9 +206,17 @@ func CollectIdentities(ctx context.Context, exec executor.Executor, log *progres
 	}
 
 	id := device.ResolvedDeviceID(ctx, exec)
-	if !id.Incomplete {
+	// A roaming identity ({user} with no host token) is the same device on
+	// every host its user signs in to: uninstalling this host must not retire
+	// it, nor the per-user devices cached here. The machine-identity record,
+	// if one exists, is still this host's own.
+	roams := device.TemplateRoams(id.Template)
+	if roams {
+		log.Progress("roaming identity: per-user devices are not retired by an uninstall; auto-retire by inactivity covers users who leave")
+	}
+	if !id.Incomplete && !(roams && id.PerUser) {
 		add(id.DeviceID)
-	} else {
+	} else if id.Incomplete {
 		log.Debug("retire: identity template %q is incomplete in this context; relying on cached per-user ids", id.Template)
 	}
 
@@ -226,7 +234,7 @@ func CollectIdentities(ctx context.Context, exec executor.Executor, log *progres
 	if machineID == "unknown" {
 		machineID = ""
 	}
-	for _, cached := range collectCachedIDs(ctx, stateRoots(), machineID, log) {
+	for _, cached := range collectCachedIDs(ctx, stateRoots(), machineID, !roams, log) {
 		add(cached)
 	}
 	return capIDs(ids)
@@ -280,14 +288,18 @@ const (
 // the image this host was cloned from: its device belongs to that machine,
 // so it is not a candidate here. Records without a machine id (older
 // agents) are kept.
-func collectCachedIDs(ctx context.Context, roots []string, machineID string, log *progress.Logger) []string {
+// perUser includes the users/<scope> records; false keeps only the
+// machine-wide one (a roaming identity's per-user devices outlive the host).
+func collectCachedIDs(ctx context.Context, roots []string, machineID string, perUser bool, log *progress.Logger) []string {
 	var ids []string
 	for _, root := range roots {
 		var files []string
 		if top := filepath.Join(root, heartbeat.Filename); fileExists(top) {
 			files = append(files, top)
 		}
-		if matches, err := filepath.Glob(filepath.Join(root, "users", "*", heartbeat.Filename)); err == nil {
+		if !perUser {
+			// fallthrough to the per-file loop with the machine record only
+		} else if matches, err := filepath.Glob(filepath.Join(root, "users", "*", heartbeat.Filename)); err == nil {
 			sort.Strings(matches)
 			files = append(files, matches...)
 		}

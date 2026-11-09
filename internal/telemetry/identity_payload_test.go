@@ -15,11 +15,12 @@ import (
 // stays the probed hardware serial so a rebuilt host is still recognisable.
 func TestPayload_DeviceIDAndSerialWireContract(t *testing.T) {
 	p := &Payload{
-		CustomerID:     "c",
-		DeviceID:       "avd-host-07-jdoe",
-		SerialNumber:   "0000-0012-3456-7890",
-		DeviceIDSource: "config",
-		DeviceTag:      "avd-pool-eu",
+		CustomerID:       "c",
+		DeviceID:         "avd-host-07-jdoe",
+		SerialNumber:     "0000-0012-3456-7890",
+		DeviceIDSource:   "config",
+		DeviceIDTemplate: "{hostname}-{user}",
+		DeviceTag:        "avd-pool-eu",
 	}
 	b, err := json.Marshal(p)
 	if err != nil {
@@ -30,6 +31,7 @@ func TestPayload_DeviceIDAndSerialWireContract(t *testing.T) {
 		`"device_id":"avd-host-07-jdoe"`,
 		`"serial_number":"0000-0012-3456-7890"`,
 		`"device_id_source":"config"`,
+		`"device_id_template":"{hostname}-{user}"`,
 		`"device_tag":"avd-pool-eu"`,
 	} {
 		if !strings.Contains(s, want) {
@@ -41,6 +43,9 @@ func TestPayload_DeviceIDAndSerialWireContract(t *testing.T) {
 	b, _ = json.Marshal(&Payload{DeviceID: "SER", SerialNumber: "SER"})
 	if strings.Contains(string(b), "device_id_source") {
 		t.Errorf("empty source must be omitted: %s", b)
+	}
+	if strings.Contains(string(b), "device_id_template") {
+		t.Errorf("empty template must be omitted: %s", b)
 	}
 	// device_tag is always present: an empty value tells the backend the tag
 	// was cleared, while an older agent omits the key altogether.

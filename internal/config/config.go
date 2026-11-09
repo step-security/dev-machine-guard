@@ -848,7 +848,7 @@ func save(cfg *ConfigFile) error {
 // when non-empty, is printed under the Device ID line ("<id> (source:
 // env|config|serial)"); main supplies it via device.ResolvedDeviceID because
 // the device package depends on this one, not the other way round.
-func ShowConfigure(resolvedIdentity string) {
+func ShowConfigure(resolvedIdentity, imageBuilder string) {
 	cfg, err := readExisting()
 	if err != nil {
 		fmt.Printf("Warning: %v\n\n", err)
@@ -884,6 +884,9 @@ func ShowConfigure(resolvedIdentity string) {
 	fmt.Printf("  %-24s %s\n", "Log Level:", displayLogLevel(cfg.LogLevel))
 	fmt.Printf("  %-24s %s\n", "Install Directory:", displayInstallDir(cfg.InstallDir))
 	fmt.Printf("  %-24s %s\n", "Retire On Uninstall:", displayRetireOnUninstall(cfg.RetireOnUninstall))
+	if imageBuilder != "" {
+		fmt.Printf("  %-24s %s\n", "Image Builder:", imageBuilder)
+	}
 }
 
 func displayRetireOnUninstall(v *bool) string {
