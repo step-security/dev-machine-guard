@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -326,14 +327,38 @@ func (r *runtime) run() error {
 	if err != nil {
 		return err
 	}
-	defer listener.Close()
 	stop := make(chan net.Conn)
+	listenerDone := make(chan struct{})
+	var connectionMu sync.Mutex
+	var activeConnection net.Conn
+	closing := false
+	defer func() {
+		_ = listener.Close()
+		connectionMu.Lock()
+		closing = true
+		if activeConnection != nil {
+			_ = activeConnection.Close()
+		}
+		connectionMu.Unlock()
+		<-listenerDone
+	}()
 	go func() {
+		defer close(listenerDone)
 		for {
 			c, e := listener.Accept()
 			if e != nil {
 				return
 			}
+			// Listener.Close does not interrupt reads on an accepted connection.
+			// Serialize registration with shutdown so no connection escapes cleanup.
+			connectionMu.Lock()
+			if closing {
+				connectionMu.Unlock()
+				_ = c.Close()
+				return
+			}
+			activeConnection = c
+			connectionMu.Unlock()
 			_ = c.SetDeadline(time.Now().Add(35 * time.Second))
 			var cmd string
 			_, e = fmt.Fscanln(c, &cmd)

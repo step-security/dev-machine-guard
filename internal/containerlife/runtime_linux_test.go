@@ -4,13 +4,22 @@ package containerlife
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"golang.org/x/sys/unix"
 )
 
 func TestSetupIdentityAndCredentials(t *testing.T) {
@@ -175,5 +184,135 @@ func TestStartOnlyMetadata(t *testing.T) {
 	}
 	if err := r.event("heartbeat"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Exercise shutdown while the listener is reading an idle client and a real
+// scan subprocess is running. Both successful and failed stop reports must clean up.
+func TestRuntimeShutdownClosesIdleClient(t *testing.T) {
+	for _, failStop := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stop_error_%t", failStop), func(t *testing.T) {
+			stopReceived := make(chan struct{})
+			releaseStop := make(chan struct{})
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				var event model.ContainerLifecycleEvent
+				if err := json.NewDecoder(req.Body).Decode(&event); err != nil {
+					t.Error(err)
+					return
+				}
+				if event.Event == "stop" {
+					close(stopReceived)
+					<-releaseStop
+					if failStop {
+						w.WriteHeader(http.StatusBadRequest)
+						return
+					}
+				}
+				_ = json.NewEncoder(w).Encode(model.ContainerLifecycleResponse{Lifecycle: model.ContainerLifecycle{Generation: 1}})
+			}))
+			defer server.Close()
+			defer func() {
+				select {
+				case <-releaseStop:
+				default:
+					close(releaseStop)
+				}
+			}()
+			// Keep the Unix socket path below the platform limit.
+			dir, err := os.MkdirTemp("", "dmg-stop-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(dir) })
+			t.Setenv("HOME", dir)
+			t.Setenv("DMG_CUSTOMER_ID", "test-org")
+			t.Setenv("DMG_API_ENDPOINT", server.URL)
+			t.Setenv("DMG_API_KEY", "test-key")
+			pidPath := filepath.Join(dir, "scan.pid")
+			t.Setenv("DMG_TEST_SCAN_PID", pidPath)
+			binary := filepath.Join(dir, "scan")
+			if err := os.WriteFile(binary, []byte("#!/bin/sh\necho $$ > \"$DMG_TEST_SCAN_PID\"\nexec sleep 300\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			r := runtime{dir: dir, binary: binary, client: server.Client()}
+			if err := r.setup(); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() { done <- r.run() }()
+			var pid int
+			waitForShutdownCondition(t, func() bool {
+				pidBytes, err := os.ReadFile(pidPath)
+				if err != nil {
+					return false
+				}
+				pid, err = strconv.Atoi(strings.TrimSpace(string(pidBytes)))
+				return err == nil && pid > 0
+			})
+			stop, err := net.Dial("unix", r.socketPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer stop.Close()
+			if _, err := fmt.Fprintln(stop, "stop"); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-stopReceived:
+			case <-time.After(5 * time.Second):
+				t.Fatal("stop did not cancel the scan")
+			}
+			if err := unix.Kill(pid, 0); !errors.Is(err, unix.ESRCH) {
+				t.Errorf("scan still alive after stop: %v", err)
+			}
+			idle, err := net.Dial("unix", r.socketPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer idle.Close()
+			// Observe the blocked reader rather than assuming the connection was accepted.
+			waitForShutdownCondition(t, func() bool {
+				stacks := make([]byte, 1<<20)
+				n := goruntime.Stack(stacks, true)
+				return strings.Contains(string(stacks[:n]), "fmt.Fscanln")
+			})
+			close(releaseStop)
+			select {
+			case err := <-done:
+				if (err != nil) != failStop {
+					t.Fatalf("run error = %v, want error %t", err, failStop)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("runtime did not finish")
+			}
+			if err := idle.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			var b [1]byte
+			if _, err := idle.Read(b[:]); !errors.Is(err, io.EOF) {
+				t.Errorf("idle client remains open after runtime exit: %v", err)
+			}
+			lock, err := r.acquire("runtime.lock")
+			if err != nil {
+				t.Fatal("runtime lock was not released:", err)
+			}
+			_ = lock.Close()
+		})
+	}
+}
+
+func waitForShutdownCondition(t *testing.T, ready func() bool) {
+	t.Helper()
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for !ready() {
+		select {
+		case <-timer.C:
+			t.Fatal("timed out waiting for runtime")
+		case <-tick.C:
+		}
 	}
 }
