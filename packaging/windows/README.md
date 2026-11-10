@@ -87,33 +87,19 @@ machine while every host built from its image scans normally; it is bound to
 the builder's hardware id and deliberately has no bootstrap key. See
 `docs/deploying-on-virtual-desktops.md`.
 
-## Provisioning script for image managers
+## Installing at host creation from staged assets
 
-`Install-DevMachineGuard.ps1` (this directory) is the host-creation step for
-image managers such as Nerdio scripted actions, Azure Virtual Desktop custom
-script extensions or Intune remediation scripts, running as SYSTEM. Stage the
-MSI and the tenant file in the master image (for example `C:\StepSecurity\`
-holding `stepsecurity-dev-machine-guard-<version>-x64.msi` and
-`bootstrap.json` from the dashboard's Windows MSI install page), copy the
-script next to them, and have the image manager run it when a host is
-created:
-
-```powershell
-powershell.exe -ExecutionPolicy Bypass -NoProfile -File C:\StepSecurity\Install-DevMachineGuard.ps1
-```
-
-It picks the newest staged MSI (or `-MsiPath`), the tenant file (or
-`-BootstrapPath`), runs `msiexec /i ... /qn /norestart BOOTSTRAPFILE=...`
-unless that version or a newer one is already installed, verifies the three
-scheduled tasks and the tenant in `C:\ProgramData\StepSecurity\config.json`,
-logs to `C:\ProgramData\StepSecurity\provision.log` (the MSI's verbose log
-next to it) and ends with exactly one line, `DMG-PROVISION: ok version=<v>
-tasks=3` or `DMG-PROVISION: failed <reason>`, with exit code 0 or 1, so the
-image manager shows the outcome per host. `-Uninstall` runs the MSI uninstall
-by product code (which retires the device when `retire_on_uninstall` is set)
-for scale-in hooks. The API key never appears in the log or the output.
-Nothing runs on the imaging machine, and agent releases reach the hosts
-through self-update, so an agent version never needs a new image.
+Image managers that run a script when a host is created (Nerdio scripted
+actions, an Azure Virtual Desktop custom script extension, Intune
+remediation) can stage the MSI and the tenant file in the master image and
+install on each new host instead of installing into the image. The
+provisioning entrypoint for that step lives in `scripts/windows/`
+(`Setup-Dmg.ps1`, with its own README and tests): it runs as SYSTEM,
+verifies the staged MSI before installing, chooses between install, healthy
+no-op, upgrade and task repair, and reports the outcome per host without
+printing the key. Nothing runs on the imaging machine, and agent releases
+reach the hosts through self-update, so an agent version never needs a new
+image.
 
 ## Self-update and `AUTOUPDATE`
 

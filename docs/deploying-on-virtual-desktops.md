@@ -177,12 +177,10 @@ Or set the identity machine-wide and let any install path pick it up:
 
 Image managers that run a script when a host is created (Nerdio scripted
 actions, a Custom Script Extension) can install from an MSI and tenant file
-staged in the image instead of installing into the image:
-`packaging/windows/Install-DevMachineGuard.ps1` installs or upgrades from the
-staged MSI, verifies the scheduled tasks and the tenant, and ends with one
-`DMG-PROVISION: ok` or `DMG-PROVISION: failed <reason>` line (exit 0 or 1)
-the image manager shows per host; `-Uninstall` is the scale-in hook. See
-`packaging/windows/README.md`.
+staged in the image instead of installing into the image: the provisioning
+entrypoint in `scripts/windows/` (`Setup-Dmg.ps1`) installs, upgrades or
+repairs from the staged MSI as SYSTEM, verifies the result and reports the
+outcome per host. See its README under `scripts/windows/`.
 
 The first scan runs when a user signs in (the companion at-logon task) or at
 the next scheduled tick, as that user. See
@@ -250,15 +248,13 @@ manager (an Azure Virtual Desktop scripted action, a Nerdio scripted action, a
 Custom Script Extension) run the install on each new host. Nothing ever runs
 on the imaging machine, the first scan happens when the first user signs in,
 and a failed install is visible per host in the image manager.
-`packaging/windows/Install-DevMachineGuard.ps1` is a provisioning script for
-that step: it installs or upgrades from the staged MSI with the bootstrap
-file, verifies the scheduled tasks and the tenant in `config.json`, writes a
-log under `C:\ProgramData\StepSecurity`, and ends with a single
-`DMG-PROVISION: ok` or `DMG-PROVISION: failed <reason>` line and exit code
-0 or 1; `-Uninstall` runs the MSI uninstall (which retires the device when
-`retire_on_uninstall` is set) for scale-in hooks. Agent releases reach the
-hosts through self-update either way, so an agent version never requires a
-new image.
+The provisioning entrypoint in `scripts/windows/` (`Setup-Dmg.ps1`) is
+built for that step: it verifies the staged MSI, installs or upgrades it
+with the bootstrap file, repairs the scheduled tasks when they are missing,
+and reports the outcome per host without printing the key. For scale-in,
+run the MSI uninstall before deleting the host (it retires the device when
+`retire_on_uninstall` is set). Agent releases reach the hosts through
+self-update either way, so an agent version never requires a new image.
 
 Nothing is deleted automatically. For a pristine image, remove these before
 sealing (keep `config.json` and the binaries): `multi-user.json`,
