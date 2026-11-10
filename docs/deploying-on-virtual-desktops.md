@@ -2,16 +2,21 @@
 
 This guide covers fleets of ephemeral, shared Windows machines: Azure Virtual
 Desktop host pools, Citrix or Horizon pools, lab images, and any machine that
-is rebuilt on a schedule, hosts several logged-in users at once, or hands
+is rebuilt on a schedule, hosts several signed-in users at once, or hands
 users from host to host. Nothing here requires an MDM or a domain join.
 
-Three agent features make this work:
+The model is simple: **a device is a machine**. A pooled host is one device
+in the dashboard however many people sign in to it; each of those people is
+listed inside the device with their own inventory, findings and activity. A
+seat is a machine.
 
 | Need | Feature |
 |------|---------|
-| Rebuilt hosts keep their dashboard record; shared hosts attribute activity to the right person | **Configurable device identity** (`device_id` template) |
+| Rebuilt hosts keep their dashboard record | **Device identity template** `{hostname}` (`device_id`) |
+| Several people on one host are each scanned and attributed | **Per-session scanning** (automatic on multi-session editions) |
 | A terminated host leaves the dashboard and the license count | **Retire on uninstall** (`retire_on_uninstall`, `uninstall --retire`) and the management retire API |
 | Hosts that vanish without any signal are cleaned up | **Auto-retire** after N inactive days (tenant setting in the dashboard) |
+| A master image can be reopened and updated without registering a device | **Image-builder switch** (`IMAGEBUILDER=1`, `configure --image-builder`) |
 
 ## 1. Device identity
 
@@ -19,29 +24,26 @@ By default the agent identifies a device by its hardware serial. A virtual
 desktop that is deleted and recreated gets a new serial, so every rebuild
 would create a new device (and a new seat) while the old one lingers.
 
-Set a **device identity template** instead. It is a literal id or any mix of
+For pooled hosts that are rebuilt under stable names, set the **device
+identity template** `{hostname}`. A template is a literal id or any mix of
 literal text and these tokens:
 
 | Token | Expands to |
 |-------|------------|
 | `{serial}` | the machine identity: the hardware serial, or on Linux user runs the machine-wide id file root wrote (`/etc/stepsecurity/device-id`), or a generated id persisted when no source answers |
-| `{hostname}` | the machine name, lower-cased |
-| `{user}` | the signed-in user: the short name (an email's local part, `DOMAIN\` stripped, lower-cased) plus a twelve-character fingerprint of the whole account name, for example `jdoe-8c4e2cb3a1d7` for `CONTOSO\JDoe`. Two accounts that share a short name (`CORP\alice` and `HOST\alice`, `alice@a.example` and `alice@b.example`) therefore never share a device, state or lock, and a name with no Latin characters still yields `user-<fingerprint>` |
+| `{hostname}` | the machine name, lower-cased (a host without a usable name falls back to its machine identity) |
+
+There is no user token. A device is the machine; the people who sign in are
+reported inside it (section 2). A template that still carries `{user}` from
+an earlier draft logs a warning and falls back to the hardware serial.
 
 ### Which template?
 
-| Template | One dashboard device per | Rebuild (same name, new hardware) | User moves to another host | Two users logged in at once |
-|----------|--------------------------|-----------------------------------|----------------------------|-----------------------------|
-| *(none: hardware serial)* | physical/virtual machine | new device, old one lingers | nothing changes | last scan wins, inventories overwrite each other |
-| `{hostname}` | host name | **same device**, history kept, "hardware serial changed" recorded | nothing changes | last scan wins, inventories overwrite each other |
-| `{hostname}-{user}` **(recommended for pooled desktops)** | host + user | same device per user | a new device on the new host; the old one goes inactive and auto-retires | **each user is their own device**, scanned and attributed separately |
-| `{user}` | developer | same device | **same device** (follows the user; hostname and serial fields flip) | each user is their own device |
-| `asset-12345` (literal) | whatever you say | same device | nothing changes | last scan wins |
-
-Each device is a seat. With `{hostname}-{user}` the seat count is the number
-of (host, user) pairs that have checked in recently and not been retired, so
-inactive pairs must be retired (automatically or via the API) to keep the
-count honest. See section 3.
+| Template | One dashboard device per | Rebuild (same name, new hardware) | Several users |
+|----------|--------------------------|-----------------------------------|---------------|
+| *(none: hardware serial)* | physical or virtual machine | new device, old one lingers until retired | one device, each user listed inside it |
+| `{hostname}` **(recommended for pooled desktops)** | host name | **same device**, history kept, "hardware serial changed" recorded | one device, each user listed inside it |
+| `asset-12345` (literal) | whatever you say | same device | one device |
 
 ### Where to set it
 
@@ -49,16 +51,13 @@ Precedence, highest first:
 
 1. **Environment variable** `STEPSEC_DEVICE_ID` (set machine-wide at
    provisioning time; read on every run, even scheduler-fired ones).
-2. **`config.json`** key `device_id` — written by:
-   * the MSI property `DEVICEID="{hostname}-{user}"`,
+2. **`config.json`** key `device_id`, written by:
+   * the MSI property `DEVICEID="{hostname}"`,
    * the `device_id` key in a `BOOTSTRAPFILE` JSON,
-   * `stepsecurity-dev-machine-guard configure --device-id "{hostname}-{user}"`,
+   * `stepsecurity-dev-machine-guard configure --device-id "{hostname}"`,
    * the loader script generated by the dashboard's install wizard
      ("Device identity" in the Configuration step).
-3. **Automatic mode** (nothing configured, Windows only): a host that is
-   known to be shared switches to `{hostname}-{user}` on its own. See
-   "Automatic mode" below.
-4. The hardware serial (nothing configured, host not shared).
+3. The hardware serial (nothing configured).
 
 ```json
 {
@@ -66,7 +65,8 @@ Precedence, highest first:
   "api_endpoint": "https://agent.api.stepsecurity.io",
   "api_key": "sk_live_xxxxxxxxxxxxxxxx",
   "scan_frequency_hours": "4",
-  "device_id": "{hostname}-{user}",
+  "device_id": "{hostname}",
+  "device_tag": "avd-pool-eu",
   "retire_on_uninstall": true
 }
 ```
@@ -76,45 +76,61 @@ one object, which is what the loaders read to report under the agent's id):
 
 ```
 stepsecurity-dev-machine-guard configure show
-  Device ID:               {hostname}-{user}
-    resolves now to:       avd-host-07-jdoe-8c4e2cb3a1d7 (source: config)
+  Device ID:               {hostname}
+    resolves now to:       avd-host-07 (source: config); per-session scanning is on (multi-session edition), this session reports as user jdoe-8c4e2cb3a1d7
   Retire On Uninstall:     true (uninstall retires this device in the dashboard)
 ```
 
 ### Rules the agent applies
 
-* **Template expansions are sanitized** (a literal id is used exactly as given): characters outside `A-Z a-z 0-9 . _ ~ -`
-  become `-`, runs of `-` collapse, leading/trailing `-` and `.` are trimmed,
-  and ids over 128 characters keep their first 115 plus a short hash. The
-  hardware serial is never altered, so an existing fleet keeps its ids after
-  upgrading.
+* **Template expansions are sanitized** (a literal id is used exactly as
+  given): characters outside `A-Z a-z 0-9 . _ ~ -` become `-`, runs of `-`
+  collapse, leading/trailing `-` and `.` are trimmed, and ids over 128
+  characters keep their first 115 plus a short hash. The hardware serial is
+  never altered, so an existing fleet keeps its ids after upgrading.
 * `serial_number` in telemetry always carries the real hardware serial, so
   the dashboard can show that a configured identity was reused on new
   hardware (a rebuilt host).
-* **`{user}` under a service account** (`NT AUTHORITY\SYSTEM`, `LOCAL
-  SERVICE`, a machine account) cannot be completed. With a configured
-  template the run is **skipped** with a log line rather than reporting under
-  a made-up id. In automatic mode (nothing configured, see below) such a run
-  reports under the hardware serial, exactly as it did before per-user
-  identities existed, until the host's user sessions have performed the
-  one-time switch; from then on it is skipped, since a serial upload would
-  restore the row the switch removed. A device-context loader install
-  therefore keeps producing machine-level telemetry after an agent upgrade
-  and moves to per-user devices once its tasks run per session. The MSI's own
-  install step already runs as SYSTEM and defers the first scan to the
-  scheduled task, which fires as the logged-in user.
 * An **unknown token** (`{site}`) logs a warning and falls back to the
   hardware serial.
 * **Reusing an identifier for an unrelated machine merges history.** Retire
   or delete the old device first when a name is being recycled for something
   that is not a rebuild of the same role.
 
-### Automatic mode
+## 2. Several users on one host: per-session scanning
 
-With no template configured, the agent still handles shared Windows hosts
-on its own. A host is treated as **multi-user** when any of these holds, and
-the decision is **sticky** (recorded in `multi-user.json` in the machine-wide
-state dir, so the ids never flip back):
+On a shared Windows host every signed-in session runs its own scan, as that
+user, and every scan reports under the **same** machine device:
+
+* the upload carries `user_identity` (the account) and `user_token` (the
+  account's short name plus a twelve-character fingerprint of the full
+  account name, for example `jdoe-8c4e2cb3a1d7` for `CONTOSO\JDoe`; two
+  accounts that share a short name never share a token);
+* the dashboard files each user's inventory, findings and activity under
+  that user inside the device, and the device sheet lists the users seen on
+  it; searching for a user lists every device they have signed in to;
+* each session keeps its own run state (`last-run.json`, `scan-state.json`,
+  `node-scan-cache.json`, `run-metrics.jsonl`) under `<install
+  dir>\users\<user token>\` and its own single-instance lock, so two sessions
+  scan side by side; `config.json` and the logs stay shared. On an admin
+  install the state directory grants signed-in users read access, the right
+  to create files and their own `users\<user token>\` directory (theirs
+  through CREATOR OWNER), read on what SYSTEM writes there later, and Modify
+  on the shared logs, the visit file and the per-run state an unscoped scan
+  keeps under the root; the configuration, bootstrap, identity and marker
+  files and `state\` stay SYSTEM and Administrators only (owned by SYSTEM,
+  the markers created empty so nobody can plant one), nothing is reached
+  through a link, and the SYSTEM updater re-applies these grants on every
+  tick;
+* the scheduled task is registered with `MultipleInstancesPolicy=Parallel`
+  so a second session's instance is not dropped while the first user's scan
+  runs (the SYSTEM updater re-applies the policy on every tick, so a host
+  that becomes shared after install is caught too);
+* the scan cadence is kept per device and user by the dashboard, so one
+  user's recent scan never tells another user's session it is "not due".
+
+A host is treated as shared when any of these holds, and the decision is
+**sticky** (recorded in `multi-user.json` in the machine-wide state dir):
 
 * the Windows edition is built for concurrent sessions: Windows 10/11
   Enterprise multi-session (`EditionID` = `EnterpriseMultiSession`, the
@@ -124,56 +140,27 @@ state dir, so the ids never flip back):
   --multi-user-detection users`): two or more developers have each run scans
   on it on two different days (every scan records its user and the day in
   `seen-users.txt` in the machine-wide state dir). A single visit never
-  counts, so a technician's one-off session cannot change a workstation's
-  identity. The default, `edition`, applies only the first rule; `off` never
-  switches.
+  counts, so a technician's one-off session cannot change a workstation. The
+  default, `edition`, applies only the first rule; `off` keeps one shared
+  scan per tick.
 
-On a multi-user host the agent applies `{hostname}-{user}` exactly as if it
-had been configured (`device_id_source` reports `auto`; `configure show`
-prints `(source: auto, multi-session edition)` or `(source: auto, 2+ users
-seen)`). A pooled AVD host therefore gets per-user devices from its very
-first scan, with no provisioning change at all.
+A run with **no signed-in user** on such a host (`NT AUTHORITY\SYSTEM`, a
+device-context task) is skipped with a log line: the sessions report for
+themselves, and a SYSTEM-profile scan would only file an empty inventory
+under the device. On a single-user machine a service-account run behaves as
+it always did (the upload is flagged `no_user_logged_in`).
 
-**The one-time switch.** When a host that already reported under its
-hardware serial becomes multi-user (a second person logs in), the next scan
-removes the old serial-based device through the retire API with reason
-`identity_changed` before it uploads under the new identity, so no stale
-duplicate seat is left behind. The backend treats that reason as a removal:
-the old device disappears from every list at once, is not shown under
-Retired either (the host is now its per-user devices, and a "retired" twin of
-a live user would only confuse), and is purged after the standard 30-day
-retention like any other retired device. The
-call is best effort (a failure is a warning and is retried on the next run),
-happens at most once, and is also performed for a host that was upgraded from
-an older agent and still shows its serial in the machine-wide
-`last-run.json`. A host that was multi-session from the start never had a
-serial row and removes nothing.
-
-Limits in this version: automatic mode is Windows-only (macOS and Linux keep
-the hardware serial unless a template is configured) and needs the
-machine-wide state dir of an elevated install (`C:\ProgramData\StepSecurity`).
-To force serial-only identities on a shared host, configure the explicit
-template `{serial}` or set `multi_user_detection: off`.
-
-### Per-user state on shared hosts
-
-When the template contains `{user}`, the agent keeps its per-run state —
-`last-run.json` (run-gate cache), `scan-state.json` (delta uploads),
-`node-scan-cache.json`, `run-metrics.jsonl` — under
-`<install dir>\users\<user>\` instead of the install dir itself, and its
-single-instance lock is per user. Two users' concurrent scans then run side
-by side as two devices. `config.json` and `agent.error.log` stay shared. The
-Windows scheduled task is registered with
-`MultipleInstancesPolicy=Parallel` so a second session's instance is not
-dropped while the first user's scan runs.
+Limits in this version: per-session scanning is Windows-only (macOS and
+Linux run one scan per tick) and needs the machine-wide state dir of an
+elevated install (`C:\ProgramData\StepSecurity`).
 
 **Golden images:** state captured into an image is recognised and set aside
 on the clones (cached ids and markers that name another machine are ignored,
 the hardware serial is probed afresh), so a sealed image with the agent
 installed works as it is. See "Installing into a master image (Sysprep)" in
-section 2 for what the clone does and the optional pre-capture cleanup.
+section 3 for what the clone does and the optional pre-capture cleanup.
 
-## 2. Install at provisioning time
+## 3. Install at provisioning time
 
 Any of the existing silent paths work; the identity and retire settings ride
 along. For an Azure VM with the Custom Script Extension (or an image
@@ -188,16 +175,23 @@ msiexec /i "stepsecurity-dev-machine-guard-<version>-x64.msi" /qn /norestart `
 msiexec /i "stepsecurity-dev-machine-guard-<version>-x64.msi" /qn /norestart `
   CUSTOMERID="acme-corp" APIENDPOINT="https://agent.api.stepsecurity.io" `
   APIKEY="sk_live_xxxxxxxxxxxxxxxx" `
-  DEVICEID="{hostname}-{user}" RETIREONUNINSTALL=1 DEVICETAG="avd-pool-eu"
+  DEVICEID="{hostname}" RETIREONUNINSTALL=1 DEVICETAG="avd-pool-eu"
 ```
 
 Or set the identity machine-wide and let any install path pick it up:
 
 ```powershell
-[Environment]::SetEnvironmentVariable("STEPSEC_DEVICE_ID", "{hostname}-{user}", "Machine")
+[Environment]::SetEnvironmentVariable("STEPSEC_DEVICE_ID", "{hostname}", "Machine")
 ```
 
-The first scan runs when a user logs in (the companion at-logon task) or at
+Image managers that run a script when a host is created (Nerdio scripted
+actions, a Custom Script Extension) can install from an MSI and tenant file
+staged in the image instead of installing into the image: the provisioning
+entrypoint in `scripts/windows/` (`Setup-Dmg.ps1`) installs, upgrades or
+repairs from the staged MSI as SYSTEM, verifies the result and reports the
+outcome per host. See its README under `scripts/windows/`.
+
+The first scan runs when a user signs in (the companion at-logon task) or at
 the next scheduled tick, as that user. See
 [deploying-via-sccm.md](deploying-via-sccm.md) for the full MSI property
 table and the Intune/SCCM walkthroughs.
@@ -211,14 +205,26 @@ the captured image. That path is supported as it is:
 
 1. Install on the builder with the tenant values and the identity choice
    (`msiexec /i ... BOOTSTRAPFILE=...` or the inline properties above, the
-   template `{hostname}-{user}` or automatic mode, never a literal id or a
+   template `{hostname}` or the hardware serial, never a literal id or a
    configured `user_id`: both would be copied into every clone).
-2. Optionally run a validation scan on the builder (`send-telemetry
-   --force-scan` as a signed-in user, or `identity --json` to see what a run
-   would report). Retire the builder's own device afterwards if it was
-   registered.
+2. Mark the builder: `IMAGEBUILDER=1` on the `msiexec` line, or
+   `stepsecurity-dev-machine-guard configure --image-builder` afterwards.
+   The switch is a marker bound to the builder's hardware id
+   (`image-builder.json` in `C:\ProgramData\StepSecurity`): scans on the
+   imaging machine exit before any beacon, so an admin can sign in to update
+   the image without registering it as a device, while every host built from
+   the image carries another hardware id, ignores the marker and scans
+   normally. `configure show` and `identity --json` report it;
+   `configure --image-builder=false` turns scans back on. The switch is never
+   a bootstrap.json key: that file is copied into the image and replayed by
+   provisioning scripts on every host. Without the switch, a validation scan
+   on the builder (`send-telemetry --force-scan` as a signed-in user, or
+   `identity --json` to see what a run would report) registers the builder's
+   own device; retire it from the dashboard afterwards.
 3. Seal and capture: `Sysprep.exe /oobe /generalize /shutdown`, then capture
-   the image (for example into an Azure Compute Gallery version).
+   the image (for example into an Azure Compute Gallery version). Image
+   managers that automate the seal need no agent-specific settings: the agent
+   asks nothing of Sysprep's switches.
 
 What a clone does on its first runs, whatever the builder left behind:
 
@@ -227,15 +233,12 @@ What a clone does on its first runs, whatever the builder left behind:
   machine (the builder) loses to the probed serial; an elevated run rewrites
   the file, a user run reports the serial and leaves the file to the next
   elevated run. `{hostname}` expands to the clone's own name.
-- **Automatic mode.** `multi-user.json` records the machine it was written
-  on. A marker from another machine is ignored: the edition rule is
-  evaluated on the clone, the first positive decision writes the clone's own
-  marker, and the builder's `retired_serial_id` never counts, so a
-  service-account run on the clone keeps reporting under the machine
-  identity until the clone's own identity switch retires its serial row.
-  `seen-users.txt` is bound the same way: a visit history another machine
-  wrote counts for nothing under the `users` rule and is replaced by the
-  clone's own first recorded visit.
+- **Per-session scanning.** `multi-user.json` records the machine it was
+  written on. A marker from another machine is ignored: the edition rule is
+  evaluated on the clone and the first positive decision writes the clone's
+  own marker. `seen-users.txt` is bound the same way: a visit history another
+  machine wrote counts for nothing under the `users` rule and is replaced by
+  the clone's own first recorded visit.
 - **Scheduled tasks** are bound to the INTERACTIVE group and to SYSTEM, not
   to the builder's account, so they run as the users who sign in to the
   clone.
@@ -244,6 +247,23 @@ What a clone does on its first runs, whatever the builder left behind:
   clone's own, and `uninstall --retire` skips records that name another
   machine, so a clone's uninstall never retires the builder's device or a
   device of another clone.
+
+### Staging the installer and installing at host creation
+
+The alternative to installing into the image: copy only the MSI and the
+bootstrap file into the image (for example `C:\StepSecurity\agent.msi` and
+`C:\StepSecurity\bootstrap.json`) and let the host-creation step of the image
+manager (an Azure Virtual Desktop scripted action, a Nerdio scripted action, a
+Custom Script Extension) run the install on each new host. Nothing ever runs
+on the imaging machine, the first scan happens when the first user signs in,
+and a failed install is visible per host in the image manager.
+The provisioning entrypoint in `scripts/windows/` (`Setup-Dmg.ps1`) is
+built for that step: it verifies the staged MSI, installs or upgrades it
+with the bootstrap file, repairs the scheduled tasks when they are missing,
+and reports the outcome per host without printing the key. For scale-in,
+run the MSI uninstall before deleting the host (it retires the device when
+`retire_on_uninstall` is set). Agent releases reach the hosts through
+self-update either way, so an agent version never requires a new image.
 
 Nothing is deleted automatically. For a pristine image, remove these before
 sealing (keep `config.json` and the binaries): `multi-user.json`,
@@ -254,35 +274,35 @@ usable serial gets a generated machine id, and a generated id captured into
 the image cannot be told from the clone's own, so every clone would share
 it. Remove the `device-id` files there before capture.
 
-## 3. Retiring a device
+## 4. Retiring a device
 
 A retired device leaves the device list and the license count. Its row is
-kept for 30 days — if the agent on that device ever checks in again (a
+kept for 30 days: if the agent on that device ever checks in again (a
 reinstall, a reimage with the same name) the device is **restored
-automatically** — and is then permanently purged along with its history.
+automatically**, and after that it is permanently purged along with its
+history. Retiring a shared host retires every user listed inside it with it.
 
 **Retirement scope.** `device_tag` (config.json, MSI `DEVICETAG`,
 bootstrap.json, `configure --device-tag`, or the install wizard) is a label
 the dashboard shows next to the device and never edits. In Settings, Device
 activity, an admin chooses whether retirement applies to all devices (the
 default) or only to devices carrying chosen tags. A device outside the scope
-is never retired: not on uninstall, not by the identity switch, not by the
-inactivity sweep and not from the dashboard (the API answers 409
-`device_out_of_scope`; delete it instead). Give every pooled virtual desktop
-its host pool as the tag and scope retirement to those tags, so the fleet's
-laptops are never touched.
+is never retired: not on uninstall, not by the inactivity sweep and not from
+the dashboard (the API answers 409 `device_out_of_scope`; delete it instead).
+Give every pooled virtual desktop its host pool as the tag and scope
+retirement to those tags, so the fleet's laptops are never touched.
 
 Three ways to retire:
 
 1. **From the machine, on uninstall.** With `retire_on_uninstall: true` in
    config (MSI `RETIREONUNINSTALL=1`, bootstrap key, or the wizard), a plain
    `msiexec /x {ProductCode} /qn` or `stepsecurity-dev-machine-guard
-   uninstall` retires the device before removing the scheduled task.
-   `uninstall --retire` forces it; `--no-retire` suppresses it. A major
-   upgrade through the MSI never retires. The call is best-effort: a dead
-   network never blocks the uninstall. For a `{user}` template the agent
-   retires every per-user device it has state for, which is how an MSI
-   uninstall running as SYSTEM covers all of a host's users.
+   uninstall` waits for running scans, removes the scheduled tasks and
+   retires the device. `uninstall --retire` forces it; `--no-retire`
+   suppresses it. A major upgrade through the MSI never retires. The call is
+   best-effort: a dead network never blocks the uninstall. On an MSI
+   install, uninstall with `msiexec /x`; a CLI `uninstall` from the
+   `versions\` agent leaves its own image in place and says so.
 2. **From your orchestrator.** When a host pool scales in or a pipeline
    deletes a VM, call the management API with a tenant API key (`developer-
    mdm:write` permission):
@@ -293,8 +313,7 @@ Three ways to retire:
    ```
 
    The response is `200 {"device_id":…,"status":"retired",…}`, or `404` for
-   an unknown id. With `{hostname}-{user}` call it once per user id of the
-   host, or rely on auto-retire for the leftovers.
+   an unknown id. One call per host.
 3. **From the dashboard.** Devices → row menu → *Retire device*.
 
 ### Auto-retire
@@ -304,18 +323,18 @@ setting **Auto-retire inactive devices after N days** is on (Dev Machine
 Guard → Settings → Device Activity), are retired by a daily sweep. N must be
 at least the inactive threshold. Retired devices are purged 30 days later.
 
-## 4. Troubleshooting
+## 5. Troubleshooting
 
 | Symptom | Check |
 |---------|-------|
-| Device missing after a scan | `configure show` → *resolves now to*; a configured `{user}` template under SYSTEM reads *incomplete* and the run is skipped (automatic mode resolves to the hardware serial there until the host has switched) |
-| A host suddenly has per-user devices and its old device is gone | automatic mode kicked in (`multi-user.json` under `C:\ProgramData\StepSecurity` says why); the old row was removed through the retire API with reason `identity_changed` (hidden at once, purged after the standard retention). Configure `{serial}` to opt out |
+| Device missing after a scan | `configure show` → *resolves now to*; a `{serial}` template on a machine with no usable serial reads *incomplete* and the run is skipped; on a shared host a run with no signed-in user is skipped by design |
+| A user is missing inside a shared host's device | the session's scan did not run: `Get-ScheduledTask -TaskName "StepSecurity*"` must show the Parallel instance policy on the scan task (the updater re-applies it on every tick); look for `users\<user token>\last-run.json` under the install dir |
 | Is this a VM? | the device sheet shows the virtualization type and vendor; the agent logs `Virtualization: virtual (azure, imds)` or `physical` on every scan |
 | Two rows for one host after a rebuild | the template is not set, or `STEPSEC_DEVICE_ID` differs between the image and the running host |
-| Only one user's inventory on a shared host | the template lacks `{user}`; with it, look for `users\<user>\last-run.json` under the install dir |
 | "cached device id … differs from resolved" in `agent.error.log` | a state file from another machine (golden image or roamed profile); harmless, the run proceeds under the right id |
-| A clone reports the image builder's device id, or an uninstall on a clone retires a device of another host | the builder had no usable hardware serial, so its generated id was captured into the image; remove the `device-id` files before sealing (section 2, "Installing into a master image") |
-| Retire did nothing | `uninstall` logs `Retired device <id>`; a 404 means the backend predates the feature, a transport error means the machine was already offline — auto-retire covers both |
+| A clone reports the image builder's device id, or an uninstall on a clone retires a device of another host | the builder had no usable hardware serial, so its generated id was captured into the image; remove the `device-id` files before sealing (section 3, "Installing into a master image") |
+| The imaging machine shows up as a device | the image-builder switch is off there: `configure --image-builder`, then retire the device from the dashboard |
+| Retire did nothing | `uninstall` logs `Retired device <id>`; a 404 means the backend predates the feature, a transport error means the machine was already offline; auto-retire covers both |
 
 Logs: `C:\ProgramData\StepSecurity\agent.error.log` (scheduled runs) and
-`users\<user>\` for per-user state.
+`users\<user token>\` for per-session state.

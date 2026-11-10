@@ -2,6 +2,7 @@ package config
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,7 +19,7 @@ import (
 
 // Default placeholders (replaced by backend for enterprise installation scripts).
 var (
-	DeviceID            string // Optional device identity: a literal id or a template over {serial} {hostname} {user}; empty uses the machine serial. STEPSEC_DEVICE_ID overrides it (read by the device package).
+	DeviceID            string // Optional device identity: a literal id or a template over {serial} {hostname}; empty uses the machine serial. STEPSEC_DEVICE_ID overrides it (read by the device package).
 	CustomerID          = "{{CUSTOMER_ID}}"
 	APIEndpoint         = "{{API_ENDPOINT}}"
 	APIKey              = "{{API_KEY}}" //#nosec G101 -- build-time placeholder substituted by the backend installer; the literal is not a real credential.
@@ -82,13 +83,14 @@ var MaxExecutionDuration string
 // `--no-retire` override it per invocation.
 var RetireOnUninstall bool
 
-// MultiUserDetection selects how a Windows host with no identity template
-// decides it is shared and switches to automatic per-user identities
+// MultiUserDetection selects how a Windows host decides it is shared by
+// several people and scans every signed-in session separately
 // (device/multiuser.go): "edition" (the default) trusts only the multi-session
 // editions and the RD Session Host role; "users" also counts developers seen
-// scanning on two different days, two of whom flip the host; "off" never
-// switches (the machine identity, like the explicit {serial} template).
-// config.json multi_user_detection, `configure --multi-user-detection`.
+// scanning on two different days, two of whom switch the host; "off" never
+// switches (one shared scan per tick, as on a single-user machine). The device
+// identity is the machine's in every mode. config.json multi_user_detection,
+// `configure --multi-user-detection`.
 var MultiUserDetection string
 
 // MultiUserDetection values.
@@ -123,9 +125,9 @@ func MultiUserDetectionMode() string {
 // only (config.json `device_tag`, MSI DEVICETAG, bootstrap.json,
 // `configure --device-tag`); the dashboard displays it and never changes it.
 // The dashboard's retirement scope (Settings, Device activity) can limit
-// retirement (on uninstall, on the automatic identity switch, by inactivity,
-// from the dashboard) to devices carrying chosen tags, so a fleet's laptops
-// are never retired by a feature meant for its pooled virtual desktops.
+// retirement (on uninstall, by inactivity, from the dashboard) to devices
+// carrying chosen tags, so a fleet's laptops are never retired by a feature
+// meant for its pooled virtual desktops.
 // Reported as device_tag in every upload. See
 // docs/deploying-on-virtual-desktops.md.
 var DeviceTag string
@@ -514,10 +516,10 @@ func RunConfigure() error {
 	fmt.Println("To clear a value, enter a single dash (-).")
 	fmt.Println()
 
-	// A literal id, or a template over {serial} {hostname} {user}: a pooled
-	// virtual desktop fleet typically uses "{hostname}-{user}" so each person
-	// on a shared host is their own device. See docs/deploying-on-virtual-desktops.md.
-	deviceID := promptValue(reader, "Device ID (optional; default = machine serial; tokens {serial} {hostname} {user})", existing.DeviceID)
+	// A literal id, or a template over {serial} {hostname}: a pooled virtual
+	// desktop fleet rebuilt under stable host names uses "{hostname}" so a
+	// rebuilt host keeps its record. See docs/deploying-on-virtual-desktops.md.
+	deviceID := promptValue(reader, "Device ID (optional; default = machine serial; tokens {serial} {hostname})", existing.DeviceID)
 	if deviceID != existing.DeviceID {
 		// A dash explicitly resets the optional override to machine identity.
 		if deviceID != "" {
@@ -778,6 +780,15 @@ func promptValue(reader *bufio.Reader, label, current string) string {
 	return line
 }
 
+// stripUTF8BOM drops a leading UTF-8 byte-order mark from a config or
+// bootstrap file. PowerShell 5.1's Set-Content and Out-File -Encoding UTF8
+// write one, encoding/json rejects it, and a bootstrap.json an admin wrote
+// that way failed the MSI install (error 1603) with the cause only in the
+// installer log.
+func stripUTF8BOM(data []byte) []byte {
+	return bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+}
+
 // readExisting returns an empty config when the file is absent, and
 // ErrConfigInvalid when it exists but can't be read or parsed.
 func readExisting() (*ConfigFile, error) {
@@ -790,6 +801,7 @@ func readExisting() (*ConfigFile, error) {
 		}
 		return &ConfigFile{}, fmt.Errorf("%w: %s: %v", ErrConfigInvalid, path, err)
 	}
+	data = stripUTF8BOM(data)
 	var cfg ConfigFile
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return &ConfigFile{}, fmt.Errorf("%w: %s: %v", ErrConfigInvalid, path, err)
@@ -848,7 +860,7 @@ func save(cfg *ConfigFile) error {
 // when non-empty, is printed under the Device ID line ("<id> (source:
 // env|config|serial)"); main supplies it via device.ResolvedDeviceID because
 // the device package depends on this one, not the other way round.
-func ShowConfigure(resolvedIdentity string) {
+func ShowConfigure(resolvedIdentity, imageBuilder string) {
 	cfg, err := readExisting()
 	if err != nil {
 		fmt.Printf("Warning: %v\n\n", err)
@@ -884,6 +896,9 @@ func ShowConfigure(resolvedIdentity string) {
 	fmt.Printf("  %-24s %s\n", "Log Level:", displayLogLevel(cfg.LogLevel))
 	fmt.Printf("  %-24s %s\n", "Install Directory:", displayInstallDir(cfg.InstallDir))
 	fmt.Printf("  %-24s %s\n", "Retire On Uninstall:", displayRetireOnUninstall(cfg.RetireOnUninstall))
+	if imageBuilder != "" {
+		fmt.Printf("  %-24s %s\n", "Image Builder:", imageBuilder)
+	}
 }
 
 func displayRetireOnUninstall(v *bool) string {
@@ -903,16 +918,16 @@ func displayDeviceTag(v string) string {
 func displayMultiUserDetection(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case MultiUserDetectionUsers:
-		return "users (multi-session editions, or two developers seen on two days each)"
+		return "users (per-session scanning on multi-session editions, or once two developers were seen on two days each)"
 	case MultiUserDetectionOff:
-		return "off (never switches to per-user identities)"
+		return "off (one shared scan per tick, never per session)"
 	}
-	return "edition (default: multi-session editions and the RD Session Host role)"
+	return "edition (default: per-session scanning on multi-session editions and the RD Session Host role)"
 }
 
 func displayDeviceID(v string) string {
 	if v = strings.TrimSpace(v); v == "" {
-		return "auto (per-user on multi-session hosts, hardware serial elsewhere)"
+		return "hardware serial (default)"
 	}
 	return v
 }
@@ -1112,6 +1127,7 @@ func runConfigureNonInteractive(opts NonInteractiveOptions, exec executor.Execut
 		if err != nil {
 			return fmt.Errorf("reading --from-file %q: %w", opts.FromFile, err)
 		}
+		data = stripUTF8BOM(data)
 		var fromFile ConfigFile
 		if err := json.Unmarshal(data, &fromFile); err != nil {
 			return fmt.Errorf("parsing --from-file %q: %w", opts.FromFile, err)

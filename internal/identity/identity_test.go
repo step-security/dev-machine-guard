@@ -92,15 +92,16 @@ func TestNormalizeDevice(t *testing.T) {
 	}{
 		{"literal", " device-2 ", "device-2", false},
 		{"dash clears", "-", "", false},
-		{"template", "{hostname}-{user}", "{hostname}-{user}", false},
+		{"template", "{hostname}-{serial}", "{hostname}-{serial}", false},
 		{"template is trimmed and case-insensitive", " {Serial}.vdi ", "{Serial}.vdi", false},
 		{"empty", "", "", true},
 		{"reserved literal", "root", "", true},
 		{"literal outside the allowlist", "bad/id", "", true},
 		{"unknown token", "{hostname}-{site}", "", true},
+		{"user token is not an identity token", "{hostname}-{user}", "", true},
 		{"unbalanced brace", "{hostname", "", true},
-		{"literal text outside the allowlist inside a template", "{hostname} {user}", "", true},
-		{"too long", "{user}-" + strings.Repeat("a", 250), "", true},
+		{"literal text outside the allowlist inside a template", "{hostname} {serial}", "", true},
+		{"too long", "{serial}-" + strings.Repeat("a", 250), "", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -134,7 +134,8 @@ func TestSystemIDDropsStaleConfiguredCache(t *testing.T) {
 }
 
 // A configured template is expanded under SYSTEM the way the scan expands
-// it; {user} has no expansion there and yields no id.
+// it; the retired {user} token falls back to the machine identity, as the
+// scan does.
 func TestSystemIDExpandsTemplate(t *testing.T) {
 	old := config.DeviceID
 	t.Cleanup(func() { config.DeviceID = old })
@@ -151,8 +152,8 @@ func TestSystemIDExpandsTemplate(t *testing.T) {
 		t.Fatalf("{serial}: SystemID = %q", got)
 	}
 	config.DeviceID = "{hostname}-{user}"
-	if got := SystemID(context.Background(), m, cache, SystemProbeTimeout); got != "" {
-		t.Fatalf("{user} under SYSTEM: SystemID = %q, want none", got)
+	if got := SystemID(context.Background(), m, cache, SystemProbeTimeout); got != "HW-1" {
+		t.Fatalf("{user} template: SystemID = %q, want the machine identity", got)
 	}
 	// A nameless host falls back to the machine identity for {hostname}.
 	m.SetHostname("localhost")

@@ -77,12 +77,29 @@ WiX's `WixQuietExec` (Util extension) → the bootstrap or the seed agent
 PowerShell egress — a common enterprise posture.
 
 Optional properties `DEVICEID` (device identity template, e.g.
-`{hostname}-{user}`), `DEVICETAG` (dashboard label, selectable by the
+`{hostname}`), `DEVICETAG` (dashboard label, selectable by the
 dashboard's retirement scope) and `RETIREONUNINSTALL=1` are forwarded to
 `configure --device-id` / `--device-tag` / `--retire-on-uninstall`; all
 three are also accepted as `device_id` / `device_tag` /
-`retire_on_uninstall` keys in a `BOOTSTRAPFILE`. See
+`retire_on_uninstall` keys in a `BOOTSTRAPFILE`. `IMAGEBUILDER=1` marks a
+master-image builder (`configure --image-builder`): scans stay off on that
+machine while every host built from its image scans normally; it is bound to
+the builder's hardware id and deliberately has no bootstrap key. See
 `docs/deploying-on-virtual-desktops.md`.
+
+## Installing at host creation from staged assets
+
+Image managers that run a script when a host is created (Nerdio scripted
+actions, an Azure Virtual Desktop custom script extension, Intune
+remediation) can stage the MSI and the tenant file in the master image and
+install on each new host instead of installing into the image. The
+provisioning entrypoint for that step lives in `scripts/windows/`
+(`Setup-Dmg.ps1`, with its own README and tests): it runs as SYSTEM,
+verifies the staged MSI before installing, chooses between install, healthy
+no-op, upgrade and task repair, and reports the outcome per host without
+printing the key. Nothing runs on the imaging machine, and agent releases
+reach the hosts through self-update, so an agent version never needs a new
+image.
 
 ## Self-update and `AUTOUPDATE`
 

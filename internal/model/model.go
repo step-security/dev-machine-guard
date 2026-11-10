@@ -75,14 +75,25 @@ type Device struct {
 	SerialNumber   string `json:"serial_number"`
 	DeviceID       string `json:"device_id,omitempty"`
 	DeviceIDSource string `json:"device_id_source,omitempty"`
+	// DeviceIDTemplate is the identity template in force when it carries a
+	// token ("{hostname}"), so the dashboard can tell a host-name identity
+	// from a hardware one. Empty for the hardware serial and for a literal id.
+	DeviceIDTemplate string `json:"device_id_template,omitempty"`
+	// UserToken names the signed-in user this run scanned for: the account's
+	// short name plus a fingerprint of the full principal (device.UserToken),
+	// the same value that scopes per-session state on a shared host. Empty
+	// for a service account. The backend files the upload under this user of
+	// the device.
+	UserToken string `json:"user_token,omitempty"`
 	// DeviceTag is the admin-set label from the agent configuration
 	// (config.json device_tag); empty when none is configured.
 	DeviceTag string `json:"device_tag,omitempty"`
-	// IdentityPerUser: the template contained {user}, so this machine's users
-	// are separate devices. IdentityIncomplete: a token expanded empty (e.g.
-	// {user} under SYSTEM); DeviceID is "" and the run must not upload.
-	IdentityPerUser    bool             `json:"-"`
+	// IdentityIncomplete: a token expanded empty ({serial} with no usable
+	// serial); DeviceID is "" and the run must not upload.
+	// PerSessionScanning: this host scans every signed-in session separately
+	// (device/multiuser.go); a run with no signed-in user is skipped there.
 	IdentityIncomplete bool             `json:"-"`
+	PerSessionScanning bool             `json:"-"`
 	OSVersion          string           `json:"os_version"`
 	Platform           string           `json:"platform"`
 	UserIdentity       string           `json:"user_identity"`

@@ -26,15 +26,20 @@ const (
 	IdentitySourceEnv    = "env"
 	IdentitySourceConfig = "config"
 	IdentitySourceSerial = "serial"
-	// IdentitySourceAuto is declared in multiuser.go.
 )
 
 // Identity template tokens. The template is a literal, or any mix of literal
-// text and these tokens; it is expanded then sanitized (SanitizeDeviceID).
+// text and these tokens; it is expanded then sanitized (SanitizeDeviceID). A
+// device is always a machine: there is no user token, because the users of a
+// shared host are reported inside its device (user_identity and user_token on
+// every upload), not as devices of their own.
 const (
 	TokenSerial   = "{serial}"
 	TokenHostname = "{hostname}"
-	TokenUser     = "{user}"
+	// legacyTokenUser was an identity token in an unreleased build; a
+	// template that still carries it is reported with a specific message
+	// and falls back to the machine identity like any unknown token.
+	legacyTokenUser = "{user}"
 )
 
 // maxDeviceIDLen bounds a configured id. Longer ids keep a readable prefix and
@@ -44,9 +49,9 @@ const (
 	longIDPrefixLen     = 115
 	longIDHashSuffixLen = 12
 	// UserTokenFingerprintLen is the length of the sha256 hex fingerprint of
-	// the full principal appended to the {user} token (see userToken): 48
-	// bits, so two accounts sharing a short name on one host cannot be made
-	// to collide by chance or by choosing a domain name.
+	// the full principal appended to a user token (see userToken): 48 bits,
+	// so two accounts sharing a short name on one host cannot be made to
+	// collide by chance or by choosing a domain name.
 	UserTokenFingerprintLen = 12
 )
 
@@ -62,56 +67,40 @@ type Identity struct {
 	DeviceID string
 	Serial   string
 	Source   string // IdentitySource*
-	Template string // the raw env/config/automatic value; "" when Source == serial, except for an AutoFallback
-	// PerUser is true when the template contained {user}: each logged-in user
-	// of this machine is a separate device, and the agent keeps per-user state.
-	PerUser bool
-	// UserScope is the sanitized {user} token when PerUser and the identity is
-	// complete; it names the per-user state directory (paths.StateDir).
-	UserScope string
-	// Incomplete is true when a token expanded empty: {user} under a service
-	// account (SYSTEM, LOCAL SERVICE), or {serial} on a machine with no usable
-	// serial. An incomplete identity must not reach the backend — a serial-only
-	// fallback row would be exactly the phantom device the template exists to
-	// prevent — so callers skip the run and say why.
+	Template string // the raw env/config value; "" when Source == serial
+	// Incomplete is true when a token expanded empty: {serial} on a machine
+	// with no usable serial, {hostname} on a nameless host without one. An
+	// incomplete identity must not reach the backend, so callers skip the run
+	// and say why.
 	Incomplete bool
 	// Issue is a human-readable note for the log ("" when nothing is wrong):
 	// an unknown token, a template that sanitized to nothing, and so on.
 	Issue string
-	// AutoReason says why the automatic per-user identity applies ("" unless
-	// Source is IdentitySourceAuto): "multi-session edition" or "2+ users seen".
-	AutoReason string
-	// AutoFallback is true when the automatic per-user identity is in force
-	// on this host but this process runs under a service account (SYSTEM, a
-	// loader's device-context task), which cannot complete {user}, so it
-	// reports under the machine identity instead: what such a run reported
-	// before per-user identities existed. It lasts until the host's per-user
-	// runs have retired the serial row; from then on such a run is Incomplete
-	// and skipped, as its upload would restore that row. Template keeps the
-	// automatic template so the fallback is recognisable.
-	AutoFallback bool
+	// UserToken names the signed-in user this run scans for: the account's
+	// short name plus a fingerprint of the full principal (userToken), "" for
+	// a service account. Every upload and beacon carries it as user_token so
+	// the backend files the run under the right user of this device.
+	UserToken string
+	// PerSession is true when this host scans every signed-in session
+	// separately (device/multiuser.go): each session's run keeps its own
+	// state and lock, all of them reporting under this one device.
+	PerSession bool
+	// SessionScope names the per-session state directory (paths.StateDir):
+	// UserToken when PerSession and a user is signed in, else "".
+	SessionScope string
 }
 
 // IdentityTemplate returns the identity template in force: STEPSEC_DEVICE_ID
-// when set, else config.json's device_id, else the automatic per-user
-// template on a shared host (multiuser.go), else "" (machine identity). The
+// when set, else config.json's device_id, else "" (machine identity). The
 // source is returned alongside so callers can report it.
 func IdentityTemplate(exec executor.Executor) (template, source string) {
-	template, source, _ = identityTemplate(exec)
-	return template, source
-}
-
-func identityTemplate(exec executor.Executor) (template, source, autoReason string) {
 	if v := strings.TrimSpace(exec.Getenv(EnvDeviceID)); v != "" {
-		return v, IdentitySourceEnv, ""
+		return v, IdentitySourceEnv
 	}
 	if v := strings.TrimSpace(config.DeviceID); v != "" {
-		return v, IdentitySourceConfig, ""
+		return v, IdentitySourceConfig
 	}
-	if t, reason := autoIdentity(exec); t != "" {
-		return t, IdentitySourceAuto, reason
-	}
-	return "", IdentitySourceSerial, ""
+	return "", IdentitySourceSerial
 }
 
 // HasIdentityTemplate reports whether the device identity is configured rather
@@ -122,63 +111,44 @@ func HasIdentityTemplate(exec executor.Executor) bool {
 }
 
 // ResolveIdentity turns the configured template (or its absence) plus the
-// probed facts into the identity used for every backend call. Pure apart from
-// the env/config read in IdentityTemplate.
+// probed facts into the identity used for every backend call, and records the
+// session facts (UserToken, PerSession, SessionScope). Pure apart from the
+// env/config read in IdentityTemplate and the per-session snapshot.
 //
 // The machine-identity path is byte-identical to what the agent always sent:
 // no sanitization is applied when there is no template, so an existing fleet
 // never re-registers after an upgrade (VMware serials with spaces included).
 func ResolveIdentity(exec executor.Executor, serial, hostname, user string) Identity {
-	template, source, autoReason := identityTemplate(exec)
-	id := resolveWith(template, source, serial, hostname, user, exec.GOOS(), exec.IsRoot())
-	if id.Source == IdentitySourceAuto {
-		id.AutoReason = autoReason
-	}
-	if source == IdentitySourceAuto && id.Incomplete && isServiceAccount(exec.GOOS(), exec.IsRoot(), user) {
-		id = autoServiceAccountIdentity(exec, id, serial)
+	template, source := IdentityTemplate(exec)
+	id := resolveWith(template, source, serial, hostname)
+	id.UserToken = UserToken(exec, user)
+	if on, _ := PerSessionScanning(exec); on {
+		id.PerSession = true
+		id.SessionScope = id.UserToken
 	}
 	return id
 }
 
-// autoServiceAccountIdentity decides what a service-account run (SYSTEM, a
-// loader's device-context task) reports under on a host in automatic
-// per-user mode, where {user} cannot be completed. Until the host's per-user
-// runs have removed the serial row it is the machine identity (AutoFallback),
-// exactly what such a run reported before per-user identities existed, so a
-// device-context scheduler keeps producing machine-level telemetry after an
-// agent upgrade instead of skipping every run. Once the serial row has been
-// retired (the sticky marker records it) the run stays Incomplete and is
-// skipped: an upload under the serial would restore that row as a duplicate
-// seat next to the per-user devices.
-func autoServiceAccountIdentity(exec executor.Executor, id Identity, serial string) Identity {
-	if AutoSerialRowRetired(exec, serial) {
-		return id
-	}
-	out := Identity{Serial: serial, Source: IdentitySourceSerial, Template: id.Template, AutoFallback: true}
-	if usableSerial(serial) {
-		out.DeviceID = serial
-	}
-	return out
-}
-
 // AttachIdentity resolves the identity for a gathered Device and records it on
-// the struct (DeviceID, DeviceIDSource, IdentityPerUser, IdentityIncomplete),
-// which is what ID reads. Gather calls it; telemetry calls it again after a
-// late serial resolve.
+// the struct (DeviceID, DeviceIDSource, DeviceIDTemplate, IdentityIncomplete,
+// UserToken, PerSessionScanning), which is what ID reads. Gather calls it;
+// telemetry calls it again after a late serial resolve.
 func AttachIdentity(exec executor.Executor, dev *model.Device) {
 	id := ResolveIdentity(exec, dev.SerialNumber, dev.Hostname, dev.UserIdentity)
 	dev.DeviceID = id.DeviceID
 	dev.DeviceIDSource = id.Source
-	dev.IdentityPerUser = id.PerUser
+	dev.DeviceIDTemplate = TemplateForReport(id.Template)
 	dev.IdentityIncomplete = id.Incomplete
+	dev.UserToken = id.UserToken
+	dev.PerSessionScanning = id.PerSession
 }
 
 // resolveWith is the pure core of ResolveIdentity. An empty template is the
 // machine identity (usableSerial applies, never a placeholder). A literal with
 // no tokens is used exactly as given, the same contract as a configured
 // device id before templates existed; only token expansions are sanitized,
-// because they inject values (user names, host names) nobody vetted.
-func resolveWith(template, source, serial, hostname, user, platform string, root bool) Identity {
+// because they inject values (host names) nobody vetted.
+func resolveWith(template, source, serial, hostname string) Identity {
 	fallback := func(issue string) Identity {
 		id := Identity{Serial: serial, Source: IdentitySourceSerial, Template: template, Issue: issue}
 		if usableSerial(serial) {
@@ -195,8 +165,7 @@ func resolveWith(template, source, serial, hostname, user, platform string, root
 		id.DeviceID = strings.TrimSpace(template)
 		return id
 	}
-	expanded, issue, incomplete := expandIdentityTemplate(template, serial, hostname, user, platform, root)
-	id.PerUser = strings.Contains(strings.ToLower(template), TokenUser)
+	expanded, issue, incomplete := expandIdentityTemplate(template, serial, hostname)
 	if issue != "" {
 		// An unknown token is a configuration mistake, not a reason to stop
 		// scanning: fall back to the machine identity and say so.
@@ -210,16 +179,13 @@ func resolveWith(template, source, serial, hostname, user, platform string, root
 	if id.DeviceID == "" {
 		return fallback("device identity template " + template + " produced an empty id; using the machine identity")
 	}
-	if id.PerUser {
-		id.UserScope = SanitizeDeviceID(userToken(platform, root, user))
-	}
 	return id
 }
 
 // expandIdentityTemplate substitutes the known tokens (case-insensitively). It
 // returns the expanded string, a non-empty issue for an unknown token, and
 // incomplete=true when a token expanded to nothing usable.
-func expandIdentityTemplate(template, serial, hostname, user, platform string, root bool) (expanded, issue string, incomplete bool) {
+func expandIdentityTemplate(template, serial, hostname string) (expanded, issue string, incomplete bool) {
 	var b strings.Builder
 	rest := template
 	for {
@@ -246,21 +212,17 @@ func expandIdentityTemplate(template, serial, hostname, user, platform string, r
 		case TokenHostname:
 			// A host without a usable name falls back to its machine
 			// identity, as the dashboard does when it has no name to show:
-			// "unknown-jdoe" would collide across every nameless host.
+			// "unknown" would collide across every nameless host.
 			h := hostnameToken(hostname, serial)
 			if h == "" {
 				incomplete = true
 			}
 			b.WriteString(h)
-		case TokenUser:
-			u := userToken(platform, root, user)
-			if u == "" {
-				incomplete = true
-			}
-			b.WriteString(u)
+		case legacyTokenUser:
+			return "", "device identity template " + template + " uses {user}, which is not an identity token: a device is the machine and its users are reported inside it (known tokens: {serial} {hostname}); using the machine identity", false
 		default:
 			return "", "device identity template " + template + " has an unknown token " + token +
-				" (known: {serial} {hostname} {user}); using the machine identity", false
+				" (known: {serial} {hostname}); using the machine identity", false
 		}
 	}
 	return b.String(), "", incomplete
@@ -281,15 +243,21 @@ func hostnameToken(hostname, serial string) string {
 	}
 }
 
-// userToken reduces a user identity to the token used inside a device id. A
-// service account becomes empty, which is what makes a {user} template
-// incomplete under SYSTEM. Otherwise the token is the readable short name
-// (an email's local part, DOMAIN\ stripped, lowercased, sanitized) plus a
-// fingerprint of the whole lowercased principal: CORP\alice and HOST\alice,
-// or alice@a.example and alice@b.example, share a short name but never a
-// device, a state scope or a lock, and a name whose readable part sanitizes
-// to nothing (a non-Latin display name) still yields a usable token instead
-// of a hostname-only id with shared state. The loaders apply the same rule.
+// UserToken is the token the agent reports for the signed-in user (payload
+// and beacon user_token) and uses as the per-session state scope: "" for a
+// service account, else userToken sanitized for file names and keys.
+func UserToken(exec executor.Executor, user string) string {
+	return SanitizeDeviceID(userToken(exec.GOOS(), exec.IsRoot(), user))
+}
+
+// userToken reduces a user identity to a key-safe token. A service account
+// becomes empty. Otherwise the token is the readable short name (an email's
+// local part, DOMAIN\ stripped, lowercased, sanitized) plus a fingerprint of
+// the whole lowercased principal: CORP\alice and HOST\alice, or
+// alice@a.example and alice@b.example, share a short name but never a state
+// scope, a lock or a user entry on the device, and a name whose readable part
+// sanitizes to nothing (a non-Latin display name) still yields a usable token.
+// The loaders apply the same rule.
 func userToken(platform string, root bool, user string) string {
 	u := strings.TrimSpace(user)
 	if isServiceAccount(platform, root, u) {
@@ -311,7 +279,7 @@ func userToken(platform string, root bool, user string) string {
 	return short + "-" + fp
 }
 
-// UserTokenFingerprint is the fingerprint part of a {user} token: the first
+// UserTokenFingerprint is the fingerprint part of a user token: the first
 // UserTokenFingerprintLen hex digits of the sha256 of the lowercased full
 // principal (DOMAIN\user, or the whole email).
 func UserTokenFingerprint(principal string) string {
@@ -324,7 +292,7 @@ func UserTokenFingerprint(principal string) string {
 // and on Windows the well-known service accounts (NT AUTHORITY\SYSTEM, LOCAL
 // SERVICE, NETWORK SERVICE, the NT SERVICE\ virtual accounts) and machine
 // accounts (trailing $). It is the single predicate behind the payload's
-// no_user_logged_in flag and the {user} identity token.
+// no_user_logged_in flag and the empty user token.
 func IsServiceAccount(exec executor.Executor, user string) bool {
 	return isServiceAccount(exec.GOOS(), exec.IsRoot(), user)
 }
@@ -424,20 +392,25 @@ func ResolvedDeviceID(ctx context.Context, exec executor.Executor) Identity {
 	return id
 }
 
-// IdentityUserScope returns the per-user state scope for this run: the
-// sanitized {user} token when the identity template contains it, the template
-// is one the resolver accepts, and the current user is a real developer, else
-// "". It probes nothing (no serial, no hostname) so main can call it before
-// any state path is touched.
-func IdentityUserScope(exec executor.Executor) string {
-	template, _ := IdentityTemplate(exec)
-	if !strings.Contains(strings.ToLower(template), TokenUser) {
+// SessionScope returns the per-session state scope for this run: the user
+// token when this host scans every signed-in session separately and the
+// current user is a real developer, else "" (shared state). It probes nothing
+// (no serial, no hostname) so main can call it before any state path is
+// touched.
+func SessionScope(exec executor.Executor) string {
+	if on, _ := PerSessionScanning(exec); !on {
 		return ""
 	}
-	// A template the resolver rejects (an unknown token) falls back to the
-	// shared machine identity, which must keep the shared state and lock.
-	if _, issue, _ := expandIdentityTemplate(template, "", "", "", exec.GOOS(), false); issue != "" {
-		return ""
+	return UserToken(exec, developerIdentity(context.Background(), exec))
+}
+
+// TemplateForReport is the template the payload reports as
+// device_id_template: the template in force when it carries a token, "" for
+// the hardware serial and for a literal id, which the backend already sees as
+// device_id.
+func TemplateForReport(template string) string {
+	if strings.Contains(template, "{") {
+		return template
 	}
-	return SanitizeDeviceID(userToken(exec.GOOS(), exec.IsRoot(), developerIdentity(context.Background(), exec)))
+	return ""
 }

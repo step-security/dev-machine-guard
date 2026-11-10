@@ -663,21 +663,21 @@ func TestApplyBatterySettings_WarnsOnUnpatchableXML(t *testing.T) {
 	}
 }
 
-func TestPerUserIdentity_AutoOnMultiSessionHost(t *testing.T) {
+func TestPerSessionScanning_OnSharedHost(t *testing.T) {
 	dir := t.TempDir()
 	t.Cleanup(device.SetMachineStateDirForTest(dir))
 	mock := executor.NewMock()
 	mock.SetGOOS(model.PlatformWindows)
 	mock.SetUsername(`HOST\jdoe`)
-	if perUserIdentity(mock) {
-		t.Fatal("no template and no shared-host evidence: not per-user")
+	if perSessionScanning(mock) {
+		t.Fatal("no shared-host evidence: one shared scan per tick")
 	}
 	if err := os.WriteFile(filepath.Join(dir, "multi-user.json"), []byte(`{"since":1,"reason":"edition"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// The mode is snapshotted once per process; `install` is a new process.
-	device.ResetAutoIdentityForTest()
-	if !perUserIdentity(mock) {
+	// The decision is snapshotted once per process; `install` is a new process.
+	device.ResetPerSessionForTest()
+	if !perSessionScanning(mock) {
 		t.Fatal("a shared host must register the task with the parallel instance policy")
 	}
 }
