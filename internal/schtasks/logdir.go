@@ -26,7 +26,7 @@ func prepareLogDirectory(ctx context.Context, exec executor.Executor, dir string
 			}
 		}
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating log directory: %w", err)
 	}
 	if !exec.IsRoot() {
