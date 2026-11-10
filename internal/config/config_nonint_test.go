@@ -548,3 +548,23 @@ func TestMultiUserDetection_LoadShowAndValidate(t *testing.T) {
 		t.Errorf("configure show must print the mode:\n%s", out)
 	}
 }
+
+// PowerShell 5.1's Set-Content/Out-File -Encoding UTF8 writes a byte-order
+// mark; a bootstrap.json written that way must still configure the agent.
+func TestRunConfigureNonInteractive_FromFileWithBOM(t *testing.T) {
+	withHome(t)
+	srcPath := filepath.Join(t.TempDir(), "bootstrap.json")
+	body := []byte("\xef\xbb\xbf" + `{"customer_id":"bom-cust","api_endpoint":"https://bom.example.com","api_key":"sk-bom","scan_frequency_hours":"6"}`)
+	if err := os.WriteFile(srcPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{FromFile: srcPath}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cfg := loadExisting()
+	if cfg.CustomerID != "bom-cust" || cfg.APIKey != "sk-bom" || cfg.ScanFrequencyHours != "6" {
+		t.Errorf("from-file values not applied through the BOM: %+v", cfg)
+	}
+}

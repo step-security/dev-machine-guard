@@ -2,6 +2,7 @@ package config
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -779,6 +780,15 @@ func promptValue(reader *bufio.Reader, label, current string) string {
 	return line
 }
 
+// stripUTF8BOM drops a leading UTF-8 byte-order mark from a config or
+// bootstrap file. PowerShell 5.1's Set-Content and Out-File -Encoding UTF8
+// write one, encoding/json rejects it, and a bootstrap.json an admin wrote
+// that way failed the MSI install (error 1603) with the cause only in the
+// installer log.
+func stripUTF8BOM(data []byte) []byte {
+	return bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+}
+
 // readExisting returns an empty config when the file is absent, and
 // ErrConfigInvalid when it exists but can't be read or parsed.
 func readExisting() (*ConfigFile, error) {
@@ -791,6 +801,7 @@ func readExisting() (*ConfigFile, error) {
 		}
 		return &ConfigFile{}, fmt.Errorf("%w: %s: %v", ErrConfigInvalid, path, err)
 	}
+	data = stripUTF8BOM(data)
 	var cfg ConfigFile
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return &ConfigFile{}, fmt.Errorf("%w: %s: %v", ErrConfigInvalid, path, err)
@@ -1116,6 +1127,7 @@ func runConfigureNonInteractive(opts NonInteractiveOptions, exec executor.Execut
 		if err != nil {
 			return fmt.Errorf("reading --from-file %q: %w", opts.FromFile, err)
 		}
+		data = stripUTF8BOM(data)
 		var fromFile ConfigFile
 		if err := json.Unmarshal(data, &fromFile); err != nil {
 			return fmt.Errorf("parsing --from-file %q: %w", opts.FromFile, err)

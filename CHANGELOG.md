@@ -21,6 +21,10 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 - **Per-session scanning stays; per-user devices go.** On a shared Windows host (a multi-session edition or the RD Session Host role; with `multi_user_detection: users`, also one where two developers scanned on two different days) every signed-in session still runs its own scan with its own state under `users/<user token>`, its own instance lock and the Parallel task policy, and all of them report under the machine's device. A run with no signed-in user on such a host is skipped (`no_session_user`) instead of filing an empty inventory under the device. `multi_user_detection` now decides per-session scanning only; `identity --json` reports `per_session` and `session_scope`.
 - **Removed before release:** the `{user}` identity token (`configure --device-id` rejects it; a template that still carries it logs a warning naming the two supported tokens and falls back to the hardware serial), the automatic switch of a shared host to a per-user identity and the retirement of its serial row (`identity_changed`), `device_id_source: auto`, and the self-check's `device_id_per_user` field. None of these shipped in a release. `uninstall --retire` still retires every id the cached run records on the host were written under, so a host upgraded from a pre-release build leaves no row behind.
 
+### Fixed
+
+- **Bootstrap and config files with a byte-order mark.** `configure --from-file` and config.json accept a UTF-8 BOM, which PowerShell 5.1's `Set-Content` and `Out-File -Encoding UTF8` write; a bootstrap.json written that way used to fail the MSI install with error 1603 and the cause only in the installer log.
+
 ## [1.19.0] - 2026-11-06
 
 ### Added
