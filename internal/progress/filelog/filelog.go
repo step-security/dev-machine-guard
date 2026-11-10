@@ -17,8 +17,8 @@
 // individual Write durable at the cost of a few extra ms per run.
 //
 // Rotation is single-file and per-open: if the existing file exceeds
-// maxBytes at Start time, it is renamed to path+".prev" so one prior
-// run survives. This is a diagnostic snapshot, not an audit log; the
+// maxBytes at Start time, its content moves to path+".prev" (copied, then
+// truncated in place; see RotateIfOverCap) so one prior run survives. This is a diagnostic snapshot, not an audit log; the
 // 5 MiB cap matches the precedent set by
 // internal/aiagents/cli/errlog.go.
 //
@@ -33,6 +33,7 @@ package filelog
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -113,12 +114,16 @@ func ShouldSkip(stderr *os.File) bool {
 	return info.Mode().IsRegular()
 }
 
-// RotateIfOverCap renames path to path+".prev" when its current size
-// exceeds maxBytes, freeing the original name for a fresh log. Used by
-// Start before opening the stderr file, and by main at startup for the
-// stdout-redirect file (agent.log) so neither log can grow unbounded.
-// Best-effort: any stat/rename failure is swallowed so a missing file
-// or a cross-device rename doesn't take down the agent.
+// RotateIfOverCap moves the content of path into path+".prev" and empties
+// path when its size exceeds maxBytes, so one prior run survives and neither
+// log grows unbounded. Used by Start before opening the stderr file, and by
+// main at startup for the stdout-redirect file (agent.log). The content is
+// copied and the file truncated in place rather than renamed: on a shared
+// Windows host every session writes one SYSTEM-owned log that signed-in
+// users may modify but not replace, and a log renamed into place would
+// belong to the session that rotated it and be unwritable to the others.
+// Best-effort: any failure is swallowed, so a missing or busy file doesn't
+// take down the agent; a rotation that did not finish is retried next run.
 func RotateIfOverCap(path string, maxBytes int64) {
 	if path == "" || maxBytes <= 0 {
 		return
@@ -127,15 +132,20 @@ func RotateIfOverCap(path string, maxBytes int64) {
 	if err != nil || info.Size() <= maxBytes {
 		return
 	}
-	// Windows os.Rename fails when the destination already exists, so
-	// rotation would silently stop working from the second rotation
-	// onwards once a .prev was on disk. POSIX rename atomically
-	// overwrites, so this Remove is a no-op there. Ignore the error —
-	// if .prev can't be removed (permissions, in use), the Rename below
-	// will fail, and we drop the rotation for this run rather than
-	// taking down the agent.
-	_ = os.Remove(path + ".prev")
-	_ = os.Rename(path, path+".prev")
+	src, err := os.OpenFile(path, os.O_RDWR, 0) // #nosec G304 -- the agent's own log
+	if err != nil {
+		return
+	}
+	defer func() { _ = src.Close() }()
+	prev, err := os.OpenFile(path+".prev", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, fileMode) // #nosec G302,G304 -- the log's own rotation
+	if err != nil {
+		return
+	}
+	_, copyErr := io.Copy(prev, io.LimitReader(src, info.Size()))
+	if closeErr := prev.Close(); copyErr != nil || closeErr != nil {
+		return
+	}
+	_ = src.Truncate(0)
 }
 
 // Start installs the stderr tee, opening (and rotating) the log file

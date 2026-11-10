@@ -32,8 +32,13 @@ func TestImageBuilder_SwitchIsBoundToThisMachine(t *testing.T) {
 	if err := SetImageBuilder(mock, false); err != nil {
 		t.Fatalf("SetImageBuilder(off): %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, imageBuilderMarkerFile)); !os.IsNotExist(err) {
-		t.Fatalf("marker still present after switching off (err %v)", err)
+	// Off leaves an empty marker (the slot stays SYSTEM's on a hardened
+	// state dir), which reads as none.
+	if data, err := os.ReadFile(filepath.Join(dir, imageBuilderMarkerFile)); err != nil || len(data) != 0 {
+		t.Fatalf("marker after switching off: data=%q err=%v, want an empty file", data, err)
+	}
+	if ImageBuilderActive(mock) {
+		t.Fatal("an empty marker must read as switched off")
 	}
 	if err := SetImageBuilder(mock, false); err != nil {
 		t.Fatalf("switching off twice must be a no-op: %v", err)

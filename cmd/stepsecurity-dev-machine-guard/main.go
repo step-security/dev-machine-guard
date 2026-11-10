@@ -326,10 +326,10 @@ func main() {
 			log.Error("Enterprise configuration not found. Run '%s configure' or download the script from your StepSecurity dashboard.", os.Args[0])
 			os.Exit(1)
 		}
-		// The master-image builder never scans: an image team signs in to
-		// update the image, and that session must not register the imaging
-		// machine as a device. Before any beacon, so nothing reaches the
-		// backend; clones carry another machine id and are not affected.
+		// The master-image builder never scans (gateSkipsRun refuses too,
+		// for every entry point); checked here as well, ahead of the
+		// bootstrap-fallback report, so nothing at all reaches the backend.
+		// Clones carry another machine id and are not affected.
 		if device.ImageBuilderActive(exec) {
 			log.Progress("Image builder: scans are off on this machine (configure --image-builder=false to turn them back on)")
 			return
@@ -784,6 +784,15 @@ func findLegacyLeftovers(legacy string) []string {
 // it is copied onto cfg so every managed entry point hands the same answer to
 // telemetry.Run.
 func gateSkipsRun(exec executor.Executor, log *progress.Logger, cfg *cli.Config) bool {
+	// The master-image builder never scans, whichever path led here (the
+	// default enterprise verb, the install-time scan, send-telemetry): an
+	// image team signs in to update the image, and that session must not
+	// register the imaging machine as a device. Before the check-in, so
+	// nothing reaches the backend; --force-scan does not override it.
+	if device.ImageBuilderActive(exec) {
+		log.Progress("Image builder: scans are off on this machine (configure --image-builder=false to turn them back on)")
+		return true
+	}
 	// A run inside a WSL distro gates under the identity its host gave it, not
 	// under the distro's own (absent) serial.
 	res := rungate.Evaluate(context.Background(), exec, log, cfg.ForceScan,

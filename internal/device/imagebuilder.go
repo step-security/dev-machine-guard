@@ -1,6 +1,7 @@
 package device
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,7 +43,7 @@ func imageBuilderDir() string {
 }
 
 // SetImageBuilder turns the switch on (write the marker bound to this
-// machine) or off (remove it). Refuses to switch on when this machine has no
+// machine) or off (empty it). Refuses to switch on when this machine has no
 // usable hardware id: an unbound marker could not be told from a clone's own
 // and would stop every host built from the image from scanning.
 func SetImageBuilder(exec executor.Executor, on bool) error {
@@ -52,8 +53,12 @@ func SetImageBuilder(exec executor.Executor, on bool) error {
 	}
 	path := filepath.Join(dir, imageBuilderMarkerFile)
 	if !on {
-		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("image builder: removing %s: %w", path, err)
+		// Emptied in place rather than removed: an empty marker reads as
+		// none, and the file keeps the owner and grants the state-directory
+		// hardening gave it, so no signed-in user can put one in its place
+		// (the directory lets users create files; see hardenStateDirACLs).
+		if err := os.Truncate(path, 0); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("image builder: clearing %s: %w", path, err)
 		}
 		return nil
 	}
@@ -77,8 +82,8 @@ func ImageBuilderActive(exec executor.Executor) bool {
 		return false
 	}
 	data, ok := readBounded(filepath.Join(dir, imageBuilderMarkerFile), maxSeenUsersBytes)
-	if !ok {
-		return false
+	if !ok || len(bytes.TrimSpace(data)) == 0 {
+		return false // absent, or the empty slot hardening keeps for it
 	}
 	var m imageBuilderMarker
 	if err := json.Unmarshal(data, &m); err != nil {

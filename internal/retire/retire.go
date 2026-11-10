@@ -322,6 +322,13 @@ const ScanHoldBudget = 30 * time.Second
 // scanHoldPoll is how often HoldScans retries the instance locks.
 var scanHoldPoll = 500 * time.Millisecond
 
+// maxScanHoldScopes bounds how many per-session scopes HoldScans inspects.
+// Each is a lock held (on Windows on an OS thread of its own) while the
+// retire runs, and the users\ tree they are listed from is user-creatable;
+// beyond this many the set cannot be inspected safely, so the retire is
+// skipped and the device stays registered.
+const maxScanHoldScopes = 64
+
 // HoldScans waits, within ctx, until no scan runs under any identity on this
 // host (the machine-wide instance lock and every per-session lock can be taken)
 // and returns a release func that keeps them held while the caller retires,
@@ -329,23 +336,33 @@ var scanHoldPoll = 500 * time.Millisecond
 // deadline; the caller must then leave the device registered, because a scan
 // that reports after the retire restores it. Uninstall removes the scheduler
 // first, but a stop that failed or a scan already mid-flight survive that.
-// When the locks cannot be inspected at all (not ErrHeld) nothing can be
-// scanning either, since scans need the same lock, so the retire proceeds.
+// A lock that cannot be taken for any other reason proves nothing about the
+// rest (the acquisition stops at the first failure, so a scan may hold a
+// later one), so that is not idle either; it is retried until the deadline
+// in case the failure was transient.
 func HoldScans(ctx context.Context, log *progress.Logger) (release func(), idle bool) {
-	return holdScans(ctx, stateScopes(), log)
+	scopes, complete := stateScopes()
+	if !complete {
+		log.Warn("retire: more than %d session state directories under users\\; cannot tell whether a scan is running, so the device stays registered", maxScanHoldScopes)
+		return func() {}, false
+	}
+	return holdScans(ctx, scopes, log)
 }
 
 func holdScans(ctx context.Context, scopes []string, log *progress.Logger) (release func(), idle bool) {
 	for {
+		if ctx.Err() != nil {
+			return func() {}, false
+		}
 		lk, err := lock.AcquireAll(scopes)
 		if err == nil {
 			return lk.Release, true
 		}
-		if !errors.Is(err, lock.ErrHeld) {
-			log.Debug("retire: instance locks unavailable (%v); no scan can run without them, retiring", err)
-			return func() {}, true
+		if errors.Is(err, lock.ErrHeld) {
+			log.Debug("retire: a scan is still running (%v); waiting", err)
+		} else {
+			log.Debug("retire: the instance locks could not be inspected (%v); not treating the host as idle", err)
 		}
-		log.Debug("retire: a scan is still running (%v); waiting", err)
 		select {
 		case <-ctx.Done():
 			return func() {}, false
@@ -355,22 +372,30 @@ func holdScans(ctx context.Context, scopes []string, log *progress.Logger) (rele
 }
 
 // stateScopes lists the per-session state scopes (users/<scope> directories)
-// under the state roots, the same places CollectIdentities reads.
-func stateScopes() []string {
+// under the state roots, the same places CollectIdentities reads. The
+// listing stops past maxScanHoldScopes entries and reports complete=false:
+// the tree is user-creatable, so neither its size nor the number of locks
+// taken may depend on what a user put there.
+func stateScopes() (scopes []string, complete bool) {
 	seen := map[string]bool{}
-	var scopes []string
 	for _, root := range stateRoots() {
-		entries, err := os.ReadDir(filepath.Join(root, "users"))
+		d, err := os.Open(filepath.Join(root, "users")) // #nosec G304 -- fixed name under the install dir
 		if err != nil {
 			continue
 		}
+		entries, _ := d.ReadDir(maxScanHoldScopes + 1)
+		_ = d.Close()
 		for _, e := range entries {
-			if e.IsDir() && !seen[e.Name()] {
-				seen[e.Name()] = true
-				scopes = append(scopes, e.Name())
+			if !e.IsDir() || seen[e.Name()] {
+				continue
 			}
+			if len(scopes) >= maxScanHoldScopes {
+				return scopes, false
+			}
+			seen[e.Name()] = true
+			scopes = append(scopes, e.Name())
 		}
 	}
 	sort.Strings(scopes)
-	return scopes
+	return scopes, true
 }

@@ -619,28 +619,25 @@ func seenUsersHeader(machineID string) string {
 	return seenUsersMachinePrefix + machineID + "\n"
 }
 
-// replaceSeenUsers writes the whole file atomically (temp file + rename; the
-// Windows rename cannot overwrite, so the old file is removed first). The
-// caller holds the visit-file lock.
+// replaceSeenUsers writes the whole file, in place: the file is truncated
+// and rewritten, never replaced by a rename. On a shared Windows host it is
+// the SYSTEM-owned file every signed-in user may modify but not replace,
+// and a file renamed into place would belong to the session that wrote it
+// and be unwritable to the others. The caller holds the visit-file lock,
+// which every writer takes; a reader outside it may see the file
+// half-written once and reads it whole on the next run, and a crash in
+// between loses visits the next runs record again. A missing file is
+// created the same way.
 func replaceSeenUsers(dir, content string) error {
-	path := filepath.Join(dir, seenUsersFile)
-	tmp, err := os.CreateTemp(dir, ".seen-users-*.tmp")
+	f, err := os.OpenFile(filepath.Join(dir, seenUsersFile), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644) // #nosec G302 G304 -- readable by every user's run
 	if err != nil {
 		return err
 	}
-	if _, err := tmp.WriteString(content); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmp.Name())
-		return err
+	_, werr := f.WriteString(content)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
 	}
-	_ = tmp.Close()
-	_ = os.Chmod(tmp.Name(), 0o644) // #nosec G302 -- readable by every user's run
-	_ = os.Remove(path)             // Windows Rename won't overwrite; no-op on POSIX
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	return nil
+	return werr
 }
 
 // seenUsersLockName names the visit-file lock: a sibling of the instance

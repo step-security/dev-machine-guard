@@ -82,9 +82,8 @@ func TestStartStopWritesFile(t *testing.T) {
 }
 
 func TestRotateIfOverCap_OverwritesExistingPrev(t *testing.T) {
-	// Regression guard: on Windows, os.Rename fails when the destination
-	// already exists, so a stale .prev would block all subsequent
-	// rotations. RotateIfOverCap removes the prior .prev first.
+	// A stale .prev from an earlier rotation is overwritten, never left
+	// blocking later rotations.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agent.error.log")
 	prevPath := path + ".prev"
@@ -110,8 +109,10 @@ func TestRotateIfOverCap_OverwritesExistingPrev(t *testing.T) {
 	if len(got) != 200 {
 		t.Errorf(".prev size = %d, want 200 (fresh rotated content)", len(got))
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Errorf("original path should be gone after rename: stat err = %v", err)
+	// The log itself stays (the same file, now empty): on a shared host it
+	// is the SYSTEM-owned file every session may write but not replace.
+	if cur, err := os.ReadFile(path); err != nil || len(cur) != 0 {
+		t.Errorf("original path should be empty after rotation: %d bytes, err %v", len(cur), err)
 	}
 }
 

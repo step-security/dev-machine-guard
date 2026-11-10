@@ -81,9 +81,9 @@ func Install(exec executor.Executor, log *progress.Logger, maxExec time.Duration
 	// On an admin install the state dir is C:\ProgramData\StepSecurity, which
 	// inherits ACLs that only let non-admin users read. The /ru INTERACTIVE
 	// tasks run as the signed-in user, who must write their own session
-	// state and append to the shared log: hardenStateDirACLs grants exactly
-	// that and keeps the config, identity, markers and updater state SYSTEM
-	// and Administrators only.
+	// state and the shared logs and visit file: hardenStateDirACLs grants
+	// exactly that and keeps the config, identity, markers and updater state
+	// SYSTEM and Administrators only.
 	if exec.IsRoot() {
 		if err := hardenStateDirACLs(ctx, exec, logDir); err != nil {
 			log.Warn("could not secure %s for per-session scans (%v) — signed-in users may be unable to write their state or logs there", logDir, err)
