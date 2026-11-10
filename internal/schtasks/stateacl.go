@@ -104,21 +104,23 @@ func hardenStateDirACLs(ctx context.Context, exec executor.Executor, root string
 		args []string
 	}
 	var steps []aclStep
+	// icacls takes /setowner only on its own (not with grants), so an owned
+	// path gets three calls: reset, grant, own.
+	own := aclStep{"", []string{"/setowner", sidSystem, "/L", "/Q"}}
 	dir := func(path string, usersGrants ...string) {
 		args := []string{"/inheritance:r", "/grant", sidSystem + ":(OI)(CI)F", "/grant", sidAdmins + ":(OI)(CI)F"}
 		for _, g := range usersGrants {
 			args = append(args, "/grant", sidUsers+":"+g)
 		}
-		args = append(args, "/grant", sidCreatorOwner+":(OI)(CI)(IO)F", "/setowner", sidSystem, "/L", "/Q")
-		steps = append(steps, aclStep{path, []string{"/reset", "/L", "/Q"}}, aclStep{path, args})
+		args = append(args, "/grant", sidCreatorOwner+":(OI)(CI)(IO)F", "/L", "/Q")
+		steps = append(steps, aclStep{path, []string{"/reset", "/L", "/Q"}}, aclStep{path, args}, aclStep{path, own.args})
 	}
 	file := func(path, usersGrant string, ownedBySystem bool) {
-		args := []string{"/inheritance:r", "/grant", sidSystem + ":F", "/grant", sidAdmins + ":F", "/grant", sidUsers + ":" + usersGrant}
-		if ownedBySystem {
-			args = append(args, "/setowner", sidSystem)
-		}
-		args = append(args, "/L", "/Q")
+		args := []string{"/inheritance:r", "/grant", sidSystem + ":F", "/grant", sidAdmins + ":F", "/grant", sidUsers + ":" + usersGrant, "/L", "/Q"}
 		steps = append(steps, aclStep{path, []string{"/reset", "/L", "/Q"}}, aclStep{path, args})
+		if ownedBySystem {
+			steps = append(steps, aclStep{path, own.args})
+		}
 	}
 	// The root: list, read and create on the directory itself; read, through
 	// the inherit-only entry, on the files SYSTEM creates in it later.

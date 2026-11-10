@@ -16,25 +16,26 @@ func aclStep(mock *executor.Mock, path string, args ...string) {
 	mock.SetCommand("", "", 0, "icacls", append([]string{path}, args...)...)
 }
 
-// stubDir stubs what a directory gets: a reset, then the grants and the owner.
+// stubDir stubs what a directory gets: a reset, the grants, then the owner
+// (icacls takes /setowner only on its own).
 func stubDir(mock *executor.Mock, path string, usersGrants ...string) {
 	aclStep(mock, path, "/reset", "/L", "/Q")
 	args := []string{"/inheritance:r", "/grant", "*S-1-5-18:(OI)(CI)F", "/grant", "*S-1-5-32-544:(OI)(CI)F"}
 	for _, g := range usersGrants {
 		args = append(args, "/grant", "*S-1-5-32-545:"+g)
 	}
-	aclStep(mock, path, append(args, "/grant", "*S-1-3-0:(OI)(CI)(IO)F", "/setowner", "*S-1-5-18", "/L", "/Q")...)
+	aclStep(mock, path, append(args, "/grant", "*S-1-3-0:(OI)(CI)(IO)F", "/L", "/Q")...)
+	aclStep(mock, path, "/setowner", "*S-1-5-18", "/L", "/Q")
 }
 
-// stubFile stubs what a file gets: a reset, then the grants (and the owner
-// for the files SYSTEM must own).
+// stubFile stubs what a file gets: a reset, the grants, and the owner for
+// the files SYSTEM must own.
 func stubFile(mock *executor.Mock, path, usersGrant string, ownedBySystem bool) {
 	aclStep(mock, path, "/reset", "/L", "/Q")
-	args := []string{"/inheritance:r", "/grant", "*S-1-5-18:F", "/grant", "*S-1-5-32-544:F", "/grant", "*S-1-5-32-545:" + usersGrant}
+	aclStep(mock, path, "/inheritance:r", "/grant", "*S-1-5-18:F", "/grant", "*S-1-5-32-544:F", "/grant", "*S-1-5-32-545:"+usersGrant, "/L", "/Q")
 	if ownedBySystem {
-		args = append(args, "/setowner", "*S-1-5-18")
+		aclStep(mock, path, "/setowner", "*S-1-5-18", "/L", "/Q")
 	}
-	aclStep(mock, path, append(args, "/L", "/Q")...)
 }
 
 var sharedFilesUnderTest = []string{"agent.error.log", "agent.error.log.prev", "agent.log", "agent.log.prev", "seen-users.txt"}
