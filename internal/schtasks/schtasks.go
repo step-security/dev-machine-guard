@@ -54,15 +54,6 @@ func IsTaskRegistered(ctx context.Context, exec executor.Executor) bool {
 func Install(exec executor.Executor, log *progress.Logger, maxExec time.Duration) error {
 	ctx := context.Background()
 
-	// Check for existing installation and upgrade
-	if isConfigured(ctx, exec) {
-		log.Progress("Existing agent installation detected. Upgrading...")
-		if err := doUninstall(ctx, exec, log); err != nil {
-			log.Warn("failed to remove previous scheduled task: %v — continuing install anyway", err)
-		}
-		log.Progress("Previous installation removed. Installing new version...")
-	}
-
 	binaryPath, err := executablePath()
 	if err != nil {
 		return fmt.Errorf("determining binary path: %w", err)
@@ -74,22 +65,17 @@ func Install(exec executor.Executor, log *progress.Logger, maxExec time.Duration
 	}
 
 	logDir := resolveLogDir(exec)
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		return fmt.Errorf("creating log directory: %w", err)
+	if err := prepareLogDirectory(ctx, exec, logDir); err != nil {
+		return err
 	}
 
-	// For admin installs the log dir lives at C:\ProgramData\StepSecurity,
-	// which inherits ACLs from C:\ProgramData and only grants non-admin
-	// users Read & Execute. The /ru INTERACTIVE task fires under the
-	// logged-in user (typically non-admin), and the agent's filelog
-	// opens agent.error.log here in append mode — that needs write
-	// access. Grant BUILTIN\Users (SID 545) Modify rights on the dir,
-	// propagated to files and subfolders.
-	if exec.IsRoot() {
-		_, _, _, icaclsErr := exec.Run(ctx, "icacls", logDir, "/grant", "*S-1-5-32-545:(OI)(CI)M", "/Q")
-		if icaclsErr != nil {
-			log.Warn("could not adjust log dir ACLs (%v) — non-admin users may not be able to write to %s", icaclsErr, logDir)
+	// Check for existing installation and upgrade
+	if isConfigured(ctx, exec) {
+		log.Progress("Existing agent installation detected. Upgrading...")
+		if err := doUninstall(ctx, exec, log); err != nil {
+			log.Warn("failed to remove previous scheduled task: %v — continuing install anyway", err)
 		}
+		log.Progress("Previous installation removed. Installing new version...")
 	}
 
 	// Pass --install-dir to the task command. logDir already carries the

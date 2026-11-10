@@ -40,6 +40,7 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
 ### Fixed
 
+- Protect the Windows machine-data directory against replacement by ordinary users while preserving log rotation and shared/per-user state writes. Installation, repair and upgrade replace the previous broad directory grant; permission-setting failures stop task setup.
 - Package-manager registry overrides are read from the developer login shell during scheduled scans.
 
 - Package configuration audits redact credentials in effective settings, URLs, mixed environment-reference values and inline private keys. Parse failures report safe error text instead of copying file contents into telemetry.
