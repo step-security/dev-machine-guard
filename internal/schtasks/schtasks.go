@@ -78,17 +78,15 @@ func Install(exec executor.Executor, log *progress.Logger, maxExec time.Duration
 		return fmt.Errorf("creating log directory: %w", err)
 	}
 
-	// For admin installs the log dir lives at C:\ProgramData\StepSecurity,
-	// which inherits ACLs from C:\ProgramData and only grants non-admin
-	// users Read & Execute. The /ru INTERACTIVE task fires under the
-	// logged-in user (typically non-admin), and the agent's filelog
-	// opens agent.error.log here in append mode — that needs write
-	// access. Grant BUILTIN\Users (SID 545) Modify rights on the dir,
-	// propagated to files and subfolders.
+	// On an admin install the state dir is C:\ProgramData\StepSecurity, which
+	// inherits ACLs that only let non-admin users read. The /ru INTERACTIVE
+	// tasks run as the signed-in user, who must write their own session
+	// state and append to the shared log: hardenStateDirACLs grants exactly
+	// that and keeps the config, identity, markers and updater state SYSTEM
+	// and Administrators only.
 	if exec.IsRoot() {
-		_, _, _, icaclsErr := exec.Run(ctx, "icacls", logDir, "/grant", "*S-1-5-32-545:(OI)(CI)M", "/Q")
-		if icaclsErr != nil {
-			log.Warn("could not adjust log dir ACLs (%v) — non-admin users may not be able to write to %s", icaclsErr, logDir)
+		if err := hardenStateDirACLs(ctx, exec, logDir); err != nil {
+			log.Warn("could not secure %s for per-session scans (%v) — signed-in users may be unable to write their state or logs there", logDir, err)
 		}
 	}
 
@@ -192,6 +190,14 @@ func ReconcileTaskSettings(exec executor.Executor, log *progress.Logger, maxExec
 	}
 	timeLimit := executionTimeLimit(maxExec)
 	applyBatterySettings(ctx, exec, log, taskName, timeLimit)
+	// Installs made before the least-privilege grants keep their blanket
+	// Users:Modify until re-applied; the updater runs as SYSTEM, so every
+	// tick re-applies the ACLs (idempotent, a handful of icacls calls).
+	if exec.IsRoot() {
+		if err := hardenStateDirACLs(ctx, exec, resolveLogDir(exec)); err != nil {
+			log.Warn("could not secure the state directory for per-session scans: %v", err)
+		}
+	}
 	if _, _, code, err := exec.Run(ctx, "schtasks", "/query", "/tn", logonTaskName); err == nil && code == 0 {
 		applyBatterySettings(ctx, exec, log, logonTaskName, timeLimit)
 	}

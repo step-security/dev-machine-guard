@@ -22,6 +22,7 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
 ### Fixed
 
+- **Least-privilege ACLs on the Windows state directory.** An admin install no longer grants Users Modify on the whole of `C:\ProgramData\StepSecurity`, which let any signed-in user replace the configuration, the identity files and the updater state the SYSTEM tasks trust. Users may list and read the tree, create files and their own session directory under `users\` (theirs through CREATOR OWNER), and append to the shared error log and visit file; the configuration, bootstrap, identity, marker and run-record files and `state\` are SYSTEM and Administrators only. The SYSTEM updater re-applies the grants on every tick, so existing installs are fixed without a reinstall.
 - **Bootstrap and config files with a byte-order mark.** `configure --from-file` and config.json accept a UTF-8 BOM, which PowerShell 5.1's `Set-Content` and `Out-File -Encoding UTF8` write; a bootstrap.json written that way used to fail the MSI install with error 1603 and the cause only in the installer log.
 
 ## [1.19.0] - 2026-11-06

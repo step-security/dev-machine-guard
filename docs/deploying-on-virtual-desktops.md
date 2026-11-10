@@ -112,7 +112,13 @@ user, and every scan reports under the **same** machine device:
 * each session keeps its own run state (`last-run.json`, `scan-state.json`,
   `node-scan-cache.json`, `run-metrics.jsonl`) under `<install
   dir>\users\<user token>\` and its own single-instance lock, so two sessions
-  scan side by side; `config.json` and `agent.error.log` stay shared;
+  scan side by side; `config.json` and `agent.error.log` stay shared. On an
+  admin install the state directory grants signed-in users read access,
+  the right to create files and their own `users\<user token>\` directory
+  (theirs through CREATOR OWNER) and append access to the shared error log
+  and visit file; the configuration, bootstrap, identity, marker and
+  run-record files and `state\` stay SYSTEM and Administrators only, and
+  the SYSTEM updater re-applies these grants on every tick;
 * the scheduled task is registered with `MultipleInstancesPolicy=Parallel`
   so a second session's instance is not dropped while the first user's scan
   runs (the SYSTEM updater re-applies the policy on every tick, so a host
