@@ -78,6 +78,34 @@ func TestStateScopes_ListsPerSessionStateDirs(t *testing.T) {
 	}
 }
 
+// Stray files in the users tree never hide a session directory from the
+// hold: only directories count against the bound.
+func TestStateScopes_StrayFilesDoNotHideASessionDirectory(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(paths.HomeEnvVar, root)
+	for i := range maxScanHoldScopes + 10 {
+		if err := os.WriteFile(filepath.Join(root, "users", fmt.Sprintf("a-stray-%03d.txt", i)), []byte("x"), 0o644); err != nil {
+			if os.IsNotExist(err) {
+				if err := os.MkdirAll(filepath.Join(root, "users"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(root, "users", fmt.Sprintf("a-stray-%03d.txt", i)), []byte("x"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				continue
+			}
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(root, "users", "zz-dev9-cccccccccccc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scopes, complete := stateScopes()
+	if !complete || strings.Join(scopes, ",") != "zz-dev9-cccccccccccc" {
+		t.Errorf("stateScopes() = %q (complete %v), want the one session directory past the stray files", scopes, complete)
+	}
+}
+
 // More session directories than can be held at once (a user-creatable tree)
 // means the set cannot be inspected: HoldScans reports the host as not idle
 // without taking a lock.

@@ -371,11 +371,16 @@ func holdScans(ctx context.Context, scopes []string, log *progress.Logger) (rele
 	}
 }
 
+// maxUsersDirEntries bounds how much of the user-creatable users\ tree is
+// listed at all; beyond it the set of scopes cannot be known.
+const maxUsersDirEntries = 4096
+
 // stateScopes lists the per-session state scopes (users/<scope> directories)
-// under the state roots, the same places CollectIdentities reads. The
-// listing stops past maxScanHoldScopes entries and reports complete=false:
-// the tree is user-creatable, so neither its size nor the number of locks
-// taken may depend on what a user put there.
+// under the state roots, the same places CollectIdentities reads. Only
+// directories count against maxScanHoldScopes (stray files do not hide a
+// later directory), the listing itself stops at maxUsersDirEntries, and past
+// either bound complete is false: the tree is user-creatable, so neither its
+// size nor the number of locks taken may depend on what a user put there.
 func stateScopes() (scopes []string, complete bool) {
 	seen := map[string]bool{}
 	for _, root := range stateRoots() {
@@ -383,8 +388,11 @@ func stateScopes() (scopes []string, complete bool) {
 		if err != nil {
 			continue
 		}
-		entries, _ := d.ReadDir(maxScanHoldScopes + 1)
+		entries, _ := d.ReadDir(maxUsersDirEntries + 1)
 		_ = d.Close()
+		if len(entries) > maxUsersDirEntries {
+			return scopes, false
+		}
 		for _, e := range entries {
 			if !e.IsDir() || seen[e.Name()] {
 				continue

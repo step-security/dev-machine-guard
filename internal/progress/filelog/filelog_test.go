@@ -327,3 +327,52 @@ func TestStopOnNilReceiverIsNoOp(t *testing.T) {
 		t.Errorf("Stop on nil receiver returned error: %v", err)
 	}
 }
+
+// A link where the log or its rotation should be is never followed: rotation
+// does nothing, so a planted link cannot have its target truncated or
+// overwritten by a rotation run as SYSTEM.
+func TestRotateIfOverCap_RefusesLinkedPaths(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "elsewhere.txt")
+	if err := os.WriteFile(target, []byte("keep me"), fileMode); err != nil {
+		t.Fatal(err)
+	}
+	big := bytes.Repeat([]byte("y"), 200)
+	cases := []struct{ name, log, prev string }{
+		{"linked rotation", "", target},
+		{"linked log", target, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sub := t.TempDir()
+			path := filepath.Join(sub, "agent.error.log")
+			if tc.log != "" {
+				if err := os.Symlink(tc.log, path); err != nil {
+					t.Skipf("symlinks unavailable here: %v", err)
+				}
+				if err := os.WriteFile(target, big, fileMode); err != nil { // the link's target is over the cap
+					t.Fatal(err)
+				}
+			} else {
+				if err := os.WriteFile(path, big, fileMode); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(tc.prev, path+".prev"); err != nil {
+					t.Skipf("symlinks unavailable here: %v", err)
+				}
+			}
+			RotateIfOverCap(path, 100)
+			got, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.log != "" {
+				if len(got) != 200 {
+					t.Errorf("the linked log's target was truncated to %d bytes", len(got))
+				}
+			} else if string(got) != "keep me" {
+				t.Errorf("the linked rotation's target was overwritten: %q", got)
+			}
+		})
+	}
+}

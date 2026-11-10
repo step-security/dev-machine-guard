@@ -132,6 +132,13 @@ func RotateIfOverCap(path string, maxBytes int64) {
 	if err != nil || info.Size() <= maxBytes {
 		return
 	}
+	// Neither path is followed through a link. On an install made before the
+	// state-directory grants a signed-in user could plant one, and a rotation
+	// run by SYSTEM (the updater's, ahead of the grants being re-applied)
+	// would then truncate or overwrite the link's target.
+	if linked(path) || linked(path+".prev") {
+		return
+	}
 	src, err := os.OpenFile(path, os.O_RDWR, 0) // #nosec G304 -- the agent's own log
 	if err != nil {
 		return
@@ -260,4 +267,11 @@ func (c *Capture) teeLoop() {
 			return
 		}
 	}
+}
+
+// linked reports a path that is a symbolic link or another reparse point
+// (what Go reports as irregular on Windows); a missing path is not linked.
+func linked(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0
 }
