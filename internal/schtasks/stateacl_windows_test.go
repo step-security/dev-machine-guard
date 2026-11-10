@@ -72,9 +72,23 @@ func TestHardenStateDirACLs_NativeMigration(t *testing.T) {
 		t.Errorf("a file created after the grants should inherit read for users:\n%s", laterACL)
 	}
 	for _, name := range []string{"config.json", "agent.log", "image-builder.json"} {
-		owner := run("powershell", "-NoProfile", "-NonInteractive", "-Command", "(Get-Acl -LiteralPath '"+filepath.Join(root, name)+"').Owner")
-		if !strings.Contains(owner, "SYSTEM") {
-			t.Errorf("%s owner = %q, want SYSTEM", name, strings.TrimSpace(owner))
+		if owner := fileOwnerSID(t, filepath.Join(root, name)); owner != "S-1-5-18" {
+			t.Errorf("%s owner = %s, want SYSTEM (S-1-5-18)", name, owner)
 		}
 	}
+}
+
+// fileOwnerSID reads a file's owner in process (the runner's PowerShell
+// cannot load Get-Acl's module under the test).
+func fileOwnerSID(t *testing.T, path string) string {
+	t.Helper()
+	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	if err != nil {
+		t.Fatalf("reading the owner of %s: %v", path, err)
+	}
+	owner, _, err := sd.Owner()
+	if err != nil {
+		t.Fatalf("owner of %s: %v", path, err)
+	}
+	return owner.String()
 }
