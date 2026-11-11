@@ -216,9 +216,9 @@
                 }
               },
               {
-                "component_id": "comp_b376507baeaeda36dcdc56a2a8705fe1c97f8aeb742ce93940dea75c298e0bbd",
+                "component_id": "comp_17e1d646a12758ae6c95b8e963d3ea543d1c9f726983dd2a0da5a94129404ed8",
                 "kind": "mcp",
-                "name": "MCP configuration",
+                "name": "team-tools",
                 "relative_path": ".mcp.json",
                 "status": "complete",
                 "definition_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/.mcp.json",
@@ -227,7 +227,7 @@
                   "config_source": "claude_plugin",
                   "config_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/.mcp.json",
                   "vendor": "Anthropic",
-                  "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7InVuaWRlbnRpZmllZC1yZW1vdGUiOnsidXJsIjoiaHR0cHM6Ly91bmlkZW50aWZpZWQtbWNwLmludmFsaWQifX19"
+                  "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7InRlYW0tdG9vbHMiOnsidXJsIjoiaHR0cHM6Ly9tY3AuZXhhbXBsZS5jb20vbWNwIn19fQ=="
                 }
               },
               {
@@ -422,9 +422,9 @@
                 }
               },
               {
-                "component_id": "comp_6b8023466308f58114a7412102af126f832a055aa6862aa305cb9d48a481e779",
+                "component_id": "comp_985e33484b92d6c3b7bb563118455dca8b5fa75792edc03ca477b173d6907244",
                 "kind": "mcp",
-                "name": "MCP configuration",
+                "name": "team-tools",
                 "relative_path": ".mcp.json",
                 "status": "complete",
                 "definition_path": "/Users/example-user/.claude/plugins/cache/community-catalog/team-tools/2.0.0/.mcp.json",
@@ -433,7 +433,7 @@
                   "config_source": "claude_plugin",
                   "config_path": "/Users/example-user/.claude/plugins/cache/community-catalog/team-tools/2.0.0/.mcp.json",
                   "vendor": "Anthropic",
-                  "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7InVuaWRlbnRpZmllZC1yZW1vdGUiOnsidXJsIjoiaHR0cHM6Ly91bmlkZW50aWZpZWQtbWNwLmludmFsaWQifX19"
+                  "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7InRlYW0tdG9vbHMiOnsidXJsIjoiaHR0cHM6Ly9tY3AuZXhhbXBsZS5jb20vbWNwIn19fQ=="
                 }
               }
             ],
@@ -871,9 +871,9 @@
                 }
               },
               {
-                "component_id": "comp_45ee0eb59f4caca164d9f7bd4e52251699af4901cda669327b201f126be39d2e",
+                "component_id": "comp_f45f00902cc1fa3402a1540f2299998a840abc6d700e939ed3b95072fbab395e",
                 "kind": "mcp",
-                "name": "MCP configuration",
+                "name": "team-tools",
                 "relative_path": "mcp.json",
                 "status": "complete",
                 "definition_path": "/Users/example-user/.codex/plugins/cache/codex-catalog/team-tools/1.4.1/mcp.json",
@@ -882,7 +882,7 @@
                   "config_source": "codex_plugin",
                   "config_path": "/Users/example-user/.codex/plugins/cache/codex-catalog/team-tools/1.4.1/mcp.json",
                   "vendor": "OpenAI",
-                  "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7InVuaWRlbnRpZmllZC1yZW1vdGUiOnsidXJsIjoiaHR0cHM6Ly91bmlkZW50aWZpZWQtbWNwLmludmFsaWQifX19"
+                  "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7InRlYW0tdG9vbHMiOnsidXJsIjoiaHR0cHM6Ly9tY3AuZXhhbXBsZS5jb20vbWNwIn19fQ=="
                 }
               },
               {
@@ -1151,17 +1151,18 @@
               },
               {
                 "kind": "mcp",
-                "name": "MCP configuration",
+                "name": "example",
                 "relative_path": "agents/reviewer.agent.md",
+                "declaration_pointer": "/mcp-servers/example",
                 "mcp_config": {
                   "config_path": "/home/test/catalog/plugins/release-review/agents/reviewer.agent.md",
-                  "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7InVuaWRlbnRpZmllZC1yZW1vdGUiOnsidXJsIjoiaHR0cHM6Ly91bmlkZW50aWZpZWQtbWNwLmludmFsaWQifX19",
+                  "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7ImV4YW1wbGUiOnsidXJsIjoiaHR0cHM6Ly9tY3AuZXhhbXBsZS5jb20ifX19",
                   "config_source": "copilot_plugin",
                   "vendor": "GitHub"
                 },
                 "status": "complete",
                 "callable_names": [],
-                "component_id": "comp_14b072e36e019b06ae214c666ce0b3b3bc18f923996cb935714ab0250b362e01"
+                "component_id": "comp_086288d09dbd19e77a46c7f9e38457805df51f5d1543144c01cecc41518b705a"
               }
             ],
             "errors": [],
@@ -1213,17 +1214,18 @@
               },
               {
                 "kind": "mcp",
-                "name": "MCP configuration",
+                "name": "example",
                 "relative_path": "agents/reviewer.agent.md",
+                "declaration_pointer": "/mcp-servers/example",
                 "mcp_config": {
                   "config_path": "/home/test/catalog/plugins/local-review/agents/reviewer.agent.md",
-                  "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7InVuaWRlbnRpZmllZC1yZW1vdGUiOnsidXJsIjoiaHR0cHM6Ly91bmlkZW50aWZpZWQtbWNwLmludmFsaWQifX19",
+                  "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7ImV4YW1wbGUiOnsidXJsIjoiaHR0cHM6Ly9tY3AuZXhhbXBsZS5jb20ifX19",
                   "config_source": "copilot_plugin",
                   "vendor": "GitHub"
                 },
                 "status": "complete",
                 "callable_names": [],
-                "component_id": "comp_ca36d15ab695813df26487eaaf8fd5176904c109f885c82bb29c0124bb2791c7"
+                "component_id": "comp_2a6d341c50258c194d77ca2c6b5dc346083cdff38751027c0348f334050a4402"
               }
             ],
             "errors": [],

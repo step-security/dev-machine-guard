@@ -1178,9 +1178,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// Credential-location inventory — where this machine's developer tools keep
 	// credentials, and how well guarded each location is. Exact paths and bounded
 	// one-level listings only; project files come from the skills walk's own
-	// listings, never a walk of its own; every read byte-capped; nothing about the
-	// credential itself leaves the detector. A non-nil section always ships once
-	// the phase has run, because nil is the only "did not run" signal a reader has
+	// listings, never a walk of its own; every read byte-capped. Full credentials
+	// never leave the detector; tenant opt-in permits bounded key fragments.
+	// A non-nil section always ships once the phase has run, because nil is the
+	// only "did not run" signal a reader has
 	// and a nil payload must never be readable as "this machine holds no
 	// credentials".
 	//

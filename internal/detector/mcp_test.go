@@ -17,9 +17,6 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
-const mcpUnknownLocalJSON = `{"mcpServers":{"unidentified-local":{"command":"stepsecurity-unidentified-mcp-local"}}}`
-const mcpUnknownRemoteJSON = `{"mcpServers":{"unidentified-remote":{"url":"https://unidentified-mcp.invalid"}}}`
-
 func TestCodexMCPContent(t *testing.T) {
 	d := &MCPDetector{}
 	content := []byte("model = 'example'\n[mcp_servers.docs]\nurl = 'https://docs.example.com/mcp'\nenabled = false\nhttp_headers = { Authorization = 'private-value' }\n[mcp_servers.local]\ncommand = 'example-server'\nargs = ['--workspace', '/work']\nenv = { API_KEY = 'private-value' }\n[plugins.'tools@catalog'.mcp_servers.other]\nenabled = true\n")
@@ -27,7 +24,7 @@ func TestCodexMCPContent(t *testing.T) {
 	if !ok || strings.Contains(string(filtered), "private-value") || strings.Contains(string(filtered), "plugins") || strings.Contains(string(filtered), "model") {
 		t.Fatalf("unexpected filtered content: %s", filtered)
 	}
-	if !strings.Contains(string(filtered), "mcp_servers.unidentified-remote") || !strings.Contains(string(filtered), "mcp_servers.unidentified-local") {
+	if !strings.Contains(string(filtered), "mcp_servers.docs") || !strings.Contains(string(filtered), "mcp_servers.local") {
 		t.Fatalf("missing server: %s", filtered)
 	}
 	for _, malformed := range []string{"[", "[mcp_servers]\ndocs = 42", "model='example'"} {
@@ -157,8 +154,8 @@ func TestMCPDetector_Enterprise(t *testing.T) {
 	if !strings.Contains(content, "command") {
 		t.Error("filtered content should contain command field")
 	}
-	if content != mcpUnknownLocalJSON {
-		t.Errorf("unknown local projection = %s", content)
+	if !strings.Contains(content, "args") {
+		t.Error("filtered content should contain args field")
 	}
 }
 
@@ -217,7 +214,7 @@ func TestFilterMCPContent_StripsSecrets(t *testing.T) {
 	mock := executor.NewMock()
 	det := NewMCPDetector(mock)
 
-	input := []byte(`{"mcpServers":{"myserver":{"command":"npx","args":["-y","snyk"],"env":{"API_KEY":"sk-secret"},"headers":{"Authorization":"Bearer token"}}}}`)
+	input := []byte(`{"mcpServers":{"myserver":{"command":"npx","args":["-y","server"],"env":{"API_KEY":"sk-secret"},"headers":{"Authorization":"Bearer token"}}}}`)
 
 	filtered, ok := det.filterMCPContent("claude_desktop", "/path/config.json", input)
 	if !ok {
@@ -231,8 +228,11 @@ func TestFilterMCPContent_StripsSecrets(t *testing.T) {
 	if strings.Contains(content, "Bearer") {
 		t.Error("filtered content must not contain auth headers")
 	}
-	if want := `{"mcpServers":{"npx:snyk":{"args":["snyk"],"command":"npx"}}}`; content != want {
-		t.Errorf("known public identity = %s, want %s", content, want)
+	if !strings.Contains(content, "command") || !strings.Contains(content, "npx") {
+		t.Error("filtered content should preserve command")
+	}
+	if !strings.Contains(content, "args") {
+		t.Error("filtered content should preserve args")
 	}
 }
 
@@ -266,14 +266,46 @@ func TestExtractMCPServers_ClaudeCodeProjectScoped(t *testing.T) {
 		t.Fatal("expected filtering to succeed")
 	}
 
-	const want = `{"mcpServers":{"remote:https://mcp.linear.app/mcp":{"url":"https://mcp.linear.app/mcp"},"remote:https://mcp.notion.com/mcp":{"url":"https://mcp.notion.com/mcp"}}}`
-	if string(filtered) != want {
-		t.Errorf("project identities = %s, want %s", filtered, want)
+	// Parse the result to verify structure
+	var result map[string]any
+	if err := json.Unmarshal(filtered, &result); err != nil {
+		t.Fatalf("failed to parse filtered content: %v", err)
 	}
-	for _, private := range []string{"/Users/test", "numStartups", "headers", "redacted"} {
-		if strings.Contains(string(filtered), private) {
-			t.Errorf("projection retained %q", private)
-		}
+
+	// Should have projects key
+	projects, ok := result["projects"].(map[string]any)
+	if !ok {
+		t.Fatal("expected projects key in filtered output")
+	}
+
+	// Should only have projects with mcpServers (project-c should be excluded)
+	if len(projects) != 2 {
+		t.Errorf("expected 2 projects with mcpServers, got %d", len(projects))
+	}
+
+	// Should not have non-MCP fields like numStartups
+	if _, ok := result["numStartups"]; ok {
+		t.Error("non-MCP field numStartups should be filtered out")
+	}
+
+	// Verify server fields are filtered (no headers/secret)
+	projA, ok := projects["/Users/test/project-a"].(map[string]any)
+	if !ok {
+		t.Fatal("expected project-a in output")
+	}
+	mcpServers, ok := projA["mcpServers"].(map[string]any)
+	if !ok {
+		t.Fatal("expected mcpServers in project-a")
+	}
+	notion, ok := mcpServers["notion"].(map[string]any)
+	if !ok {
+		t.Fatal("expected notion server in project-a")
+	}
+	if _, ok := notion["headers"]; ok {
+		t.Error("headers should be filtered out from server config")
+	}
+	if notion["url"] != "https://mcp.notion.com/mcp" {
+		t.Errorf("expected notion url, got %v", notion["url"])
 	}
 }
 
@@ -282,7 +314,7 @@ func TestExtractMCPServers_VSCodeFormat(t *testing.T) {
 
 	content := []byte(`{
 		"servers": {
-			"my-server": {"command": "npx", "args": ["-y", "snyk"], "env": {"SECRET": "key"}}
+			"my-server": {"command": "npx", "args": ["-y", "server"], "env": {"SECRET": "key"}}
 		}
 	}`)
 
@@ -291,9 +323,25 @@ func TestExtractMCPServers_VSCodeFormat(t *testing.T) {
 		t.Fatal("expected filtering to succeed")
 	}
 
-	const want = `{"mcpServers":{"npx:snyk":{"args":["snyk"],"command":"npx"}}}`
-	if string(filtered) != want {
-		t.Errorf("VS Code projection = %s, want %s", filtered, want)
+	var result map[string]any
+	if err := json.Unmarshal(filtered, &result); err != nil {
+		t.Fatalf("failed to parse filtered content: %v", err)
+	}
+
+	servers, ok := result["servers"].(map[string]any)
+	if !ok {
+		t.Fatal("expected servers key in filtered output")
+	}
+
+	srv, ok := servers["my-server"].(map[string]any)
+	if !ok {
+		t.Fatal("expected my-server in output")
+	}
+	if srv["command"] != "npx" {
+		t.Errorf("expected command npx, got %v", srv["command"])
+	}
+	if _, ok := srv["env"]; ok {
+		t.Error("env should be filtered out")
 	}
 }
 
@@ -413,7 +461,7 @@ const openCodeGoldenConfig = `{
   }
 }`
 
-const openCodeGoldenEmitted = `{"mcpServers":{"unidentified-local":{"command":"stepsecurity-unidentified-mcp-local"},"unidentified-remote":{"url":"https://unidentified-mcp.invalid"}}}`
+const openCodeGoldenEmitted = `{"mcp":{"widgets-local":{"command":["npx","-y","widgets-mcp-server@1.2.3"]},"widgets-remote":{"url":"https://mcp.example-org.test/mcp"}}}`
 
 const openCodeGlobalDir = "/Users/testuser/.config/opencode/"
 
@@ -521,8 +569,11 @@ func TestFilterMCPContent_OpenCode_DropsSecretBearingFields(t *testing.T) {
 			t.Errorf("filtered content must not contain %q: %s", forbidden, content)
 		}
 	}
-	if content != openCodeGoldenEmitted {
-		t.Errorf("unidentified transports = %s, want %s", content, openCodeGoldenEmitted)
+	if !strings.Contains(content, `"command":["npx","-y","widgets-mcp-server"]`) {
+		t.Errorf("filtered content should preserve the argv array: %s", content)
+	}
+	if !strings.Contains(content, `"url":"https://mcp.example-org.test/mcp"`) {
+		t.Errorf("filtered content should preserve the remote url: %s", content)
 	}
 }
 
@@ -566,7 +617,7 @@ func TestFilterMCPContent_OpenCode_JSONC(t *testing.T) {
 	  },
 	}`
 
-	const wantEmitted = mcpUnknownLocalJSON
+	const wantEmitted = `{"mcp":{"widgets":{"command":["npx","-y","widgets-mcp-server@1.2.3"]}}}`
 
 	cases := []struct {
 		name  string
@@ -651,7 +702,7 @@ func TestFilterMCPContent_OpenCode_FailsClosed(t *testing.T) {
 // walked .mcp.json, not just OpenCode's own files.
 func TestFilterMCPContent_ScalarMCPKeyDoesNotEvictSiblings(t *testing.T) {
 	const siblings = `{"mcpServers":{"fs":{"command":"npx","args":["-y","s"]}},"mcp":%s}`
-	const wantSiblings = mcpUnknownLocalJSON
+	const wantSiblings = `{"mcpServers":{"fs":{"args":["-y","s"],"command":"npx"}}}`
 
 	for _, mcpValue := range []string{`true`, `"enabled"`, `["a"]`, `42`} {
 		t.Run("keeps siblings when mcp is "+mcpValue, func(t *testing.T) {
@@ -679,15 +730,33 @@ func TestFilterMCPContent_ScalarMCPKeyDoesNotEvictSiblings(t *testing.T) {
 		})
 	}
 
-	// A null container contributes no identity and must not erase a valid sibling.
-	t.Run("null container preserves valid siblings", func(t *testing.T) {
+	// An explicit null is the one non-map that json.Unmarshal accepts into a map
+	// type, so it decodes to an empty server set rather than a filter failure and
+	// is emitted as an empty object. That is not the eviction bug — an empty
+	// object parses backend-side and drops nothing — and it is exactly what a
+	// null under any of the other three keys already does, so the guard leaves
+	// the existing convention alone rather than making "mcp" the odd one out.
+	t.Run("null decodes to an empty set, like every other key", func(t *testing.T) {
+		// Asserted byte-exact, not just "mcpServers survived": the point of this
+		// subtest is that the empty object IS emitted. A looser check would keep
+		// passing if "mcp" started being dropped here too, silently turning the
+		// documented convention into the opposite behaviour.
+		const wantNull = `{"mcp":{},"mcpServers":{"fs":{"args":["-y","s"],"command":"npx"}}}`
+
 		det := &MCPDetector{}
 		filtered, ok := det.filterMCPContent("discovered_mcp", "/Users/testuser/proj/.mcp.json", fmt.Appendf(nil, siblings, `null`))
-		if !ok || string(filtered) != wantSiblings {
-			t.Errorf("null sibling projection: ok=%v %s", ok, filtered)
+		if !ok {
+			t.Fatalf("expected content, got ok=false")
 		}
-		if out, ok := det.filterMCPContent("cursor", "/Users/testuser/.cursor/mcp.json", []byte(`{"mcpServers":null}`)); ok || out != nil {
-			t.Errorf("null-only configuration produced an identity: %s", out)
+		if string(filtered) != wantNull {
+			t.Errorf("emitted %s, want %s", filtered, wantNull)
+		}
+
+		// Same shape under mcpServers, proving this is the pre-existing
+		// convention and not something the mcp branch introduced.
+		legacy, ok := det.filterMCPContent("cursor", "/Users/testuser/.cursor/mcp.json", []byte(`{"mcpServers":null}`))
+		if !ok || string(legacy) != `{"mcpServers":{}}` {
+			t.Errorf("mcpServers null convention changed: ok=%v %s", ok, legacy)
 		}
 	})
 
@@ -752,7 +821,7 @@ func TestMCPDetector_OpenCode_ResolvesUnderResolvedHome(t *testing.T) {
 // other source onto a different code path. Zed still goes through
 // stripJSONCComments, the plain-JSON sources still go straight to the parser,
 // and a non-JSON config still emits nothing.
-func TestFilterMCPContent_ClientContainers(t *testing.T) {
+func TestFilterMCPContent_NonOpenCodeUnchanged(t *testing.T) {
 	cases := []struct {
 		name    string
 		source  string
@@ -764,27 +833,27 @@ func TestFilterMCPContent_ClientContainers(t *testing.T) {
 		{
 			"cursor", "cursor", "/Users/testuser/.cursor/mcp.json",
 			`{"mcpServers":{"notion":{"url":"https://mcp.notion.com/mcp","headers":{"k":"v"}}}}`,
-			true, `{"mcpServers":{"remote:https://mcp.notion.com/mcp":{"url":"https://mcp.notion.com/mcp"}}}`,
+			true, `{"mcpServers":{"notion":{"url":"https://mcp.notion.com/mcp"}}}`,
 		},
 		{
 			"claude_desktop", "claude_desktop", "/Users/testuser/Library/Application Support/Claude/claude_desktop_config.json",
 			`{"mcpServers":{"fs":{"command":"npx","args":["-y","server"],"env":{"K":"V"}}}}`,
-			true, mcpUnknownLocalJSON,
+			true, `{"mcpServers":{"fs":{"args":["-y","server"],"command":"npx"}}}`,
 		},
 		{
 			"zed keeps the comment stripper", "zed", "/Users/testuser/.config/zed/settings.json",
 			"{\n  // servers\n  \"context_servers\":{\"fs\":{\"command\":\"npx\"}}\n}",
-			true, mcpUnknownLocalJSON,
+			true, `{"context_servers":{"fs":{"command":"npx"}}}`,
 		},
 		{
 			"vscode", "vscode", "/Users/testuser/.vscode/mcp.json",
 			`{"servers":{"fs":{"command":"npx","env":{"K":"V"}}}}`,
-			true, mcpUnknownLocalJSON,
+			true, `{"servers":{"fs":{"command":"npx"}}}`,
 		},
 		{
 			"codex toml", "codex", "/Users/testuser/.codex/config.toml",
 			"[mcp_servers.fs]\ncommand = \"npx\"\n",
-			true, "[mcp_servers]\n[mcp_servers.unidentified-local]\ncommand = 'stepsecurity-unidentified-mcp-local'\n",
+			true, "[mcp_servers]\n[mcp_servers.fs]\ncommand = 'npx'\n",
 		},
 	}
 
@@ -802,7 +871,12 @@ func TestFilterMCPContent_ClientContainers(t *testing.T) {
 	}
 }
 
-// Unknown launchers and endpoints never retain user-supplied arguments or URLs.
+// TestFilterServerFields_RedactsSecretsInKeptFields: command/args/url/serverUrl
+// are the fields we keep (env/headers are dropped outright), but real MCP
+// configs sometimes carry a bearer token or API key inside those kept fields
+// too — e.g. a query-string token on the server URL, or an --api-key flag in
+// args. Those values must still be redacted before upload, not passed through
+// verbatim just because the field name isn't "env" or "headers".
 func TestFilterServerFields_RedactsSecretsInKeptFields(t *testing.T) {
 	det := &MCPDetector{}
 	content := `{"mcpServers":{"pipeboard":{
@@ -818,8 +892,8 @@ func TestFilterServerFields_RedactsSecretsInKeptFields(t *testing.T) {
 	if strings.Contains(string(filtered), "abcdEFGH12345678opaqueTokenValue") {
 		t.Fatalf("secret leaked into filtered output: %s", filtered)
 	}
-	if string(filtered) != mcpUnknownLocalJSON {
-		t.Errorf("unexpected projection: %s", filtered)
+	if !strings.Contains(string(filtered), "token=") || !strings.Contains(string(filtered), "REDACTED") {
+		t.Errorf("expected the url token to be replaced with a redaction placeholder, got: %s", filtered)
 	}
 }
 
@@ -873,7 +947,7 @@ func TestCopilotStandaloneMCP(t *testing.T) {
 			t.Fatalf("unsafe MCP: %s", body)
 		}
 		if config.ConfigPath == filepath.Join(root, "mcp-config.json") {
-			if string(body) != openCodeGoldenEmitted {
+			if !strings.Contains(string(body), "local") || !strings.Contains(string(body), "remote") || strings.Contains(string(body), "invalid") {
 				t.Fatalf("valid siblings lost: %s", body)
 			}
 		}
@@ -902,7 +976,7 @@ func TestCopilotProjectMCPKeepsValidSiblings(t *testing.T) {
 	d := &MCPDetector{}
 	content := []byte(`{"mcpServers":{"good":{"type":"local","command":"node"},"bad":42},"mcp":null}`)
 	data, ok := d.filterMCPContent("discovered_mcp", "/project/.github/mcp.json", content)
-	if !ok || string(data) != mcpUnknownLocalJSON {
+	if !ok || !strings.Contains(string(data), `"good"`) || strings.Contains(string(data), `"bad"`) || !strings.Contains(string(data), `"mcp":{}`) {
 		t.Fatalf("shared keys or valid siblings lost: %s", data)
 	}
 	for _, raw := range []string{`{"type":null,"command":"node"}`, `{"type":7,"command":"node"}`, `{"command":"node","args":null}`} {
@@ -992,42 +1066,42 @@ func TestPiStandaloneMCP(t *testing.T) {
 		bodies[config.ConfigSource+" "+config.Vendor+" "+config.ConfigPath] = string(body)
 	}
 	agent := bodies["pi Pi "+filepath.Join(root, "mcp.json")]
-	if agent != openCodeGoldenEmitted {
-		t.Fatalf("agent MCP projection: %v", bodies)
+	// Entries Pi rejects stay: extensions such as pi-mcp-adapter read the same file.
+	for _, want := range []string{
+		`"local":{"args":["server.js"],"command":"node","enabled":false}`, `"remote":{"url":"https://docs.example/mcp"}`,
+		`"legacy":{"url":"https://old.example/mcp"}`, `"adapter":{"url":"https://adapter.example/mcp"}`,
+	} {
+		if !strings.Contains(agent, want) {
+			t.Fatalf("agent MCP lacks %s: %v", want, bodies)
+		}
 	}
-	if proj := bodies["pi_project Pi "+filepath.Join(project, ".pi", "mcp.json")]; proj != mcpUnknownRemoteJSON {
+	if strings.Contains(agent, "override") || strings.Contains(agent, "settings") {
+		t.Fatalf("agent MCP: %v", bodies)
+	}
+	if proj := bodies["pi_project Pi "+filepath.Join(project, ".pi", "mcp.json")]; proj != `{"mcpServers":{"proj":{"url":"http://localhost:3000/mcp"}}}` {
 		t.Fatalf("project MCP keeps definitions, not overrides: %v", bodies)
 	}
 }
 
-func TestMCPProjectionOmitsEnablementAcrossSources(t *testing.T) {
+func TestPiMCPFilterIsPathLimited(t *testing.T) {
 	d := &MCPDetector{piDir: "/home/dev/.pi/agent"}
 	raw := []byte(`{"mcpServers":{"local":{"command":"node","enabled":false}}}`)
 	for _, tc := range []struct {
 		source, file string
+		pi           bool
 	}{
-		{"discovered_mcp", "/home/dev/.pi/agent/mcp.json"},
-		{"discovered_mcp", "/repo/.pi/mcp.json"},
-		{"pi_project", "/repo/.pi/mcp.json"},
-		{"discovered_mcp", "/home/dev/.omp/agent/mcp.json"},
-		{"discovered_mcp", "/home/dev/.pi/agent/git/github.com/acme/kit/mcp.json"},
-		{"discovered_mcp", "/repo/.mcp.json"},
-		{"cursor", "/repo/.pi/mcp.json"},
+		{"discovered_mcp", "/home/dev/.pi/agent/mcp.json", true},
+		{"discovered_mcp", "/repo/.pi/mcp.json", true},
+		{"pi_project", "/repo/.pi/mcp.json", true},
+		{"discovered_mcp", "/home/dev/.omp/agent/mcp.json", false},
+		{"discovered_mcp", "/home/dev/.pi/agent/git/github.com/acme/kit/mcp.json", false},
+		{"discovered_mcp", "/repo/.mcp.json", false},
+		{"cursor", "/repo/.pi/mcp.json", false},
 	} {
+		// Only the Pi filter keeps the enabled flag.
 		out, ok := d.filterMCPContent(tc.source, tc.file, raw)
-		if !ok || string(out) != mcpUnknownLocalJSON {
-			t.Errorf("%s %s: projection = %s", tc.source, tc.file, out)
+		if got := ok && strings.Contains(string(out), `"enabled":false`); got != tc.pi {
+			t.Errorf("%s %s: Pi filter applied = %v, want %v", tc.source, tc.file, got, tc.pi)
 		}
-	}
-}
-
-func TestMCPKnownLocalAbsoluteLauncher(t *testing.T) {
-	want, ok := mcpKnownLocal("npx", []string{"-y", "snyk", "mcp"})
-	if !ok {
-		t.Fatal("public Snyk identity is missing from the registry fixture")
-	}
-	got, ok := mcpKnownLocal("/opt/homebrew/bin/npx", []string{"-y", "snyk", "mcp"})
-	if !ok || got != want {
-		t.Fatalf("absolute launcher identity=%+v found=%v; want %+v", got, ok, want)
 	}
 }

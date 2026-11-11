@@ -3,9 +3,9 @@ package model
 // Credential inventory wire types.
 //
 // A finding says which category of credential material lives at a location,
-// where it is, and how well protected it is. It never carries the credential —
-// no value, no substring, no digest, no fingerprint, and no category derived
-// from the secret's own characters. Protection state is derived by reading
+// where it is, and how well protected it is. It never carries a full credential,
+// digest or fingerprint. Tenant opt-in permits bounded prefixes and suffixes
+// with credential types for eligible API keys. Protection state comes from
 // secret-bearing bytes (a key container's structure, whether a field holds a
 // concrete value), which describes how material is guarded rather than what it
 // is.

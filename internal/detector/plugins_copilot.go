@@ -801,18 +801,12 @@ func (a *copilotAdapter) finish(p *model.PluginObservation) {
 		if component.Kind != model.PluginComponentMCP {
 			continue
 		}
-		// A file-level component is reported disabled only when every server it
-		// declares is; a partly disabled file states nothing.
 		for _, layer := range a.layers {
-			disabled := len(component.MCPServerNames) > 0
-			for _, name := range component.MCPServerNames {
-				if !slices.Contains(layer.disabledMCP, name) {
-					disabled = false
+			for _, name := range layer.disabledMCP {
+				if name == component.Name {
+					component.MCPEnablement = append(component.MCPEnablement, model.EnablementObservation{Scope: layer.scope, SourcePath: layer.path, ProjectPath: layer.project, Enabled: false})
 					break
 				}
-			}
-			if disabled {
-				component.MCPEnablement = append(component.MCPEnablement, model.EnablementObservation{Scope: layer.scope, SourcePath: layer.path, ProjectPath: layer.project, Enabled: false})
 			}
 		}
 	}

@@ -355,9 +355,6 @@ type PluginComponent struct {
 	Command       *AgentCommandDefinition `json:"command,omitempty"`
 	MCPConfig     *MCPConfigEnterprise    `json:"mcp_config,omitempty"`
 	MCPEnablement []EnablementObservation `json:"mcp_enablement,omitempty"`
-	// Server names an MCP component declares, kept only to join enablement
-	// settings on the device. Names are author-chosen, so they are never sent.
-	MCPServerNames []string `json:"-"`
 
 	// Saved per-resource selection at the installation's own scope, and the
 	// scoped layers that stated one. Absent is unknown, not enabled; neither

@@ -3,9 +3,9 @@
 //
 // The unit of collection is a source: one file, or the one directory that
 // exists for nothing but keys. A source reports where credential material sits
-// and how well it is guarded — never the material itself. No value, no
-// substring, no digest, no fingerprint, and no classification derived from the
-// secret's own characters ever leaves this package.
+// and how well it is guarded. Full credential values, digests and fingerprints
+// never leave this package. When the tenant opts in, eligible API keys may also
+// report a bounded prefix and suffix with their credential type.
 //
 // A finding means material is in the file: a concrete value in a field the tool
 // consumes as authentication, or a structurally valid private key. A file that

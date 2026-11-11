@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/step-security/dev-machine-guard/internal/aiagents/redact"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
@@ -1933,18 +1934,39 @@ func isPiMCPPath(file, piRoot string) bool {
 	return piRoot != "" && filepath.Dir(file) == filepath.Clean(piRoot) || filepath.Base(filepath.Dir(file)) == ".pi"
 }
 
-// filterPiMCP projects a Pi mcp.json, strict JSON with an optional BOM, the
-// same way as every other MCP config. Entries Pi itself would reject are kept:
-// extensions such as pi-mcp-adapter read the same file with their own schema.
-// A file whose entries only override other servers' settings has nothing to
-// report.
+// filterPiMCP reduces a Pi mcp.json — strict JSON with an optional BOM — to
+// each server's redacted command, args and URL plus its enabled flag. Entries
+// Pi itself would reject are kept: extensions such as pi-mcp-adapter read the
+// same file with their own schema. Only entries that define no command or URL
+// are dropped, since they merely override another server's settings.
 func filterPiMCP(content []byte) ([]byte, bool) {
 	var doc struct {
-		Servers json.RawMessage `json:"mcpServers"`
+		Servers map[string]json.RawMessage `json:"mcpServers"`
 	}
-	var servers mcpProjection
-	if json.Unmarshal(bytes.TrimPrefix(content, utf8BOM), &doc) != nil || !servers.addAll(doc.Servers) || servers.empty() {
+	if json.Unmarshal(bytes.TrimPrefix(content, utf8BOM), &doc) != nil {
 		return nil, false
 	}
-	return servers.json()
+	servers := map[string]any{}
+	for name, raw := range doc.Servers {
+		var entry map[string]json.RawMessage
+		if json.Unmarshal(raw, &entry) != nil || entry["command"] == nil && entry["url"] == nil && entry["serverUrl"] == nil {
+			continue
+		}
+		kept := map[string]any{}
+		for _, key := range []string{"command", "args", "serverUrl", "url"} {
+			var value any
+			if raw, ok := entry[key]; ok && json.Unmarshal(raw, &value) == nil {
+				kept[key] = redact.Value(value)
+			}
+		}
+		if enabled := jsonBool(entry["enabled"]); enabled != nil {
+			kept["enabled"] = *enabled
+		}
+		servers[name] = kept
+	}
+	if len(servers) == 0 {
+		return nil, false
+	}
+	out, err := json.Marshal(map[string]any{"mcpServers": servers})
+	return out, err == nil
 }
