@@ -10,11 +10,11 @@ $script:BoolKeys = @('enable_npm_scan','enable_brew_scan','enable_python_scan','
     'retire_on_uninstall','auto_update')
 $script:IntKeys = @('update_lag_behind','update_cooldown_hours')
 $script:UniversalChecks = @('Context','PackageTrust','Discovery')
-$script:InstalledChecks = @('Layout','RuntimeIntegrity','SelfCheck','VersionConsistency',
+$script:InstalledChecks = @('Layout','RuntimeIntegrity','SelfCheck','Identity','VersionConsistency',
     'ScanTask','LogonTask','UpdateTask','ConfigurationAccess')
 $script:TaskChecks = @('ScanTask','LogonTask','UpdateTask')
 # Minimum source contract, not a claim that a signed 1.19.0 MSI is released or
-# Windows-validated. Published 1.18.1 predates the required pooled identity code.
+# Windows-validated. Published 1.18.1 predates the required machine/user identity diagnostics.
 $script:MinimumPackageVersion = [version]'1.19.0'
 
 function Assert-DmgJsonProperties {
@@ -57,7 +57,7 @@ function Assert-DmgJsonProperties {
 }
 
 function ConvertTo-DmgValidatedConfig {
-    param([System.Collections.IDictionary]$Configuration)
+    param([System.Collections.IDictionary]$Configuration, [switch]$Installed)
     if ($null -eq $Configuration) { throw 'invalid_config_shape' }
     $result = @{}
     foreach ($keyObject in $Configuration.Keys) {
@@ -108,12 +108,24 @@ function ConvertTo-DmgValidatedConfig {
     foreach ($key in @('device_id','device_tag','multi_user_detection')) {
         if ($result.ContainsKey($key)) { $result[$key] = $result[$key].Trim() }
     }
-    if ($result.ContainsKey('device_id') -and $result['device_id'] -ne '') {
+    if ($result.ContainsKey('device_id')) {
         $id = $result['device_id']
-        $literalPart = $id -replace '(?i)\{(hostname|user|serial)\}', ''
-        if ($id.Length -gt 256 -or $literalPart -cmatch '[^A-Za-z0-9@._+\-]' -or $id -notmatch '(?i)\{hostname\}' -or $id -notmatch '(?i)\{user\}' -or
-            ($id -replace '(?i)\{(hostname|user|serial)\}', '') -match '[{}]') {
-            throw 'pooled_device_template_required'
+        # Bootstrap omission preserves an existing override. An explicit '-'
+        # clears it during MSI configure; an installed config stores empty.
+        if ($id -eq '') {
+            if (-not $Installed) { throw 'empty_device_id_use_omission_or_reset' }
+        }
+        elseif ($id -eq '-') {
+            if ($Installed) { throw 'unapplied_device_identity_reset' }
+        }
+        else {
+            # Match backend template validation. Shared image bundles
+            # additionally forbid literals that would identify every clone.
+            $literalPart = $id -replace '(?i)\{(hostname|serial)\}', ''
+            if ($id.Length -gt 128 -or $literalPart -cmatch '[^A-Za-z0-9._~\-]' -or
+                $id -notmatch '(?i)\{(hostname|serial)\}') {
+                throw 'pooled_machine_template_required'
+            }
         }
     }
     if ($result.ContainsKey('device_tag') -and $result['device_tag'] -ne '' -and
@@ -122,8 +134,7 @@ function ConvertTo-DmgValidatedConfig {
         $result['multi_user_detection'] = $result['multi_user_detection'].ToLowerInvariant()
         if (@('','edition','users','off') -cnotcontains $result['multi_user_detection']) { throw 'invalid_config_detection' }
     }
-    if ($result.ContainsKey('multi_user_detection') -and $result['multi_user_detection'] -eq 'off' -and
-        (-not $result.ContainsKey('device_id') -or $result['device_id'] -eq '')) {
+    if ($result.ContainsKey('multi_user_detection') -and $result['multi_user_detection'] -eq 'off') {
         throw 'pooled_detection_disabled'
     }
     if ($result.ContainsKey('auto_update') -and -not $result['auto_update']) {
@@ -168,8 +179,8 @@ function Read-DmgBootstrapConfig {
 }
 
 function Get-DmgComparableConfig {
-    param([System.Collections.IDictionary]$Configuration)
-    $config = ConvertTo-DmgValidatedConfig -Configuration $Configuration
+    param([System.Collections.IDictionary]$Configuration, [switch]$Installed)
+    $config = ConvertTo-DmgValidatedConfig -Configuration $Configuration -Installed:$Installed
     # Known effective defaults; tri-state collector choices deliberately remain
     # distinct from an explicit override. Preserve every supported other key.
     $defaults = @{
@@ -185,6 +196,7 @@ function Get-DmgComparableConfig {
             $config[$key] = $defaults[$key]
         }
     }
+    if ($config['device_id'] -eq '-') { $config['device_id'] = '' }
     if ($config['color_mode'] -eq 'auto') { $config['color_mode'] = '' }
     if ($config['output_format'] -eq 'pretty') { $config['output_format'] = '' }
     if ($config['log_level'] -eq 'info') { $config['log_level'] = '' }
@@ -196,7 +208,11 @@ function Get-DmgComparableConfig {
 function Test-DmgConfigurationMatch {
     param([System.Collections.IDictionary]$Desired, [System.Collections.IDictionary]$Observed)
     $left = Get-DmgComparableConfig -Configuration $Desired
-    $right = Get-DmgComparableConfig -Configuration $Observed
+    $right = Get-DmgComparableConfig -Configuration $Observed -Installed
+    # An omitted identity is a preserve directive, not a request to clear it.
+    # Both sides were validated first, so legacy/user/shared-literal overrides
+    # cannot become ready merely because the bootstrap omitted device_id.
+    if (-not $Desired.Contains('device_id')) { $left['device_id'] = $right['device_id'] }
     if ($left.Count -ne $right.Count) { return $false }
     foreach ($key in $left.Keys) {
         if (-not $right.ContainsKey($key)) { return $false }

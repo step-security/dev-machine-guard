@@ -255,7 +255,7 @@ Assert-BooleanResult -Name 'updater budget independent of scan watchdog' -Expect
 
 $JsonCases = @(
     @{ Name = 'valid machine self-check'; Json = '{"version":"1.18.1","config_ok":true,"device_id":"HOST-123"}'; Allow = $false; Expected = $true },
-    @{ Name = 'valid user-scoped SYSTEM self-check'; Json = '{"version":"1.18.1","config_ok":true,"device_id":"","device_id_per_user":true}'; Allow = $true; Expected = $true },
+    @{ Name = 'legacy empty user-scoped SYSTEM self-check rejected'; Json = '{"version":"1.18.1","config_ok":true,"device_id":"","device_id_per_user":true}'; Allow = $true; Expected = $false },
     @{ Name = 'placeholder unknown identity rejected'; Json = '{"version":"1.18.1","config_ok":true,"device_id":"unknown","device_id_per_user":true}'; Allow = $true; Expected = $false },
     @{ Name = 'machine ID allowed in per-user mode'; Json = '{"version":"1.18.1","config_ok":true,"device_id":"HOST-123","device_id_per_user":false}'; Allow = $true; Expected = $true },
     @{ Name = 'per-user exemption not allowed'; Json = '{"version":"1.18.1","config_ok":true,"device_id":"","device_id_per_user":true}'; Allow = $false; Expected = $false },
@@ -281,7 +281,7 @@ $JsonCases = @(
 
 foreach ($case in $JsonCases) {
     Assert-BooleanResult -Name $case.Name -Expected $case.Expected -Operation {
-        Test-DmgSelfCheck -Json $case.Json -ExpectedVersion '1.18.1' -AllowPerUserIdentity $case.Allow
+        Test-DmgSelfCheck -Json $case.Json -ExpectedVersion '1.18.1'
     }
 }
 

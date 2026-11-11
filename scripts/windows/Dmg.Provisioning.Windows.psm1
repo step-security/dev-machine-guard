@@ -14,18 +14,47 @@ function Get-DmgObjectValue {
 
 function Test-DmgSelfCheck {
     [CmdletBinding()]
-    param([AllowEmptyString()][string]$Json, [string]$ExpectedVersion, [bool]$AllowPerUserIdentity = $false)
+    param([AllowEmptyString()][string]$Json, [string]$ExpectedVersion)
     try {
         if ($Json.Length -gt 65536 -or -not $Json.TrimStart().StartsWith('{') -or $ExpectedVersion -notmatch '^\d+\.\d+\.\d+$') { return $false }
         $v = ConvertFrom-DmgJsonObject -Json $Json
         $ok = Get-DmgObjectValue $v 'config_ok'
         if ($ok -isnot [bool] -or -not $ok) { return $false }
-        if ((Get-DmgObjectValue $v 'version') -cne $ExpectedVersion) { return $false }
+        $version = Get-DmgObjectValue $v 'version'
+        if ($version -isnot [string] -or $version -cne $ExpectedVersion) { return $false }
         $id = Get-DmgObjectValue $v 'device_id'
         if ($id -isnot [string] -or $id -ceq 'unknown') { return $false }
-        if (-not [string]::IsNullOrWhiteSpace($id)) { return $true }
-        $perUser = Get-DmgObjectValue $v 'device_id_per_user'
-        return ($AllowPerUserIdentity -and $perUser -is [bool] -and $perUser)
+        return (-not [string]::IsNullOrWhiteSpace($id))
+    } catch { return $false }
+}
+
+function Test-DmgIdentity {
+    [CmdletBinding()]
+    param([AllowEmptyString()][string]$Json, [AllowEmptyString()][string]$ExpectedTemplate, [string]$ExpectedDeviceID)
+    try {
+        if ($Json.Length -gt 65536 -or -not $Json.TrimStart().StartsWith('{') -or
+            [string]::IsNullOrWhiteSpace($ExpectedDeviceID) -or $ExpectedDeviceID -ieq 'unknown') { return $false }
+        $v = ConvertFrom-DmgJsonObject -Json $Json
+        $id = Get-DmgObjectValue $v 'device_id'
+        if ($id -isnot [string] -or $id -cne $ExpectedDeviceID) { return $false }
+        foreach ($flag in @('per_session','incomplete','image_builder')) {
+            $value = Get-DmgObjectValue $v $flag
+            $expected = $flag -ceq 'per_session'
+            if ($value -isnot [bool] -or $value -ne $expected) { return $false }
+        }
+        # A SYSTEM diagnostic needs a machine identity, never a user token.
+        # An issue signals fallback rather than the configured identity.
+        foreach ($name in @('issue','user_token','session_scope')) {
+            $value = Get-DmgObjectValue $v $name
+            if ($null -ne $value -and ($value -isnot [string] -or $value -cne '')) { return $false }
+        }
+        $source = Get-DmgObjectValue $v 'source'
+        if ($source -isnot [string]) { return $false }
+        $template = Get-DmgObjectValue $v 'template'
+        if ([string]::IsNullOrEmpty($ExpectedTemplate)) {
+            return ($source -ceq 'serial' -and ($null -eq $template -or ($template -is [string] -and $template -ceq '')))
+        }
+        return ($source -ceq 'config' -and $template -is [string] -and $template -ceq $ExpectedTemplate)
     } catch { return $false }
 }
 
@@ -435,7 +464,7 @@ function Get-DmgInstalledObservation {
         }
         $o.Installed = $true; $o.ProductVersion = $product.ProductVersion; $o.ProductCode = $product.ProductCode
         $checks['Discovery'] = $true
-        foreach ($name in @('Layout','RuntimeIntegrity','SelfCheck','VersionConsistency','ScanTask','LogonTask','UpdateTask','ConfigurationAccess')) { $checks[$name] = $false }
+        foreach ($name in @('Layout','RuntimeIntegrity','SelfCheck','Identity','VersionConsistency','ScanTask','LogonTask','UpdateTask','ConfigurationAccess')) { $checks[$name] = $false }
         # v1 observes the MSI default layout only. Custom roots fail closed.
         $bootstrap = Join-Path $root 'stepsecurity-dev-machine-guard-bootstrap.exe'
         $configPath = 'C:\ProgramData\StepSecurity\config.json'
@@ -477,9 +506,14 @@ function Get-DmgInstalledObservation {
         $registry = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\StepSecurity' -ErrorAction Stop
         $checks['VersionConsistency'] = ((Get-DmgObjectValue $registry 'AgentVersion') -ceq $o.ProductVersion -and (Get-DmgObjectValue $registry 'RunningVersion') -ceq $current -and [version]$current -ge [version]$o.ProductVersion)
         $diag = Invoke-DmgReadOnlyProcess -FilePath (Join-Path $versionDir 'stepsecurity-dev-machine-guard.exe') -Arguments 'self-check'
-        $perUser = $false
-        if ($DesiredConfig.ContainsKey('device_id')) { $perUser = ([string]$DesiredConfig['device_id']).ToLowerInvariant().Contains('{user}') }
-        $checks['SelfCheck'] = ($diag.ExitCode -eq 0 -and (Test-DmgSelfCheck -Json $diag.Output -ExpectedVersion $current -AllowPerUserIdentity $perUser))
+        $checks['SelfCheck'] = ($diag.ExitCode -eq 0 -and (Test-DmgSelfCheck -Json $diag.Output -ExpectedVersion $current))
+        if ($checks['SelfCheck']) {
+            $selfCheck = ConvertFrom-DmgJsonObject -Json $diag.Output
+            # The runtime resolves native host/session facts; the provisioner
+            # must not infer per-session scanning from a device-ID template.
+            $identity = Invoke-DmgReadOnlyProcess -FilePath (Join-Path $versionDir 'stepsecurity-dev-machine-guard.exe') -Arguments 'identity --json'
+            $checks['Identity'] = ($identity.ExitCode -eq 0 -and (Test-DmgIdentity -Json $identity.Output -ExpectedTemplate (([string]$o.Configuration['device_id']).Trim()) -ExpectedDeviceID ([string](Get-DmgObjectValue $selfCheck 'device_id'))))
+        }
         # A runtime version switch during observation invalidates this snapshot.
         $after = Read-DmgBoundedJson $statePath
         if (-not (Test-DmgStatePointer -Json ([IO.File]::ReadAllText($statePath))) -or (Get-DmgObjectValue $after 'current') -cne $current) { $checks['VersionConsistency'] = $false }
@@ -506,4 +540,4 @@ function Get-DmgInstalledObservation {
     finally { $o.Checks = @($checks.GetEnumerator() | ForEach-Object { [pscustomobject]@{ Name=$_.Key; Passed=[bool]$_.Value } }) }
 }
 
-Export-ModuleMember -Function Test-DmgInteractiveAccessRules, Test-DmgStatePointer, Test-DmgSelfCheck, Test-DmgTaskXml, Test-DmgProtectedPath, Get-DmgMsiMetadata, Get-DmgInstalledObservation
+Export-ModuleMember -Function Test-DmgInteractiveAccessRules, Test-DmgStatePointer, Test-DmgSelfCheck, Test-DmgIdentity, Test-DmgTaskXml, Test-DmgProtectedPath, Get-DmgMsiMetadata, Get-DmgInstalledObservation

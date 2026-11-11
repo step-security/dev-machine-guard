@@ -10,7 +10,7 @@ $script:Failed = 0
 $script:Scratch = Join-Path ([IO.Path]::GetTempPath()) ('dmg-policy-tests-' + [guid]::NewGuid().ToString('N'))
 $null = [IO.Directory]::CreateDirectory($script:Scratch)
 $script:Package = [PSCustomObject]@{ProductVersion='1.19.0'; ProductCode='{11111111-1111-1111-1111-111111111111}'}
-$script:Desired = @{customer_id='example'; api_endpoint='https://api.example.test'; api_key='test-secret-do-not-emit'; device_id='{hostname}-{user}'}
+$script:Desired = @{customer_id='example'; api_endpoint='https://api.example.test'; api_key='test-secret-do-not-emit'; device_id='{hostname}'}
 
 function Assert-Equal($Actual, $Expected) {
     if (-not [object]::Equals($Actual,$Expected)) { throw "Expected '$Expected', got '$Actual'." }
@@ -21,7 +21,7 @@ function Test-Case([string]$CaseTitle, [scriptblock]$Body) {
     catch { $script:Failed++; Write-Output "FAIL $CaseTitle : $($_.Exception.Message)" }
 }
 function New-Observation {
-    $checks = @('Context','PackageTrust','Discovery','Layout','RuntimeIntegrity','SelfCheck',
+    $checks = @('Context','PackageTrust','Discovery','Layout','RuntimeIntegrity','SelfCheck','Identity',
         'VersionConsistency','ScanTask','LogonTask','UpdateTask','ConfigurationAccess') | ForEach-Object {
             [PSCustomObject]@{Name=$_;Passed=$true}
         }
@@ -174,18 +174,18 @@ Test-Case 'automatic detection off without a template cannot provision pooled ho
     Assert-Rejected ($c | ConvertTo-Json)
     $c.device_id=' '; Assert-Rejected ($c | ConvertTo-Json)
 }
-Test-Case 'explicit host-user template is valid even with automatic detection off' {
+Test-Case 'explicit machine template cannot enable disabled session detection' {
     $c=$script:Desired.Clone(); $c.multi_user_detection='off'
-    $r=Read-Fixture ($c | ConvertTo-Json); Assert-Equal $r.device_id '{hostname}-{user}'
+    Assert-Rejected ($c | ConvertTo-Json)
 }
 Test-Case 'explicit updater opt-out cannot provision this supported profile' {
     $c=$script:Desired.Clone(); $c.auto_update=$false; Assert-Rejected ($c | ConvertTo-Json)
     $c.auto_update=$true; Assert-True (Read-Fixture ($c | ConvertTo-Json)).auto_update
 }
 Test-Case 'template literals must follow the agent allowlist and length bound' {
-    $c=$script:Desired.Clone(); $c.device_id='pool with space-{hostname}-{user}'
+    $c=$script:Desired.Clone(); $c.device_id='pool with space-{hostname}'
     Assert-Rejected ($c | ConvertTo-Json)
-    $c.device_id=('a' * 257) + '-{hostname}-{user}'; Assert-Rejected ($c | ConvertTo-Json)
+    $c.device_id=('a' * 129) + '-{hostname}'; Assert-Rejected ($c | ConvertTo-Json)
 }
 Test-Case 'valid bootstrap returns hashtable without materializing defaults' {
     $c=Read-Fixture ($script:Desired | ConvertTo-Json); Assert-True ($c -is [hashtable])
