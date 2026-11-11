@@ -29,9 +29,32 @@ function Test-DmgSelfCheck {
     } catch { return $false }
 }
 
+function Get-DmgScanExecutionMinutes {
+    param([string]$ConfigValue, [string]$EnvironmentValue)
+    # Mirror telemetry.ExecutionDeadline: positive Go durations, exact 0/off,
+    # env > config > 4h. Scheduler adds 30m and rounds up; disabled gets 6h.
+    $units = @{ ns=[decimal]1; us=[decimal]1000; ms=[decimal]1000000; s=[decimal]1000000000; m=[decimal]60000000000; h=[decimal]3600000000000 }
+    $units[([char]0xB5).ToString() + 's'] = [decimal]1000
+    $units[([char]0x3BC).ToString() + 's'] = [decimal]1000
+    $part = '(?<number>(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+))(?<unit>ns|us|\u00b5s|\u03bcs|ms|s|m|h)'
+    foreach ($value in @($EnvironmentValue, $ConfigValue, '4h')) {
+        if ($value -ceq '0' -or $value -ceq 'off') { return [decimal]360 }
+        if ($value -cnotmatch ('\A\+?(?:' + $part + ')+\z')) { continue }
+        try {
+            $nanos = [decimal]0
+            foreach ($piece in [regex]::Matches($value, $part)) {
+                $number = [decimal]::Parse($piece.Groups['number'].Value, [Globalization.CultureInfo]::InvariantCulture)
+                $nanos += [decimal]::Truncate($number * $units[$piece.Groups['unit'].Value])
+            }
+            if ($nanos -le 0 -or $nanos -gt [decimal]([long]::MaxValue)) { continue }
+            return [decimal]::Ceiling($nanos / [decimal]60000000000) + [decimal]30
+        } catch { continue }
+    }
+}
+
 function Test-DmgTaskXml {
     [CmdletBinding()]
-    param([AllowEmptyString()][string]$Xml, [ValidateSet('Scan','Logon','Update')][string]$Kind, [string]$BootstrapPath, [int]$ExpectedScanHours = 0)
+    param([AllowEmptyString()][string]$Xml, [ValidateSet('Scan','Logon','Update')][string]$Kind, [string]$BootstrapPath, [int]$ExpectedScanHours = 0, [string]$MaxExecutionDuration = '', [string]$EnvironmentMaxExecutionDuration = '')
     $reader = $null
     try {
         if ([string]::IsNullOrWhiteSpace($Xml) -or $Xml.Length -gt 262144 -or $ExpectedScanHours -lt 0) { return $false }
@@ -88,6 +111,12 @@ function Test-DmgTaskXml {
         $policy = $doc.SelectSingleNode('/t:Task/t:Settings/t:MultipleInstancesPolicy', $ns)
         $expectedPolicy = 'Parallel'; if ($isUpdate) { $expectedPolicy = 'IgnoreNew' }
         if ($null -eq $policy -or $policy.InnerText -cne $expectedPolicy) { return $false }
+        $limits = $doc.SelectNodes('/t:Task/t:Settings/t:ExecutionTimeLimit', $ns)
+        if ($limits.Count -ne 1) { return $false }
+        $minutes = [decimal]30
+        if (-not $isUpdate) { $minutes = Get-DmgScanExecutionMinutes -ConfigValue $MaxExecutionDuration -EnvironmentValue $EnvironmentMaxExecutionDuration }
+        $limit = [System.Xml.XmlConvert]::ToTimeSpan($limits[0].InnerText)
+        if ([decimal]$limit.Ticks -ne $minutes * [decimal]600000000) { return $false }
         $triggers = @($doc.SelectNodes('/t:Task/t:Triggers/*', $ns) | Where-Object {
             $e = $_.SelectSingleNode('t:Enabled', $ns)
             $null -eq $e -or $e.InnerText -in @('true','1')
@@ -101,6 +130,9 @@ function Test-DmgTaskXml {
             foreach ($xpath in @('t:Repetition', 't:Repetition/t:Interval', 't:ScheduleByDay', 't:ScheduleByDay/t:DaysInterval')) {
                 if ($trigger.SelectNodes($xpath, $ns).Count -gt 1) { return $false }
             }
+            # Unlike a daily CalendarTrigger, a TimeTrigger never renews a
+            # finite repetition window. Persistent tasks must repeat indefinitely.
+            if ($trigger.LocalName -ceq 'TimeTrigger' -and $null -ne $trigger.SelectSingleNode('t:Repetition/t:Duration', $ns)) { return $false }
             $interval = $trigger.SelectSingleNode('t:Repetition/t:Interval', $ns)
             $days = $trigger.SelectSingleNode('t:ScheduleByDay/t:DaysInterval', $ns)
             if ($null -ne $days -and $trigger.LocalName -cne 'CalendarTrigger') { return $false }
@@ -418,7 +450,7 @@ function Get-DmgInstalledObservation {
             if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($name, 'Machine')) -or -not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($name, 'Process'))) { $checks['ConfigurationAccess'] = $false }
         }
         $statePath = Join-Path $root 'state\state.json'
-        if (-not (Test-DmgProtectedPath $statePath)) { return $o }
+        if (-not (Test-DmgProtectedPath $statePath) -or -not (Test-DmgInteractiveRead $statePath)) { return $o }
         $state = Read-DmgBoundedJson $statePath
         if (-not (Test-DmgStatePointer -Json ([IO.File]::ReadAllText($statePath)))) { return $o }
         $current = Get-DmgObjectValue $state 'current'
@@ -462,7 +494,7 @@ function Get-DmgInstalledObservation {
                     $task = $folder.GetTask($name)
                     $hours = 4
                     if ($DesiredConfig.ContainsKey('scan_frequency_hours') -and $DesiredConfig['scan_frequency_hours'] -ne '') { $hours = [int]$DesiredConfig['scan_frequency_hours'] }
-                    $checks[$kind + 'Task'] = ([bool]$task.Enabled -and (Test-DmgTaskXml -Xml $task.Xml -Kind $kind -BootstrapPath $bootstrap -ExpectedScanHours $hours))
+                    $checks[$kind + 'Task'] = ([bool]$task.Enabled -and (Test-DmgTaskXml -Xml $task.Xml -Kind $kind -BootstrapPath $bootstrap -ExpectedScanHours $hours -MaxExecutionDuration ([string]$DesiredConfig['max_execution_duration']) -EnvironmentMaxExecutionDuration ([Environment]::GetEnvironmentVariable('STEPSEC_MAX_EXECUTION_DURATION'))))
                 } catch { $checks[$kind + 'Task'] = $false }
                 finally { if ($null -ne $task) { $null = [Runtime.InteropServices.Marshal]::ReleaseComObject($task) } }
             }

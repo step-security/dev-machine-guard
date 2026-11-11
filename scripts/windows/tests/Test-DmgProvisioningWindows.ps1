@@ -47,6 +47,7 @@ function New-TaskFixture {
     param([ValidateSet('Scan', 'Logon', 'Update')][string]$Kind)
     $principal = '<GroupId>S-1-5-4</GroupId>'
     $policy = 'Parallel'
+    $limit = 'PT4H30M'
     $runLevel = 'LeastPrivilege'
     $arguments = 'run send-telemetry --install-dir="C:\ProgramData\StepSecurity"'
     $trigger = '<TimeTrigger><Repetition><Interval>PT4H</Interval></Repetition><StartBoundary>2026-11-09T00:00:00</StartBoundary><Enabled>true</Enabled></TimeTrigger>'
@@ -54,6 +55,7 @@ function New-TaskFixture {
     if ($Kind -eq 'Update') {
         $principal = '<UserId>S-1-5-18</UserId>'
         $policy = 'IgnoreNew'
+        $limit = 'PT30M'
         $runLevel = 'HighestAvailable'
         $arguments = 'update'
         $trigger = '<TimeTrigger><Repetition><Interval>PT1H</Interval></Repetition><StartBoundary>2026-11-09T00:00:00</StartBoundary><Enabled>true</Enabled><RandomDelay>PT10M</RandomDelay></TimeTrigger><BootTrigger><Enabled>true</Enabled><Delay>PT15M</Delay></BootTrigger>'
@@ -62,7 +64,7 @@ function New-TaskFixture {
 <Task version="1.2" xmlns="$Namespace">
   <Triggers>$trigger</Triggers>
   <Principals><Principal id="Author">$principal<RunLevel>$runLevel</RunLevel></Principal></Principals>
-  <Settings><MultipleInstancesPolicy>$policy</MultipleInstancesPolicy><StartWhenAvailable>true</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>PT30M</ExecutionTimeLimit></Settings>
+  <Settings><MultipleInstancesPolicy>$policy</MultipleInstancesPolicy><StartWhenAvailable>true</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>$limit</ExecutionTimeLimit></Settings>
   <Actions Context="Author"><Exec><Command>$Bootstrap</Command><Arguments>$arguments</Arguments></Exec></Actions>
 </Task>
 "@
@@ -85,8 +87,8 @@ $Cases = @(
     @{ Name = 'canonical SYSTEM principal'; Xml = $Update.Replace('S-1-5-18', 'NT AUTHORITY\SYSTEM'); Kind = 'Update'; Expected = $true },
     @{ Name = 'bare SYSTEM principal'; Xml = $Update.Replace('S-1-5-18', 'SYSTEM'); Kind = 'Update'; Expected = $true },
     @{ Name = 'omitted enabled settings retain default'; Xml = $Scan.Replace('<Enabled>true</Enabled>', ''); Kind = 'Scan'; Expected = $true },
-    @{ Name = 'one minute scan interval'; Xml = $Scan.Replace('PT4H', 'PT1M'); Kind = 'Scan'; Expected = $true },
-    @{ Name = '365 day structural scan interval'; Xml = $Scan.Replace('PT4H', 'P365D'); Kind = 'Scan'; Expected = $true },
+    @{ Name = 'one minute scan interval'; Xml = $Scan.Replace('<Interval>PT4H</Interval>', '<Interval>' + 'PT1M' + '</Interval>'); Kind = 'Scan'; Expected = $true },
+    @{ Name = '365 day structural scan interval'; Xml = $Scan.Replace('<Interval>PT4H</Interval>', '<Interval>' + 'P365D' + '</Interval>'); Kind = 'Scan'; Expected = $true },
     @{ Name = 'missing namespace'; Xml = $Scan.Replace(' xmlns="' + $Namespace + '"', ''); Kind = 'Scan'; Expected = $false },
     @{ Name = 'wrong namespace'; Xml = $Scan.Replace($Namespace, 'https://untrusted.invalid/task'); Kind = 'Scan'; Expected = $false },
     @{ Name = 'logon restricted to one user'; Xml = $Logon.Replace('<LogonTrigger>', '<LogonTrigger><UserId>DOMAIN\Alice</UserId>'); Kind = 'Logon'; Expected = $false },
@@ -103,12 +105,12 @@ $Cases = @(
     @{ Name = 'update time trigger disabled'; Xml = $Update.Replace('</StartBoundary><Enabled>true</Enabled>', '</StartBoundary><Enabled>false</Enabled>'); Kind = 'Update'; Expected = $false },
     @{ Name = 'update boot trigger disabled'; Xml = $Update.Replace('<BootTrigger><Enabled>true</Enabled>', '<BootTrigger><Enabled>false</Enabled>'); Kind = 'Update'; Expected = $false },
     @{ Name = 'no scan repetition'; Xml = $Scan.Replace('<Repetition><Interval>PT4H</Interval></Repetition>', ''); Kind = 'Scan'; Expected = $false },
-    @{ Name = 'zero scan interval'; Xml = $Scan.Replace('PT4H', 'PT0S'); Kind = 'Scan'; Expected = $false },
-    @{ Name = 'negative scan interval'; Xml = $Scan.Replace('PT4H', '-PT1H'); Kind = 'Scan'; Expected = $false },
-    @{ Name = 'sub-minute scan interval'; Xml = $Scan.Replace('PT4H', 'PT1S'); Kind = 'Scan'; Expected = $false },
-    @{ Name = 'over-limit scan interval'; Xml = $Scan.Replace('PT4H', 'P366D'); Kind = 'Scan'; Expected = $false },
-    @{ Name = 'overflow scan interval'; Xml = $Scan.Replace('PT4H', 'P999999999D'); Kind = 'Scan'; Expected = $false },
-    @{ Name = 'malformed scan interval'; Xml = $Scan.Replace('PT4H', 'four hours'); Kind = 'Scan'; Expected = $false },
+    @{ Name = 'zero scan interval'; Xml = $Scan.Replace('<Interval>PT4H</Interval>', '<Interval>' + 'PT0S' + '</Interval>'); Kind = 'Scan'; Expected = $false },
+    @{ Name = 'negative scan interval'; Xml = $Scan.Replace('<Interval>PT4H</Interval>', '<Interval>' + '-PT1H' + '</Interval>'); Kind = 'Scan'; Expected = $false },
+    @{ Name = 'sub-minute scan interval'; Xml = $Scan.Replace('<Interval>PT4H</Interval>', '<Interval>' + 'PT1S' + '</Interval>'); Kind = 'Scan'; Expected = $false },
+    @{ Name = 'over-limit scan interval'; Xml = $Scan.Replace('<Interval>PT4H</Interval>', '<Interval>' + 'P366D' + '</Interval>'); Kind = 'Scan'; Expected = $false },
+    @{ Name = 'overflow scan interval'; Xml = $Scan.Replace('<Interval>PT4H</Interval>', '<Interval>' + 'P999999999D' + '</Interval>'); Kind = 'Scan'; Expected = $false },
+    @{ Name = 'malformed scan interval'; Xml = $Scan.Replace('<Interval>PT4H</Interval>', '<Interval>' + 'four hours' + '</Interval>'); Kind = 'Scan'; Expected = $false },
     @{ Name = 'logon task with only time trigger'; Xml = $Scan; Kind = 'Logon'; Expected = $false },
     @{ Name = 'scan task with only logon trigger'; Xml = $Logon; Kind = 'Scan'; Expected = $false },
     @{ Name = 'update missing boot trigger'; Xml = $Update.Replace('<BootTrigger><Enabled>true</Enabled><Delay>PT15M</Delay></BootTrigger>', ''); Kind = 'Update'; Expected = $false },
@@ -163,14 +165,14 @@ $Daily = $Calendar.Replace('<Repetition><Interval>PT4H</Interval></Repetition>',
 $CadenceCases = @(
     @{ Name = 'configured four hour cadence'; Xml = $Scan; Hours = 4; Expected = $true },
     @{ Name = 'configured four hour calendar repetition'; Xml = $Calendar; Hours = 4; Expected = $true },
-    @{ Name = 'configured cadence rejects monthly drift'; Xml = $Scan.Replace('PT4H', 'P31D'); Hours = 4; Expected = $false },
+    @{ Name = 'configured cadence rejects monthly drift'; Xml = $Scan.Replace('<Interval>PT4H</Interval>', '<Interval>' + 'P31D' + '</Interval>'); Hours = 4; Expected = $false },
     @{ Name = 'configured cadence rejects skipped calendar days'; Xml = $Calendar.Replace('<DaysInterval>1</DaysInterval>', '<DaysInterval>2</DaysInterval>'); Hours = 4; Expected = $false },
     @{ Name = 'configured 24 hours becomes daily'; Xml = $Daily; Hours = 24; Expected = $true },
     @{ Name = 'configured 25 hours floors to daily'; Xml = $Daily; Hours = 25; Expected = $true },
     @{ Name = 'configured 48 hours becomes two days'; Xml = $Daily.Replace('<DaysInterval>1</DaysInterval>', '<DaysInterval>2</DaysInterval>'); Hours = 48; Expected = $true },
     @{ Name = 'configured 48 hours rejects every-day drift'; Xml = $Daily; Hours = 48; Expected = $false },
     @{ Name = 'configured daily rejects extra intra-day repetition'; Xml = $Calendar; Hours = 24; Expected = $false },
-    @{ Name = 'configured daily needs a CalendarTrigger'; Xml = $Scan.Replace('PT4H', 'P1D'); Hours = 24; Expected = $false },
+    @{ Name = 'configured daily needs a CalendarTrigger'; Xml = $Scan.Replace('<Interval>PT4H</Interval>', '<Interval>' + 'P1D' + '</Interval>'); Hours = 24; Expected = $false },
     @{ Name = 'configured huge frequency clamps at 365 days'; Xml = $Daily.Replace('<DaysInterval>1</DaysInterval>', '<DaysInterval>365</DaysInterval>'); Hours = 100000; Expected = $true },
     @{ Name = 'multiple enabled scan triggers rejected'; Xml = $Scan.Replace('</Triggers>', '<LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>'); Hours = 4; Expected = $false },
     @{ Name = 'extra disabled scan trigger not active'; Xml = $Scan.Replace('</Triggers>', '<LogonTrigger><Enabled>false</Enabled></LogonTrigger></Triggers>'); Hours = 4; Expected = $true },
@@ -180,6 +182,75 @@ foreach ($case in $CadenceCases) {
     Assert-BooleanResult -Name $case.Name -Expected $case.Expected -Operation {
         Test-DmgTaskXml -Xml $case.Xml -Kind Scan -BootstrapPath $Bootstrap -ExpectedScanHours $case.Hours
     }
+}
+
+# Execution budgets must match the scheduler's watchdog + 30 minute policy.
+foreach ($kind in @('Scan','Logon','Update')) {
+    $xml = New-TaskFixture $kind
+    $original = 'PT4H30M'; if ($kind -eq 'Update') { $original = 'PT30M' }
+    foreach ($bad in @('PT1S','PT0S','-PT1H','not-a-duration','P3D')) {
+        Assert-BooleanResult -Name "$kind rejects execution limit $bad" -Expected $false -Operation {
+            Test-DmgTaskXml -Xml $xml.Replace($original, $bad) -Kind $kind -BootstrapPath $Bootstrap
+        }
+    }
+    foreach ($replacement in @('', ('<ExecutionTimeLimit>' + $original + '</ExecutionTimeLimit><ExecutionTimeLimit>PT1S</ExecutionTimeLimit>'))) {
+        Assert-BooleanResult -Name "$kind rejects missing or duplicate execution limit" -Expected $false -Operation {
+            Test-DmgTaskXml -Xml $xml.Replace('<ExecutionTimeLimit>' + $original + '</ExecutionTimeLimit>', $replacement) -Kind $kind -BootstrapPath $Bootstrap
+        }
+    }
+}
+foreach ($kind in @('Scan','Update')) {
+    $xml = New-TaskFixture $kind
+    Assert-BooleanResult -Name "$kind rejects expired finite repetition" -Expected $false -Operation {
+        Test-DmgTaskXml -Xml $xml.Replace('</Repetition>', '<Duration>P1D</Duration></Repetition>').Replace('2026-11-09', '2000-01-01') -Kind $kind -BootstrapPath $Bootstrap
+    }
+}
+Assert-BooleanResult -Name 'daily calendar can renew finite repetition' -Expected $true -Operation {
+    Test-DmgTaskXml -Xml $Calendar.Replace('</Repetition>', '<Duration>P1D</Duration></Repetition>') -Kind Scan -BootstrapPath $Bootstrap -ExpectedScanHours 4
+}
+
+$BudgetCases = @(
+    @{ Config=''; Env=''; Limit='PT270M' },
+    @{ Config='2h'; Env=''; Limit='PT2H30M' },
+    @{ Config='45m30s'; Env=''; Limit='PT76M' },
+    @{ Config='1h0.1s'; Env=''; Limit='PT91M' },
+    @{ Config='+.5h'; Env=''; Limit='PT1H' },
+    @{ Config='30.m'; Env=''; Limit='PT1H' },
+    @{ Config='1ms'; Env=''; Limit='PT31M' },
+    @{ Config='1us'; Env=''; Limit='PT31M' },
+    @{ Config=('1'+[char]0xB5+'s'); Env=''; Limit='PT31M' },
+    @{ Config=('1'+[char]0x3BC+'s'); Env=''; Limit='PT31M' },
+    @{ Config='1ns'; Env=''; Limit='PT31M' },
+    @{ Config='0'; Env=''; Limit='PT6H' },
+    @{ Config='off'; Env=''; Limit='PT6H' },
+    @{ Config='2h'; Env='1h'; Limit='PT90M' },
+    @{ Config='2h'; Env='off'; Limit='PT6H' },
+    @{ Config='off'; Env='3h'; Limit='PT210M' },
+    @{ Config='2h'; Env='invalid'; Limit='PT150M' },
+    @{ Config='2h'; Env='-1h'; Limit='PT150M' },
+    @{ Config='invalid'; Env='invalid'; Limit='PT270M' },
+    @{ Config='0s'; Env=''; Limit='PT270M' },
+    @{ Config='0.1ns'; Env=''; Limit='PT270M' },
+    @{ Config='OFF'; Env=''; Limit='PT270M' },
+    @{ Config='2H'; Env=''; Limit='PT270M' },
+    @{ Config=' 2h'; Env=''; Limit='PT270M' },
+    @{ Config='2h '; Env=''; Limit='PT270M' },
+    @{ Config='1d'; Env=''; Limit='PT270M' },
+    @{ Config='9223372036854775808ns'; Env=''; Limit='PT270M' },
+    @{ Config='999999999999999999999999999999999999999h'; Env=''; Limit='PT270M' }
+)
+foreach ($case in $BudgetCases) {
+    foreach ($kind in @('Scan','Logon')) {
+        Assert-BooleanResult -Name "$kind configured execution budget $($case.Config), env $($case.Env)" -Expected $true -Operation {
+            Test-DmgTaskXml -Xml (New-TaskFixture $kind).Replace('PT4H30M', $case.Limit) -Kind $kind -BootstrapPath $Bootstrap -MaxExecutionDuration $case.Config -EnvironmentMaxExecutionDuration $case.Env
+        }
+    }
+}
+Assert-BooleanResult -Name 'custom watchdog rejects default task budget drift' -Expected $false -Operation {
+    Test-DmgTaskXml -Xml $Scan -Kind Scan -BootstrapPath $Bootstrap -MaxExecutionDuration '2h'
+}
+Assert-BooleanResult -Name 'updater budget independent of scan watchdog' -Expected $true -Operation {
+    Test-DmgTaskXml -Xml $Update -Kind Update -BootstrapPath $Bootstrap -MaxExecutionDuration 'off' -EnvironmentMaxExecutionDuration '1h'
 }
 
 $JsonCases = @(
