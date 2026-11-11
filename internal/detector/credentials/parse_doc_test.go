@@ -512,3 +512,85 @@ func TestParseInsomnia_ObservationCarriesNoValue(t *testing.T) {
 		}
 	}
 }
+
+func TestAIToolCredentialParsers(t *testing.T) {
+	key := "sk-or-v1-" + strings.Repeat("a", 60) + "1234"
+	cases := []struct {
+		name, source, path, body string
+		rows                     []dbRow
+		count, hints             int
+		unrecognized             bool
+		config                   bool
+	}{
+		{name: "OpenCode explicit config named auth.json", config: true, source: sourceOpenCode, path: "/home/test-user/team/auth.json", body: `{"providers":{"example":{"settings":{"apiKey":"` + key + `"}}}}`, count: 1, hints: 1},
+		{name: "OpenCode explicit config named mcp-auth.json", config: true, source: sourceOpenCodeMCP, path: "/home/test-user/team/mcp-auth.json", body: `{"mcp":{"servers":{"example":{"environment":{"API_KEY":"` + key + `"}}}}}`, count: 1, hints: 1},
+		{name: "Claude API key", source: sourceClaudeCode, path: "/home/test-user/.claude.json", body: `{"primaryApiKey":"` + key + `"}`, count: 1, hints: 1},
+		{name: "Codex API key", source: sourceCodex, path: "/home/test-user/.codex/auth.json", body: `{"OPENAI_API_KEY":"` + key + `"}`, count: 1, hints: 1},
+		{name: "OpenCode provider", source: sourceOpenCode, path: "/home/test-user/.config/opencode/opencode.json", body: `{"providers":{"example":{"settings":{"apiKey":"` + key + `"}}}}`, count: 1, hints: 1},
+		{name: "Pi API key", source: sourcePi, path: "/home/test-user/.pi/agent/auth.json", body: `{"example":{"type":"api_key","key":"` + key + `"}}`, count: 1, hints: 1},
+		{name: "Hermes provider", source: sourceHermes, path: "/home/test-user/.hermes/config.yaml", body: "model:\n  api_key: " + key + "\n", count: 1, hints: 1},
+		{name: "Copilot provider", source: sourceCopilotCLI, path: "/home/test-user/.copilot/providers.json", body: `{"providers":[{"apiKey":"` + key + `"}]}`, count: 1, hints: 1},
+		{name: "Cursor plaintext slot", source: sourceCursor, path: "/home/test-user/.config/Cursor/User/globalStorage/state.vscdb", rows: []dbRow{{Key: "cursorAuth/openAIKey", Value: key}}, count: 1, hints: 1},
+		{name: "VS Code provider", source: sourceVSCode, path: "/home/test-user/.config/Code/User/chatLanguageModels.json", body: `[{"apiKey":"` + key + `"}]`, count: 1, hints: 1},
+		{name: "Claude MCP", source: sourceClaudeMCP, path: "/home/test-user/.claude.json", body: `{"mcpServers":{"example":{"env":{"GITHUB_TOKEN":"` + key + `"}}}}`, count: 1, hints: 1},
+		{name: "Codex MCP", source: sourceCodexMCP, path: "/home/test-user/.codex/config.toml", body: "[mcp_servers.example.env]\nAPI_KEY = \"" + key + "\"\n", count: 1, hints: 1},
+		{name: "OpenCode MCP", source: sourceOpenCodeMCP, path: "/home/test-user/.config/opencode/opencode.json", body: `{"mcp":{"servers":{"example":{"environment":{"API_KEY":"` + key + `"}}}}}`, count: 1, hints: 1},
+		{name: "Pi MCP", source: sourcePiMCP, path: "/home/test-user/.pi/agent/mcp.json", body: `{"mcpServers":{"example":{"env":{"API_KEY":"` + key + `"}}}}`, count: 1, hints: 1},
+		{name: "Hermes MCP", source: sourceHermesMCP, path: "/home/test-user/.hermes/config.yaml", body: "mcp_servers:\n  example:\n    env:\n      API_KEY: " + key + "\n", count: 1, hints: 1},
+		{name: "Copilot MCP", source: sourceCopilotCLIMCP, path: "/home/test-user/.copilot/mcp-config.json", body: `{"mcpServers":{"example":{"env":{"API_KEY":"` + key + `"}}}}`, count: 1, hints: 1},
+		{name: "Cursor MCP", source: sourceCursorMCP, path: "/home/test-user/.cursor/mcp.json", body: `{"mcpServers":{"example":{"env":{"API_KEY":"` + key + `"}}}}`, count: 1, hints: 1},
+		{name: "VS Code MCP", source: sourceVSCodeMCP, path: "/home/test-user/.config/Code/User/mcp.json", body: `{"servers":{"example":{"env":{"API_KEY":"` + key + `"}}}}`, count: 1, hints: 1},
+		{name: "shared MCP", source: sourceSharedMCPConfig, path: "/home/test-user/project/.mcp.json", body: `{"mcpServers":{"example":{"env":{"API_KEY":"` + key + `"}}}}`, count: 1, hints: 1},
+		{name: "Hermes manual API key pool", source: sourceHermes, path: "/home/test-user/.hermes/auth.json", body: `{"credential_pool":{"openrouter":[{"source":"manual","auth_type":"api_key","access_token":"` + key + `"}]}}`, count: 1, hints: 1},
+		{name: "Hermes OAuth environment stays count only", source: sourceHermes, path: "/home/test-user/.hermes/.env", body: "CLAUDE_CODE_OAUTH_TOKEN=" + key, count: 1},
+		{name: "Claude malformed OAuth material", source: sourceClaudeMCP, path: "/home/test-user/.claude/.credentials.json", body: `{"mcpOAuth":{"example":{"accessToken":{"value":"synthetic-token"}}}}`, unrecognized: true},
+		{name: "Hermes OAuth pool", source: sourceHermes, path: "/home/test-user/.hermes/auth.json", body: `{"credential_pool":{"openrouter":[{"source":"manual","auth_type":"oauth","access_token":"` + key + `"}]}}`, count: 1},
+		{name: "Codex OAuth stays count only", source: sourceCodex, path: "/home/test-user/.codex/auth.json", body: `{"tokens":{"access_token":"` + key + `","refresh_token":"synthetic-refresh"}}`, count: 1},
+		{name: "Copilot unsupported account store", source: sourceCopilotCLI, path: "/home/test-user/.copilot/config.json", body: `{"copilot_tokens":{"example-account":"synthetic-token"}}`, unrecognized: true},
+		{name: "Copilot public account settings", source: sourceCopilotCLI, path: "/home/test-user/.copilot/config.json", body: `{"storeTokenPlaintext":true,"theme":"auto"}`},
+		{name: "Copilot MCP environment references", source: sourceCopilotCLIMCP, path: "/home/test-user/.copilot/mcp-config.json", body: `{"mcpServers":{"example":{"env":{"API_KEY":"$API_KEY","TOKEN":"${TOKEN}"}}}}`},
+		{name: "Copilot provider dollar literal", source: sourceCopilotCLI, path: "/home/test-user/.copilot/providers.json", body: `{"providers":[{"apiKey":"$MY_API_KEY"}]}`, count: 1},
+		{name: "Claude literal fallback", source: sourceClaudeMCP, path: "/home/test-user/.claude.json", body: `{"mcpServers":{"example":{"env":{"API_KEY":"${API_KEY:-synthetic-fallback}"}}}}`, count: 1},
+		{name: "Pi helpers and references", source: sourcePi, path: "/home/test-user/.pi/agent/auth.json", body: `{"one":{"type":"api_key","key":"!read-key"},"two":{"type":"api_key","key":"${API_KEY}"}}`},
+		{name: "OpenCode V1 environment", source: sourceOpenCodeMCP, path: "/home/test-user/.config/opencode/opencode.json", body: `{"mcp":{"example":{"environment":{"API_KEY":"` + key + `"}}}}`, count: 1, hints: 1},
+		{name: "OpenCode client secret stays count only", source: sourceOpenCodeMCP, path: "/home/test-user/.config/opencode/opencode.json", body: `{"mcp":{"servers":{"example":{"oauth":{"client_secret":"` + key + `"}}}}}`, count: 1},
+		{name: "VS Code password input stays count only", source: sourceVSCodeMCP, path: "/home/test-user/.config/Code/User/mcp.json", body: `{"servers":{"example":{"env":{"password":"${input:credential}"}}},"inputs":[{"id":"credential","default":"` + key + `"}]}`, count: 1},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			in := fileInput{Path: tt.path, Data: []byte(tt.body), Rows: tt.rows, SQLite: tt.rows != nil, Config: tt.config, Home: "/home/test-user", Fragments: true}
+			got := fileParsers[tt.source](in)
+			if got.Count != tt.count || got.Unrecognized != tt.unrecognized || len(got.Hints) != tt.hints {
+				t.Fatalf("count=%d unrecognized=%v hints=%d; want count=%d unrecognized=%v hints=%d", got.Count, got.Unrecognized, len(got.Hints), tt.count, tt.unrecognized, tt.hints)
+			}
+			in.Fragments = false
+			without := fileParsers[tt.source](in)
+			if without.observation != got.observation || len(without.Hints) != 0 {
+				t.Fatal("fragment opt-out changed base inventory or retained hints")
+			}
+		})
+	}
+}
+
+func TestOpenCodeCredentialFileReferences(t *testing.T) {
+	cases := []struct {
+		name, body string
+	}{
+		{"provider key", `{"providers":{"example":{"settings":{"apiKey":"{file:key.txt}"}}}}`},
+		{"MCP header", `{"mcp":{"servers":{"example":{"headers":{"X-API-Key":"{file:key.txt}"}}}}}`},
+		{"MCP URL", `{"mcp":{"servers":{"example":{"url":"https://example.invalid/mcp?api_key={file:key.txt}"}}}}`},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			in := fileInput{Path: "/home/test-user/.config/opencode/opencode.json", Data: []byte(tt.body), Home: "/home/test-user"}
+			parse := parseOpenCodeMCP
+			if tt.name == "provider key" {
+				parse = parseOpenCode
+			}
+			got := parse(in)
+			if got.Count != 0 || len(got.Refs) != 1 {
+				t.Fatalf("count=%d references=%d; want count=0 references=1", got.Count, len(got.Refs))
+			}
+		})
+	}
+}

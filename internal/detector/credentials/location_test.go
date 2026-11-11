@@ -294,7 +294,11 @@ func TestCandidatesFor(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			paths := newUserPaths("octocat", tt.home, tt.platform)
-			got := candidatesFor(sourceByID(t, tt.sourceID), paths, tt.env, tt.platform)
+			candidates := candidatesFor(sourceByID(t, tt.sourceID), paths, tt.env, tt.platform)
+			var got []string
+			for _, c := range candidates {
+				got = append(got, c.path())
+			}
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("candidates = %v, want %v", got, tt.want)
 			}
@@ -414,24 +418,46 @@ func TestInGitRepo(t *testing.T) {
 // checked rather than trusted: adding a family is a table entry plus a parser, and
 // each of these is a way that edit goes wrong silently.
 func TestCatalog_Invariants(t *testing.T) {
-	// The load-bearing one: the phase touches exactly the paths named in the table,
-	// so a wildcard or a bare directory would turn a bounded set of reads into a
-	// traversal of the home — on macOS, straight into consent-gated territory. The
-	// one directory this phase lists is declared by its read mode, not its path.
-	t.Run("no location is a walk", func(t *testing.T) {
-		var listing []string
-		for _, s := range sources {
-			for _, l := range s.Locations {
-				if strings.ContainsAny(l.Rel, "*?[") {
-					t.Errorf("%s: location %q contains a wildcard", s.ID, l.Rel)
-				}
+	// Only bounded listings below named tool directories may contain wildcards.
+	t.Run("locations are fixed paths or bounded tool listings", func(t *testing.T) {
+		allowed := map[string][]string{
+			sourceClaudeCode:    {".config/anthropic/credentials/*.json", "Anthropic/credentials/*.json"},
+			sourceCodex:         {".codex/*.config.toml"},
+			sourceCodexMCP:      {".codex/*.config.toml"},
+			sourceOpenCode:      {"opencode/opencode-*.db"},
+			sourceOpenCodeMCP:   {"opencode/opencode-*.db"},
+			sourceCopilotCLIMCP: {".copilot/mcp-oauth-config/*.json", ".copilot/mcp-secrets/*.secret"},
+		}
+		for _, root := range []string{".hermes", "hermes"} {
+			for _, file := range []string{"auth.json", ".env", ".op.env", "config.yaml"} {
+				allowed[sourceHermes] = append(allowed[sourceHermes], root+"/profiles/*/"+file)
 			}
-			if s.Mode == readKeyDir {
-				listing = append(listing, s.ID)
+			for _, file := range []string{"profiles/*/config.yaml", "mcp-tokens/*.json", "profiles/*/mcp-tokens/*.json"} {
+				allowed[sourceHermesMCP] = append(allowed[sourceHermesMCP], root+"/"+file)
 			}
 		}
-		if len(listing) != 1 {
-			t.Errorf("exactly one source may list a directory, got %v", listing)
+		for _, prefix := range []string{"", "Library/Application Support/"} {
+			for _, id := range []string{sourceCursor, sourceCursorMCP} {
+				allowed[id] = append(allowed[id], prefix+"Cursor/User/profiles/*/globalStorage/state.vscdb")
+			}
+			allowed[sourceVSCode] = append(allowed[sourceVSCode], prefix+"Code/User/profiles/*/chatLanguageModels.json")
+			for _, file := range []string{"profiles/*/mcp.json", "profiles/*/globalStorage/state.vscdb", "workspaceStorage/*/state.vscdb"} {
+				allowed[sourceVSCodeMCP] = append(allowed[sourceVSCodeMCP], prefix+"Code/User/"+file)
+			}
+		}
+		var listing []string
+		for _, source := range sources {
+			for _, location := range source.Locations {
+				if strings.ContainsAny(location.Rel, "*?[") && !slices.Contains(allowed[source.ID], location.Rel) {
+					t.Errorf("%s: unapproved listing %q", source.ID, location.Rel)
+				}
+			}
+			if source.Mode == readKeyDir {
+				listing = append(listing, source.ID)
+			}
+		}
+		if !slices.Equal(listing, []string{sourceSSHPrivateKeys}) {
+			t.Errorf("private key directory sources = %v", listing)
 		}
 	})
 
@@ -445,6 +471,11 @@ func TestCatalog_Invariants(t *testing.T) {
 			sourceDockerConfig, sourceKubeconfig,
 			sourceTerraformCredentials, sourceVaultToken,
 			sourceInsomnia,
+			sourceClaudeCode, sourceCodex, sourceOpenCode, sourcePi,
+			sourceHermes, sourceCopilotCLI, sourceCursor, sourceVSCode,
+			sourceClaudeMCP, sourceCodexMCP, sourceOpenCodeMCP, sourcePiMCP,
+			sourceHermesMCP, sourceCopilotCLIMCP, sourceCursorMCP, sourceVSCodeMCP,
+			sourceSharedMCPConfig,
 		}
 		got := make([]string, 0, len(sources))
 		for _, s := range sources {
@@ -473,6 +504,8 @@ func TestCatalog_Invariants(t *testing.T) {
 			model.CredentialCategoryContainers:     true,
 			model.CredentialCategoryInfrastructure: true,
 			model.CredentialCategoryAPIClients:     true,
+			model.CredentialCategoryAITools:        true,
+			model.CredentialCategoryMCPServers:     true,
 		}
 		for _, s := range sources {
 			if !valid[s.Category] {
@@ -531,13 +564,18 @@ func TestCatalog_Invariants(t *testing.T) {
 			if s.Mode == readKeyDir {
 				continue
 			}
-			if parsers[s.ID] == nil {
+			if parsers[s.ID] == nil && fileParsers[s.ID] == nil {
 				t.Errorf("%s is read but has no parser", s.ID)
 			}
 		}
 		for id := range parsers {
 			if !declared[id] {
 				t.Errorf("parser %q matches no catalog source", id)
+			}
+		}
+		for id := range fileParsers {
+			if !declared[id] {
+				t.Errorf("file parser %q matches no catalog source", id)
 			}
 		}
 	})

@@ -63,13 +63,33 @@ type runConfigEnvelope struct {
 }
 
 // runConfigScanners is the tenant's per-scanner controls. Only the credentials
-// scanner is read; other scanners under the same object are ignored. Pointers
-// at every level so a missing or null field is distinguishable from false:
-// only an explicit false turns the scanner off.
+// scanner is read; other scanners under the same object are ignored. Its two
+// settings are kept raw and decoded one at a time, so a malformed fragment
+// setting cannot discard a valid enabled:false.
 type runConfigScanners struct {
 	Credentials *struct {
-		Enabled *bool `json:"enabled"`
+		Enabled             json.RawMessage `json:"enabled"`
+		CollectKeyFragments json.RawMessage `json:"collect_key_fragments"`
 	} `json:"credentials"`
+}
+
+// CredentialSettings is the tenant's credential scanner answer. Scanning is nil
+// unless the answer carried an explicit boolean, so missing, null or a
+// non-boolean never reads as false. KeyFragments needs an explicit true for
+// both settings: a fragment opt-in alone collects nothing.
+type CredentialSettings struct {
+	Scanning     *bool
+	KeyFragments bool
+}
+
+// explicitBool decodes one optional boolean: nil when missing, null or not a
+// boolean.
+func explicitBool(raw json.RawMessage) *bool {
+	var b *bool
+	if json.Unmarshal(raw, &b) != nil {
+		return nil
+	}
+	return b
 }
 
 // ShouldSkip is the single reader of Mode. Anything that is not exactly

@@ -25,6 +25,8 @@ const (
 	CredentialCategoryContainers     = "containers"
 	CredentialCategoryInfrastructure = "infrastructure"
 	CredentialCategoryAPIClients     = "api_clients"
+	CredentialCategoryAITools        = "ai_tools"
+	CredentialCategoryMCPServers     = "mcp_servers"
 )
 
 // Protection states, worst-case per source. Two values and no third: every
@@ -67,7 +69,7 @@ const (
 // CurrentCredentialSchemaVersion is the credential block's own shape version,
 // declared so a reader can reject or down-convert a shape it does not know
 // instead of silently dropping fields.
-const CurrentCredentialSchemaVersion = 1
+const CurrentCredentialSchemaVersion = 2
 
 // CredentialScanInfo is the credential inventory for one run. Its presence is
 // the "scan ran" sentinel and that is load-bearing: nil means no information,
@@ -88,6 +90,10 @@ type CredentialScanInfo struct {
 
 	// A cap bounded the result. Setting it also clears ScanComplete.
 	Truncated bool `json:"truncated,omitempty"`
+
+	// Key fragments were left out by a budget or a per-finding bound. It says
+	// nothing about the inventory itself, which keeps its own completeness.
+	KeyFragmentsTruncated bool `json:"key_fragments_truncated,omitempty"`
 
 	PayloadSchemaVersion int `json:"payload_schema_version"`
 
@@ -145,6 +151,21 @@ type CredentialFinding struct {
 	MTime int64 `json:"mtime"`
 
 	CollectionPrincipal string `json:"collection_principal"`
+
+	// Present only when the tenant opted in: a bounded prefix and suffix of each
+	// recognized provider key the location holds, never the key itself.
+	KeyFragments []CredentialKeyFragment `json:"key_fragments,omitempty"`
+}
+
+// CredentialKeyFragment is the public family prefix and first three characters,
+// and the last four characters, of a recognized provider key. Equal fragments
+// in one location are grouped, so Occurrences counts indistinguishable keys,
+// not distinct ones.
+type CredentialKeyFragment struct {
+	CredentialType string `json:"credential_type"`
+	Prefix         string `json:"prefix"`
+	Suffix         string `json:"suffix"`
+	Occurrences    int    `json:"occurrences"`
 }
 
 // CredentialError is one source attempted and not collected. Deliberately not a

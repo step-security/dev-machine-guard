@@ -7,6 +7,7 @@
       "Command": "",
       "ConfigFile": "",
       "ConfigFromFile": "",
+      "CredentialKeyFragments": false,
       "CredentialScanningDisabled": false,
       "DeltaScanEnabled": false,
       "EnableBrewScan": null,

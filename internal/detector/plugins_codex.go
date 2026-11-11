@@ -604,9 +604,19 @@ func (a *codexAdapter) mcpEnablement(p *model.PluginObservation) {
 				degrade(&p.ComponentStatus, model.AgentScanStatusPartial)
 				continue
 			}
-			server := layer.config.Plugins[p.NativeID].MCPServers[c.Name]
-			if server.Enabled != nil {
-				c.MCPEnablement = append(c.MCPEnablement, model.EnablementObservation{Scope: layer.scope, SourcePath: layer.path, ProjectPath: layer.project, Enabled: *server.Enabled})
+			// A file-level component takes a layer's setting only when the layer
+			// sets every server it declares the same way.
+			var enabled *bool
+			for i, name := range c.MCPServerNames {
+				setting := layer.config.Plugins[p.NativeID].MCPServers[name].Enabled
+				if setting == nil || i > 0 && *setting != *enabled {
+					enabled = nil
+					break
+				}
+				enabled = setting
+			}
+			if enabled != nil {
+				c.MCPEnablement = append(c.MCPEnablement, model.EnablementObservation{Scope: layer.scope, SourcePath: layer.path, ProjectPath: layer.project, Enabled: *enabled})
 			}
 		}
 	}

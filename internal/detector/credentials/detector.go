@@ -2,11 +2,15 @@ package credentials
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	pathpkg "path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
@@ -34,9 +38,12 @@ type userEnv struct {
 // command a run makes is the environment probe, which reads the variables that
 // move those paths and is told nothing about what is being looked for.
 type Detector struct {
-	exec    executor.Executor
-	skipper *tcc.Skipper
-	readEnv envProbe
+	exec     executor.Executor
+	skipper  *tcc.Skipper
+	readEnv  envProbe
+	projects ProjectCandidates
+	// Whether the tenant opted in to key fragments for this run.
+	keyFragments bool
 }
 
 // New builds a detector.
@@ -49,6 +56,20 @@ func New(exec executor.Executor) *Detector {
 // WithSkipper attaches the consent guard. A nil skipper is a no-op.
 func (d *Detector) WithSkipper(s *tcc.Skipper) *Detector {
 	d.skipper = s
+	return d
+}
+
+// WithProjects supplies the project files the inventory walk found, which the
+// AI-tool and MCP sources probe alongside their fixed locations.
+func (d *Detector) WithProjects(p ProjectCandidates) *Detector {
+	d.projects = p
+	return d
+}
+
+// WithKeyFragments has recognized provider keys in the AI-tool and MCP sources
+// leave a bounded fragment on their finding. Off unless the tenant opted in.
+func (d *Detector) WithKeyFragments(on bool) *Detector {
+	d.keyFragments = on
 	return d
 }
 
@@ -97,7 +118,7 @@ func (d *Detector) Detect(ctx context.Context) *model.CredentialScanInfo {
 	if env.Values == nil {
 		env.Values = map[string]string{}
 	}
-	paths = paths.withXDGConfig(env.Values["XDG_CONFIG_HOME"])
+	paths = paths.withXDGConfig(env.Values["XDG_CONFIG_HOME"]).withXDGData(env.Values["XDG_DATA_HOME"])
 
 	// One resolver for every read. The consent guard runs before the first syscall
 	// on every path, on every hop of every symlink along it. That ordering is the
@@ -115,6 +136,8 @@ func (d *Detector) Detect(ctx context.Context) *model.CredentialScanInfo {
 		guarded:  guarded,
 		reported: map[string]bool{},
 		gitRepos: map[string]bool{},
+		projects: d.projects,
+		visited:  map[string]bool{},
 	}
 
 	for _, s := range sources {
@@ -155,6 +178,15 @@ type scanState struct {
 	// directory shares the answer, and the walk that establishes it costs one
 	// lstat per level up to the home.
 	gitRepos map[string]bool
+	projects ProjectCandidates
+	// Which source-and-path pairs the AI-tool and MCP sources have read, by both
+	// the probed and the resolved spelling, so a file several routes lead to
+	// is counted once for its source.
+	visited map[string]bool
+	// Files taken from directory listings so far, against maxListedCandidates.
+	listed int
+	// Encoded key fragments attached so far, against maxFragmentBytes.
+	fragmentBytes int
 }
 
 // resolveUser resolves the developer whose credentials this run describes, from
@@ -196,13 +228,16 @@ func (d *Detector) collectSource(ctx context.Context, scan *scanState, s source)
 	}
 
 	guarded := scan.guarded
-	if s.ID == sourceInsomnia && scan.platform == model.PlatformDarwin {
+	if fixed := libraryFiles(s, scan.paths, scan.platform); len(fixed) > 0 {
 		// Only catalog paths are exempt, never directories supplied by an override.
-		fixed := candidatesFor(s, scan.paths, nil, scan.platform)
 		guarded = safepath.New(scan.paths.Home, d.consentGuard(fixed...))
 	}
+	if retained(s) {
+		d.collectRetainedSource(ctx, scan, s, guarded)
+		return
+	}
 	for _, c := range candidatesFor(s, scan.paths, scan.env.Values, scan.platform) {
-		found := d.collectCandidate(ctx, scan, s, c, guarded)
+		found := d.collectCandidate(ctx, scan, s, c.path(), guarded)
 		if scan.capped {
 			return
 		}
@@ -350,6 +385,406 @@ func (d *Detector) collectKeyDir(ctx context.Context, scan *scanState, s source,
 	return any
 }
 
+// retained reports whether a source is one of the AI-tool and MCP sources, which
+// report every file holding material, list catalog directories and probe the
+// project files the inventory walk found.
+func retained(s source) bool {
+	return s.Category == model.CredentialCategoryAITools || s.Category == model.CredentialCategoryMCPServers
+}
+
+// collectRetainedSource runs one AI-tool or MCP source: its catalog and project
+// candidates are expanded into files first, so a parser can be told which other
+// files of the same source exist, then each file is read once.
+func (d *Detector) collectRetainedSource(ctx context.Context, scan *scanState, s source, resolver *safepath.Resolver) {
+	var files []candidate
+	for _, c := range append(candidatesFor(s, scan.paths, scan.env.Values, scan.platform), scan.projectFiles(s)...) {
+		files = append(files, scan.expand(s, c, resolver)...)
+		if scan.capped {
+			return
+		}
+	}
+	var companions []candidate
+	for _, c := range files {
+		if !c.SQLite {
+			companions = append(companions, c)
+		}
+	}
+	for _, c := range files {
+		if ctx.Err() != nil {
+			scan.addErrorOnce(s.ID, model.CredentialReasonTimedOut)
+			return
+		}
+		d.collectRetained(ctx, scan, s, c, companions, resolver)
+		if scan.capped {
+			return
+		}
+	}
+}
+
+// expand turns a candidate whose catalog part holds "*" elements into the files
+// it names, one bounded nonrecursive listing per element. Only names in the
+// listing alphabet are taken, so a listing cannot steer a read into a hidden or
+// oddly spelled entry.
+func (s *scanState) expand(src source, c candidate, resolver *safepath.Resolver) []candidate {
+	if !strings.Contains(c.Rel, "*") {
+		return []candidate{c}
+	}
+	elems := strings.Split(c.Rel, "/")
+	dirs := []string{c.Base}
+	for i, elem := range elems {
+		var next []string
+		for _, dir := range dirs {
+			if !strings.Contains(elem, "*") {
+				next = append(next, filepath.Join(dir, elem))
+				continue
+			}
+			next = append(next, s.listMatches(src, dir, elem, i == len(elems)-1, resolver)...)
+			if s.capped {
+				return nil
+			}
+		}
+		dirs = next
+	}
+	out := make([]candidate, 0, len(dirs))
+	for _, dir := range dirs {
+		out = append(out, candidate{Base: dir, SQLite: c.SQLite})
+	}
+	return out
+}
+
+// listMatches lists one directory and returns the entries matching one catalog
+// element, in name order so a capped listing stops at the same place every run.
+// An entry that is not the last element must be a directory to be descended.
+func (s *scanState) listMatches(src source, dir, elem string, last bool, resolver *safepath.Resolver) []string {
+	names, _, more, err := resolver.ReadDirNames(dir, maxKeyDirEntries)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			s.addErrorOnce(src.ID, refusalReason(err))
+		}
+		return nil
+	}
+	if more {
+		s.markCapped(src.ID)
+	}
+	slices.Sort(names)
+	var out []string
+	for _, name := range names {
+		if matched, _ := filepath.Match(elem, name); !matched || !listedName(name) {
+			continue
+		}
+		entry := filepath.Join(dir, name)
+		if !last {
+			if _, info, err := resolver.Stat(entry); err != nil || !info.IsDir() {
+				continue
+			}
+		}
+		if s.listed >= maxListedCandidates {
+			s.markCapped(src.ID)
+			return out
+		}
+		s.listed++
+		out = append(out, entry)
+	}
+	return out
+}
+
+// listedName reports whether a listed entry is spelled the way the tools name
+// the files and directories this phase reads: letters and digits of any
+// script, '.', '_' and '-', and not hidden. Server names keep their own script
+// when a tool turns them into file names.
+func listedName(name string) bool {
+	if name == "" || name[0] == '.' {
+		return false
+	}
+	for _, r := range name {
+		if !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '.' && r != '_' && r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// projectFiles returns the walk's project files this source reads, and records
+// once per source whatever kept the walk from covering every project. Files
+// outside the home are dropped: the resolver would refuse them, and a refusal
+// for a path the catalog never named describes nothing about the source.
+func (s *scanState) projectFiles(src source) []candidate {
+	if len(src.Project) == 0 {
+		return nil
+	}
+	switch {
+	case s.projects.Capped:
+		s.markCapped(src.ID)
+	case s.projects.TimedOut:
+		s.addErrorOnce(src.ID, model.CredentialReasonTimedOut)
+	}
+	if s.projects.Unreadable {
+		s.addErrorOnce(src.ID, model.CredentialReasonPermissionDenied)
+	}
+	var out []candidate
+	for _, file := range s.projects.Files {
+		if !s.underHome(file) {
+			continue
+		}
+		for _, pattern := range src.Project {
+			if projectMatch(pattern, file) {
+				out = append(out, candidate{Base: file})
+				break
+			}
+		}
+	}
+	return out
+}
+
+// underHome reports whether a path lies below either spelling of the home.
+func (s *scanState) underHome(path string) bool {
+	if _, ok := trimPathPrefix(path, s.paths.Home); ok {
+		return true
+	}
+	if s.paths.HomeResolved == "" {
+		return false
+	}
+	_, ok := trimPathPrefix(path, s.paths.HomeResolved)
+	return ok
+}
+
+// collectRetained reads one file of an AI-tool or MCP source, parses it, and
+// follows the references the parse found one hop.
+func (d *Detector) collectRetained(ctx context.Context, scan *scanState, s source, c candidate, companions []candidate, resolver *safepath.Resolver) {
+	path := c.path()
+	if !scan.firstVisit(s.ID, path) {
+		return
+	}
+	if scan.atFindingCap() {
+		scan.markCapped(s.ID)
+		return
+	}
+	in := fileInput{Path: path, SQLite: c.SQLite, Config: c.Config, Home: scan.paths.Home, Companions: companions, Read: scan.associatedReader(s, resolver), Fragments: d.keyFragments}
+	var (
+		resolved  string
+		info      os.FileInfo
+		truncated bool
+		err       error
+	)
+	if c.SQLite {
+		in.Rows, resolved, info, truncated, err = readDB(ctx, resolver, path, dbSpecs[s.ID])
+	} else {
+		limit := s.MaxBytes
+		if s.RawSuffix != "" && strings.HasSuffix(path, s.RawSuffix) {
+			limit = capToken
+		}
+		in.Data, resolved, info, truncated, err = resolver.Read(path, limit)
+		if err == nil && hasUTF16BOM(in.Data) {
+			err = errUnsupportedEncoding
+		}
+	}
+	switch {
+	case err == nil:
+	case os.IsNotExist(err):
+		return
+	default:
+		scan.addErrorOnce(s.ID, refusalReason(err))
+		return
+	}
+	if info.IsDir() || (resolved != path && !scan.firstVisit(s.ID, resolved)) {
+		return
+	}
+	result := fileParsers[s.ID](in)
+	d.record(ctx, scan, s, path, resolved, info, truncated, result)
+	for _, ref := range result.Refs {
+		d.collectRef(ctx, scan, s, ref, resolver)
+	}
+}
+
+// collectRef reads a file another file names as the holder of its secret. Only
+// one hop: what the referenced file names in turn is not followed, so a chain of
+// references cannot walk the read anywhere the catalog did not lead.
+func (d *Detector) collectRef(ctx context.Context, scan *scanState, s source, ref fileRef, resolver *safepath.Resolver) {
+	if !scan.firstVisit(s.ID, ref.Path) {
+		return
+	}
+	if scan.atFindingCap() {
+		scan.markCapped(s.ID)
+		return
+	}
+	limit := int64(capConfig)
+	if ref.Raw {
+		limit = capToken
+	}
+	data, resolved, info, truncated, err := resolver.Read(ref.Path, limit)
+	if err == nil && hasUTF16BOM(data) {
+		err = errUnsupportedEncoding
+	}
+	switch {
+	case err == nil:
+	case os.IsNotExist(err):
+		return
+	default:
+		scan.addErrorOnce(s.ID, refusalReason(err))
+		return
+	}
+	if info.IsDir() || (resolved != ref.Path && !scan.firstVisit(s.ID, resolved)) {
+		return
+	}
+	var p parsed
+	if ref.Raw {
+		p = rawSecret(data, d.keyFragments && ref.Key)
+	} else {
+		p = parseDotenv(data, d.keyFragments)
+	}
+	d.record(ctx, scan, s, ref.Path, resolved, info, truncated, p)
+}
+
+// record turns one parse into the source's errors and, when the file holds
+// material, its finding. The errors are recorded before the count is looked at,
+// so a file whose material sits past a bound or in an unreadable entry is never
+// presented as complete.
+func (d *Detector) record(ctx context.Context, scan *scanState, s source, path, resolved string, info os.FileInfo, truncated bool, p parsed) {
+	if p.Opaque {
+		scan.addErrorOnce(s.ID, model.CredentialReasonUnsupportedEncoding)
+	}
+	if truncated || p.Capped {
+		scan.markCapped(s.ID)
+	}
+	if p.Unrecognized {
+		scan.addErrorOnce(s.ID, model.CredentialReasonUnrecognizedFormat)
+	}
+	if p.Unresolved {
+		scan.addErrorOnce(s.ID, model.CredentialReasonLocationUnresolved)
+	}
+	if p.Count == 0 {
+		return
+	}
+	at := scan.addFinding(d.buildFinding(ctx, scan, s, path, resolved, info, p.observation))
+	if at >= 0 {
+		scan.attachFragments(at, p)
+	}
+}
+
+// maxFragmentBytes bounds the encoded fragments of one run, so the optional
+// fragments can never crowd out the inventory they annotate.
+const maxFragmentBytes = 16 << 10
+
+// attachFragments puts a file's fragments on its finding while the run's
+// fragment budget lasts. Any left out mark the run's fragments truncated.
+func (s *scanState) attachFragments(at int, p parsed) {
+	if p.HintsDropped {
+		s.info.KeyFragmentsTruncated = true
+	}
+	for _, hint := range p.Hints {
+		encoded, err := json.Marshal(hint)
+		if err != nil || s.fragmentBytes+len(encoded) > maxFragmentBytes {
+			s.info.KeyFragmentsTruncated = true
+			continue
+		}
+		s.fragmentBytes += len(encoded)
+		s.info.Findings[at].KeyFragments = append(s.info.Findings[at].KeyFragments, hint)
+	}
+}
+
+// associatedReader returns the read a parser uses for a file that qualifies the
+// one being parsed, such as the configuration declaring which entries of a
+// database are providers. It records its own refusals and bounds, so a parser
+// only ever sees bytes or nothing.
+func (s *scanState) associatedReader(src source, resolver *safepath.Resolver) func(path string, limit int64) []byte {
+	return func(path string, limit int64) []byte {
+		data, _, info, truncated, err := resolver.Read(path, limit)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				s.addErrorOnce(src.ID, refusalReason(err))
+			}
+			return nil
+		}
+		if info.IsDir() || hasUTF16BOM(data) {
+			return nil
+		}
+		if truncated {
+			s.markCapped(src.ID)
+		}
+		return data
+	}
+}
+
+// firstVisit reports whether this source has not yet read a path, and records
+// that it now has.
+func (s *scanState) firstVisit(sourceID, path string) bool {
+	key := sourceID + "\x00" + filepath.Clean(path)
+	if s.visited[key] {
+		return false
+	}
+	s.visited[key] = true
+	return true
+}
+
+// libraryPath is a catalog file below the macOS per-user Library, the one place
+// the consent guard admits without asking: these are the tools' own fixed
+// locations, and refusing them would leave the sources unreadable on every Mac.
+// The relative part is kept as elements so a "*" element matches one listed
+// name and nothing else.
+type libraryPath struct {
+	base string
+	rel  []string
+}
+
+// libraryFiles returns the catalog's own files below the Library for a source,
+// ignoring every relocation: a directory a variable supplies is not one the
+// catalog vouches for. A database brings the journal files the engine opens
+// beside it, and a per-workspace database brings the file naming its workspace.
+func libraryFiles(s source, paths userPaths, platform string) []libraryPath {
+	if platform != model.PlatformDarwin {
+		return nil
+	}
+	library := filepath.Join(paths.Home, "Library")
+	var out []libraryPath
+	for _, c := range candidatesFor(s, paths, nil, platform) {
+		if _, ok := trimPathPrefix(c.path(), library); !ok {
+			continue
+		}
+		rels := []string{c.Rel}
+		if c.SQLite {
+			rels = append(rels, c.Rel+"-wal", c.Rel+"-journal")
+		}
+		if elems := strings.Split(c.Rel, "/"); len(elems) >= 3 && elems[len(elems)-3] == "workspaceStorage" {
+			rels = append(rels, pathpkg.Join(pathpkg.Dir(c.Rel), "workspace.json"))
+		}
+		for _, rel := range rels {
+			out = append(out, libraryPath{base: c.Base, rel: strings.Split(rel, "/")})
+		}
+	}
+	return out
+}
+
+// admits reports whether a path is this file or one of its ancestors. Siblings
+// and descendants are not admitted, so the exemption cannot be widened into a
+// listing of the protected directory around the file.
+func (l libraryPath) admits(path string) bool {
+	rest, ok := trimPathPrefix(path, l.base)
+	if !ok {
+		_, ancestor := trimPathPrefix(l.base, path)
+		return ancestor
+	}
+	if rest == "" {
+		return true
+	}
+	elems := strings.Split(filepath.ToSlash(rest), "/")
+	if len(elems) > len(l.rel) {
+		return false
+	}
+	for i, elem := range elems {
+		want := l.rel[i]
+		if !strings.Contains(want, "*") {
+			if !pathsEqual(elem, want) {
+				return false
+			}
+			continue
+		}
+		if matched, _ := filepath.Match(want, elem); !matched || !listedName(elem) {
+			return false
+		}
+	}
+	return true
+}
+
 // buildFinding assembles one record.
 func (d *Detector) buildFinding(ctx context.Context, scan *scanState, s source, path string, resolved string, info os.FileInfo, obs observation) model.CredentialFinding {
 	finding := model.CredentialFinding{
@@ -387,10 +822,14 @@ func (d *Detector) buildFinding(ctx context.Context, scan *scanState, s source, 
 // either way.
 var errUnsupportedEncoding = errors.New(model.CredentialReasonUnsupportedEncoding)
 
+// errUnrecognizedFormat marks a file whose structure this build cannot safely
+// interpret, such as a database of another schema or one changing under the read.
+var errUnrecognizedFormat = errors.New(model.CredentialReasonUnrecognizedFormat)
+
 // consentGuard is what the resolver asks before it touches a path, answering in
 // this phase's own reason code so a refusal reads like every other one. A nil
 // guard is the whole answer with no skipper: the access has been granted.
-func (d *Detector) consentGuard(fixedFiles ...string) safepath.Guard {
+func (d *Detector) consentGuard(fixedFiles ...libraryPath) safepath.Guard {
 	if d.skipper == nil {
 		return nil
 	}
@@ -399,7 +838,7 @@ func (d *Detector) consentGuard(fixedFiles ...string) safepath.Guard {
 		for _, file := range fixedFiles {
 			// Allow the exact file and its ancestors, not siblings or descendants.
 			// The resolver applies this again to every symlink target before access.
-			if cleaned == file || strings.HasPrefix(file, cleaned+string(filepath.Separator)) {
+			if file.admits(cleaned) {
 				return ""
 			}
 		}
@@ -416,6 +855,12 @@ func (d *Detector) consentGuard(fixedFiles ...string) safepath.Guard {
 func refusalReason(err error) string {
 	if errors.Is(err, errUnsupportedEncoding) {
 		return model.CredentialReasonUnsupportedEncoding
+	}
+	if errors.Is(err, errUnrecognizedFormat) {
+		return model.CredentialReasonUnrecognizedFormat
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return model.CredentialReasonTimedOut
 	}
 	if reason := safepath.ReasonOf(err); reason != "" {
 		return reason

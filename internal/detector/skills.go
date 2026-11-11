@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/detector/credentials"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/tcc"
@@ -183,6 +184,7 @@ func (d *SkillsDetector) DetectSkills(ctx context.Context, extraProjectRoots []s
 	defer func() {
 		if r := recover(); r != nil {
 			result.pendingPlugins = nil
+			result.CredentialCandidates.Capped = true
 			d.addError(info, fmt.Sprintf("panic in skills detect: %v", r))
 			// Partial coverage prevents the backend from deleting unseen skills.
 			info.Truncated = true
@@ -224,8 +226,23 @@ func (d *SkillsDetector) DetectSkills(ctx context.Context, extraProjectRoots []s
 		projectInfo.Truncated = true
 		d.addError(projectInfo, fmt.Sprintf("Claude project registry %s: %s", state.path, projectCode))
 	}
-	walkRoots := d.walkForProjectRoots(ctx, searchDirs, projectInfo)
+	result.CredentialCandidates.Home = home
+	if resolved, err := d.exec.EvalSymlinks(home); err == nil {
+		result.CredentialCandidates.HomeResolved = resolved
+	}
+	walkRoots := d.walkForProjectRoots(ctx, searchDirs, projectInfo, &result.CredentialCandidates)
 	projects := d.discoverProjects(state.projects, extraProjectRoots, walkRoots, projectInfo)
+	// The walk recorded credential files from its own listings; a project known
+	// only from a registry or package scanner was never listed.
+	walked := make(map[string]bool, len(walkRoots))
+	for _, root := range walkRoots {
+		walked[root] = true
+	}
+	for _, proj := range projects {
+		if !walked[proj] {
+			result.CredentialCandidates.Root(proj)
+		}
+	}
 	ps.projects = projects
 	ps.projectsIncomplete = projectInfo.Truncated || len(projectInfo.Errors) > 0
 	info.Truncated = info.Truncated || projectInfo.Truncated
@@ -951,7 +968,10 @@ var projectMarkerDirs = map[string][]string{
 // the absolute path here; discoverProjects re-resolves, re-guards
 // (WithinProtected), home-excludes, dedupes, and caps them. Every cap trip flags
 // info.Truncated with a bounded error, matching the existing walks.
-func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []string, info *model.AgentSkillScanInfo) []string {
+//
+// The same listings record credential-bearing project files into creds, so the
+// credential inventory finds them without a walk of its own.
+func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []string, info *model.AgentSkillScanInfo, creds *credentials.ProjectCandidates) []string {
 	var candidates []string
 	seen := map[string]bool{}
 	dirsVisited := 0
@@ -1016,6 +1036,7 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 			// so would strand deletion suppression on every scan of such a machine).
 			if depth == 0 {
 				info.Truncated = true
+				creds.Unreadable = creds.Unreadable || creds.Reaches(dir)
 			}
 			d.addError(info, fmt.Sprintf("home walk read dir %s: %v", dir, err))
 			return
@@ -1030,6 +1051,9 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 				return
 			}
 			ent := entMap[name]
+			if !ent.IsDir() {
+				creds.File(dir, name)
+			}
 			// Directory symlinks are inert: recognized from the parent listing (no
 			// stat) and never followed, so the walk cannot be steered into a
 			// protected tree, another user's home, a network mount, or a cycle.
@@ -1052,15 +1076,18 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 				}
 				mEntries, err := d.exec.ReadDir(childDir)
 				if err != nil {
+					creds.Dir(dir, name, nil)
 					d.addError(info, fmt.Sprintf("home walk read marker %s: %v", childDir, err))
 					continue
 				}
+				creds.Dir(dir, name, sortedEntryNames(mEntries))
 				if hasMarkerChild(mEntries, markerChildren) || name == ".pi" && hasPiProjectMarker(mEntries) {
 					emit(dir)
 				}
 				continue
 			}
 			if strings.HasPrefix(name, ".") {
+				creds.Dir(dir, name, nil)
 				continue // every other hidden tree (.git, .cache, .venv, …)
 			}
 			if name == "node_modules" || (win && isWindowsNoiseDir(name)) {
@@ -1175,6 +1202,8 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 
 	info.WalkDirsVisited = dirsVisited
 	info.WalkRootsFound = len(candidates)
+	creds.Capped = creds.Capped || stopped
+	creds.TimedOut = ctx.Err() != nil
 	return candidates
 }
 

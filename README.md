@@ -506,7 +506,8 @@ Dev Machine Guard is a single compiled binary that scans your developer environm
 - Installed IDEs, AI tools, and their versions
 - IDE extension/plugin names, publishers, and versions (VS Code, Cursor, Windsurf, Antigravity, JetBrains, Eclipse, Xcode, Android Studio)
 - Browser extension records read from the browsers' own state files (Chrome, Edge, Firefox): identity, enabled state, install source, and the permissions the browser currently honours. Browsing history, cookies, saved passwords, and page content are never opened
-- MCP server configuration (server names and commands only)
+- MCP server configuration, rebuilt from public identities only: the npm or PyPI package, container image or remote endpoint of each server that matches a bundled snapshot of the official MCP registry, plus one presence marker for unidentified local servers and one for unidentified remote servers
+- Credential locations: which AI tools, MCP servers and other developer tools keep credential material on disk, with a count, file protection and location per file. Values are read on the device and never sent. An administrator can opt in to a short hint for recognized API keys: the provider prefix with three more characters, and the last four characters
 - Node.js, Homebrew, Python, and system package listings (opt-in)
 - Package-manager configuration: effective registry, cooldown policy, and authentication surface across every scope (`.npmrc`, pnpm config, `bunfig.toml`, `.yarnrc`/`.yarnrc.yml`, `pip.conf`)
 - Suspicious files flagged by StepSecurity-maintained malicious-file rules (path and matched rule only — file contents are not collected)
@@ -516,7 +517,8 @@ Detection uses platform-specific methods: `/Applications/` and `Info.plist` on m
 **What it does NOT collect:**
 
 - Source code, file contents, or project data
-- Secrets, credentials, API keys, or tokens
+- Secrets, credentials, API keys, or tokens (beyond the opt-in key hint above)
+- MCP server names, arguments, URLs, headers, or environment values from a config file
 - Browsing history or personal files
 - Any data from your IDE workspaces
 
@@ -580,7 +582,7 @@ Dev Machine Guard fills the gap by inventorying what is actually running in your
 ## Known Limitations
 
 - **Package scanning** (Node.js, Homebrew, Python) is opt-in in community mode and results are basic (package manager detection and package/project lists). Full dependency tree analysis is available in enterprise mode.
-- **MCP config auditing** shows which tools have MCP configs (source, vendor, and config path) but does not display config file contents in community mode. Enterprise mode sends filtered config data (server names and commands only, no secrets) to the dashboard.
+- **MCP config auditing** shows which tools have MCP configs (source, vendor, and config path) but does not display config file contents in community mode. Enterprise mode sends a rebuilt config holding only public server identities matched against a bundled registry snapshot. Runtime server names are not kept, and a server the snapshot does not cover appears only as unidentified local or remote presence until a later release's snapshot includes it.
 - **System package scanning** (rpm, dpkg, pacman, apk, snap, flatpak) is Linux-only.
 - **Package-manager config auditing** reports the effective registry, cooldown status, and authentication surface from configuration files; it reflects configuration as written and does not intercept package installs at runtime.
 - **Suspicious file detection** flags files that match StepSecurity-maintained rules and records the path and matched rule. It does not collect or transmit file contents. Confidence levels and attack-campaign attribution surface in the enterprise dashboard.

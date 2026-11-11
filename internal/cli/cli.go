@@ -68,6 +68,10 @@ type Config struct {
 	// The zero value scans, so a caller that never consulted the gate, or one
 	// whose check-in failed, behaves as before.
 	CredentialScanningDisabled bool
+	// CredentialKeyFragments is set by the run gate (not a CLI flag) only when
+	// this invocation's check-in opted in to key fragments. The zero value
+	// collects none.
+	CredentialKeyFragments bool
 	// DeltaScanEnabled is set by run-config, never by a CLI flag.
 	DeltaScanEnabled bool
 

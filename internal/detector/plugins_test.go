@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/step-security/dev-machine-guard/internal/detector/credentials"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/safepath"
 	"github.com/step-security/dev-machine-guard/internal/tcc"
@@ -970,7 +971,7 @@ func TestCodexPortableDescriptiveComponents(t *testing.T) {
 		foundSkill, foundHTTP := false, false
 		for _, c := range p.Components {
 			foundSkill = foundSkill || c.Name == "fixed" && c.Skill != nil
-			foundHTTP = foundHTTP || c.Name == "docs" && c.MCPConfig != nil
+			foundHTTP = foundHTTP || c.Kind == model.PluginComponentMCP && c.Name == "MCP configuration" && c.RelativePath == "mcp.json" && c.Status == model.AgentScanStatusPartial && c.MCPConfig != nil && slices.Equal(c.MCPServerNames, []string{"docs"})
 		}
 		if !foundSkill || (strings.Contains(envelope, "$schema") && !foundHTTP) {
 			t.Fatalf("valid siblings lost: %+v", p.Components)
@@ -1922,12 +1923,20 @@ func TestCopilotRecordedInstallComponents(t *testing.T) {
 	}
 	found := map[string]bool{}
 	for _, component := range p.Components {
-		found[component.Name] = true
+		key := component.Name
+		if component.Kind == model.PluginComponentMCP {
+			key = component.RelativePath
+			wantNames := map[string][]string{
+				".mcp.json":                {"winner"},
+				"agents/reviewer.agent.md": {"agent/docs~v1"},
+			}
+			if component.Name != "MCP configuration" || component.DeclarationPointer != "" || !slices.Equal(component.MCPServerNames, wantNames[key]) {
+				t.Fatalf("MCP ownership or declaration selection: %+v", component)
+			}
+		}
+		found[key] = true
 		if component.Skill != nil && (component.Skill.Agent != model.AgentCopilot || component.Skill.Source != "copilot_plugin" || component.Skill.Usage != nil || len(component.CallableNames) != 0) {
 			t.Fatalf("skill attribution: %+v", component)
-		}
-		if component.Name == "agent/docs~v1" && component.DeclarationPointer != "/mcp-servers/agent~1docs~0v1" {
-			t.Fatalf("agent pointer: %+v", component)
 		}
 		if component.MCPConfig != nil {
 			body, err := base64.StdEncoding.DecodeString(component.MCPConfig.ConfigContentBase64)
@@ -1936,7 +1945,7 @@ func TestCopilotRecordedInstallComponents(t *testing.T) {
 			}
 		}
 	}
-	for _, name := range []string{"declared-check", "reviewer", "winner", "agent/docs~v1"} {
+	for _, name := range []string{"declared-check", "reviewer", ".mcp.json", "agents/reviewer.agent.md"} {
 		if !found[name] {
 			t.Errorf("missing %s", name)
 		}
@@ -2008,7 +2017,7 @@ func TestCopilotManifestPrecedence(t *testing.T) {
 		count                           int
 		format                          string
 	}{
-		{"portable 1.1", `{"$schema":"https://agent-plugins.org/schemas/1.1.0/plugin.schema.json","name":"portable","version":"1.0.0"}`, `{"name":"legacy","skills":"custom"}`, `{"$schema":"https://agent-plugins.org/schemas/1.1.0/mcp.schema.json","mcpServers":{"docs":{"type":"streamable-http","url":"https://docs.example/mcp"},"events":{"type":"sse","url":"https://docs.example/events"}}}`, 3, model.PluginManifestPortable},
+		{"portable 1.1", `{"$schema":"https://agent-plugins.org/schemas/1.1.0/plugin.schema.json","name":"portable","version":"1.0.0"}`, `{"name":"legacy","skills":"custom"}`, `{"$schema":"https://agent-plugins.org/schemas/1.1.0/mcp.schema.json","mcpServers":{"docs":{"type":"streamable-http","url":"https://docs.example/mcp"},"events":{"type":"sse","url":"https://docs.example/events"}}}`, 2, model.PluginManifestPortable},
 		{"unknown portable", `{"$schema":"https://agent-plugins.org/schemas/9.0.0/plugin.schema.json","name":"future"}`, `{"name":"legacy"}`, "", 0, ""},
 		{"malformed root", `{`, `{"name":"legacy"}`, "", 0, ""},
 		{"legacy priority", `{"name":"root","skills":"custom"}`, `{"name":"preferred"}`, "", 1, model.PluginManifestCopilot},
@@ -2029,6 +2038,17 @@ func TestCopilotManifestPrecedence(t *testing.T) {
 			p := c.Plugins[0]
 			if len(p.Components) != tc.count || p.ManifestFormat != tc.format {
 				t.Fatalf("manifest selection: %+v", p)
+			}
+			if tc.name == "portable 1.1" {
+				found := false
+				for _, component := range p.Components {
+					if component.Kind == model.PluginComponentMCP {
+						found = component.Name == "MCP configuration" && component.RelativePath == "mcp.json" && component.DeclarationPointer == "" && slices.Equal(component.MCPServerNames, []string{"docs", "events"})
+					}
+				}
+				if !found || p.ComponentStatus != model.AgentScanStatusComplete {
+					t.Fatalf("portable MCP declarations lost: %+v", p.Components)
+				}
 			}
 			if tc.count == 0 && p.ComponentStatus == model.AgentScanStatusComplete {
 				t.Fatal("invalid preferred manifest reported complete")
@@ -2183,7 +2203,11 @@ func TestCopilotNativePathMCPPrecedence(t *testing.T) {
 			}
 			fs.commit()
 			p := copilotContext(t, NewSkillsDetector(m).DetectAll(context.Background(), nil, nil)).Plugins[0]
-			if len(p.Components) != 1 || p.Components[0].Name != tc.winner || p.ComponentStatus != model.AgentScanStatusComplete {
+			wantPath := tc.defaultFile
+			if wantPath == "" {
+				wantPath = "servers.json"
+			}
+			if len(p.Components) != 1 || p.Components[0].Name != "MCP configuration" || p.Components[0].RelativePath != wantPath || p.Components[0].DeclarationPointer != "" || !slices.Equal(p.Components[0].MCPServerNames, []string{tc.winner}) || p.ComponentStatus != model.AgentScanStatusComplete {
 				t.Fatalf("native path precedence: %+v", p)
 			}
 		})
@@ -2612,7 +2636,7 @@ func TestCopilotEditorManifestAndMCPPrecedence(t *testing.T) {
 	fs.addFile(filepath.Join(payload, ".mcp.json"), `{"servers":{"not-selected":{"command":"node","args":["other.js"]}}}`)
 	fs.commit()
 	c := copilotContext(t, NewSkillsDetector(m).DetectAll(context.Background(), []string{project}, nil))
-	if len(c.Plugins) != 1 || c.Plugins[0].ManifestFormat != model.PluginManifestClaude || c.Plugins[0].ManifestName != "review" || len(c.Plugins[0].Components) != 1 || c.Plugins[0].Components[0].Name != "selected" {
+	if len(c.Plugins) != 1 || c.Plugins[0].ManifestFormat != model.PluginManifestClaude || c.Plugins[0].ManifestName != "review" || len(c.Plugins[0].Components) != 1 || c.Plugins[0].Components[0].Name != "MCP configuration" || c.Plugins[0].Components[0].RelativePath != ".claude-plugin/plugin.json" || c.Plugins[0].Components[0].DeclarationPointer != "" || !slices.Equal(c.Plugins[0].Components[0].MCPServerNames, []string{"selected"}) {
 		t.Fatalf("editor manifest and inline MCP precedence: %+v", c)
 	}
 }
@@ -3026,7 +3050,7 @@ func TestPiProjectDiscovery(t *testing.T) {
 				}
 				fs.commit()
 				info := &model.AgentSkillScanInfo{}
-				got := NewSkillsDetector(m).walkForProjectRoots(t.Context(), []string{filepath.Join(testHome, "repos")}, info)
+				got := NewSkillsDetector(m).walkForProjectRoots(t.Context(), []string{filepath.Join(testHome, "repos")}, info, &credentials.ProjectCandidates{})
 				want := kind == "directory" && slices.Contains([]string{"skills", "extensions", "prompts", "themes"}, name) ||
 					kind == "file" && (name == "settings.json" || name == "mcp.json")
 				if len(got) != 0 && (len(got) != 1 || got[0] != project) || (len(got) == 1) != want {

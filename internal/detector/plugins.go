@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/detector/credentials"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/safepath"
 )
@@ -137,6 +138,10 @@ type SkillsResult struct {
 	usage          *skillUsageObservations
 	evidence       *pluginEvidence
 	pendingPlugins *pluginScan
+
+	// CredentialCandidates are the credential-bearing project files the
+	// project walk saw, for the credential inventory.
+	CredentialCandidates credentials.ProjectCandidates
 }
 
 // DetectPlugins collects plugin metadata using the discovery state in result.
@@ -882,8 +887,12 @@ func (r *pluginRootScan) commandComponent(file, rel, name, callable string) {
 	r.addComponent(c)
 }
 
-// mcpFileComponents projects one MCP JSON file into one component per declared
-// server, each carrying only that server's allowlisted, redacted fields.
+// pluginMCPComponentName names every plugin MCP component. Declared server
+// names are chosen by the plugin author and can carry anything, so a component
+// stands for its whole file or inline block under this fixed name.
+const pluginMCPComponentName = "MCP configuration"
+
+// mcpFileComponents projects one MCP JSON file into one file-level component.
 func (r *pluginRootScan) mcpFileComponents(file, rel string, required bool) {
 	r.gd = r.gd.componentReader(r.root)
 	data, absent, code := r.s.readMetadata(r.gd, file)
@@ -904,20 +913,20 @@ func (r *pluginRootScan) mcpFileComponents(file, rel string, required bool) {
 	}
 	r.s.evidence.owned[filepath.Clean(file)] = true
 	if code != "" {
-		c := model.PluginComponent{Kind: model.PluginComponentMCP, Name: path.Base(rel), RelativePath: rel, DefinitionPath: file}
+		c := model.PluginComponent{Kind: model.PluginComponentMCP, Name: pluginMCPComponentName, RelativePath: rel, DefinitionPath: file}
 		r.componentError(&c, code)
 		r.addComponent(c)
 		return
 	}
 	var doc map[string]json.RawMessage
 	if err := json.Unmarshal(data, &doc); err != nil || doc == nil {
-		c := model.PluginComponent{Kind: model.PluginComponentMCP, Name: path.Base(rel), RelativePath: rel, DefinitionPath: file}
+		c := model.PluginComponent{Kind: model.PluginComponentMCP, Name: pluginMCPComponentName, RelativePath: rel, DefinitionPath: file}
 		r.componentError(&c, model.AgentScanErrParseFailed)
 		r.addComponent(c)
 		return
 	}
 	if r.p.ManifestFormat == model.PluginManifestPortable && (len(doc) != 2 || jsonString(doc["$schema"]) != "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json" || doc["mcpServers"] == nil) {
-		c := model.PluginComponent{Kind: model.PluginComponentMCP, Name: path.Base(rel), RelativePath: rel, DefinitionPath: file}
+		c := model.PluginComponent{Kind: model.PluginComponentMCP, Name: pluginMCPComponentName, RelativePath: rel, DefinitionPath: file}
 		r.componentError(&c, model.AgentScanErrUnsupportedSchema)
 		r.addComponent(c)
 		return
@@ -935,52 +944,60 @@ func (r *pluginRootScan) mcpInlineComponents(servers json.RawMessage, manifestRe
 	r.mcpServerComponents(servers, manifestRel, pointer, manifestPath)
 }
 
+// mcpServerComponents emits one component for a map of server declarations,
+// carrying the projected body and the declared names for local enablement
+// joins. A declaration that fails validation leaves the component partial; one
+// with no valid declaration is an error rather than complete empty evidence.
 func (r *pluginRootScan) mcpServerComponents(servers json.RawMessage, rel, pointer, configPath string) {
-	resolvedPath, _ := r.gd.exec.EvalSymlinks(configPath)
+	c := model.PluginComponent{Kind: model.PluginComponentMCP, Name: pluginMCPComponentName, RelativePath: rel, DefinitionPath: configPath}
 	var declarations map[string]json.RawMessage
 	if json.Unmarshal(servers, &declarations) != nil || declarations == nil {
-		c := model.PluginComponent{Kind: model.PluginComponentMCP, Name: path.Base(rel), RelativePath: rel, DeclarationPointer: pointer, DefinitionPath: configPath}
 		r.componentError(&c, model.AgentScanErrParseFailed)
 		r.addComponent(c)
 		return
 	}
+	id := componentID(r.p.InstanceID, c)
+	var projected mcpProjection
+	failed, limited := false, false
 	for _, name := range sortedMapKeys(declarations) {
 		if r.s.mcpServers >= maxPluginMCPServers || r.s.ctx != nil && r.s.ctx.Err() != nil {
 			degrade(&r.p.ComponentStatus, model.AgentScanStatusPartial)
 			scanError(&r.p.Errors, model.AgentScanError{Code: model.AgentScanErrLimitExceeded, InstanceID: r.p.InstanceID, SourcePath: configPath})
-			return
+			limited = true
+			break
 		}
 		r.s.mcpServers++
-		serverPointer := pointer
-		if pointer != "" {
-			serverPointer += "/" + strings.NewReplacer("~", "~0", "/", "~1").Replace(name)
-		}
+		code := ""
 		if r.p.ManifestFormat == model.PluginManifestPortable && !(r.attr.agent == model.AgentCopilot && pointer == "/mcp-servers") {
-			if code := r.portableMCPError(declarations[name]); code != "" {
-				c := model.PluginComponent{Kind: model.PluginComponentMCP, Name: name, RelativePath: rel, DeclarationPointer: serverPointer, DefinitionPath: configPath}
-				r.componentError(&c, code)
-				r.addComponent(c)
-				continue
-			}
+			code = r.portableMCPError(declarations[name])
 		}
-		one, err := json.Marshal(map[string]json.RawMessage{name: declarations[name]})
-		filtered := filterServerFields(one)
-		if err != nil || filtered == nil || strings.TrimSpace(string(declarations[name])) == "null" {
-			c := model.PluginComponent{Kind: model.PluginComponentMCP, Name: name, RelativePath: rel, DeclarationPointer: pointer, DefinitionPath: configPath}
-			r.componentError(&c, model.AgentScanErrParseFailed)
-			r.addComponent(c)
+		if code == "" && !projected.addRaw(declarations[name]) {
+			code = model.AgentScanErrParseFailed
+		}
+		if code != "" {
+			failed = true
+			scanError(&r.p.Errors, model.AgentScanError{Code: code, SourcePath: configPath, InstanceID: r.p.InstanceID, ComponentID: id})
 			continue
 		}
-		body, err := json.Marshal(map[string]any{"mcpServers": filtered})
-		if err != nil {
-			continue
-		}
-		c := model.PluginComponent{
-			Kind: model.PluginComponentMCP, Name: name, RelativePath: rel, DeclarationPointer: serverPointer, DefinitionPath: configPath, ResolvedDefinitionPath: resolvedPath,
-			MCPConfig: &model.MCPConfigEnterprise{ConfigSource: r.attr.source, ConfigPath: configPath, Vendor: r.attr.vendor, ConfigContentBase64: base64.StdEncoding.EncodeToString(body)},
-		}
-		r.addComponent(c)
+		c.MCPServerNames = append(c.MCPServerNames, name)
 	}
+	switch {
+	case len(c.MCPServerNames) == 0 && failed:
+		c.Status = model.AgentScanStatusError
+		r.addComponent(c)
+		return
+	case len(c.MCPServerNames) == 0:
+		return
+	case failed || limited:
+		c.Status = model.AgentScanStatusPartial
+	}
+	body, ok := projected.json()
+	if !ok {
+		return
+	}
+	c.ResolvedDefinitionPath, _ = r.gd.exec.EvalSymlinks(configPath)
+	c.MCPConfig = &model.MCPConfigEnterprise{ConfigSource: r.attr.source, ConfigPath: configPath, Vendor: r.attr.vendor, ConfigContentBase64: base64.StdEncoding.EncodeToString(body)}
+	r.addComponent(c)
 }
 
 // skillDirs enumerates skill directories under dir: direct children when

@@ -2,15 +2,17 @@ package detector
 
 import (
 	"context"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
+	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/tailscale/hujson"
 
-	"github.com/step-security/dev-machine-guard/internal/aiagents/redact"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/tcc"
@@ -200,9 +202,10 @@ func (d *MCPDetector) resolveConfigPath(spec mcpConfigSpec, homeDir string) stri
 	return expandTilde(spec.ConfigPath, homeDir)
 }
 
-// filterMCPContent extracts MCP-relevant fields from a config file.
-// Returns the filtered content and true on success, or nil and false if
-// filtering failed (to avoid leaking secrets from raw fallback).
+// filterMCPContent rebuilds a config file's MCP servers from public identities
+// and presence placeholders. Returns the rebuilt content and true on success,
+// or nil and false when the file cannot be read as a known shape, so raw
+// content is never the fallback.
 func (d *MCPDetector) filterMCPContent(sourceName, configPath string, content []byte) ([]byte, bool) {
 	if sourceName == "codex" && strings.HasSuffix(configPath, ".toml") {
 		var config struct {
@@ -211,15 +214,11 @@ func (d *MCPDetector) filterMCPContent(sourceName, configPath string, content []
 		if toml.Unmarshal(content, &config) != nil || config.Servers == nil {
 			return nil, false
 		}
-		raw, err := json.Marshal(config.Servers)
-		if err != nil {
-			return nil, false
+		var servers mcpProjection
+		for _, server := range config.Servers {
+			servers.add(server)
 		}
-		filtered := filterServerFields(raw)
-		if filtered == nil {
-			return nil, false
-		}
-		out, err := toml.Marshal(map[string]any{"mcp_servers": filtered})
+		out, err := toml.Marshal(map[string]any{"mcp_servers": servers.servers()})
 		return out, err == nil
 	}
 	if !strings.HasSuffix(configPath, ".json") && !strings.HasSuffix(configPath, ".jsonc") {
@@ -265,28 +264,11 @@ func (d *MCPDetector) filterMCPContent(sourceName, configPath string, content []
 		return filterCopilotMCP(jsonInput, true)
 	}
 
-	filtered := d.extractMCPServers(raw)
-	projectServers, _ := filtered["mcpServers"].(map[string]any)
-	if isCopilotProjectMCP(configPath) && raw["mcpServers"] != nil && projectServers == nil {
-		if data, ok := filterCopilotMCP(jsonInput, false); ok {
-			var recovered map[string]any
-			if json.Unmarshal(data, &recovered) == nil {
-				if filtered == nil {
-					filtered = make(map[string]any)
-				}
-				filtered["mcpServers"] = recovered["mcpServers"]
-			}
-		}
-	}
-	if filtered == nil {
+	var servers mcpProjection
+	if !servers.addContainers(raw) {
 		return nil, false // No MCP servers found
 	}
-
-	out, err := json.Marshal(filtered)
-	if err != nil {
-		return nil, false
-	}
-	return out, true
+	return servers.json()
 }
 
 // isOpenCodeConfigPath reports whether a path is an OpenCode config, in either
@@ -302,109 +284,356 @@ func isOpenCodeConfigPath(configPath string) bool {
 	return false
 }
 
-// extractMCPServers extracts mcpServers/context_servers/servers/mcp, keeping only command/args/serverUrl/url.
-// Also handles Claude Code's project-scoped mcpServers nested under projects → <path> → mcpServers.
-func (d *MCPDetector) extractMCPServers(raw map[string]json.RawMessage) map[string]any {
-	result := make(map[string]any)
-	found := false
+// Placeholders stand for declarations the snapshot does not identify. They
+// mark that a local or remote server is configured; the command is never run
+// and the reserved .invalid host never resolves.
+const (
+	mcpUnidentifiedLocal  = "stepsecurity-unidentified-mcp-local"
+	mcpUnidentifiedRemote = "https://unidentified-mcp.invalid"
+)
 
-	// Try mcpServers (Cursor, Claude Desktop)
-	if servers, ok := raw["mcpServers"]; ok {
-		result["mcpServers"] = filterServerFields(servers)
-		found = true
-	}
-	// Try context_servers (Zed)
-	if servers, ok := raw["context_servers"]; ok {
-		result["context_servers"] = filterServerFields(servers)
-		found = true
-	}
-	// Try servers (VS Code mcp.json)
-	if servers, ok := raw["servers"]; ok {
-		result["servers"] = filterServerFields(servers)
-		found = true
-	}
-	// Try mcp (OpenCode), entries tagged local or remote. The vendor's own key
-	// is preserved on the wire: this pipeline filters fields, it never rewrites
-	// another vendor's schema into mcpServers.
-	//
-	// Unlike the keys above, "mcp" is an ordinary enough word to show up as a
-	// scalar flag in a config that keeps its real servers elsewhere. Emitting a
-	// null for it would make the backend reject the whole document and drop the
-	// valid mcpServers sitting beside it, so a value that isn't a map of servers
-	// is skipped rather than emitted empty.
-	if servers, ok := raw["mcp"]; ok {
-		if filtered := filterServerFields(servers); filtered != nil {
-			result["mcp"] = filtered
-			found = true
-		}
-	}
-	// Try project-scoped mcpServers (Claude Code ~/.claude.json)
-	// Structure: { "projects": { "<path>": { "mcpServers": { ... } } } }
-	if projectsRaw, ok := raw["projects"]; ok {
-		filteredProjects := filterProjectScopedMCPServers(projectsRaw)
-		if filteredProjects != nil {
-			result["projects"] = filteredProjects
-			found = true
-		}
-	}
+// mcpRegistrySnapshot lists the public package, image and endpoint identities
+// of the official MCP registry at the time it was fetched. It is refreshed with
+// releases, never at scan or build time.
+//
+//go:embed builtin/mcp_registry.json
+var mcpRegistrySnapshot []byte
 
-	if !found {
-		return nil
-	}
-	return result
+// mcpRegistry maps the normalized form of each snapshot identity to the
+// snapshot's own spelling, the only identity text that is ever emitted.
+type mcpRegistry struct {
+	npm, pypi, oci, remote map[string]string
 }
 
-// filterProjectScopedMCPServers extracts mcpServers from each project in the projects map.
-// Returns only projects that have mcpServers, with server fields filtered.
-func filterProjectScopedMCPServers(projectsRaw json.RawMessage) map[string]any {
-	var projects map[string]map[string]json.RawMessage
-	if err := json.Unmarshal(projectsRaw, &projects); err != nil {
-		return nil
+// loadMCPRegistry parses the snapshot once. A snapshot that does not parse
+// identifies nothing, so every server falls back to a placeholder.
+var loadMCPRegistry = sync.OnceValue(func() mcpRegistry {
+	return parseMCPRegistry(mcpRegistrySnapshot)
+})
+
+func parseMCPRegistry(data []byte) mcpRegistry {
+	var doc struct {
+		NPM    []string `json:"npm_packages"`
+		PyPI   []string `json:"pypi_packages"`
+		OCI    []string `json:"oci_images"`
+		Remote []string `json:"remote_urls"`
 	}
-
-	filtered := make(map[string]any)
-	for path, projectConfig := range projects {
-		serversRaw, ok := projectConfig["mcpServers"]
-		if !ok {
-			continue
-		}
-		serverFields := filterServerFields(serversRaw)
-		if len(serverFields) > 0 {
-			filtered[path] = map[string]any{"mcpServers": serverFields}
-		}
+	if json.Unmarshal(data, &doc) != nil {
+		return mcpRegistry{}
 	}
-
-	if len(filtered) == 0 {
-		return nil
-	}
-	return filtered
-}
-
-// filterServerFields keeps only command, args, serverUrl, url from each server
-// entry. env and headers are dropped outright since those are the fields
-// vendors document for credentials. But command/args/url/serverUrl are
-// real-world credential locations too (a bearer token or API key in a query
-// string, an --api-key flag baked into args), so the kept values still pass
-// through redact.Value before being uploaded.
-func filterServerFields(serversRaw json.RawMessage) map[string]any {
-	var servers map[string]map[string]any
-	if err := json.Unmarshal(serversRaw, &servers); err != nil {
-		return nil
-	}
-
-	result := make(map[string]any)
-	allowedKeys := map[string]bool{"command": true, "args": true, "serverUrl": true, "url": true}
-
-	for name, serverConfig := range servers {
-		filtered := make(map[string]any)
-		for k, v := range serverConfig {
-			if allowedKeys[k] {
-				filtered[k] = redact.Value(v)
+	index := func(ids []string, normalize func(string) string) map[string]string {
+		out := make(map[string]string, len(ids))
+		for _, id := range ids {
+			if key := normalize(id); key != "" {
+				out[key] = id
 			}
 		}
-		result[name] = filtered
+		return out
 	}
-	return result
+	return mcpRegistry{
+		npm:    index(doc.NPM, mcpNPMName),
+		pypi:   index(doc.PyPI, mcpPyPIName),
+		oci:    index(doc.OCI, mcpOCIName),
+		remote: index(doc.Remote, mcpRemoteKey),
+	}
+}
+
+// mcpIdentity is one server's public identity: the launcher form it was
+// declared with and the snapshot spelling of its package, image or endpoint.
+type mcpIdentity struct {
+	form string // npx, uvx, uv, docker or remote
+	id   string
+}
+
+// declaration rebuilds the server entry from the launcher form and the
+// snapshot constant alone.
+func (m mcpIdentity) declaration() map[string]any {
+	switch m.form {
+	case "remote":
+		return map[string]any{"url": m.id}
+	case "uv", "docker":
+		return map[string]any{"command": m.form, "args": []string{"run", m.id}}
+	default:
+		return map[string]any{"command": m.form, "args": []string{m.id}}
+	}
+}
+
+// mcpProjection is the outgoing form of one config body. A declaration's
+// command, arguments, URL, headers, environment and name can all carry
+// credentials, and no filter can prove an arbitrary string holds none, so
+// nothing is copied from it: a server is either matched to a snapshot identity
+// or folded into one presence placeholder for its transport.
+type mcpProjection struct {
+	known         map[mcpIdentity]bool
+	local, remote bool
+}
+
+// add projects one declaration. An entry with neither a command nor a URL only
+// adjusts another server's settings and contributes nothing.
+func (p *mcpProjection) add(server map[string]any) {
+	if command, args := mcpLaunch(server); command != "" {
+		if id, known := mcpKnownLocal(command, args); known {
+			p.addKnown(id)
+		} else {
+			p.local = true
+		}
+		return
+	}
+	for _, key := range []string{"url", "serverUrl"} {
+		if raw, _ := server[key].(string); raw != "" {
+			if id, known := loadMCPRegistry().remote[mcpRemoteKey(raw)]; known {
+				p.addKnown(mcpIdentity{form: "remote", id: id})
+			} else {
+				p.remote = true
+			}
+			return
+		}
+	}
+}
+
+func (p *mcpProjection) addKnown(id mcpIdentity) {
+	if p.known == nil {
+		p.known = map[mcpIdentity]bool{}
+	}
+	p.known[id] = true
+}
+
+// addRaw projects one encoded declaration, reporting whether it was an object.
+func (p *mcpProjection) addRaw(raw json.RawMessage) bool {
+	var server map[string]any
+	if json.Unmarshal(raw, &server) != nil || server == nil {
+		return false
+	}
+	p.add(server)
+	return true
+}
+
+// addAll projects a map of declarations, skipping entries that are not
+// objects, and reports whether the map itself decoded.
+func (p *mcpProjection) addAll(raw json.RawMessage) bool {
+	var servers map[string]json.RawMessage
+	if json.Unmarshal(raw, &servers) != nil || servers == nil {
+		return false
+	}
+	for _, server := range servers {
+		p.addRaw(server)
+	}
+	return true
+}
+
+// addContainers projects every server map this collector recognizes, including
+// Claude Code's per-project mcpServers, and reports whether any held servers.
+// The vendor container keys are not kept: the output always uses mcpServers.
+// "mcp" is an ordinary enough word to appear as a scalar flag beside the real
+// servers, so a value that is not a server map is skipped.
+func (p *mcpProjection) addContainers(raw map[string]json.RawMessage) bool {
+	found := false
+	for _, key := range []string{"mcpServers", "context_servers", "servers", "mcp"} {
+		if servers, ok := raw[key]; ok && p.addAll(servers) {
+			found = true
+		}
+	}
+	var projects map[string]map[string]json.RawMessage
+	if json.Unmarshal(raw["projects"], &projects) == nil {
+		for _, project := range projects {
+			if p.addAll(project["mcpServers"]) && !p.empty() {
+				found = true
+			}
+		}
+	}
+	return found
+}
+
+func (p *mcpProjection) empty() bool {
+	return len(p.known) == 0 && !p.local && !p.remote
+}
+
+// servers returns the projected entries keyed by labels generated from their
+// identity, with at most one placeholder per transport. No original server
+// name is kept.
+func (p *mcpProjection) servers() map[string]any {
+	out := make(map[string]any, len(p.known)+2)
+	for id := range p.known {
+		out[id.form+":"+id.id] = id.declaration()
+	}
+	if p.local {
+		out["unidentified-local"] = map[string]any{"command": mcpUnidentifiedLocal}
+	}
+	if p.remote {
+		out["unidentified-remote"] = map[string]any{"url": mcpUnidentifiedRemote}
+	}
+	return out
+}
+
+func (p *mcpProjection) json() ([]byte, bool) {
+	out, err := json.Marshal(map[string]any{"mcpServers": p.servers()})
+	return out, err == nil
+}
+
+// mcpLaunch reads a declaration's command and arguments in each shape the
+// collectors accept: a command string with an args list, OpenCode's single
+// command array, or Zed's command object. A non-string argument leaves the
+// target unknowable, so no arguments are returned and nothing can match.
+func mcpLaunch(server map[string]any) (command string, args []string) {
+	var rest []any
+	switch c := server["command"].(type) {
+	case string:
+		command = c
+		rest, _ = server["args"].([]any)
+	case []any:
+		if len(c) > 0 {
+			command, _ = c[0].(string)
+			rest = c[1:]
+		}
+	case map[string]any:
+		command, _ = c["path"].(string)
+		rest, _ = c["args"].([]any)
+	}
+	for _, arg := range rest {
+		s, isString := arg.(string)
+		if !isString {
+			return command, nil
+		}
+		args = append(args, s)
+	}
+	return command, args
+}
+
+// mcpKnownLocal matches the launcher forms whose target can be read without
+// guessing: npx with an optional -y or --yes, uvx, uv run, and docker run with
+// the common boolean and environment options before the image. Any other
+// option before the target leaves it ambiguous, so it matches nothing.
+// Environment operands are skipped and never kept.
+func mcpKnownLocal(command string, args []string) (mcpIdentity, bool) {
+	reg := loadMCPRegistry()
+	switch mcpLauncher(command) {
+	case "npx":
+		if len(args) > 0 && (args[0] == "-y" || args[0] == "--yes") {
+			args = args[1:]
+		}
+		return mcpLookup("npx", reg.npm, mcpNPMName, args)
+	case "uvx":
+		return mcpLookup("uvx", reg.pypi, mcpPyPIName, args)
+	case "uv":
+		if len(args) > 0 && args[0] == "run" {
+			return mcpLookup("uv", reg.pypi, mcpPyPIName, args[1:])
+		}
+	case "docker":
+		if len(args) > 0 && args[0] == "run" {
+			return mcpLookup("docker", reg.oci, mcpOCIName, dockerImageArgs(args[1:]))
+		}
+	}
+	return mcpIdentity{}, false
+}
+
+// mcpLauncher names the launcher a command runs, wherever it is installed and
+// without a Windows executable suffix. Only the name is used: the output is
+// rebuilt from the launcher's constant, never from the command as written.
+func mcpLauncher(command string) string {
+	name := strings.ToLower(command[strings.LastIndexAny(command, `/\`)+1:])
+	name = strings.TrimSuffix(name, ".exe")
+	return strings.TrimSuffix(name, ".cmd")
+}
+
+// mcpLookup matches the first argument, which must be the target rather than
+// an option, against one snapshot table.
+func mcpLookup(form string, table map[string]string, normalize func(string) string, args []string) (mcpIdentity, bool) {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return mcpIdentity{}, false
+	}
+	key := normalize(args[0])
+	id, ok := table[key]
+	return mcpIdentity{form: form, id: id}, ok && key != ""
+}
+
+// dockerImageArgs skips docker run's leading --rm, -i, -t, -it and -e/--env
+// options, returning the arguments from the image on.
+func dockerImageArgs(args []string) []string {
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--rm" || a == "-i" || a == "-t" || a == "-it":
+		case a == "-e" || a == "--env":
+			i++
+		case strings.HasPrefix(a, "--env="):
+		default:
+			return args[i:]
+		}
+	}
+	return nil
+}
+
+// mcpNPMName reduces an npm package operand to its registry name: lowercase,
+// scope kept, version or tag removed.
+func mcpNPMName(s string) string {
+	s = strings.ToLower(s)
+	if at := strings.LastIndexByte(s, '@'); at > 0 {
+		s = s[:at]
+	}
+	return s
+}
+
+// mcpPyPIName reduces a Python package operand to its normalized registry name:
+// version specifiers and extras removed, lowercase, and every run of -, _ and .
+// folded to one hyphen.
+func mcpPyPIName(s string) string {
+	if cut := strings.IndexAny(s, "=<>!~;[@ "); cut >= 0 {
+		s = s[:cut]
+	}
+	var b strings.Builder
+	sep := false
+	for _, r := range strings.ToLower(s) {
+		if r == '-' || r == '_' || r == '.' {
+			sep = true
+			continue
+		}
+		if sep && b.Len() > 0 {
+			b.WriteByte('-')
+		}
+		sep = false
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// mcpOCIName reduces an image reference to its repository: digest and tag
+// removed, lowercase, and Docker Hub's implicit registry and library namespace
+// written out.
+func mcpOCIName(s string) string {
+	s = strings.ToLower(s)
+	if at := strings.IndexByte(s, '@'); at >= 0 {
+		s = s[:at]
+	}
+	if colon := strings.LastIndexByte(s, ':'); colon > strings.LastIndexByte(s, '/') {
+		s = s[:colon]
+	}
+	if s == "" {
+		return ""
+	}
+	first, rest, nested := strings.Cut(s, "/")
+	switch {
+	case !nested:
+		return "docker.io/library/" + s
+	case first == "index.docker.io":
+		return "docker.io/" + rest
+	case !strings.ContainsAny(first, ".:") && first != "localhost":
+		return "docker.io/" + s
+	}
+	return s
+}
+
+// mcpRemoteKey reduces an endpoint to the form snapshot URLs are matched in:
+// userinfo, query and fragment removed, scheme and host lowercased and one
+// trailing slash dropped. Anything other than an http or https URL has no key.
+func mcpRemoteKey(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return ""
+	}
+	return scheme + "://" + strings.ToLower(u.Host) + strings.TrimSuffix(u.EscapedPath(), "/")
 }
 
 // stripJSONCComments removes // and /* */ comments from JSONC content,
@@ -474,18 +703,13 @@ func filterCopilotMCP(content []byte, allowBare bool) ([]byte, bool) {
 	} else {
 		return nil, false
 	}
-	filtered := map[string]any{}
-	for _, name := range sortedMapKeys(servers) {
-		if !validCopilotMCP(servers[name]) {
-			continue
-		}
-		one, _ := json.Marshal(map[string]json.RawMessage{name: servers[name]})
-		for key, value := range filterServerFields(one) {
-			filtered[key] = value
+	var projected mcpProjection
+	for _, raw := range servers {
+		if validCopilotMCP(raw) {
+			projected.addRaw(raw)
 		}
 	}
-	out, err := json.Marshal(map[string]any{"mcpServers": filtered})
-	return out, err == nil
+	return projected.json()
 }
 
 func validCopilotMCP(raw json.RawMessage) bool {

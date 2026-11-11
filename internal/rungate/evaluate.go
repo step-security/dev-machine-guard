@@ -44,6 +44,10 @@ type Result struct {
 	// answered with an explicit false. Nothing is remembered between runs, so
 	// every other path (no answer, failure, older backend) scans as before.
 	CredentialScanningDisabled bool
+	// CredentialKeyFragments is true only when this invocation's check-in
+	// answered with an explicit true for both credential settings. Nothing is
+	// remembered between runs, so every other path collects no fragments.
+	CredentialKeyFragments bool
 	// DeltaScanEnabled requires an explicit opt-in from this check-in.
 	DeltaScanEnabled bool
 }
@@ -152,16 +156,18 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 	}
 
 	log.Progress("Run gate: checking scan cadence with the dashboard...")
-	directive, wslDirective, credentialScanning, deltaEnabled, err := Checkin(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, deviceID, userToken, st.LastFullRunAt)
+	directive, wslDirective, credentials, deltaEnabled, err := Checkin(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, deviceID, userToken, st.LastFullRunAt)
 	// Only an explicit false in this invocation's answer turns credential
 	// scanning off. A failed or silent check-in scans.
-	credentialDisabled := err == nil && credentialScanning != nil && !*credentialScanning
+	credentialDisabled := err == nil && credentials.Scanning != nil && !*credentials.Scanning
+	keyFragments := err == nil && credentials.KeyFragments
 	if escape {
 		// Bypassing the cadence gate applies nothing else from the answer: no
 		// directive persistence and no WSL scanning. Without a directive
 		// we never scan inside a distro.
 		return Result{Skip: false, Reason: Decide(in).Reason, WSL: wslWithOverride(WSLDirective{}),
-			CredentialScanningDisabled: credentialDisabled, DeltaScanEnabled: err == nil && deltaEnabled}
+			CredentialScanningDisabled: credentialDisabled, CredentialKeyFragments: keyFragments,
+			DeltaScanEnabled: err == nil && deltaEnabled}
 	}
 	if err != nil {
 		log.Progress("Run gate: dashboard check-in failed, using cached cadence: %v", err)
@@ -189,7 +195,8 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 
 	dec := Decide(in)
 	res := Result{Skip: dec.Skip, Reason: dec.Reason, WSL: wslWithOverride(wslDirective),
-		CredentialScanningDisabled: credentialDisabled, DeltaScanEnabled: err == nil && deltaEnabled}
+		CredentialScanningDisabled: credentialDisabled, CredentialKeyFragments: keyFragments,
+		DeltaScanEnabled: err == nil && deltaEnabled}
 	if dec.Skip {
 		// Online skip: best-effort heartbeat so the console shows the agent
 		// checked in and was told not to scan (a gated skip otherwise leaves no

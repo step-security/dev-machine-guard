@@ -7,10 +7,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"net/url"
+	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
+	"github.com/pelletier/go-toml/v2"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/tailscale/hujson"
 	"gopkg.in/yaml.v3"
 )
 
@@ -888,4 +894,950 @@ func insomniaLiteral(value string) (literal, mixed bool) {
 	}
 	rest := strings.TrimSpace(insomniaTemplate.ReplaceAllString(value, ""))
 	return false, rest != ""
+}
+
+// decodeDoc reads a structured document into generic values, choosing the syntax
+// by the file's extension: the catalog names every one of these files, so the
+// extension is the tool's own choice of format. JSON goes through the comment-
+// and trailing-comma-tolerant reader, which accepts strict JSON unchanged.
+func decodeDoc(data []byte, path string) (any, bool) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".toml":
+		var out map[string]any
+		return out, toml.Unmarshal(data, &out) == nil && out != nil
+	case ".yaml", ".yml":
+		var out map[string]any
+		return out, yaml.Unmarshal(data, &out) == nil && out != nil
+	}
+	standard, err := hujson.Standardize(slices.Clone(data))
+	if err != nil {
+		return nil, false
+	}
+	var out any
+	return out, json.Unmarshal(standard, &out) == nil && out != nil
+}
+
+// parseDoc decodes one document and runs a client's count over it, anchored at
+// the document's own directory.
+func parseDoc(in fileInput, g grammar, fill func(c counter, doc any)) parsed {
+	var refs parsed
+	p := observedKeys(in.Data, in.Fragments, func(data []byte, f *fold) bool {
+		doc, ok := decodeDoc(data, in.Path)
+		if !ok {
+			return false
+		}
+		fill(counter{f: f, p: &refs, g: g, dir: filepath.Dir(in.Path), home: in.Home}, doc)
+		return true
+	})
+	p.Opaque, p.Unresolved, p.Refs = refs.Opaque, refs.Unresolved, refs.Refs
+	return p
+}
+
+// mcpDialect is where one client keeps a server's credential fields. Every
+// client also carries a URL and an argument list in the same places.
+type mcpDialect struct {
+	env     string
+	headers string
+	// Fields holding an API key or bearer token directly, and fields holding
+	// another credential directly, as paths of nested keys.
+	keys    [][]string
+	secrets [][]string
+	// The server may name a dotenv file its environment is read from.
+	envFile bool
+}
+
+var (
+	portableDialect   = mcpDialect{env: "env", headers: "headers"}
+	codexDialect      = mcpDialect{env: "env", headers: "http_headers", keys: [][]string{{"bearer_token"}}, secrets: [][]string{{"oauth", "client_secret"}}}
+	openCodeV1Dialect = mcpDialect{env: "environment", headers: "headers", secrets: [][]string{{"oauth", "clientSecret"}}}
+	openCodeV2Dialect = mcpDialect{env: "environment", headers: "headers", secrets: [][]string{{"oauth", "client_secret"}}}
+	piDialect         = mcpDialect{env: "env", headers: "headers", secrets: [][]string{{"oauth", "clientSecret"}}}
+	hermesDialect     = mcpDialect{env: "env", headers: "headers", secrets: [][]string{{"oauth", "client_secret"}}}
+	cursorDialect     = mcpDialect{env: "env", headers: "headers", secrets: [][]string{{"auth", "CLIENT_SECRET"}}, envFile: true}
+	vscodeDialect     = mcpDialect{env: "env", headers: "headers", envFile: true}
+)
+
+// servers counts every server of one declaration map. A disabled server still
+// counts: switching it off does not take its secret out of the file.
+func (c counter) servers(v any, d mcpDialect) {
+	for _, server := range c.object(v) {
+		s := c.object(server)
+		if s == nil {
+			continue
+		}
+		c.env(s[d.env], true)
+		c.headers(s[d.headers])
+		c.url(s["url"])
+		c.args(s["args"])
+		if _, ok := s["command"].([]any); ok {
+			c.args(s["command"])
+		}
+		for _, path := range d.keys {
+			c.key(c.at(s, path...))
+		}
+		for _, path := range d.secrets {
+			c.field(s, path...)
+		}
+		if d.envFile {
+			c.envFile(s["envFile"])
+		}
+	}
+}
+
+// envFile names a server's dotenv file. The editors resolve a relative path
+// against their own process directory rather than the configuration, so only a
+// path anchored at the home, the workspace or the root can be followed.
+func (c counter) envFile(v any) {
+	path, ok := v.(string)
+	if !ok || strings.TrimSpace(path) == "" {
+		return
+	}
+	switch {
+	case strings.HasPrefix(path, "${userHome}"):
+		path = c.home + strings.TrimPrefix(path, "${userHome}")
+	case strings.HasPrefix(path, "${workspaceFolder}") && c.workspace != "":
+		path = c.workspace + strings.TrimPrefix(path, "${workspaceFolder}")
+	case filepath.IsAbs(path) && !strings.Contains(path, "${"):
+	default:
+		c.p.Unresolved = true
+		return
+	}
+	if strings.Contains(path, "${") {
+		c.p.Unresolved = true
+		return
+	}
+	c.p.Refs = append(c.p.Refs, fileRef{Path: filepath.Clean(filepath.FromSlash(path))})
+}
+
+// literalCounter is the same counter for stored records, whose values a client
+// never substitutes into.
+func (c counter) literalCounter() counter {
+	c.g = literalGrammar
+	return c
+}
+
+// projectWorkspace is the project a file below "<project>/<dir>/" belongs to,
+// or "" for the copy of that directory in the home, which has no workspace.
+func projectWorkspace(path, home string) string {
+	workspace := filepath.Dir(filepath.Dir(path))
+	if _, ok := trimPathPrefix(home, workspace); ok {
+		return ""
+	}
+	return workspace
+}
+
+// parseClaudeCode reads Claude Code's account, key and settings files, and the
+// Anthropic profile tokens.
+func parseClaudeCode(in fileInput) parsed {
+	name := filepath.Base(in.Path)
+	switch {
+	case filepath.Base(filepath.Dir(in.Path)) == "credentials":
+		return parseDoc(in, literalGrammar, func(c counter, doc any) {
+			c.grant(doc, "access_token", "refresh_token")
+		})
+	case name == ".credentials.json":
+		return parseDoc(in, literalGrammar, func(c counter, doc any) {
+			root := c.object(doc)
+			c.grant(root["claudeAiOauth"], "accessToken", "refreshToken")
+			claudePluginSecrets(c, root)
+		})
+	case name == "settings.json" || name == "settings.local.json":
+		return parseDoc(in, claudeGrammar, func(c counter, doc any) {
+			c.env(c.object(doc)["env"], false)
+		})
+	}
+	// The account key only. The approved-key list beside it keeps the tail of
+	// every key the developer accepted and is never read.
+	return parseDoc(in, literalGrammar, func(c counter, doc any) {
+		c.key(c.object(doc)["primaryApiKey"])
+	})
+}
+
+// claudePluginSecrets marks the plugin option store, which mixes provider and
+// server secrets with no record of which is which, as uncounted for both
+// sources rather than assigning its values to either.
+func claudePluginSecrets(c counter, root map[string]any) {
+	if len(c.object(root["pluginSecrets"])) > 0 {
+		c.f.unrecognized = true
+	}
+}
+
+// parseClaudeMCP reads Claude Code's MCP sign-in state and its server
+// declarations, globally and per project.
+func parseClaudeMCP(in fileInput) parsed {
+	if filepath.Base(in.Path) == ".credentials.json" {
+		return parseDoc(in, literalGrammar, func(c counter, doc any) {
+			root := c.object(doc)
+			for _, rec := range c.object(root["mcpOAuth"]) {
+				c.grant(rec, "accessToken", "refreshToken")
+				c.field(rec, "clientSecret")
+			}
+			for _, rec := range c.object(root["mcpOAuthClientConfig"]) {
+				c.field(rec, "clientSecret")
+			}
+			for _, rec := range c.object(root["mcpXaaIdp"]) {
+				c.field(rec, "idToken")
+			}
+			for _, rec := range c.object(root["mcpXaaIdpConfig"]) {
+				c.field(rec, "clientSecret")
+			}
+			claudePluginSecrets(c, root)
+		})
+	}
+	return parseDoc(in, claudeGrammar, func(c counter, doc any) {
+		root := c.object(doc)
+		c.servers(root["mcpServers"], portableDialect)
+		for _, project := range c.object(root["projects"]) {
+			c.servers(c.object(project)["mcpServers"], portableDialect)
+		}
+	})
+}
+
+// parseCodex reads Codex's account store, gateway sign-in state and provider
+// configuration. The encrypted account store is attempted and reported opaque.
+func parseCodex(in fileInput) parsed {
+	switch filepath.Base(in.Path) {
+	case "codex_auth.age":
+		return parsed{Opaque: true}
+	case "auth.json":
+		return parseDoc(in, literalGrammar, codexAuth)
+	case "gateway_oauth.json":
+		return parseDoc(in, literalGrammar, func(c counter, doc any) {
+			for _, rec := range c.object(doc) {
+				c.grant(rec, "access_token", "refresh_token")
+			}
+		})
+	}
+	return parseDoc(in, literalGrammar, func(c counter, doc any) {
+		for _, provider := range c.object(c.object(doc)["model_providers"]) {
+			p := c.object(provider)
+			c.key(p["experimental_bearer_token"])
+			c.headers(p["http_headers"])
+			for name, v := range c.object(p["query_params"]) {
+				switch folded := insomniaEnvName(name); {
+				case keyNames[folded]:
+					c.key(v)
+				case urlQueryNames[folded]:
+					c.value(v)
+				}
+			}
+		}
+	})
+}
+
+// codexAuth counts the account store: an API key, the account's tokens as one
+// grant, a personal access token, an agent identity, and Bedrock keys.
+func codexAuth(c counter, doc any) {
+	root := c.object(doc)
+	c.key(root["OPENAI_API_KEY"])
+	c.grant(root["tokens"], "id_token", "access_token", "refresh_token")
+	c.value(root["personal_access_token"])
+	switch identity := root["agent_identity"].(type) {
+	case nil:
+	case string:
+		c.value(identity)
+	case map[string]any:
+		c.value(identity["agent_private_key"])
+	default:
+		c.f.unrecognized = true
+	}
+	c.field(root, "bedrock_api_key", "api_key")
+	c.grant(root["bedrock_access_keys"], "secret_access_key", "session_token")
+}
+
+// parseCodexMCP reads Codex's server declarations and MCP sign-in state. The
+// encrypted sign-in store is attempted and reported opaque.
+func parseCodexMCP(in fileInput) parsed {
+	switch filepath.Base(in.Path) {
+	case "mcp_oauth.age":
+		return parsed{Opaque: true}
+	case ".credentials.json":
+		return parseDoc(in, literalGrammar, func(c counter, doc any) {
+			for _, rec := range c.object(doc) {
+				c.grant(rec, "access_token", "refresh_token")
+			}
+		})
+	}
+	return parseDoc(in, literalGrammar, func(c counter, doc any) {
+		root := c.object(doc)
+		c.servers(root["mcp_servers"], codexDialect)
+		c.field(root, "mcp_enterprise_managed_auth", "idp", "client_secret")
+	})
+}
+
+// parseOpenCode reads OpenCode's account store, provider configuration and
+// credential database.
+func parseOpenCode(in fileInput) parsed {
+	if in.SQLite {
+		return openCodeRows(in, false)
+	}
+	if openCodeStore(in.Path, in.Config) {
+		return parseDoc(in, literalGrammar, func(c counter, doc any) {
+			for _, rec := range c.object(doc) {
+				r := c.object(rec)
+				switch r["type"] {
+				case "api":
+					c.key(r["key"])
+				case "oauth":
+					c.grant(r, "access", "refresh")
+				case "wellknown":
+					c.value(r["token"])
+				default:
+					c.f.unrecognized = true
+				}
+			}
+		})
+	}
+	return parseDoc(in, openCodeGrammar, func(c counter, doc any) {
+		root := c.object(doc)
+		for _, provider := range c.object(root["provider"]) {
+			p := c.object(provider)
+			options := c.object(p["options"])
+			c.key(options["apiKey"])
+			c.headers(options["headers"])
+			for _, model := range c.object(p["models"]) {
+				c.headers(c.object(model)["headers"])
+			}
+		}
+		for _, provider := range c.object(root["providers"]) {
+			p := c.object(provider)
+			openCodeSettings(c, p)
+			for _, model := range c.object(p["models"]) {
+				m := c.object(model)
+				openCodeSettings(c, m)
+				for _, variant := range c.list(m["variants"]) {
+					openCodeSettings(c, c.object(variant))
+				}
+			}
+		}
+	})
+}
+
+// openCodeSettings counts the credential settings and headers of one provider,
+// model or variant. The settings object is open, so only the named fields are
+// read from it.
+func openCodeSettings(c counter, m map[string]any) {
+	settings := c.object(m["settings"])
+	c.key(settings["apiKey"])
+	c.value(settings["authToken"])
+	c.value(settings["accessToken"])
+	c.headers(m["headers"])
+}
+
+// parseOpenCodeMCP reads OpenCode's MCP sign-in state, server declarations and
+// credential database.
+func parseOpenCodeMCP(in fileInput) parsed {
+	if in.SQLite {
+		return openCodeRows(in, true)
+	}
+	if openCodeStore(in.Path, in.Config) {
+		return parseDoc(in, literalGrammar, func(c counter, doc any) {
+			for _, rec := range c.object(doc) {
+				r := c.object(rec)
+				c.grant(r["tokens"], "accessToken", "refreshToken")
+				c.field(r, "clientInfo", "clientSecret")
+			}
+		})
+	}
+	return parseDoc(in, openCodeGrammar, func(c counter, doc any) {
+		// The newer layout nests servers one level down and still accepts the
+		// older one beside it, so each declaration is read in its own shape.
+		for name, decl := range c.object(c.object(doc)["mcp"]) {
+			if name == "servers" {
+				c.servers(decl, openCodeV2Dialect)
+				continue
+			}
+			if _, ok := decl.(map[string]any); ok {
+				c.servers(map[string]any{name: decl}, openCodeV1Dialect)
+			}
+		}
+	})
+}
+
+// openCodeStore reports whether a file is one of OpenCode's credential stores
+// rather than a configuration. A file named as the configuration is one
+// whatever it is called.
+func openCodeStore(path string, config bool) bool {
+	base := filepath.Base(path)
+	return !config && (base == "auth.json" || base == "mcp-auth.json")
+}
+
+// openCodeMCPID is the identifier OpenCode gives an MCP server's credential.
+var openCodeMCPID = regexp.MustCompile(`^mcp_[0-9a-f]{16}$`)
+
+// openCodeBuiltinProviders are the providers OpenCode itself defines, whose
+// credentials are AI-tool material without a local declaration.
+var openCodeBuiltinProviders = []string{"openai", "anthropic", "openrouter"}
+
+// openCodeRows counts the credential table for one of the two OpenCode sources.
+// A row is an MCP credential only when its identifier, method and metadata all
+// have the shape OpenCode writes for one, and an AI credential only for a
+// provider known to be one. Any other row holding material belongs to neither
+// with certainty, so both sources report it uninterpreted.
+func openCodeRows(in fileInput, mcp bool) parsed {
+	providers := openCodeProviders(in)
+	var f fold
+	var p parsed
+	for _, row := range in.Rows {
+		var v map[string]any
+		if json.Unmarshal([]byte(row.Value), &v) != nil || v == nil {
+			f.unrecognized = true
+			continue
+		}
+		isMCP := openCodeMCPRow(row.Key, v)
+		units := fold{fragments: in.Fragments}
+		c := counter{f: &units, p: &p, g: literalGrammar}
+		switch v["type"] {
+		case "key":
+			c.key(v["key"])
+		case "oauth":
+			c.grant(v, "access", "refresh")
+			if isMCP {
+				c.field(v, "metadata", "client", "client_secret")
+			}
+		case "external":
+		default:
+			units.unrecognized = true
+		}
+		if !isMCP && !providers[row.Key] {
+			f.unrecognized = f.unrecognized || units.count > 0 || units.unrecognized
+			continue
+		}
+		if isMCP != mcp {
+			continue
+		}
+		f.absorb(&units)
+	}
+	f.into(&p)
+	return p
+}
+
+// openCodeMCPRow reports whether a credential row has the shape OpenCode writes
+// for an MCP server. A server URL alone does not make one.
+func openCodeMCPRow(id string, v map[string]any) bool {
+	if !openCodeMCPID.MatchString(id) || v["methodID"] != id {
+		return false
+	}
+	meta, _ := v["metadata"].(map[string]any)
+	serverURL, _ := meta["serverUrl"].(string)
+	tokenType, _ := meta["tokenType"].(string)
+	return serverURL != "" && tokenType != ""
+}
+
+// openCodeProviders is the set of provider identifiers whose credentials are
+// AI-tool material: the built-in ones and those the local configuration
+// declares. Nothing is fetched to widen it.
+func openCodeProviders(in fileInput) map[string]bool {
+	out := map[string]bool{}
+	for _, id := range openCodeBuiltinProviders {
+		out[id] = true
+	}
+	for _, companion := range in.Companions {
+		path := companion.path()
+		if openCodeStore(path, companion.Config) {
+			continue
+		}
+		data := in.Read(path, capConfig)
+		if data == nil {
+			continue
+		}
+		doc, ok := decodeDoc(stripBOM(data), path)
+		root, _ := doc.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, key := range []string{"provider", "providers"} {
+			declared, _ := root[key].(map[string]any)
+			for id := range declared {
+				out[id] = true
+			}
+		}
+	}
+	return out
+}
+
+// parsePi reads Pi's account store and model configuration.
+func parsePi(in fileInput) parsed {
+	if filepath.Base(in.Path) == "auth.json" {
+		return parseDoc(in, piGrammar, func(c counter, doc any) {
+			for _, rec := range c.object(doc) {
+				r := c.object(rec)
+				switch r["type"] {
+				case "api_key":
+					c.key(r["key"])
+					c.env(r["env"], false)
+				case "oauth":
+					c.literalCounter().grant(r, "access", "refresh")
+				default:
+					c.f.unrecognized = true
+				}
+			}
+		})
+	}
+	return parseDoc(in, piGrammar, func(c counter, doc any) {
+		for _, provider := range c.object(c.object(doc)["providers"]) {
+			p := c.object(provider)
+			c.key(p["apiKey"])
+			c.headers(p["headers"])
+			for _, model := range c.list(p["models"]) {
+				c.headers(c.object(model)["headers"])
+			}
+			for _, override := range c.object(p["modelOverrides"]) {
+				c.headers(c.object(override)["headers"])
+			}
+		}
+	})
+}
+
+// parsePiMCP reads Pi's server declarations and MCP sign-in state. Pending
+// sign-in state is not a credential.
+func parsePiMCP(in fileInput) parsed {
+	if filepath.Base(in.Path) == "mcp-auth.json" {
+		return parseDoc(in, literalGrammar, func(c counter, doc any) {
+			for _, rec := range c.object(doc) {
+				r := c.object(rec)
+				c.grant(r["tokens"], "access_token", "refresh_token", "id_token")
+				c.field(r, "clientInformation", "client_secret")
+			}
+		})
+	}
+	return parseDoc(in, piGrammar, func(c counter, doc any) {
+		c.servers(c.object(doc)["mcpServers"], piDialect)
+	})
+}
+
+// hermesProviderEnv are the provider key variables Hermes reads from its own
+// dotenv files.
+var hermesProviderEnv = map[string]bool{
+	"OPENAI_API_KEY": true, "ANTHROPIC_API_KEY": true, "ANTHROPIC_TOKEN": true, "CLAUDE_CODE_OAUTH_TOKEN": true,
+	"GOOGLE_API_KEY": true, "GEMINI_API_KEY": true, "GLM_API_KEY": true, "ZAI_API_KEY": true, "Z_AI_API_KEY": true,
+	"KIMI_API_KEY": true, "KIMI_CODING_API_KEY": true, "KIMI_CN_API_KEY": true, "MINIMAX_API_KEY": true,
+	"MINIMAX_CN_API_KEY": true, "DASHSCOPE_API_KEY": true, "ALIBABA_CODING_PLAN_API_KEY": true,
+	"DEEPSEEK_API_KEY": true, "XAI_API_KEY": true, "NVIDIA_API_KEY": true, "AI_GATEWAY_API_KEY": true,
+	"OPENCODE_ZEN_API_KEY": true, "OPENCODE_GO_API_KEY": true, "KILOCODE_API_KEY": true, "HF_TOKEN": true,
+	"XIAOMI_API_KEY": true, "TOKENHUB_API_KEY": true, "TOKENPLAN_API_KEY": true, "OLLAMA_API_KEY": true,
+	"LM_API_KEY": true, "STEPFUN_API_KEY": true, "ARCEEAI_API_KEY": true, "GMI_API_KEY": true,
+	"ACTUAL_API_KEY": true, "AZURE_FOUNDRY_API_KEY": true, "OPENROUTER_API_KEY": true,
+}
+
+// hermesManaged is the value Hermes writes for a variable a password manager
+// supplies at run time.
+const hermesManaged = "__BITWARDEN_MANAGED__"
+
+// hermesTokenEnv are the credential variables Hermes reads that hold a sign-in
+// or service token rather than an API key, so they never leave a fragment.
+var hermesTokenEnv = map[string]bool{"OP_SERVICE_ACCOUNT_TOKEN": true, "ANTHROPIC_TOKEN": true, "CLAUDE_CODE_OAUTH_TOKEN": true}
+
+// hermesEnvBase names the variable a dotenv name stands for when Hermes reads a
+// credential from it: a provider variable itself or through one of its numbered
+// pool siblings, or the password manager's service token. "" for anything else.
+func hermesEnvBase(name string) string {
+	if name == "OP_SERVICE_ACCOUNT_TOKEN" || hermesProviderEnv[name] {
+		return name
+	}
+	i := strings.LastIndexByte(name, '_')
+	if i < 0 {
+		return ""
+	}
+	if n, err := strconv.Atoi(name[i+1:]); err != nil || n < 2 || !hermesProviderEnv[name[:i]] {
+		return ""
+	}
+	return name[:i]
+}
+
+// parseHermes reads a Hermes profile's dotenv files, configuration and account
+// store, and the account store every profile shares.
+func parseHermes(in fileInput) parsed {
+	switch filepath.Base(in.Path) {
+	case ".env", ".op.env":
+		return observedKeys(in.Data, in.Fragments, func(data []byte, f *fold) bool {
+			for name, value := range dotenvPairs(data) {
+				base := hermesEnvBase(name)
+				switch {
+				case base == "" || value == hermesManaged || !hermesGrammar.literal(value):
+				case hermesTokenEnv[base]:
+					f.entry()
+				default:
+					f.key(value)
+				}
+			}
+			return true
+		})
+	case "nous_auth.json":
+		return parseDoc(in, literalGrammar, func(c counter, doc any) {
+			root := c.object(doc)
+			hermesGrant(c, root)
+			hermesGrant(c, c.object(root["renewal"]))
+		})
+	case "auth.json":
+		return parseDoc(in, literalGrammar, hermesAuth)
+	}
+	return parseDoc(in, hermesGrammar, func(c counter, doc any) {
+		root := c.object(doc)
+		c.key(c.at(root, "model", "api_key"))
+		for _, task := range c.object(root["auxiliary"]) {
+			c.key(c.at(task, "api_key"))
+		}
+		for _, provider := range c.list(root["custom_providers"]) {
+			hermesCustomProvider(c, provider)
+		}
+		for _, provider := range c.object(root["providers"]) {
+			hermesCustomProvider(c, provider)
+		}
+	})
+}
+
+// hermesCustomProvider counts one declared provider's key, under either of its
+// spellings, and its extra headers.
+func hermesCustomProvider(c counter, v any) {
+	p := c.object(v)
+	key := p["api_key"]
+	if !c.g.literalAny(key) {
+		key = p["apiKey"]
+	}
+	c.key(key)
+	c.headers(p["extra_headers"])
+}
+
+// hermesGrant counts one account state: its tokens as one grant, however many
+// of them and whichever aliases are kept, and the connector token it was
+// exchanged for as a separate one.
+func hermesGrant(c counter, m map[string]any) {
+	c.grant(m, "access_token", "refresh_token", "anon_token", "agent_key", "api_key")
+	c.field(m, "connectors_token", "access_token")
+}
+
+// hermesAuth counts the account store. The modern layout takes precedence; the
+// legacy portal record is read only when it is absent.
+func hermesAuth(c counter, doc any) {
+	root := c.object(doc)
+	_, providers := root["providers"].(map[string]any)
+	_, pool := root["credential_pool"].(map[string]any)
+	if !providers && !pool {
+		hermesGrant(c, c.object(c.object(root["systems"])["nous_portal"]))
+		return
+	}
+	for id, rec := range c.object(root["providers"]) {
+		r := c.object(rec)
+		if id == "openai-codex" {
+			c.grant(r["tokens"], "access_token", "refresh_token", "id_token")
+			continue
+		}
+		hermesGrant(c, r)
+	}
+	// A pool row borrowed from another store keeps only its source and a
+	// fingerprint, which count nothing; one that still holds a secret counts.
+	// A row Hermes types as an API key, which is also its reading of an untyped
+	// row, keeps the key in its access token field.
+	for _, rows := range c.object(root["credential_pool"]) {
+		for _, row := range c.list(rows) {
+			r := c.object(row)
+			switch r["auth_type"] {
+			case nil, "api_key":
+				c.key(r["access_token"])
+			default:
+				c.grant(r, "access_token", "refresh_token", "agent_key", "anon_token")
+			}
+		}
+	}
+}
+
+// parseHermesMCP reads a Hermes profile's server declarations and the sign-in
+// state Hermes keeps per server.
+func parseHermesMCP(in fileInput) parsed {
+	name := filepath.Base(in.Path)
+	switch {
+	case strings.HasSuffix(name, ".meta.json"):
+		return parsed{}
+	case strings.HasSuffix(name, ".client.json"):
+		return parseDoc(in, literalGrammar, func(c counter, doc any) { c.field(doc, "client_secret") })
+	case strings.HasSuffix(name, ".json"):
+		return parseDoc(in, literalGrammar, func(c counter, doc any) { c.grant(doc, "access_token", "refresh_token") })
+	}
+	return parseDoc(in, hermesGrammar, func(c counter, doc any) {
+		c.servers(c.object(doc)["mcp_servers"], hermesDialect)
+	})
+}
+
+// parseCopilotCLI reads Copilot CLI's provider registry, where every value is
+// literal. Its account configuration has no established token layout, so it is
+// never counted; a token store kept in it is reported rather than passed over
+// as empty, and the account details beside it are not looked at.
+func parseCopilotCLI(in fileInput) parsed {
+	if filepath.Base(in.Path) == "config.json" {
+		return parseDoc(in, literalGrammar, func(c counter, doc any) {
+			tokens := c.object(doc)["copilot_tokens"]
+			if holdsValues(tokens) || c.g.literalAny(tokens) {
+				c.f.unrecognized = true
+			}
+		})
+	}
+	return parseDoc(in, literalGrammar, func(c counter, doc any) {
+		for _, provider := range c.list(c.object(doc)["providers"]) {
+			p := c.object(provider)
+			c.key(p["apiKey"])
+			c.key(p["bearerToken"])
+			c.headers(p["headers"])
+		}
+	})
+}
+
+// parseCopilotCLIMCP reads Copilot CLI's server declarations, its sign-in
+// fallback files and its raw secret fallback files.
+func parseCopilotCLIMCP(in fileInput) parsed {
+	name := filepath.Base(in.Path)
+	switch filepath.Base(filepath.Dir(in.Path)) {
+	case "mcp-secrets":
+		return rawSecret(in.Data, in.Fragments)
+	case "mcp-oauth-config":
+		if strings.HasSuffix(name, ".tokens.json") {
+			return parseDoc(in, literalGrammar, func(c counter, doc any) {
+				c.grant(doc, "access_token", "refresh_token", "accessToken", "refreshToken")
+			})
+		}
+		return parseDoc(in, literalGrammar, func(c counter, doc any) { c.field(doc, "client_secret") })
+	}
+	return parseDoc(in, copilotMCPGrammar, func(c counter, doc any) {
+		c.servers(c.object(doc)["mcpServers"], portableDialect)
+	})
+}
+
+// parseCursor reads Cursor's provider key slots. A plaintext slot holds the key
+// as a string; a protected slot holds an encrypted buffer, empty when unset.
+func parseCursor(in fileInput) parsed {
+	var p parsed
+	f := fold{fragments: in.Fragments}
+	for _, row := range in.Rows {
+		if strings.HasPrefix(row.Key, "secret://") {
+			editorEnvelope(&p, &f, row.Value)
+			continue
+		}
+		value := row.Value
+		var quoted string
+		if json.Unmarshal([]byte(value), &quoted) == nil {
+			value = quoted
+		}
+		if !literalGrammar.literal(value) {
+			continue
+		}
+		// Google keys have no recognized whole-value form.
+		if strings.HasSuffix(row.Key, "/googleKey") {
+			f.entry()
+		} else {
+			f.key(value)
+		}
+	}
+	f.into(&p)
+	return p
+}
+
+// editorEnvelope classifies an encrypted editor value: an empty buffer holds
+// nothing, and anything else is opaque, never counted from its length.
+func editorEnvelope(p *parsed, f *fold, value string) {
+	var buf struct {
+		Type string `json:"type"`
+		Data []int  `json:"data"`
+	}
+	if json.Unmarshal([]byte(value), &buf) != nil || buf.Type != "Buffer" {
+		f.unrecognized = true
+		return
+	}
+	if len(buf.Data) > 0 {
+		p.Opaque = true
+	}
+}
+
+// parseCursorMCP reads Cursor's server declarations and its encrypted MCP
+// sign-in rows.
+func parseCursorMCP(in fileInput) parsed {
+	if in.SQLite {
+		var p parsed
+		var f fold
+		for _, row := range in.Rows {
+			editorEnvelope(&p, &f, row.Value)
+		}
+		p.observation = f.result()
+		return p
+	}
+	return parseDoc(in, editorGrammar, func(c counter, doc any) {
+		c.workspace = projectWorkspace(in.Path, in.Home)
+		c.servers(c.object(doc)["mcpServers"], cursorDialect)
+	})
+}
+
+// parseVSCode reads VS Code's language model provider groups.
+func parseVSCode(in fileInput) parsed {
+	return parseDoc(in, editorGrammar, func(c counter, doc any) {
+		for _, group := range c.list(doc) {
+			g := c.object(group)
+			c.key(g["apiKey"])
+			c.url(g["url"])
+			for _, model := range c.list(g["models"]) {
+				m := c.object(model)
+				c.headers(m["requestHeaders"])
+				c.url(m["url"])
+			}
+		}
+	})
+}
+
+// parseVSCodeMCP reads VS Code's server declarations, in a user, profile,
+// project or workspace file, and the input values it caches in its databases.
+func parseVSCodeMCP(in fileInput) parsed {
+	if in.SQLite {
+		return vscodeInputs(in)
+	}
+	return parseDoc(in, editorGrammar, func(c counter, doc any) {
+		root := c.object(doc)
+		switch {
+		case strings.HasSuffix(in.Path, ".code-workspace"):
+			root = c.object(c.object(root["settings"])["mcp"])
+			c.workspace = filepath.Dir(in.Path)
+		default:
+			c.workspace = projectWorkspace(in.Path, in.Home)
+		}
+		vscodeDeclarations(c, root)
+	})
+}
+
+// vscodeDeclarations counts one declaration document's servers, then the
+// literal defaults of the inputs that feed a credential slot: marking an input
+// as a password does not encrypt a default already written beside it.
+func vscodeDeclarations(c counter, root map[string]any) {
+	c.inputs = map[string]bool{}
+	c.servers(root["servers"], vscodeDialect)
+	for _, input := range c.list(root["inputs"]) {
+		m := c.object(input)
+		id, _ := m["id"].(string)
+		switch key, feeds := c.inputs[id]; {
+		case feeds && key:
+			c.key(m["default"])
+		case feeds:
+			c.value(m["default"])
+		}
+	}
+}
+
+// vscodeCached is one cached input value.
+type vscodeCached struct {
+	Value any `json:"value"`
+}
+
+// vscodeInputs counts the cached input values that feed a credential slot of
+// the declaration the database belongs to. A value is never assigned to a
+// server it cannot be tied to, and the encrypted part of the cache is opaque.
+func vscodeInputs(in fileInput) parsed {
+	var p parsed
+	f := fold{fragments: in.Fragments}
+	for _, row := range in.Rows {
+		var cache struct {
+			Values  map[string]vscodeCached `json:"values"`
+			Secrets json.RawMessage         `json:"secrets"`
+		}
+		if json.Unmarshal([]byte(row.Value), &cache) != nil {
+			f.unrecognized = true
+			continue
+		}
+		if len(cache.Secrets) > 0 && string(cache.Secrets) != "null" {
+			p.Opaque = true
+		}
+		literal := false
+		for _, v := range cache.Values {
+			literal = literal || editorGrammar.literalAny(v.Value)
+		}
+		if !literal {
+			continue
+		}
+		declaration, workspace, ok := vscodeDeclaration(in)
+		if !ok {
+			p.Unresolved = true
+			continue
+		}
+		feeding := map[string]bool{}
+		collectInputs(in, declaration, workspace, feeding)
+		for name, v := range cache.Values {
+			id := strings.TrimSuffix(strings.TrimPrefix(name, "${input:"), "}")
+			s, ok := v.Value.(string)
+			apiKey, feeds := feeding[id]
+			switch {
+			case !ok || !feeds || !editorGrammar.literal(s):
+			case apiKey:
+				f.key(s)
+			default:
+				f.entry()
+			}
+		}
+	}
+	f.into(&p)
+	return p
+}
+
+// vscodeDeclaration names the declaration a database's cached inputs belong to:
+// the profile's own file for a profile database, and for a workspace database
+// the folder or workspace file its sibling record names.
+func vscodeDeclaration(in fileInput) (path, workspace string, ok bool) {
+	dir := filepath.Dir(in.Path)
+	if filepath.Base(dir) == "globalStorage" {
+		return filepath.Join(filepath.Dir(dir), "mcp.json"), "", true
+	}
+	data := in.Read(filepath.Join(dir, "workspace.json"), capConfig)
+	if data == nil {
+		return "", "", false
+	}
+	var record struct {
+		Folder    string `json:"folder"`
+		Workspace string `json:"workspace"`
+	}
+	if json.Unmarshal(stripBOM(data), &record) != nil {
+		return "", "", false
+	}
+	if folder, ok := fileURIPath(record.Folder); ok {
+		return filepath.Join(folder, ".vscode", "mcp.json"), folder, true
+	}
+	if file, ok := fileURIPath(record.Workspace); ok {
+		return file, filepath.Dir(file), true
+	}
+	return "", "", false
+}
+
+// collectInputs records which inputs feed a credential slot of a declaration.
+// Its own counts are discarded: the declaration is a file of its own, counted
+// where it is read.
+func collectInputs(in fileInput, path, workspace string, into map[string]bool) {
+	data := in.Read(path, capConfig)
+	if data == nil {
+		return
+	}
+	doc, ok := decodeDoc(stripBOM(data), path)
+	if !ok {
+		return
+	}
+	var scratch fold
+	c := counter{f: &scratch, p: &parsed{}, g: editorGrammar, dir: filepath.Dir(path), home: in.Home, workspace: workspace, inputs: into}
+	root := c.object(doc)
+	if strings.HasSuffix(path, ".code-workspace") {
+		root = c.object(c.object(root["settings"])["mcp"])
+	}
+	c.servers(root["servers"], vscodeDialect)
+}
+
+// fileURIPath turns a local file URI into a path. Any other scheme names
+// somewhere this scan does not reach.
+func fileURIPath(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "file" || (u.Host != "" && u.Host != "localhost") || u.Path == "" {
+		return "", false
+	}
+	p := u.Path
+	if len(p) >= 3 && p[0] == '/' && p[2] == ':' {
+		p = p[1:]
+	}
+	return filepath.FromSlash(p), true
+}
+
+// parseSharedMCPConfig reads a project's portable server declarations.
+func parseSharedMCPConfig(in fileInput) parsed {
+	return parseDoc(in, claudeGrammar, func(c counter, doc any) {
+		c.servers(c.object(doc)["mcpServers"], portableDialect)
+	})
 }

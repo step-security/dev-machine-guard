@@ -18,13 +18,18 @@
 // each read has a byte cap. Adding a family is a table entry plus a parser.
 package credentials
 
-import "github.com/step-security/dev-machine-guard/internal/model"
+import (
+	"path"
+	"slices"
+
+	"github.com/step-security/dev-machine-guard/internal/model"
+)
 
 // catalogVersion is the revision of the source list below, travelling with every
 // scan so a reader can tell a list narrower than it expects from a source that ran
 // and found nothing. A string because a revision is an identifier: nothing
 // compares two arithmetically, and a suffix would change the type on both sides.
-const catalogVersion = "2"
+const catalogVersion = "3"
 
 // Per-read byte caps. A credential file is small; anything larger is either not
 // what we think it is or is hostile, and either way there is no reason to pull
@@ -56,8 +61,15 @@ const (
 const (
 	maxFindings = 400
 	maxErrors   = 64
-	// Bounds the single directory listing this phase performs.
+	// Bounds every directory listing this phase performs.
 	maxKeyDirEntries = 200
+	// Bounds the files the AI-tool and MCP sources take from listings and from
+	// project discovery, so a home full of profiles or repositories cannot turn
+	// one phase into an unbounded walk.
+	maxListedCandidates = 1000
+	// The most entries one AI-tool or MCP finding reports. Past it the count is
+	// a lower bound and the finding says so.
+	maxAICount = 10000
 )
 
 // Source identifiers. Stable strings: `errors[]` keys on them and fleet views
@@ -77,6 +89,24 @@ const (
 	sourceTerraformCredentials = "terraform_credentials" //#nosec G101 -- the wire identifier for a source, naming a kind of file rather than holding anything read out of one.
 	sourceVaultToken           = "vault_token"
 	sourceInsomnia             = "insomnia"
+
+	sourceClaudeCode      = "claude_code"
+	sourceCodex           = "codex"
+	sourceOpenCode        = "opencode"
+	sourcePi              = "pi"
+	sourceHermes          = "hermes"
+	sourceCopilotCLI      = "copilot_cli"
+	sourceCursor          = "cursor"
+	sourceVSCode          = "vscode"
+	sourceClaudeMCP       = "claude_mcp"
+	sourceCodexMCP        = "codex_mcp"
+	sourceOpenCodeMCP     = "opencode_mcp"
+	sourcePiMCP           = "pi_mcp"
+	sourceHermesMCP       = "hermes_mcp"
+	sourceCopilotCLIMCP   = "copilot_cli_mcp"
+	sourceCursorMCP       = "cursor_mcp"
+	sourceVSCodeMCP       = "vscode_mcp"
+	sourceSharedMCPConfig = "shared_mcp_config"
 )
 
 // readMode is the only filesystem operation a source performs. Declared per
@@ -118,6 +148,11 @@ const (
 	// Only for tools that honour the variable: several keep files under ~/.config
 	// while ignoring it, and those are rootHome paths that contain ".config".
 	rootXDGConfig pathRoot = "xdg_config"
+	// Windows only: the local, non-roaming application data directory.
+	rootLocalAppData pathRoot = "local_appdata"
+	// $XDG_DATA_HOME when the developer has set it, $HOME/.local/share otherwise,
+	// on every platform: the tools that use it spell the same path on Windows.
+	rootXDGData pathRoot = "xdg_data"
 )
 
 // location is one candidate path for a source.
@@ -128,6 +163,13 @@ type location struct {
 	Rel string
 	// Restricts this candidate. Nil means every platform.
 	Platforms []string
+	// The relocation group this candidate belongs to. An override replaces the
+	// defaults of its own group only, because one tool can keep files under
+	// roots that independent variables move.
+	Group string
+	// Read with the database reader rather than as text. Declared rather than
+	// inferred from the name, because a relocated database can be named anything.
+	SQLite bool
 }
 
 // overrideKind says how to read the value of an environment override.
@@ -141,6 +183,16 @@ const (
 	// The value is a separator-joined list of file paths, all of which the tool
 	// reads.
 	overrideList overrideKind = "list"
+	// The value is the tool's active home, which may be one profile directory
+	// below the root that holds every profile. The root and each of its profiles
+	// are probed as well, because each keeps its own files on disk.
+	overrideProfile overrideKind = "profile"
+	// The value is the tool's active home, as for overrideProfile, but only the
+	// root that holds it is probed: a store every profile shares.
+	overrideRoot overrideKind = "root"
+	// The value is appended to the name of the tool's own directory, which Base
+	// names, rather than replacing it.
+	overrideSuffix overrideKind = "suffix"
 )
 
 // envOverride relocates a source. Not an edge case: monorepos, CI-parity setups
@@ -149,10 +201,23 @@ const (
 type envOverride struct {
 	Var  string
 	Kind overrideKind
-	// Read according to Kind: the path below the directory for overrideDir, the
-	// home-relative directory being replaced for overridePrefix, and unused for
-	// overrideFile and overrideList.
+	// The path below the directory for overrideDir, overrideProfile,
+	// overrideRoot and overrideSuffix, and unused for overrideFile and overrideList. A "*"
+	// element is one bounded listing.
 	Rel string
+	// The relocation group this override replaces.
+	Group string
+	// Where a relative value resolves, or for overrideSuffix the directory
+	// whose name is extended; its Platforms restrict the override. Zero means a
+	// relative value is used as written, which the path guard then refuses.
+	Base location
+	// The value may start with "~", meaning the developer's home.
+	Tilde bool
+	// See location.SQLite.
+	SQLite bool
+	// The file is a configuration whatever it is called: the developer chose
+	// its name, so the name says nothing about its shape.
+	Config bool
 }
 
 // source is one catalog entry. Everything here is data; no entry carries
@@ -167,6 +232,12 @@ type source struct {
 	// Ahead of Locations in precedence order.
 	Overrides []envOverride
 	Locations []location
+	// Project-relative names probed under each project the inventory walk
+	// discovered. A "*" is allowed in the final element only.
+	Project []string
+	// Files with this suffix are a raw secret rather than a document, so they
+	// are read with the raw-secret cap.
+	RawSuffix string
 }
 
 // Scope a location to platforms that spell a path differently. Written out
@@ -393,12 +464,353 @@ var sources = []source{
 		Overrides: insomniaOverrides(),
 		Locations: insomniaLocations(),
 	},
+	// The AI-tool and MCP sources follow the classic ones so that, when the result
+	// cap is reached, it is these project-heavy sources that are cut short. Every
+	// one reports each file holding material: the inventory describes what is
+	// retained on disk, not which copy a tool would pick at run time.
+	{
+		ID:       sourceClaudeCode,
+		Category: model.CredentialCategoryAITools,
+		Mode:     readFile,
+		MaxBytes: capConfig,
+		Match:    matchAll,
+		Overrides: slices.Concat(
+			dirOverrides("CLAUDE_CONFIG_DIR", "claude", ".credentials.json", "config.json", ".config.json", "settings.json", ".claude.json"),
+			dirOverrides("ANTHROPIC_CONFIG_DIR", "anthropic", "credentials/*.json"),
+		),
+		Locations: slices.Concat(
+			filesUnder(rootHome, "claude", ".claude", nil, ".credentials.json", "config.json", ".config.json", "settings.json"),
+			// Read even when the configuration directory moves: the tool keeps
+			// this file in the home regardless.
+			filesUnder(rootHome, "home", "", nil, ".claude.json"),
+			filesUnder(rootHome, "anthropic", ".config/anthropic", unixOnly, "credentials/*.json"),
+			filesUnder(rootAppData, "anthropic", "Anthropic", windowsOnly, "credentials/*.json"),
+		),
+		Project: []string{".claude/settings.json", ".claude/settings.local.json"},
+	},
+	{
+		ID:        sourceCodex,
+		Category:  model.CredentialCategoryAITools,
+		Mode:      readFile,
+		MaxBytes:  capConfig,
+		Match:     matchAll,
+		Overrides: dirOverrides("CODEX_HOME", "", codexAIFiles...),
+		Locations: filesUnder(rootHome, "", ".codex", nil, codexAIFiles...),
+		Project:   []string{".codex/config.toml"},
+	},
+	{
+		ID:       sourceOpenCode,
+		Category: model.CredentialCategoryAITools,
+		Mode:     readFile,
+		MaxBytes: capConfig,
+		Match:    matchAll,
+		Overrides: slices.Concat(
+			[]envOverride{{Var: "OPENCODE_DB", Kind: overrideFile, Group: "db", Base: location{Root: rootXDGData, Rel: "opencode"}, SQLite: true}},
+			openCodeConfigOverrides,
+		),
+		Locations: slices.Concat(
+			filesUnder(rootXDGData, "", "opencode", nil, "auth.json"),
+			openCodeDatabases(),
+			filesUnder(rootXDGConfig, "", "opencode", nil, openCodeConfigFiles...),
+		),
+		Project: openCodeProjectFiles,
+	},
+	{
+		ID:        sourcePi,
+		Category:  model.CredentialCategoryAITools,
+		Mode:      readFile,
+		MaxBytes:  capConfig,
+		Match:     matchAll,
+		Overrides: dirOverrides("PI_CODING_AGENT_DIR", "", "auth.json", "models.json"),
+		Locations: filesUnder(rootHome, "", ".pi/agent", nil, "auth.json", "models.json"),
+	},
+	{
+		ID:        sourceHermes,
+		Category:  model.CredentialCategoryAITools,
+		Mode:      readFile,
+		MaxBytes:  capConfig,
+		Match:     matchAll,
+		Overrides: slices.Concat(hermesOverrides("", hermesAIFiles...), hermesOverrides("shared")),
+		Locations: slices.Concat(hermesLocations("", hermesAIFiles...), hermesLocations("shared")),
+	},
+	{
+		ID:       sourceCopilotCLI,
+		Category: model.CredentialCategoryAITools,
+		Mode:     readFile,
+		MaxBytes: capConfig,
+		Match:    matchAll,
+		Overrides: slices.Concat(
+			dirOverrides("COPILOT_HOME", "", "config.json"),
+			[]envOverride{{Var: "COPILOT_PROVIDERS_CONFIG", Kind: overrideFile, Group: "providers"}},
+			dirOverrides("COPILOT_HOME", "providers", "providers.json"),
+		),
+		Locations: slices.Concat(
+			filesUnder(rootHome, "", ".copilot", nil, "config.json"),
+			filesUnder(rootHome, "providers", ".copilot", nil, "providers.json"),
+		),
+	},
+	{
+		ID:        sourceCursor,
+		Category:  model.CredentialCategoryAITools,
+		Mode:      readFile,
+		MaxBytes:  capConfig,
+		Match:     matchAll,
+		Locations: editorLocations("Cursor", true, editorStateDatabases...),
+	},
+	{
+		ID:       sourceVSCode,
+		Category: model.CredentialCategoryAITools,
+		Mode:     readFile,
+		MaxBytes: capConfig,
+		Match:    matchAll,
+		// The editor's own provider key storage is encrypted and has no fixed
+		// slot names, so only the language model configuration is read.
+		Locations: editorLocations("Code", false, "chatLanguageModels.json", "profiles/*/chatLanguageModels.json"),
+	},
+	{
+		ID:        sourceClaudeMCP,
+		Category:  model.CredentialCategoryMCPServers,
+		Mode:      readFile,
+		MaxBytes:  capConfig,
+		Match:     matchAll,
+		Overrides: dirOverrides("CLAUDE_CONFIG_DIR", "claude", ".credentials.json", ".config.json", ".claude.json"),
+		Locations: slices.Concat(
+			filesUnder(rootHome, "claude", ".claude", nil, ".credentials.json", ".config.json"),
+			filesUnder(rootHome, "home", "", nil, ".claude.json"),
+		),
+	},
+	{
+		ID:        sourceCodexMCP,
+		Category:  model.CredentialCategoryMCPServers,
+		Mode:      readFile,
+		MaxBytes:  capConfig,
+		Match:     matchAll,
+		Overrides: dirOverrides("CODEX_HOME", "", codexMCPFiles...),
+		Locations: filesUnder(rootHome, "", ".codex", nil, codexMCPFiles...),
+		Project:   []string{".codex/config.toml"},
+	},
+	{
+		ID:       sourceOpenCodeMCP,
+		Category: model.CredentialCategoryMCPServers,
+		Mode:     readFile,
+		MaxBytes: capConfig,
+		Match:    matchAll,
+		Overrides: slices.Concat(
+			[]envOverride{{Var: "OPENCODE_DB", Kind: overrideFile, Group: "db", Base: location{Root: rootXDGData, Rel: "opencode"}, SQLite: true}},
+			openCodeConfigOverrides,
+		),
+		Locations: slices.Concat(
+			filesUnder(rootXDGData, "", "opencode", nil, "mcp-auth.json"),
+			openCodeDatabases(),
+			filesUnder(rootXDGConfig, "", "opencode", nil, openCodeConfigFiles...),
+		),
+		Project: openCodeProjectFiles,
+	},
+	{
+		ID:        sourcePiMCP,
+		Category:  model.CredentialCategoryMCPServers,
+		Mode:      readFile,
+		MaxBytes:  capConfig,
+		Match:     matchAll,
+		Overrides: dirOverrides("PI_CODING_AGENT_DIR", "", "mcp.json", "mcp-auth.json"),
+		Locations: filesUnder(rootHome, "", ".pi/agent", nil, "mcp.json", "mcp-auth.json"),
+		Project:   []string{".pi/mcp.json"},
+	},
+	{
+		ID:        sourceHermesMCP,
+		Category:  model.CredentialCategoryMCPServers,
+		Mode:      readFile,
+		MaxBytes:  capConfig,
+		Match:     matchAll,
+		Overrides: hermesOverrides("", hermesMCPFiles...),
+		Locations: hermesLocations("", hermesMCPFiles...),
+	},
+	{
+		ID:        sourceCopilotCLIMCP,
+		Category:  model.CredentialCategoryMCPServers,
+		Mode:      readFile,
+		MaxBytes:  capConfig,
+		Match:     matchAll,
+		Overrides: dirOverrides("COPILOT_HOME", "", copilotMCPFiles...),
+		Locations: filesUnder(rootHome, "", ".copilot", nil, copilotMCPFiles...),
+		Project:   []string{".github/mcp.json"},
+		RawSuffix: ".secret",
+	},
+	{
+		ID:       sourceCursorMCP,
+		Category: model.CredentialCategoryMCPServers,
+		Mode:     readFile,
+		MaxBytes: capConfig,
+		Match:    matchAll,
+		Locations: slices.Concat(
+			filesUnder(rootHome, "", ".cursor", nil, "mcp.json"),
+			editorLocations("Cursor", true, editorStateDatabases...),
+		),
+		Project: []string{".cursor/mcp.json"},
+	},
+	{
+		ID:       sourceVSCodeMCP,
+		Category: model.CredentialCategoryMCPServers,
+		Mode:     readFile,
+		MaxBytes: capConfig,
+		Match:    matchAll,
+		Locations: slices.Concat(
+			editorLocations("Code", false, "mcp.json", "profiles/*/mcp.json"),
+			editorLocations("Code", true, slices.Concat(editorStateDatabases, []string{"workspaceStorage/*/state.vscdb"})...),
+		),
+		Project: []string{".vscode/mcp.json", "*.code-workspace"},
+	},
+	{
+		// Project files only: the portable configuration has no owner of its
+		// own, so it is reported once here rather than under every client
+		// that reads it.
+		ID:       sourceSharedMCPConfig,
+		Category: model.CredentialCategoryMCPServers,
+		Mode:     readFile,
+		MaxBytes: capConfig,
+		Match:    matchAll,
+		Project:  []string{".mcp.json"},
+	},
+}
+
+// Codex keeps account and MCP material in one home, split by file. The encrypted
+// stores are listed so an attempt is recorded: their contents cannot be read.
+var (
+	codexAIFiles  = []string{"auth.json", "config.toml", "*.config.toml", "secrets/gateway_oauth.json", "secrets/codex_auth.age"}
+	codexMCPFiles = []string{"config.toml", "*.config.toml", ".credentials.json", "secrets/mcp_oauth.age"}
+)
+
+var (
+	openCodeConfigFiles  = []string{"opencode.json", "opencode.jsonc"}
+	openCodeProjectFiles = []string{"opencode.json", "opencode.jsonc", ".opencode/opencode.json", ".opencode/opencode.jsonc"}
+)
+
+// openCodeConfigOverrides are the configuration file and directory OpenCode
+// loads on top of its global configuration. Each is a group of its own, so
+// setting one never displaces the global files.
+var openCodeConfigOverrides = slices.Concat(
+	[]envOverride{{Var: "OPENCODE_CONFIG", Kind: overrideFile, Group: "config", Config: true}},
+	dirOverrides("OPENCODE_CONFIG_DIR", "config-dir", openCodeConfigFiles...),
+)
+
+// openCodeDatabases names the default database and the per-channel databases
+// beside it. Channel names are sanitised to the listing's own name alphabet, so
+// one bounded listing of the data directory finds them without guessing which
+// channels were installed.
+func openCodeDatabases() []location {
+	return []location{
+		{Root: rootXDGData, Rel: "opencode/opencode.db", SQLite: true},
+		{Root: rootXDGData, Rel: "opencode/opencode-*.db", SQLite: true},
+	}
+}
+
+// Hermes keeps one home per profile below a root, each with its own files; the
+// default home is the root itself.
+var (
+	hermesAIFiles  = []string{"auth.json", ".env", ".op.env", "config.yaml"}
+	hermesMCPFiles = []string{"config.yaml", "mcp-tokens/*.json"}
+)
+
+// hermesRoots are the root directory on each platform. Its name is the one a
+// suffix variable extends.
+var hermesRoots = []location{
+	{Root: rootHome, Rel: ".hermes", Platforms: unixOnly},
+	{Root: rootLocalAppData, Rel: "hermes", Platforms: windowsOnly},
+}
+
+// hermesLocations names the files in the root and in every profile below it.
+// The group is "" for the per-profile files and "shared" for the account store
+// every profile shares.
+func hermesLocations(group string, files ...string) []location {
+	var out []location
+	for _, root := range hermesRoots {
+		for _, rel := range hermesRels(group, files) {
+			out = append(out, location{Root: root.Root, Rel: path.Join(root.Rel, rel), Platforms: root.Platforms, Group: group})
+		}
+	}
+	return out
+}
+
+// hermesOverrides relocates the Hermes files: a suffix renames the root, and an
+// active home set in the environment adds that home, its root and the root's
+// profiles without displacing the default root, whose files stay on disk.
+func hermesOverrides(group string, files ...string) []envOverride {
+	var out []envOverride
+	if group == "shared" {
+		// An active home outside the default root brings its own root, whose
+		// shared store sits beside its profiles.
+		out = append(out,
+			envOverride{Var: "HERMES_SHARED_AUTH_DIR", Kind: overrideDir, Rel: "nous_auth.json", Group: group, Tilde: true},
+			envOverride{Var: "HERMES_HOME", Kind: overrideRoot, Rel: "shared/nous_auth.json", Group: "home", Tilde: true},
+		)
+	}
+	for _, rel := range hermesRels(group, files) {
+		for _, root := range hermesRoots {
+			out = append(out, envOverride{Var: "HERMES_DATA_DIR_SUFFIX", Kind: overrideSuffix, Rel: rel, Group: group, Base: root})
+		}
+	}
+	if group == "" {
+		for _, f := range files {
+			out = append(out, envOverride{Var: "HERMES_HOME", Kind: overrideProfile, Rel: f, Group: "home", Tilde: true})
+		}
+	}
+	return out
+}
+
+// hermesRels spells the files of one Hermes group relative to the root.
+func hermesRels(group string, files []string) []string {
+	if group == "shared" {
+		return []string{"shared/nous_auth.json"}
+	}
+	out := make([]string, 0, 2*len(files))
+	for _, f := range files {
+		out = append(out, f, "profiles/*/"+f)
+	}
+	return out
+}
+
+var copilotMCPFiles = []string{"mcp-config.json", "mcp-oauth-config/*.json", "mcp-secrets/*.secret"}
+
+// editorStateDatabases are the editor's own key-value stores that can hold
+// provider and MCP material, globally and per named profile.
+var editorStateDatabases = []string{"globalStorage/state.vscdb", "profiles/*/globalStorage/state.vscdb"}
+
+// editorLocations spells an editor's per-user directory on each platform for
+// the given files below it.
+func editorLocations(product string, sqlite bool, rels ...string) []location {
+	out := make([]location, 0, 3*len(rels))
+	for _, rel := range rels {
+		out = append(out,
+			location{Root: rootHome, Rel: "Library/Application Support/" + product + "/User/" + rel, Platforms: darwinOnly, SQLite: sqlite},
+			location{Root: rootXDGConfig, Rel: product + "/User/" + rel, Platforms: linuxOnly, SQLite: sqlite},
+			location{Root: rootAppData, Rel: product + "/User/" + rel, Platforms: windowsOnly, SQLite: sqlite},
+		)
+	}
+	return out
+}
+
+// filesUnder lists files below one directory of one root.
+func filesUnder(root pathRoot, group, dir string, platforms []string, files ...string) []location {
+	out := make([]location, 0, len(files))
+	for _, f := range files {
+		out = append(out, location{Root: root, Rel: path.Join(dir, f), Platforms: platforms, Group: group})
+	}
+	return out
+}
+
+// dirOverrides relocates the given files under the directory a variable names.
+func dirOverrides(name, group string, files ...string) []envOverride {
+	out := make([]envOverride, 0, len(files))
+	for _, f := range files {
+		out = append(out, envOverride{Var: name, Kind: overrideDir, Rel: f, Group: group})
+	}
+	return out
 }
 
 // rootEnvVars are the variables the path roots themselves depend on. They are
 // resolved alongside the per-source overrides even though no source lists them,
 // because one of them relocates whole families of files at once.
-var rootEnvVars = []string{"XDG_CONFIG_HOME"}
+var rootEnvVars = []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME"}
 
 // EnvVars returns every environment variable whose value the catalog needs from
 // the resolved developer's session, deduplicated and in a stable order. It is what
@@ -442,6 +854,9 @@ func (l location) appliesTo(platform string) bool {
 // source that does not apply is not a source that failed: it produces neither a
 // finding nor an error, because there is nothing there to look for.
 func (s source) applies(platform string) bool {
+	if len(s.Project) > 0 {
+		return true
+	}
 	for _, l := range s.Locations {
 		if l.appliesTo(platform) {
 			return true

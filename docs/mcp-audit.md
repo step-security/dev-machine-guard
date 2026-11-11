@@ -56,23 +56,48 @@ Dev Machine Guard scans MCP configuration files for the following tools:
 
 ## What Information Is Shown
 
-The MCP audit is designed to provide **visibility without exposing secrets**.
+The MCP audit is designed to provide **visibility without exposing secrets**. A server's command, arguments, URL, headers, environment and even its name can carry a credential, and no filter can prove that an arbitrary string holds none. So the enterprise agent reads each config on the device and sends a rebuilt config instead of a filtered copy.
 
 ### What IS collected
 
-- **Server names** (the key names under `mcpServers` or equivalent)
-- **Commands** used to launch the server (e.g., `npx`, `node`, `python`)
-- **Arguments** passed to the launch command
-- **Server URLs** (if the server is accessed via URL rather than a local command)
-- **Config path** (the file path of the config on disk)
+- **Config path** (the file path of the config on disk), source and vendor
+- **Known server identities.** A server is identified when its launch matches one of these forms and its target is in a bundled snapshot of the [official MCP registry](https://registry.modelcontextprotocol.io/):
+
+  | Declared launch | Sent as |
+  |-----------------|---------|
+  | `npx [-y or --yes] <package> ...` | `command: "npx"`, `args: [<package>]` |
+  | `uvx <package> ...` | `command: "uvx"`, `args: [<package>]` |
+  | `uv run <package> ...` | `command: "uv"`, `args: ["run", <package>]` |
+  | `docker run [--rm] [-i] [-t] [-it] [-e or --env <value>] <image> ...` | `command: "docker"`, `args: ["run", <image>]` |
+  | A remote URL equal to a registry endpoint once userinfo, query and fragment are removed | `url: <endpoint>` |
+
+  A launcher given by its full path (`/opt/homebrew/bin/npx`) or with a Windows `.exe` or `.cmd` suffix matches by its name; the path is never sent. The package, image or endpoint text comes from the snapshot, never from the config. Versions, tags, further arguments and environment operands are dropped.
+- **Unidentified presence.** Every other server (an unknown package or image, another launcher or option, a shell wrapper, an unmatched URL) is folded into at most one marker per transport and config file:
+  - `unidentified-local` with `command: "stepsecurity-unidentified-mcp-local"`
+  - `unidentified-remote` with `url: "https://unidentified-mcp.invalid"`
+
+  The marker command is never run, and the reserved `.invalid` host never resolves. The number of unidentified servers is not reported.
 
 ### What is NOT collected
 
-- **Environment variables** (`env` blocks -- and OpenCode's `environment` blocks -- in MCP configs often contain API keys and tokens; these are stripped before collection)
-- **HTTP headers** (may contain authentication tokens)
-- **Any other sensitive fields** that are not directly related to server identification
+- **Server names.** Known entries are keyed by labels generated from their identity, so the runtime aliases written in the config are not kept.
+- **Arguments, URLs and paths** other than the snapshot identity
+- **Environment variables** (`env`, and OpenCode's `environment`) and **HTTP headers**
+- **Any other field** of a server entry, including Pi's `enabled` flag
 
-In the enterprise agent, a Go-native filter extracts only the fields listed above before base64-encoding the config. For JSON configs, only `mcpServers` / `context_servers` / `servers` / `mcp` entries are kept, and within each server only `command`, `args`, `serverUrl`, and `url` fields are retained. Each vendor's own key is preserved as written — the filter strips fields, it never rewrites one schema into another. Non-JSON configs (TOML, YAML) cannot be filtered safely, so the config's location is still reported but its contents are never collected. The same applies to a JSON config that fails to parse, or one with no recognized server key: the location is reported and the content is dropped rather than sent raw.
+The rebuilt JSON config always uses the `mcpServers` key, whatever key the tool itself uses (`context_servers`, `servers`, `mcp`, or Claude Code's per-project `mcpServers`). Codex's `config.toml` is rebuilt as TOML under `mcp_servers`. Plugin MCP declarations are reported as one `MCP configuration` component per plugin file or inline block, with the same rebuilt body. YAML configs, and JSON configs that fail to parse or have no recognized server key, are still reported by location, but no content is sent.
+
+A registry match identifies a server; it does not prove the server is safe, running or used.
+
+### Refreshing the registry snapshot
+
+The snapshot is `internal/detector/builtin/mcp_registry.json`. It is refreshed deliberately with releases and is never fetched during a scan or a build. To refresh it:
+
+1. Fetch every page of `https://registry.modelcontextprotocol.io/v0/servers?limit=100&version=latest`, following `metadata.nextCursor` until it is absent.
+2. Skip servers whose official registry status is `deleted`. Keep the `identifier` of each `npm`, `pypi` and `oci` package (an OCI identifier without its tag or digest) and the `url` of each remote. Drop remote URLs that contain userinfo, a query, a fragment, a `{template}` variable or an `.invalid` host.
+3. Write the sorted, de-duplicated lists as `npm_packages`, `pypi_packages`, `oci_images` and `remote_urls`, together with `source` (the URL above), `fetched_at`, `fetched_sha256` (the SHA-256 of the fetched pages concatenated in order), `servers_read` and the counts of excluded entries.
+
+A server that the current snapshot does not list stays unidentified until a release ships a snapshot that does.
 
 ---
 
@@ -93,7 +118,7 @@ No data is transmitted anywhere. The MCP configs are read from disk and displaye
 In enterprise mode, MCP config data is:
 
 1. Read from the config files on disk
-2. Filtered to include only server names, commands, args, and URLs (environment variables and secrets are stripped)
+2. Rebuilt from known public server identities and unidentified presence markers (names, arguments, URLs, environment variables and headers are not copied)
 3. Base64-encoded
 4. Included in the telemetry payload uploaded to the StepSecurity backend
 5. Parsed and displayed in the StepSecurity dashboard for centralized analysis
@@ -113,12 +138,9 @@ A typical `claude_desktop_config.json` might look like this:
 ```json
 {
   "mcpServers": {
-    "filesystem": {
+    "browser": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/dev/projects"],
-      "env": {
-        "NODE_ENV": "production"
-      }
+      "args": ["-y", "@playwright/mcp@latest", "--user-data-dir", "/Users/dev/.browser"]
     },
     "github": {
       "command": "npx",
@@ -131,11 +153,23 @@ A typical `claude_desktop_config.json` might look like this:
 }
 ```
 
-Dev Machine Guard will report:
-- Server `filesystem` with command `npx` and args `["-y", "@modelcontextprotocol/server-filesystem", "/Users/dev/projects"]`
-- Server `github` with command `npx` and args `["-y", "@modelcontextprotocol/server-github"]`
+If the bundled registry snapshot lists `@playwright/mcp` but not `@modelcontextprotocol/server-github`, Dev Machine Guard sends:
 
-The `GITHUB_TOKEN` environment variable is **not** included in the output.
+```json
+{
+  "mcpServers": {
+    "npx:@playwright/mcp": {
+      "command": "npx",
+      "args": ["@playwright/mcp"]
+    },
+    "unidentified-local": {
+      "command": "stepsecurity-unidentified-mcp-local"
+    }
+  }
+}
+```
+
+The server names `browser` and `github`, the version, the `--user-data-dir` argument and the `GITHUB_TOKEN` environment variable are **not** included.
 
 ---
 
