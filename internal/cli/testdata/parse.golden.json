@@ -18,6 +18,7 @@
       "HTMLOutputFile": "",
       "HooksAgent": "",
       "IgnoreTelemetryError": false,
+      "ImageBuilder": null,
       "IncludeBundledPlugins": false,
       "IncludeNetworkVolumes": null,
       "IncludeTCCProtected": null,
@@ -648,7 +649,7 @@
       "--device-id"
     ],
     "result": {
-      "error": "--device-id requires a value (a literal id, or a template over {serial} {hostname} {user}; \"-\" clears it)"
+      "error": "--device-id requires a value (a literal id, or a template over {serial} {hostname}; \"-\" clears it)"
     }
   },
   {
@@ -952,7 +953,7 @@
     "args": [
       "configure",
       "--device-id",
-      "{hostname}-{user}"
+      "{hostname}"
     ],
     "result": {
       "Command": "configure"
@@ -1057,6 +1058,54 @@
     ],
     "result": {
       "error": "unknown option: true, run 'BINARY --help' for usage information"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--image-builder"
+    ],
+    "result": {
+      "Command": "configure",
+      "ImageBuilder": true
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--image-builder=true"
+    ],
+    "result": {
+      "Command": "configure",
+      "ImageBuilder": true
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--image-builder=false"
+    ],
+    "result": {
+      "Command": "configure",
+      "ImageBuilder": false
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--image-builder="
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--image-builder=maybe"
+    ],
+    "result": {
+      "error": "--image-builder accepts true or false, got \"maybe\""
     }
   },
   {

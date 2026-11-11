@@ -166,21 +166,21 @@ func TestRunConfigureNonInteractive_DeviceIDAndRetireFlags(t *testing.T) {
 		"customer_id":         "cust-1",
 		"api_endpoint":        "https://api.example.com",
 		"api_key":             "sk-abcdef",
-		"device_id":           " {hostname}-{user} ",
+		"device_id":           " {hostname}-vdi ",
 		"retire_on_uninstall": true,
 	}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	cfg := loadExisting()
-	if cfg.DeviceID != "{hostname}-{user}" {
+	if cfg.DeviceID != "{hostname}-vdi" {
 		t.Errorf("DeviceID: got %q", cfg.DeviceID)
 	}
 	if cfg.RetireOnUninstall == nil || !*cfg.RetireOnUninstall {
 		t.Errorf("RetireOnUninstall: got %v", cfg.RetireOnUninstall)
 	}
 	raw, _ := os.ReadFile(filepath.Join(withHomeDir(t), ".stepsecurity", "config.json"))
-	for _, want := range []string{`"device_id": "{hostname}-{user}"`, `"retire_on_uninstall": true`} {
+	for _, want := range []string{`"device_id": "{hostname}-vdi"`, `"retire_on_uninstall": true`} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("config.json missing %s:\n%s", want, raw)
 		}
@@ -192,7 +192,7 @@ func TestRunConfigureNonInteractive_DeviceIDAndRetireFlags(t *testing.T) {
 		t.Fatalf("second configure: %v", err)
 	}
 	cfg = loadExisting()
-	if cfg.DeviceID != "{hostname}-{user}" {
+	if cfg.DeviceID != "{hostname}-vdi" {
 		t.Errorf("omitted --device-id must keep the template, got %q", cfg.DeviceID)
 	}
 	if cfg.RetireOnUninstall != nil {
@@ -314,7 +314,7 @@ func TestLoad_DeviceIDAndRetireOnUninstall(t *testing.T) {
 	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	content := `{"customer_id":"c","api_endpoint":"https://e","api_key":"k","device_id":" {hostname}-{user} ","retire_on_uninstall":true}`
+	content := `{"customer_id":"c","api_endpoint":"https://e","api_key":"k","device_id":" {hostname}-vdi ","retire_on_uninstall":true}`
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +326,7 @@ func TestLoad_DeviceIDAndRetireOnUninstall(t *testing.T) {
 		CustomerID, APIEndpoint, APIKey = prevCust, prevEnd, prevKey
 	})
 	Load()
-	if DeviceID != "{hostname}-{user}" {
+	if DeviceID != "{hostname}-vdi" {
 		t.Fatalf("DeviceID = %q", DeviceID)
 	}
 	if !RetireOnUninstall {
@@ -348,7 +348,7 @@ func TestShowConfigure_PrintsDeviceIdentity(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	out := captureStdout(t, func() { ShowConfigure("avd-host-07 (source: config)") })
+	out := captureStdout(t, func() { ShowConfigure("avd-host-07 (source: config)", "") })
 	for _, want := range []string{
 		"Device ID:               {hostname}",
 		"resolves now to:       avd-host-07 (source: config)",
@@ -359,15 +359,15 @@ func TestShowConfigure_PrintsDeviceIdentity(t *testing.T) {
 			t.Errorf("configure show missing %q:\n%s", want, out)
 		}
 	}
-	out = captureStdout(t, func() { ShowConfigure("") })
+	out = captureStdout(t, func() { ShowConfigure("", "") })
 	if strings.Contains(out, "resolves now to") {
 		t.Errorf("empty resolved line must be omitted:\n%s", out)
 	}
 	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"device_id": "-"}}); err != nil {
 		t.Fatal(err)
 	}
-	out = captureStdout(t, func() { ShowConfigure("") })
-	if !strings.Contains(out, "auto (per-user on multi-session hosts, hardware serial elsewhere)") {
+	out = captureStdout(t, func() { ShowConfigure("", "") })
+	if !strings.Contains(out, "Device ID:               hardware serial (default)") {
 		t.Errorf("default identity label missing:\n%s", out)
 	}
 }
@@ -543,8 +543,28 @@ func TestMultiUserDetection_LoadShowAndValidate(t *testing.T) {
 	if MultiUserDetection != MultiUserDetectionUsers {
 		t.Fatalf("Load must apply a valid multi_user_detection, got %q", MultiUserDetection)
 	}
-	out := captureStdout(t, func() { ShowConfigure("") })
+	out := captureStdout(t, func() { ShowConfigure("", "") })
 	if !strings.Contains(out, "Multi-User Detection:    users (") {
 		t.Errorf("configure show must print the mode:\n%s", out)
+	}
+}
+
+// PowerShell 5.1's Set-Content/Out-File -Encoding UTF8 writes a byte-order
+// mark; a bootstrap.json written that way must still configure the agent.
+func TestRunConfigureNonInteractive_FromFileWithBOM(t *testing.T) {
+	withHome(t)
+	srcPath := filepath.Join(t.TempDir(), "bootstrap.json")
+	body := []byte("\xef\xbb\xbf" + `{"customer_id":"bom-cust","api_endpoint":"https://bom.example.com","api_key":"sk-bom","scan_frequency_hours":"6"}`)
+	if err := os.WriteFile(srcPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{FromFile: srcPath}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cfg := loadExisting()
+	if cfg.CustomerID != "bom-cust" || cfg.APIKey != "sk-bom" || cfg.ScanFrequencyHours != "6" {
+		t.Errorf("from-file values not applied through the BOM: %+v", cfg)
 	}
 }

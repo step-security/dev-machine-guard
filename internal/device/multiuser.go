@@ -18,13 +18,16 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
-// Automatic per-user identity.
+// Per-session scanning on shared Windows hosts.
 //
-// With no identity template configured (no STEPSEC_DEVICE_ID, no config.json
-// device_id), a host that is known to be shared by several people switches to
-// the per-user template on its own, so each person on a pooled desktop is a
-// separate device without any provisioning change. "Known to be shared" is
-// STICKY — once true it never flips back — and Windows-only in this iteration:
+// A device is always the machine. A host that is known to be shared by several
+// people scans every signed-in session separately: each session's scheduled
+// run keeps its own state directory and lock (paths.StateDir, lock.Acquire),
+// the task policy lets the sessions' instances overlap, and every upload
+// reports under the one machine device with the session's user_identity and
+// user_token, so the backend files each user's inventory inside that device.
+// "Known to be shared" is STICKY (once true it never flips back) and
+// Windows-only in this iteration:
 //
 //  1. the Windows edition is multi-session (EnterpriseMultiSession, ServerRdsh)
 //     or the Remote Desktop Session Host role is installed (TSAppCompat=1);
@@ -33,21 +36,13 @@ import (
 //     developers have each run scans here on two different days
 //     (seen-users.txt in the machine-wide state dir). A single visit (a
 //     technician, a one-off session) never counts, and the rule is opt-in
-//     because an ordinary workstation must not change identity because
-//     someone else signed in once; "off" disables automatic mode entirely.
+//     because an ordinary workstation must not change how it scans because
+//     someone else signed in once; "off" disables per-session scanning.
 //
 // The machine-wide state dir is the elevated install dir
 // (C:\ProgramData\StepSecurity), shared by every user's scheduled run; on
 // other platforms it is "" and the feature is off.
 const (
-	// IdentitySourceAuto is the device_id_source reported when the automatic
-	// per-user identity is in force.
-	IdentitySourceAuto = "auto"
-	// AutoIdentityTemplate is the template the automatic mode applies: the
-	// host name survives a VDI rebuild (a new serial does not), and the user
-	// token keeps each person's inventory on their own row.
-	AutoIdentityTemplate = "{hostname}-{user}"
-
 	seenUsersFile       = "seen-users.txt"
 	multiUserMarkerFile = "multi-user.json"
 	// maxSeenUsersBytes bounds the file the agent reads: a planted or runaway
@@ -64,18 +59,17 @@ const (
 	legacySeenDay = 0
 )
 
-// multiUserMarker is the sticky "this host is shared" record. RetiredSerialID
-// is set once the previous machine-identity row has been retired (see
-// SerialRowRetirePending), so the switch retires it exactly once.
+// multiUserMarker is the sticky "this host is shared" record: per-session
+// scanning is on here. An earlier build also recorded a retired serial row in
+// it; that field is ignored when present.
 type multiUserMarker struct {
-	Since           int64  `json:"since"`
-	Reason          string `json:"reason"` // "edition" | "users"
-	RetiredSerialID string `json:"retired_serial_id,omitempty"`
+	Since  int64  `json:"since"`
+	Reason string `json:"reason"` // "edition" | "users"
 	// MachineID is the machine identity of the host the marker was written
 	// on. A marker captured into an image names the image builder; on a
-	// clone it is ignored (markerFor), so the builder's decision, and the
-	// serial row it retired, never carry over. Absent in markers written
-	// by earlier agents, which are honoured as they are.
+	// clone it is ignored (markerFor), so the builder's decision never
+	// carries over. Absent in markers written by earlier agents, which are
+	// honoured as they are.
 	MachineID string `json:"machine_id,omitempty"`
 }
 
@@ -135,35 +129,34 @@ func MachineStateDir() string { return machineStateDir() }
 
 // SetMachineStateDirForTest overrides the machine-wide state dir and returns
 // a func restoring the previous one. Tests only. Each override starts a fresh
-// automatic-mode snapshot (a test stands for a new process).
+// per-session snapshot (a test stands for a new process).
 func SetMachineStateDirForTest(dir string) (restore func()) {
 	prev := machineStateDir
 	machineStateDir = func() string { return dir }
-	ResetAutoIdentityForTest()
-	return func() { machineStateDir = prev; ResetAutoIdentityForTest() }
+	ResetPerSessionForTest()
+	return func() { machineStateDir = prev; ResetPerSessionForTest() }
 }
 
-// autoDecision is the automatic-mode answer snapshotted once per process.
-// main reads the mode before choosing the state scope and the lock target;
-// a second user's scan can flip the shared files at any moment afterwards,
-// and if the mode changed between the run gate, Gather and the upload, one
-// run would check in and report under two different ids while keeping the
-// shared state and the machine-wide lock. A flip takes effect on the next
-// run of any user instead.
-var autoDecision struct {
-	mu       sync.Mutex
-	done     bool
-	template string
-	reason   string
+// perSession is the per-session scanning answer snapshotted once per process.
+// main reads it before choosing the state scope and the lock target; a second
+// user's scan can flip the shared files at any moment afterwards, and if the
+// answer changed between the run gate, Gather and the upload, one run would
+// keep shared state while reporting a session scope. A flip takes effect on
+// the next run of any user instead.
+var perSession struct {
+	mu     sync.Mutex
+	done   bool
+	on     bool
+	reason string
 }
 
-// ResetAutoIdentityForTest drops the per-process automatic-mode snapshot so a
+// ResetPerSessionForTest drops the per-process per-session snapshot so a
 // test can act as the next run. Tests only.
-func ResetAutoIdentityForTest() {
-	autoDecision.mu.Lock()
-	defer autoDecision.mu.Unlock()
-	autoDecision.done = false
-	autoDecision.template, autoDecision.reason = "", ""
+func ResetPerSessionForTest() {
+	perSession.mu.Lock()
+	defer perSession.mu.Unlock()
+	perSession.done = false
+	perSession.on, perSession.reason = false, ""
 }
 
 // probeWindowsEdition reads the edition facts (multiuser_windows.go); the
@@ -199,30 +192,30 @@ func isMultiSessionEdition(edition string) bool {
 	return false
 }
 
-// autoIdentity reports the template the automatic mode applies on this host
-// ("" when the host is not shared, the feature is off, or the OS is not
-// Windows) and the display reason. The first positive decision writes the
-// sticky marker; every later call reads it back. The answer is taken once
-// per process (autoDecision): main evaluates it right after RecordScanUser,
-// and everything else in the run reuses that snapshot.
-func autoIdentity(exec executor.Executor) (template, reason string) {
-	autoDecision.mu.Lock()
-	defer autoDecision.mu.Unlock()
-	if !autoDecision.done {
-		autoDecision.template, autoDecision.reason = autoIdentityUncached(exec)
-		autoDecision.done = true
+// PerSessionScanning reports whether this host scans every signed-in session
+// separately (false when the host is not shared, the feature is off, or the
+// OS is not Windows) and the display reason. The first positive decision
+// writes the sticky marker; every later call reads it back. The answer is
+// taken once per process (perSession): main evaluates it right after
+// RecordScanUser, and everything else in the run reuses that snapshot.
+func PerSessionScanning(exec executor.Executor) (on bool, reason string) {
+	perSession.mu.Lock()
+	defer perSession.mu.Unlock()
+	if !perSession.done {
+		perSession.on, perSession.reason = perSessionUncached(exec)
+		perSession.done = true
 	}
-	return autoDecision.template, autoDecision.reason
+	return perSession.on, perSession.reason
 }
 
-func autoIdentityUncached(exec executor.Executor) (template, reason string) {
+func perSessionUncached(exec executor.Executor) (on bool, reason string) {
 	dir := machineStateDir()
 	if dir == "" || exec.GOOS() != model.PlatformWindows {
-		return "", ""
+		return false, ""
 	}
 	mode := config.MultiUserDetectionMode()
 	if mode == config.MultiUserDetectionOff {
-		return "", ""
+		return false, ""
 	}
 	marker, exists := readMultiUserMarker(dir)
 	machineID := ""
@@ -244,9 +237,9 @@ func autoIdentityUncached(exec executor.Executor) (template, reason string) {
 		}
 		established = establishedSeenUsers(dir, machineID)
 	}
-	on, why := multiUserHost(edition, tsAppCompat, established, exists, usersRule)
-	if !on {
-		return "", ""
+	shared, why := multiUserHost(edition, tsAppCompat, established, exists, usersRule)
+	if !shared {
+		return false, ""
 	}
 	if exists {
 		why = marker.Reason
@@ -260,60 +253,13 @@ func autoIdentityUncached(exec executor.Executor) (template, reason string) {
 		}
 		_ = writeMultiUserMarker(dir, multiUserMarker{Since: time.Now().Unix(), Reason: why, MachineID: machineID})
 	}
-	return AutoIdentityTemplate, autoReasonDisplay(why)
+	return true, autoReasonDisplay(why)
 }
 
-// AutoIdentitySuperseded reports whether a process that snapshotted the
-// machine identity (automatic mode off at startup) has since been overtaken:
-// another user's run switched the host to per-user identities and wrote the
-// sticky marker while this one was waiting for the run gate or the instance
-// lock. Such a run must not proceed under the machine identity, or its upload
-// would restore the serial row the switch just retired, and the marker would
-// then keep that row from being retired again. Only a serial-mode snapshot
-// can be superseded; a configured template, or a snapshot already in
-// automatic mode, never is.
-func AutoIdentitySuperseded(exec executor.Executor) bool {
-	autoDecision.mu.Lock()
-	done, snapshot := autoDecision.done, autoDecision.template
-	autoDecision.mu.Unlock()
-	if !done || snapshot != "" || exec.GOOS() != model.PlatformWindows {
-		return false
-	}
-	// With detection off the marker is history: the documented opt-out must
-	// restore machine-level scanning, not skip every run.
-	if config.MultiUserDetectionMode() == config.MultiUserDetectionOff {
-		return false
-	}
-	dir := machineStateDir()
-	if dir == "" {
-		return false
-	}
-	_, exists := markerFor(dir, currentMachineID(exec))
-	return exists
-}
-
-// AutoSerialRowRetired reports whether the switch to automatic per-user
-// identities has already removed this host's machine-identity row (the
-// sticky marker records the retire). A service-account run in automatic mode
-// reports under the machine identity until then and is skipped afterwards
-// (Identity.AutoFallback). Only a retire of machineID itself counts: a
-// marker inherited from an image names the builder's row, not this host's.
-func AutoSerialRowRetired(exec executor.Executor, machineID string) bool {
-	if exec.GOOS() != model.PlatformWindows {
-		return false
-	}
-	dir := machineStateDir()
-	if dir == "" {
-		return false
-	}
-	m, ok := markerFor(dir, machineID)
-	return ok && m.RetiredSerialID != "" && strings.EqualFold(m.RetiredSerialID, machineID)
-}
-
-// AutoIdentityReason returns the human-readable reason the automatic
-// per-user identity is in force on this host, or "" when it is not.
-func AutoIdentityReason(exec executor.Executor) string {
-	_, reason := autoIdentity(exec)
+// PerSessionReason returns the human-readable reason per-session scanning is
+// on for this host, or "" when it is not.
+func PerSessionReason(exec executor.Executor) string {
+	_, reason := PerSessionScanning(exec)
 	return reason
 }
 
@@ -328,8 +274,8 @@ func autoReasonDisplay(reason string) string {
 }
 
 // RecordScanUser notes the developer running this scan, and the day, in the
-// machine-wide seen-users file so the users rule can flip the host to
-// per-user identities once two developers have each scanned on two
+// machine-wide seen-users file so the users rule can switch the host to
+// per-session scanning once two developers have each scanned on two
 // different days. Only with config multi_user_detection = "users"; service
 // accounts are never recorded. No-op where the machine dir is unavailable
 // (non-Windows, per-user installs).
@@ -346,10 +292,10 @@ func RecordScanUser(exec executor.Executor) {
 }
 
 // pendingVisit is a visit the `identity` verb assumes without recording it:
-// a scan records its user before the automatic-mode decision is taken, so
-// the answer a diagnostic query gives must include today's visit of the
-// querying user, or it could report the machine identity on the very scan
-// that establishes the second developer.
+// a scan records its user before the per-session decision is taken, so the
+// answer a diagnostic query gives must include today's visit of the querying
+// user, or it could report shared state on the very scan that establishes
+// the second developer.
 var pendingVisit struct {
 	mu          sync.Mutex
 	prospective bool // this process is a diagnostic query; its decision is never persisted
@@ -363,9 +309,9 @@ func prospectiveQuery() bool {
 	return pendingVisit.prospective
 }
 
-// ProspectiveScanUser makes the automatic-mode decision of this process
-// count the current user's visit today as a scan would, without writing it:
-// for `identity`, which must answer what send-telemetry would do.
+// ProspectiveScanUser makes the per-session decision of this process count
+// the current user's visit today as a scan would, without writing it: for
+// `identity`, which must answer what send-telemetry would do.
 func ProspectiveScanUser(exec executor.Executor) {
 	pendingVisit.mu.Lock()
 	pendingVisit.prospective = true
@@ -406,8 +352,8 @@ var seenUserDay = func() int64 { return time.Now().Unix() / 86400 }
 // names another machine was captured into an image: its visits are the
 // builder's and are discarded on the clone before a visit is recorded or
 // the users rule is applied, so two developers established on the builder
-// never switch a clone. A file without a header (earlier agents) is taken
-// as this machine's.
+// never switch a clone to per-session scanning. A file without a header
+// (earlier agents) is taken as this machine's.
 const seenUsersMachinePrefix = "# machine "
 
 // seenUsersMachine returns the machine the file is bound to ("" when it is
@@ -673,28 +619,25 @@ func seenUsersHeader(machineID string) string {
 	return seenUsersMachinePrefix + machineID + "\n"
 }
 
-// replaceSeenUsers writes the whole file atomically (temp file + rename; the
-// Windows rename cannot overwrite, so the old file is removed first). The
-// caller holds the visit-file lock.
+// replaceSeenUsers writes the whole file, in place: the file is truncated
+// and rewritten, never replaced by a rename. On a shared Windows host it is
+// the SYSTEM-owned file every signed-in user may modify but not replace,
+// and a file renamed into place would belong to the session that wrote it
+// and be unwritable to the others. The caller holds the visit-file lock,
+// which every writer takes; a reader outside it may see the file
+// half-written once and reads it whole on the next run, and a crash in
+// between loses visits the next runs record again. A missing file is
+// created the same way.
 func replaceSeenUsers(dir, content string) error {
-	path := filepath.Join(dir, seenUsersFile)
-	tmp, err := os.CreateTemp(dir, ".seen-users-*.tmp")
+	f, err := os.OpenFile(filepath.Join(dir, seenUsersFile), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644) // #nosec G302 G304 -- readable by every user's run
 	if err != nil {
 		return err
 	}
-	if _, err := tmp.WriteString(content); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmp.Name())
-		return err
+	_, werr := f.WriteString(content)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
 	}
-	_ = tmp.Close()
-	_ = os.Chmod(tmp.Name(), 0o644) // #nosec G302 -- readable by every user's run
-	_ = os.Remove(path)             // Windows Rename won't overwrite; no-op on POSIX
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	return nil
+	return werr
 }
 
 // seenUsersLockName names the visit-file lock: a sibling of the instance
@@ -848,37 +791,4 @@ func writeMultiUserMarker(dir string, m multiUserMarker) error {
 		return err
 	}
 	return nil
-}
-
-// SerialRowRetirePending reports whether the switch to the automatic per-user
-// identity still owes the backend a retire of the previous machine-identity
-// row (serialID). True when the marker exists, has not recorded a retire yet,
-// and a row under serialID plausibly exists: the switch was triggered by a
-// second user (so the first scanned under the serial), or the machine-wide
-// last-run.json last checked in as serialID (an upgraded host).
-func SerialRowRetirePending(serialID, lastRunDeviceID string) bool {
-	dir := machineStateDir()
-	if dir == "" || !usableSerial(serialID) {
-		return false
-	}
-	m, ok := markerFor(dir, serialID)
-	if !ok || m.RetiredSerialID != "" {
-		return false
-	}
-	return m.Reason == autoReasonUsers || (lastRunDeviceID != "" && lastRunDeviceID == serialID)
-}
-
-// MarkSerialRowRetired records that serialID was retired, so the switch never
-// retires it again. A marker from an earlier agent gains the machine id here.
-func MarkSerialRowRetired(serialID string) error {
-	dir := machineStateDir()
-	m, ok := markerFor(dir, serialID)
-	if !ok {
-		return nil
-	}
-	m.RetiredSerialID = serialID
-	if m.MachineID == "" {
-		m.MachineID = serialID
-	}
-	return writeMultiUserMarker(dir, *m)
 }

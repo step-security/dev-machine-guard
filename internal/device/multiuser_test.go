@@ -123,7 +123,7 @@ func TestMultiUserMarker_RoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	m, ok := readMultiUserMarker(dir)
-	if !ok || m.Since != 42 || m.Reason != autoReasonUsers || m.RetiredSerialID != "" {
+	if !ok || m.Since != 42 || m.Reason != autoReasonUsers {
 		t.Fatalf("marker round trip = %+v, %v", m, ok)
 	}
 	// Garbage is ignored, never fatal.
@@ -135,34 +135,31 @@ func TestMultiUserMarker_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestAutoIdentity_MultiSessionEditionFromFirstScan(t *testing.T) {
+func TestPerSession_MultiSessionEditionFromFirstScan(t *testing.T) {
 	dir := withMachineStateDir(t, "EnterpriseMultiSession", false)
 	withConfigDeviceID(t, "")
 	mock := windowsMock(`AVD-HOST-07\jdoe`)
 
 	id := ResolveIdentity(mock, "SER1", "AVD-HOST-07", `AVD-HOST-07\jdoe`)
 	jdoe := "jdoe-" + UserTokenFingerprint(`avd-host-07\jdoe`)
-	if id.Source != IdentitySourceAuto || id.DeviceID != "avd-host-07-"+jdoe || !id.PerUser || id.UserScope != jdoe {
-		t.Fatalf("auto identity = %+v", id)
-	}
-	if id.AutoReason != "multi-session edition" {
-		t.Errorf("AutoReason = %q", id.AutoReason)
+	if id.Source != IdentitySourceSerial || id.DeviceID != "SER1" || !id.PerSession || id.SessionScope != jdoe || id.UserToken != jdoe {
+		t.Fatalf("per-session identity = %+v", id)
 	}
 	if _, ok := readMultiUserMarker(dir); !ok {
 		t.Error("first positive decision must write the sticky marker")
 	}
-	if scope := IdentityUserScope(mock); scope != jdoe {
-		t.Errorf("IdentityUserScope = %q, want %q", scope, jdoe)
+	if scope := SessionScope(mock); scope != jdoe {
+		t.Errorf("SessionScope = %q, want %q", scope, jdoe)
 	}
-	if reason := AutoIdentityReason(mock); reason != "multi-session edition" {
-		t.Errorf("AutoIdentityReason = %q", reason)
+	if reason := PerSessionReason(mock); reason != "multi-session edition" {
+		t.Errorf("PerSessionReason = %q", reason)
 	}
 }
 
 // With multi_user_detection = "users", two developers who have each scanned
-// on two different days flip an ordinary edition to per-user identities; the
-// decision then sticks.
-func TestAutoIdentity_SecondUserFlipsAndSticks(t *testing.T) {
+// on two different days switch an ordinary edition to per-session scanning;
+// the decision then sticks. The device stays the machine throughout.
+func TestPerSession_SecondUserFlipsAndSticks(t *testing.T) {
 	dir := withMachineStateDir(t, "Professional", false)
 	withConfigDeviceID(t, "")
 	withMultiUserDetection(t, config.MultiUserDetectionUsers)
@@ -170,28 +167,31 @@ func TestAutoIdentity_SecondUserFlipsAndSticks(t *testing.T) {
 	second := windowsMock(`HOST\asmith`)
 	scan := func(m *executor.Mock, user string, day int64) Identity {
 		withSeenUserDay(t, day)
-		ResetAutoIdentityForTest()
+		ResetPerSessionForTest()
 		RecordScanUser(m)
 		return ResolveIdentity(m, "SER1", "HOST", user)
 	}
 	// Day 1: both scan; neither is established yet.
-	if id := scan(first, `HOST\jdoe`, 100); id.Source != IdentitySourceSerial || id.DeviceID != "SER1" {
-		t.Fatalf("single user must keep the serial identity: %+v", id)
+	if id := scan(first, `HOST\jdoe`, 100); id.PerSession || id.DeviceID != "SER1" {
+		t.Fatalf("single user must keep shared scanning: %+v", id)
 	}
-	if id := scan(second, `HOST\asmith`, 100); id.Source != IdentitySourceSerial {
-		t.Fatalf("a second user's first visit must not flip the host: %+v", id)
+	if id := scan(second, `HOST\asmith`, 100); id.PerSession {
+		t.Fatalf("a second user's first visit must not switch the host: %+v", id)
 	}
 	// Day 2: jdoe is established, asmith's second day establishes them too.
-	if id := scan(first, `HOST\jdoe`, 101); id.Source != IdentitySourceSerial {
+	if id := scan(first, `HOST\jdoe`, 101); id.PerSession {
 		t.Fatalf("one established user is not enough: %+v", id)
 	}
 	id := scan(second, `HOST\asmith`, 101)
 	asmith := "asmith-" + UserTokenFingerprint(`host\asmith`)
-	if id.Source != IdentitySourceAuto || id.DeviceID != "host-"+asmith || id.AutoReason != "2+ users seen" {
-		t.Fatalf("second established user must flip to per-user: %+v", id)
+	if !id.PerSession || id.DeviceID != "SER1" || id.SessionScope != asmith {
+		t.Fatalf("second established user must switch to per-session scanning: %+v", id)
+	}
+	if reason := PerSessionReason(second); reason != "2+ users seen" {
+		t.Fatalf("PerSessionReason = %q", reason)
 	}
 	m, ok := readMultiUserMarker(dir)
-	if !ok || m.Reason != autoReasonUsers {
+	if !ok || m.Reason != autoReasonUsers || m.MachineID != "SER1" {
 		t.Fatalf("marker = %+v, %v", m, ok)
 	}
 
@@ -199,27 +199,27 @@ func TestAutoIdentity_SecondUserFlipsAndSticks(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, seenUsersFile)); err != nil {
 		t.Fatal(err)
 	}
-	ResetAutoIdentityForTest()
-	if id := ResolveIdentity(first, "SER1", "HOST", `HOST\jdoe`); id.Source != IdentitySourceAuto || id.DeviceID != "host-jdoe-"+UserTokenFingerprint(`host\jdoe`) {
-		t.Fatalf("marker must keep the host multi-user: %+v", id)
+	ResetPerSessionForTest()
+	if id := ResolveIdentity(first, "SER1", "HOST", `HOST\jdoe`); !id.PerSession || id.SessionScope != "jdoe-"+UserTokenFingerprint(`host\jdoe`) {
+		t.Fatalf("marker must keep the host per-session: %+v", id)
 	}
 }
 
 // The users rule is opt-in: with the default mode a second developer's scans
-// never change an ordinary workstation's identity, and "off" keeps even a
-// multi-session edition on the machine identity.
-func TestAutoIdentity_DetectionModes(t *testing.T) {
+// never change how an ordinary workstation scans, and "off" keeps even a
+// multi-session edition on one shared scan.
+func TestPerSession_DetectionModes(t *testing.T) {
 	withMachineStateDir(t, "Professional", false)
 	withConfigDeviceID(t, "")
 	for _, day := range []int64{100, 101} {
 		withSeenUserDay(t, day)
 		for _, u := range []string{`HOST\jdoe`, `HOST\asmith`} {
-			ResetAutoIdentityForTest()
+			ResetPerSessionForTest()
 			RecordScanUser(windowsMock(u))
 		}
 	}
-	ResetAutoIdentityForTest()
-	if id := ResolveIdentity(windowsMock(`HOST\asmith`), "SER1", "HOST", `HOST\asmith`); id.Source != IdentitySourceSerial {
+	ResetPerSessionForTest()
+	if id := ResolveIdentity(windowsMock(`HOST\asmith`), "SER1", "HOST", `HOST\asmith`); id.PerSession {
 		t.Fatalf("default mode must ignore seen users: %+v", id)
 	}
 	if got := readSeenUsers(t.TempDir()); len(got) != 0 {
@@ -228,8 +228,8 @@ func TestAutoIdentity_DetectionModes(t *testing.T) {
 
 	withMachineStateDir(t, "EnterpriseMultiSession", false)
 	withMultiUserDetection(t, config.MultiUserDetectionOff)
-	if id := ResolveIdentity(windowsMock(`AVD\jdoe`), "SER1", "AVD", `AVD\jdoe`); id.Source != IdentitySourceSerial || id.DeviceID != "SER1" {
-		t.Fatalf("off must keep the machine identity even on a multi-session edition: %+v", id)
+	if id := ResolveIdentity(windowsMock(`AVD\jdoe`), "SER1", "AVD", `AVD\jdoe`); id.PerSession || id.DeviceID != "SER1" || id.SessionScope != "" {
+		t.Fatalf("off must keep shared scanning even on a multi-session edition: %+v", id)
 	}
 }
 
@@ -445,8 +445,8 @@ func TestSeenUsers_InheritedHistoryIsDiscarded(t *testing.T) {
 		t.Fatalf("an unknown machine identity honours the file, got %v", got)
 	}
 	mock := windowsMock(`AVD-HOST-07\asmith`)
-	if tpl, _ := autoIdentity(mock); tpl != "" {
-		t.Fatalf("inherited visits must not switch the clone: %q", tpl)
+	if on, _ := PerSessionScanning(mock); on {
+		t.Fatal("inherited visits must not switch the clone")
 	}
 	// The clone's first recorded visit replaces the inherited history.
 	withSeenUserDay(t, 200)
@@ -490,72 +490,44 @@ func TestSeenUsers_InheritedHistoryIsDiscarded(t *testing.T) {
 }
 
 // A marker captured into an image names the builder. On a clone it is
-// ignored: the rules are evaluated afresh, the builder's retired serial row
-// never suppresses this host's machine-identity fallback, and the first
-// positive decision writes this machine's own marker.
+// ignored: the rules are evaluated afresh and the first positive decision
+// writes this machine's own marker.
 func TestMultiUserMarker_InheritedFromAnotherMachineIsIgnored(t *testing.T) {
 	dir := withMachineStateDir(t, "Professional", false) // this machine: SER1
 	withConfigDeviceID(t, "")
-	inherited := multiUserMarker{Since: 1, Reason: autoReasonEdition, RetiredSerialID: "SER-BUILDER", MachineID: "SER-BUILDER"}
+	inherited := multiUserMarker{Since: 1, Reason: autoReasonEdition, MachineID: "SER-BUILDER"}
 	if err := writeMultiUserMarker(dir, inherited); err != nil {
 		t.Fatal(err)
 	}
 	mock := windowsMock(`AVD-HOST-07\jdoe`)
-	if tpl, _ := autoIdentity(mock); tpl != "" {
-		t.Fatalf("an inherited marker must not switch an ordinary edition: %q", tpl)
-	}
-	if AutoSerialRowRetired(mock, "SER1") {
-		t.Fatal("the builder's retired row is not this host's")
-	}
-	if SerialRowRetirePending("SER1", "SER1") {
-		t.Fatal("an inherited marker owes no retire")
-	}
-	if AutoIdentitySuperseded(mock) {
-		t.Fatal("an inherited marker supersedes nothing")
+	if on, _ := PerSessionScanning(mock); on {
+		t.Fatal("an inherited marker must not switch an ordinary edition")
 	}
 	// On a multi-session edition the clone's own rules switch it, and the
-	// marker is rewritten for this machine without the builder's retire.
-	ResetAutoIdentityForTest()
+	// marker is rewritten for this machine.
+	ResetPerSessionForTest()
 	probeWindowsEdition = func() (string, bool) { return "EnterpriseMultiSession", false }
-	if tpl, _ := autoIdentity(mock); tpl != AutoIdentityTemplate {
-		t.Fatalf("the clone's own edition must decide: %q", tpl)
+	if on, _ := PerSessionScanning(mock); !on {
+		t.Fatal("the clone's own edition must decide")
 	}
 	m, ok := readMultiUserMarker(dir)
-	if !ok || m.MachineID != "SER1" || m.RetiredSerialID != "" || m.Reason != autoReasonEdition {
+	if !ok || m.MachineID != "SER1" || m.Reason != autoReasonEdition {
 		t.Fatalf("marker after the clone's own decision = %+v", m)
-	}
-	if err := MarkSerialRowRetired("SER1"); err != nil {
-		t.Fatal(err)
-	}
-	if !AutoSerialRowRetired(mock, "SER1") {
-		t.Fatal("this host's own retire must count")
-	}
-	if AutoSerialRowRetired(mock, "SER-OTHER") {
-		t.Fatal("a retire counts only for the row it names")
 	}
 }
 
-// Markers written by earlier agents carry no machine id and keep working;
-// recording a retire stamps the machine, and the retire counts only for the
-// row it names.
+// Markers written by earlier agents carry no machine id, and may carry the
+// retired-serial field of the unreleased per-user build; both keep working.
 func TestMultiUserMarker_LegacyWithoutMachineIDIsHonoured(t *testing.T) {
 	dir := withMachineStateDir(t, "Professional", false)
 	withConfigDeviceID(t, "")
-	if err := writeMultiUserMarker(dir, multiUserMarker{Since: 1, Reason: autoReasonUsers}); err != nil {
+	legacy := `{"since":1,"reason":"users","retired_serial_id":"SER1"}`
+	if err := os.WriteFile(filepath.Join(dir, multiUserMarkerFile), []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	mock := windowsMock(`AVD-HOST-07\jdoe`)
-	if tpl, _ := autoIdentity(mock); tpl != AutoIdentityTemplate {
-		t.Fatalf("a legacy marker must still switch the host: %q", tpl)
-	}
-	if err := MarkSerialRowRetired("SER1"); err != nil {
-		t.Fatal(err)
-	}
-	if m, _ := readMultiUserMarker(dir); m.MachineID != "SER1" {
-		t.Fatalf("recording the retire must stamp the machine: %+v", m)
-	}
-	if !AutoSerialRowRetired(mock, "SER1") || AutoSerialRowRetired(mock, "SER2") {
-		t.Fatal("a recorded retire counts for the row it names only")
+	if on, reason := PerSessionScanning(mock); !on || reason != "2+ users seen" {
+		t.Fatalf("a legacy marker must still switch the host: on=%v reason=%q", on, reason)
 	}
 }
 
@@ -578,15 +550,15 @@ func TestProspectiveScanUser_MatchesTheScanDecision(t *testing.T) {
 	}
 	withSeenUserDay(t, 101)
 	mock := windowsMock(`HOST\asmith`)
-	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\asmith`); id.Source != IdentitySourceSerial {
+	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\asmith`); id.PerSession {
 		t.Fatalf("without today's visit asmith is not established yet: %+v", id)
 	}
-	ResetAutoIdentityForTest()
+	ResetPerSessionForTest()
 	ProspectiveScanUser(mock)
-	if scope := IdentityUserScope(mock); scope != asmith { // main's next step caches the decision
+	if scope := SessionScope(mock); scope != asmith { // main's next step caches the decision
 		t.Fatalf("scope after the prospective visit = %q, want %q", scope, asmith)
 	}
-	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\asmith`); id.Source != IdentitySourceAuto || id.DeviceID != "host-"+asmith {
+	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\asmith`); !id.PerSession || id.DeviceID != "SER1" || id.SessionScope != asmith {
 		t.Fatalf("the prospective visit must give the scan's answer: %+v", id)
 	}
 	if data, _ := os.ReadFile(filepath.Join(dir, seenUsersFile)); strings.Count(string(data), "\n") != 3 {
@@ -598,49 +570,52 @@ func TestProspectiveScanUser_MatchesTheScanDecision(t *testing.T) {
 	// The scan itself records the visit, reaches the same answer and makes
 	// it stick.
 	resetPendingVisitForTest()
-	ResetAutoIdentityForTest()
+	ResetPerSessionForTest()
 	RecordScanUser(mock)
-	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\asmith`); id.Source != IdentitySourceAuto {
-		t.Fatalf("the scan must flip: %+v", id)
+	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\asmith`); !id.PerSession {
+		t.Fatalf("the scan must switch: %+v", id)
 	}
 	if _, err := os.Stat(filepath.Join(dir, multiUserMarkerFile)); err != nil {
 		t.Fatalf("the scan must write the sticky marker: %v", err)
 	}
 }
 
-func TestAutoIdentity_PrecedenceAndEscapes(t *testing.T) {
+// Per-session scanning never changes the device identity: a configured
+// template or literal still decides the id, and the session facts ride along.
+func TestPerSession_IdentityPrecedenceUnchanged(t *testing.T) {
 	withMachineStateDir(t, "EnterpriseMultiSession", false)
 	mock := windowsMock(`HOST\jdoe`)
+	jdoe := "jdoe-" + UserTokenFingerprint(`host\jdoe`)
 
 	withConfigDeviceID(t, "{serial}")
-	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\jdoe`); id.Source != IdentitySourceConfig || id.DeviceID != "SER1" {
-		t.Errorf("{serial} must force the serial identity: %+v", id)
+	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\jdoe`); id.Source != IdentitySourceConfig || id.DeviceID != "SER1" || !id.PerSession || id.SessionScope != jdoe {
+		t.Errorf("{serial} on a per-session host: %+v", id)
 	}
 	withConfigDeviceID(t, "fleet-123")
-	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\jdoe`); id.Source != IdentitySourceConfig || id.DeviceID != "fleet-123" {
-		t.Errorf("config literal must beat auto: %+v", id)
+	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\jdoe`); id.Source != IdentitySourceConfig || id.DeviceID != "fleet-123" || !id.PerSession {
+		t.Errorf("a literal id on a per-session host: %+v", id)
 	}
 	withConfigDeviceID(t, "")
 	mock.SetEnv(EnvDeviceID, "{hostname}")
-	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\jdoe`); id.Source != IdentitySourceEnv || id.DeviceID != "host" {
-		t.Errorf("env must beat auto: %+v", id)
+	if id := ResolveIdentity(mock, "SER1", "HOST", `HOST\jdoe`); id.Source != IdentitySourceEnv || id.DeviceID != "host" || !id.PerSession {
+		t.Errorf("env template on a per-session host: %+v", id)
 	}
 }
 
-func TestAutoIdentity_OffOutsideWindowsAndWithoutMachineDir(t *testing.T) {
+func TestPerSession_OffOutsideWindowsAndWithoutMachineDir(t *testing.T) {
 	withMachineStateDir(t, "EnterpriseMultiSession", false)
 	withConfigDeviceID(t, "")
 	mac := executor.NewMock()
 	mac.SetGOOS(model.PlatformDarwin)
 	mac.SetUsername("jdoe")
-	if id := ResolveIdentity(mac, "C02XYZ", "mbp", "jdoe"); id.Source != IdentitySourceSerial || id.DeviceID != "C02XYZ" {
-		t.Errorf("auto must be off on macOS: %+v", id)
+	if id := ResolveIdentity(mac, "C02XYZ", "mbp", "jdoe"); id.PerSession || id.DeviceID != "C02XYZ" || id.SessionScope != "" {
+		t.Errorf("per-session scanning must be off on macOS: %+v", id)
 	}
 	restore := SetMachineStateDirForTest("")
 	t.Cleanup(restore)
 	win := windowsMock(`HOST\jdoe`)
-	if id := ResolveIdentity(win, "SER1", "HOST", `HOST\jdoe`); id.Source != IdentitySourceSerial {
-		t.Errorf("auto must be off without a machine-wide state dir: %+v", id)
+	if id := ResolveIdentity(win, "SER1", "HOST", `HOST\jdoe`); id.PerSession {
+		t.Errorf("per-session scanning must be off without a machine-wide state dir: %+v", id)
 	}
 }
 
@@ -655,64 +630,5 @@ func TestRecordScanUser_SkipsServiceAccounts(t *testing.T) {
 	RecordScanUser(windowsMock(`CONTOSO\JDoe`))
 	if got, want := strings.Join(readSeenUsers(dir), ","), "jdoe-"+UserTokenFingerprint(`contoso\jdoe`); got != want {
 		t.Errorf("readSeenUsers = %v, want %v", got, want)
-	}
-}
-
-func TestSerialRowRetirePending_AndMark(t *testing.T) {
-	dir := withMachineStateDir(t, "Professional", false)
-	if SerialRowRetirePending("SER1", "") {
-		t.Error("no marker: nothing pending")
-	}
-	if err := writeMultiUserMarker(dir, multiUserMarker{Since: 1, Reason: autoReasonEdition}); err != nil {
-		t.Fatal(err)
-	}
-	if SerialRowRetirePending("SER1", "") {
-		t.Error("edition switch with no prior serial run: nothing to retire")
-	}
-	if !SerialRowRetirePending("SER1", "SER1") {
-		t.Error("machine last-run under the serial proves a row exists")
-	}
-	if err := writeMultiUserMarker(dir, multiUserMarker{Since: 1, Reason: autoReasonUsers}); err != nil {
-		t.Fatal(err)
-	}
-	if !SerialRowRetirePending("SER1", "") {
-		t.Error("a second user implies the first scanned under the serial")
-	}
-	if SerialRowRetirePending("unknown", "") {
-		t.Error("an unusable serial has no row to retire")
-	}
-	if err := MarkSerialRowRetired("SER1"); err != nil {
-		t.Fatal(err)
-	}
-	if SerialRowRetirePending("SER1", "SER1") {
-		t.Error("retire must happen once")
-	}
-}
-
-func TestAutoIdentitySuperseded(t *testing.T) {
-	dir := withMachineStateDir(t, "Professional", false)
-	withConfigDeviceID(t, "")
-	mock := windowsMock(`AVD-HOST-07\jdoe`)
-	// The snapshot of a single-user host: machine identity.
-	if tpl, _ := autoIdentity(mock); tpl != "" {
-		t.Fatalf("single-user host must snapshot the machine identity, got %q", tpl)
-	}
-	if AutoIdentitySuperseded(mock) {
-		t.Fatal("no switch happened yet")
-	}
-	// Another user's run flips the host after the snapshot was taken.
-	if err := writeMultiUserMarker(dir, multiUserMarker{Since: 1, Reason: autoReasonUsers}); err != nil {
-		t.Fatal(err)
-	}
-	if !AutoIdentitySuperseded(mock) {
-		t.Fatal("a marker written after a serial-mode snapshot must supersede it")
-	}
-	// A snapshot already in automatic mode is never superseded.
-	ResetAutoIdentityForTest()
-	if tpl, _ := autoIdentity(mock); tpl == "" {
-		t.Fatal("the marker must switch a fresh snapshot")
-	}
-	if AutoIdentitySuperseded(mock) {
-		t.Fatal("an automatic-mode snapshot is not superseded")
 	}
 }

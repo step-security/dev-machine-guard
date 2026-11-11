@@ -11,6 +11,7 @@ func (p *Payload) applyDevice(dev model.Device, deviceID, serialIdentity string)
 	p.DeviceID = deviceID
 	p.SerialNumber = serialIdentity
 	p.UserIdentity = dev.UserIdentity
+	p.UserToken = dev.UserToken
 	p.UserIDMissing = identity.MissingUser(dev.UserIdentity)
 	p.DeviceIDMissing = identity.MissingDevice(deviceID)
 	p.NoUserLoggedIn = dev.NoUserLoggedIn

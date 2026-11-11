@@ -387,13 +387,16 @@ func TestGather_DeviceIDDefaultsToSerial(t *testing.T) {
 	if dev.SerialNumber != "SERIAL123" || dev.DeviceID != "SERIAL123" {
 		t.Fatalf("default identity must equal the serial: %+v", dev)
 	}
-	if dev.DeviceIDSource != IdentitySourceSerial || dev.IdentityPerUser || dev.IdentityIncomplete {
+	if dev.DeviceIDSource != IdentitySourceSerial || dev.IdentityIncomplete || dev.PerSessionScanning {
 		t.Fatalf("unexpected identity metadata: %+v", dev)
+	}
+	if dev.UserToken != "devuser-"+UserTokenFingerprint("devuser") {
+		t.Fatalf("user token = %q", dev.UserToken)
 	}
 }
 
 func TestGather_DeviceIDAndSerialDiffer(t *testing.T) {
-	withConfigDeviceID(t, "{hostname}-{user}")
+	withConfigDeviceID(t, "{hostname}")
 	mock := executor.NewMock()
 	t.Cleanup(ResetIDCache)
 	mock.SetGOOS("darwin")
@@ -402,28 +405,31 @@ func TestGather_DeviceIDAndSerialDiffer(t *testing.T) {
 	mock.SetUsername("CONTOSO\\JDoe")
 
 	dev := Gather(context.Background(), mock)
-	if dev.DeviceID != "avd-host-07-jdoe-"+UserTokenFingerprint(`contoso\jdoe`) {
+	if dev.DeviceID != "avd-host-07" {
 		t.Fatalf("device id = %q", dev.DeviceID)
+	}
+	if dev.UserToken != "jdoe-"+UserTokenFingerprint(`contoso\jdoe`) {
+		t.Fatalf("user token = %q", dev.UserToken)
 	}
 	if dev.SerialNumber != "SERIAL123" {
 		t.Fatalf("serial must stay the hardware value, got %q", dev.SerialNumber)
 	}
-	if dev.DeviceIDSource != IdentitySourceConfig || !dev.IdentityPerUser || dev.IdentityIncomplete {
+	if dev.DeviceIDSource != IdentitySourceConfig || dev.IdentityIncomplete {
 		t.Fatalf("unexpected identity metadata: %+v", dev)
 	}
-	if got := ID(dev); got != "avd-host-07-jdoe-"+UserTokenFingerprint(`contoso\jdoe`) {
+	if got := ID(dev); got != "avd-host-07" {
 		t.Fatalf("ID(dev) = %q, want the resolved template", got)
 	}
 
-	// Same machine, service-account context: the serial is still known (the
-	// process cache), but {user} cannot be completed.
+	// Same machine, service-account context: the identity is the machine's
+	// whoever runs the scan; only the user token is missing.
 	mock.SetUsername("NT AUTHORITY\\SYSTEM")
 	mock.SetGOOS("windows")
 	dev = Gather(context.Background(), mock)
-	if !dev.IdentityIncomplete || dev.DeviceID != "" || dev.SerialNumber != "SERIAL123" {
-		t.Fatalf("SYSTEM with {user} must be incomplete but keep the serial: %+v", dev)
+	if dev.IdentityIncomplete || dev.DeviceID != "avd-host-07" || dev.SerialNumber != "SERIAL123" || dev.UserToken != "" {
+		t.Fatalf("SYSTEM resolves the machine identity with no user token: %+v", dev)
 	}
-	if got := ID(dev); got != "" {
-		t.Fatalf("ID(dev) for an incomplete identity = %q, want empty", got)
+	if !dev.NoUserLoggedIn {
+		t.Fatalf("a service-account run is flagged no_user_logged_in: %+v", dev)
 	}
 }

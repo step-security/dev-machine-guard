@@ -271,9 +271,9 @@ To label a device for the dashboard, add `"device_tag": "avd-pool-eu"` to the
 config JSON, pass `configure --device-tag avd-pool-eu`, or use the MSI
 `DEVICETAG` property. The tag is set in the agent configuration only (the
 dashboard shows it and never edits it). In the dashboard's Device activity
-settings an admin can limit retirement (on uninstall, on the automatic
-identity switch, by inactivity and from the dashboard) to devices carrying
-chosen tags; the default applies it to all devices.
+settings an admin can limit retirement (on uninstall, by inactivity and from
+the dashboard) to devices carrying chosen tags; the default applies it to all
+devices.
 
 To use a custom device ID, add `"device_id": "my-device-123"` to the existing
 config JSON, set **Device ID** through `configure`, or pass
@@ -289,19 +289,18 @@ separate IDs from the host ID and distro ID.
 Choose an ID unique within your customer and keep it stable: changing the ID
 registers a separate device in the backend; it does not migrate existing history.
 
-The value may also be a template over `{serial}`, `{hostname}` and `{user}`
-(for example `{hostname}-{user}` on pooled virtual desktops, so each person on a
-shared host is their own device; `{user}` is the account's short name plus a
-fingerprint of the full account name, so accounts that share a short name never
-share a device), and the `STEPSEC_DEVICE_ID` environment variable overrides it
-at run time. With nothing configured, a shared Windows host (a multi-session
-edition; with `multi_user_detection: users`, also one where two developers have
-each scanned on two different days) switches to `{hostname}-{user}`
-automatically and removes its old serial-based device once (the dashboard hides
-it immediately and purges it after the standard 30-day retention); configure
-`{serial}` or `multi_user_detection: off` to opt out. `identity --json` prints
-the identity a machine reports under. Every scan also reports whether
-the machine is virtual or physical and on which hypervisor or cloud. See
+The value may also be a template over `{serial}` and `{hostname}` (for
+example `{hostname}` on pooled virtual desktops rebuilt under stable names, so
+a rebuilt host keeps its device and history), and the `STEPSEC_DEVICE_ID`
+environment variable overrides it at run time. A device is always the machine:
+on a shared Windows host (a multi-session edition or the RD Session Host role;
+with `multi_user_detection: users`, also one where two developers have each
+scanned on two different days) every signed-in session runs its own scan and
+reports under the same device with its own `user_identity` and `user_token`,
+and the dashboard lists the users inside the device; `multi_user_detection:
+off` keeps one scan per tick. `identity --json` prints the identity a machine
+reports under. Every scan also reports whether the machine is virtual or
+physical and on which hypervisor or cloud. See
 [docs/deploying-on-virtual-desktops.md](docs/deploying-on-virtual-desktops.md).
 
 Every setting can also be written without prompts, which is how MDM, MSI and
@@ -321,7 +320,7 @@ preferences (`configure --color=never`) without them:
 | Setting                 | `configure` flag                                     |
 | ----------------------- | ---------------------------------------------------- |
 | User ID (one-time)      | `--user-id ID` (only when no usable identity is detected) |
-| Device ID               | `--device-id VALUE` (a literal, or a template over `{serial}` `{hostname}` `{user}`; `-` clears) |
+| Device ID               | `--device-id VALUE` (a literal, or a template over `{serial}` `{hostname}`; `-` clears) |
 | Device tag              | `--device-tag TAG` (`-` clears)                      |
 | Retire on uninstall     | `--retire-on-uninstall[=BOOL]`                        |
 | Multi-user detection    | `--multi-user-detection MODE` (`edition`, `users`, `off`; `-` clears) |

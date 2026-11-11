@@ -450,11 +450,11 @@ func TestParseHooks_AcceptsInstallDir(t *testing.T) {
 // test that asserts the binary always exits 0 on `_hook` invocations.
 
 func TestParse_ConfigureDeviceIDAndRetireOnUninstall(t *testing.T) {
-	cfg, err := Parse([]string{"configure", "--device-id", "{hostname}-{user}", "--retire-on-uninstall"})
+	cfg, err := Parse([]string{"configure", "--device-id", "{hostname}", "--retire-on-uninstall"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ConfigValues["device_id"] != "{hostname}-{user}" {
+	if cfg.ConfigValues["device_id"] != "{hostname}" {
 		t.Errorf("device_id = %v", cfg.ConfigValues["device_id"])
 	}
 	if cfg.ConfigValues["retire_on_uninstall"] != true {
@@ -635,5 +635,36 @@ func TestParse_IdentityVerb(t *testing.T) {
 	}
 	if cfg.Command != "identity" || cfg.OutputFormat != "json" {
 		t.Fatalf("identity --json parsed as %+v", cfg)
+	}
+}
+
+func TestParse_ConfigureImageBuilder(t *testing.T) {
+	cfg, err := Parse([]string{"configure", "--image-builder"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ImageBuilder == nil || !*cfg.ImageBuilder {
+		t.Errorf("bare --image-builder must switch on, got %v", cfg.ImageBuilder)
+	}
+	if len(cfg.ConfigValues) != 0 {
+		t.Errorf("--image-builder is not a config.json key, got %v", cfg.ConfigValues)
+	}
+	cfg, err = Parse([]string{"configure", "--image-builder=false"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ImageBuilder == nil || *cfg.ImageBuilder {
+		t.Errorf("--image-builder=false must switch off, got %v", cfg.ImageBuilder)
+	}
+	// The MSI passes an unset property verbatim: empty means "unchanged".
+	cfg, err = Parse([]string{"configure", "--non-interactive", "--image-builder="})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ImageBuilder != nil {
+		t.Errorf("empty --image-builder= must leave the switch unchanged, got %v", *cfg.ImageBuilder)
+	}
+	if _, err := Parse([]string{"configure", "--image-builder=maybe"}); err == nil {
+		t.Error("expected error for a non-boolean --image-builder")
 	}
 }

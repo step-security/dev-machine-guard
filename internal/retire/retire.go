@@ -30,6 +30,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/heartbeat"
+	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
@@ -39,9 +40,6 @@ import (
 const (
 	// ReasonUninstall: `uninstall --retire` / retire_on_uninstall.
 	ReasonUninstall = "agent_uninstall"
-	// ReasonIdentityChanged: a host switched to the automatic per-user identity
-	// and its previous machine-identity row is being retired.
-	ReasonIdentityChanged = "identity_changed"
 )
 
 const (
@@ -57,7 +55,7 @@ const (
 	// perIdentityBudget is what BudgetFor adds per identity beyond the
 	// first: one attempt plus its retry.
 	perIdentityBudget = 2*attemptTimeout + retryBackoff
-	// MaxBudget caps BudgetFor so a host with many per-user rows still
+	// MaxBudget caps BudgetFor so a host with many cached ids still
 	// uninstalls promptly; rows the budget leaves behind are covered by the
 	// dashboard's auto-retire.
 	MaxBudget = 60 * time.Second
@@ -117,7 +115,7 @@ func Post(ctx context.Context, endpoint, apiKey, customerID, deviceID, agentVers
 		"/developer-mdm-agent/devices/" + url.PathEscape(deviceID) + "/retire"
 
 	// device_tag lets the backend apply the tenant's retirement scope to a
-	// row that predates the tag (the serial row at the identity switch).
+	// row that predates the tag.
 	body, err := json.Marshal(map[string]string{
 		"agent_version": agentVersion,
 		"platform":      platform,
@@ -189,10 +187,10 @@ func post(ctx context.Context, target, apiKey string, body []byte) (status strin
 // CollectIdentities returns every device id this installation may have
 // registered under: the identity resolved right now (when complete), plus the
 // run-gate cache of every state file under the install dir — last-run.json at
-// the top level and users/*/last-run.json for per-user identities. The latter
-// is what lets an MSI uninstall, which runs as SYSTEM and therefore cannot
-// complete a {user} template itself, retire each logged-in user's device.
-// Deduplicated, ordered, capped at MaxIdentities.
+// the top level and users/*/last-run.json for the per-session state. A
+// session's record normally names the machine identity too, and the per-user
+// ids an older build wrote go with it, so an MSI uninstall running as SYSTEM
+// leaves no row behind. Deduplicated, ordered, capped at MaxIdentities.
 func CollectIdentities(ctx context.Context, exec executor.Executor, log *progress.Logger) []string {
 	seen := map[string]bool{}
 	var ids []string
@@ -209,7 +207,7 @@ func CollectIdentities(ctx context.Context, exec executor.Executor, log *progres
 	if !id.Incomplete {
 		add(id.DeviceID)
 	} else {
-		log.Debug("retire: identity template %q is incomplete in this context; relying on cached per-user ids", id.Template)
+		log.Debug("retire: identity template %q cannot be completed in this context; relying on the cached run records", id.Template)
 	}
 
 	// The install dir this process resolves is not always where the scheduled
@@ -261,19 +259,19 @@ func stateRoots() []string {
 	return roots
 }
 
-// Bounds on identity collection: the users tree and the per-user caches are
+// Bounds on identity collection: the users tree and the per-session caches are
 // user-writable, so neither the number of files read per root nor the size
 // of one may depend on what a user planted there.
 const (
-	// maxCachedIDFiles covers every per-user cache a host at MaxIdentities
+	// maxCachedIDFiles covers every per-session cache a host at MaxIdentities
 	// can have, plus the top-level heartbeat of the same root.
 	maxCachedIDFiles     = MaxIdentities + 1
 	maxCachedIDFileBytes = 64 * 1024
 )
 
 // collectCachedIDs reads the run-gate cache of every state file under the
-// roots: last-run.json at the top level and users/*/last-run.json for
-// per-user identities. Order is deterministic (roots in order, users sorted).
+// roots: last-run.json at the top level and users/*/last-run.json for the
+// per-session state. Order is deterministic (roots in order, users sorted).
 // Stops at the uninstall budget (ctx), reads at most maxCachedIDFiles files
 // per root and skips any larger than maxCachedIDFileBytes. A record that
 // names another machine (machineID known and different) was captured into
@@ -313,4 +311,99 @@ func collectCachedIDs(ctx context.Context, roots []string, machineID string, log
 		}
 	}
 	return ids
+}
+
+// ScanHoldBudget bounds how long an uninstall waits for running scans to
+// finish before it gives up on retiring. An MSI uninstall action and an MDM
+// script both tolerate it; a scan normally reports within seconds of its
+// upload.
+const ScanHoldBudget = 30 * time.Second
+
+// scanHoldPoll is how often HoldScans retries the instance locks.
+var scanHoldPoll = 500 * time.Millisecond
+
+// maxScanHoldScopes bounds how many per-session scopes HoldScans inspects.
+// Each is a lock held (on Windows on an OS thread of its own) while the
+// retire runs, and the users\ tree they are listed from is user-creatable;
+// beyond this many the set cannot be inspected safely, so the retire is
+// skipped and the device stays registered.
+const maxScanHoldScopes = 64
+
+// HoldScans waits, within ctx, until no scan runs under any identity on this
+// host (the machine-wide instance lock and every per-session lock can be taken)
+// and returns a release func that keeps them held while the caller retires,
+// so no scan starts in between. idle is false when a scan still ran at the
+// deadline; the caller must then leave the device registered, because a scan
+// that reports after the retire restores it. Uninstall removes the scheduler
+// first, but a stop that failed or a scan already mid-flight survive that.
+// A lock that cannot be taken for any other reason proves nothing about the
+// rest (the acquisition stops at the first failure, so a scan may hold a
+// later one), so that is not idle either; it is retried until the deadline
+// in case the failure was transient.
+func HoldScans(ctx context.Context, log *progress.Logger) (release func(), idle bool) {
+	scopes, complete := stateScopes()
+	if !complete {
+		log.Warn("retire: more than %d session state directories under users\\; cannot tell whether a scan is running, so the device stays registered", maxScanHoldScopes)
+		return func() {}, false
+	}
+	return holdScans(ctx, scopes, log)
+}
+
+func holdScans(ctx context.Context, scopes []string, log *progress.Logger) (release func(), idle bool) {
+	for {
+		if ctx.Err() != nil {
+			return func() {}, false
+		}
+		lk, err := lock.AcquireAll(scopes)
+		if err == nil {
+			return lk.Release, true
+		}
+		if errors.Is(err, lock.ErrHeld) {
+			log.Debug("retire: a scan is still running (%v); waiting", err)
+		} else {
+			log.Debug("retire: the instance locks could not be inspected (%v); not treating the host as idle", err)
+		}
+		select {
+		case <-ctx.Done():
+			return func() {}, false
+		case <-time.After(scanHoldPoll):
+		}
+	}
+}
+
+// maxUsersDirEntries bounds how much of the user-creatable users\ tree is
+// listed at all; beyond it the set of scopes cannot be known.
+const maxUsersDirEntries = 4096
+
+// stateScopes lists the per-session state scopes (users/<scope> directories)
+// under the state roots, the same places CollectIdentities reads. Only
+// directories count against maxScanHoldScopes (stray files do not hide a
+// later directory), the listing itself stops at maxUsersDirEntries, and past
+// either bound complete is false: the tree is user-creatable, so neither its
+// size nor the number of locks taken may depend on what a user put there.
+func stateScopes() (scopes []string, complete bool) {
+	seen := map[string]bool{}
+	for _, root := range stateRoots() {
+		d, err := os.Open(filepath.Join(root, "users")) // #nosec G304 -- fixed name under the install dir
+		if err != nil {
+			continue
+		}
+		entries, _ := d.ReadDir(maxUsersDirEntries + 1)
+		_ = d.Close()
+		if len(entries) > maxUsersDirEntries {
+			return scopes, false
+		}
+		for _, e := range entries {
+			if !e.IsDir() || seen[e.Name()] {
+				continue
+			}
+			if len(scopes) >= maxScanHoldScopes {
+				return scopes, false
+			}
+			seen[e.Name()] = true
+			scopes = append(scopes, e.Name())
+		}
+	}
+	sort.Strings(scopes)
+	return scopes, true
 }

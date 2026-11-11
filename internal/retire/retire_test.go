@@ -157,7 +157,7 @@ func TestCollectIdentities_SkipsRecordsOfAnotherMachine(t *testing.T) {
 	paths.SetOverride(home)
 	t.Cleanup(func() { paths.SetOverride("") })
 	prev := config.DeviceID
-	config.DeviceID = "{hostname}-{user}"
+	config.DeviceID = "{hostname}"
 	t.Cleanup(func() { config.DeviceID = prev })
 	device.ResetIDCache()
 	t.Cleanup(device.ResetIDCache)
@@ -180,7 +180,9 @@ func TestCollectIdentities_SkipsRecordsOfAnotherMachine(t *testing.T) {
 	seed("legacy", "avd-07-legacy", "")                 // an older agent's record
 
 	ids := CollectIdentities(context.Background(), mock, progress.NewNoop())
-	want := []string{"avd-07-jdoe-" + device.UserTokenFingerprint("jdoe"), "avd-07-asmith", "avd-07-legacy"}
+	// The machine identity leads; the cached records of this machine (an
+	// older build's per-user ids among them) follow; the builder's does not.
+	want := []string{"avd-07", "avd-07-asmith", "avd-07-legacy"}
 	if strings.Join(ids, ",") != strings.Join(want, ",") {
 		t.Fatalf("ids = %v, want %v", ids, want)
 	}
@@ -191,11 +193,12 @@ func TestCollectIdentities_FromUserStateDirs(t *testing.T) {
 	paths.SetOverride(home)
 	t.Cleanup(func() { paths.SetOverride("") })
 	prev := config.DeviceID
-	config.DeviceID = "{hostname}-{user}"
+	config.DeviceID = "{hostname}"
 	t.Cleanup(func() { config.DeviceID = prev })
 
-	// The MSI uninstall runs as SYSTEM: the template cannot be completed, so
-	// only the cached per-user ids can be retired.
+	// The MSI uninstall runs as SYSTEM: the identity is the machine's either
+	// way, and every cached record this machine wrote (an older build's
+	// per-user ids included) is retired with it.
 	device.ResetIDCache()
 	t.Cleanup(device.ResetIDCache)
 	mock := executor.NewMock()
@@ -224,21 +227,16 @@ func TestCollectIdentities_FromUserStateDirs(t *testing.T) {
 	}
 
 	ids := CollectIdentities(context.Background(), mock, progress.NewNoop())
-	want := []string{"avd-host-07-admin", "avd-host-07-asmith", "avd-host-07-jdoe"}
-	if len(ids) != len(want) {
+	want := []string{"avd-host-07", "avd-host-07-admin", "avd-host-07-asmith", "avd-host-07-jdoe"}
+	if strings.Join(ids, ",") != strings.Join(want, ",") {
 		t.Fatalf("ids = %v, want %v", ids, want)
 	}
-	for i := range want {
-		if ids[i] != want[i] {
-			t.Fatalf("ids = %v, want %v", ids, want)
-		}
-	}
 
-	// As a real user the resolved identity comes first, then the cache.
+	// A signed-in user resolves the same machine identity.
 	mock.SetUsername(`CONTOSO\JDoe`)
 	ids = CollectIdentities(context.Background(), mock, progress.NewNoop())
-	if len(ids) != 4 || ids[0] != "avd-host-07-jdoe-"+device.UserTokenFingerprint(`contoso\jdoe`) {
-		t.Fatalf("resolved id must lead: %v", ids)
+	if strings.Join(ids, ",") != strings.Join(want, ",") {
+		t.Fatalf("ids = %v, want %v", ids, want)
 	}
 }
 
@@ -336,10 +334,11 @@ func TestCollectIdentities_ManyUsersInOneRoot(t *testing.T) {
 	paths.SetOverride(home)
 	t.Cleanup(func() { paths.SetOverride("") })
 	prev := config.DeviceID
-	config.DeviceID = "{hostname}-{user}"
+	config.DeviceID = "{hostname}"
 	t.Cleanup(func() { config.DeviceID = prev })
 	mock := executor.NewMock()
 	mock.SetGOOS("windows")
+	mock.SetHostname("avd-host-07")
 	mock.SetUsername(`NT AUTHORITY\SYSTEM`)
 	if err := os.WriteFile(filepath.Join(home, heartbeat.Filename), []byte(`{"schema_version":1,"run_gate":{"device_id":"SER-1"}}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -355,7 +354,9 @@ func TestCollectIdentities_ManyUsersInOneRoot(t *testing.T) {
 		}
 	}
 	ids := CollectIdentities(context.Background(), mock, progress.NewNoop())
-	if len(ids) != users+1 {
-		t.Fatalf("collected %d ids, want %d per-user ids plus the machine row", len(ids), users+1)
+	// The resolved machine identity, the machine row's cached id (written by
+	// an older build under the serial) and every per-session record.
+	if len(ids) != users+2 {
+		t.Fatalf("collected %d ids, want %d (resolved id, machine record, %d per-session records)", len(ids), users+2, users)
 	}
 }

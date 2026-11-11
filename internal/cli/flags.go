@@ -298,12 +298,13 @@ var flagTable = []flagSpec{
 			return nil
 		}},
 	{name: "--device-id", kind: flagValue, saves: []string{"device_id"}, section: helpConfigure,
-		missing: "--device-id requires a value (a literal id, or a template over {serial} {hostname} {user}; \"-\" clears it)",
+		missing: "--device-id requires a value (a literal id, or a template over {serial} {hostname}; \"-\" clears it)",
 		help: `  --device-id VALUE             Device identity: a literal id, or a template over
-                                {serial} {hostname} {user} (e.g. "{hostname}-{user}"
-                                for pooled virtual desktops). Blank/omitted keeps the
-                                current value; "-" clears a saved template. The
-                                STEPSEC_DEVICE_ID env var overrides it at run time.`,
+                                {serial} {hostname} (e.g. "{hostname}" for pooled
+                                virtual desktops rebuilt under stable names). Blank/
+                                omitted keeps the current value; "-" clears a saved
+                                template. The STEPSEC_DEVICE_ID env var overrides it
+                                at run time.`,
 		// An empty value (the MSI passes an unset property verbatim) leaves the
 		// setting unchanged; everything else, "-" included, reaches configure,
 		// which validates literals and templates and turns "-" into a clear.
@@ -340,12 +341,32 @@ var flagTable = []flagSpec{
 			}
 			return nil
 		}},
+	{name: "--image-builder", kind: flagOptionalBool, section: helpConfigure,
+		help: `  --image-builder[=BOOL]        Mark this machine as a master-image builder: scans
+                                stay off here while every host built from the image
+                                scans normally (default false; empty = unchanged)`,
+		set: func(c *Config, v string) error {
+			switch strings.ToLower(strings.TrimSpace(v)) {
+			case "":
+				c.ImageBuilder = nil
+			case "true", "1", "yes":
+				on := true
+				c.ImageBuilder = &on
+			case "false", "0", "no":
+				off := false
+				c.ImageBuilder = &off
+			default:
+				return fmt.Errorf("--image-builder accepts true or false, got %q", v)
+			}
+			return nil
+		}},
 	{name: "--multi-user-detection", kind: flagValue, saves: []string{"multi_user_detection"}, section: helpConfigure,
 		missing: "--multi-user-detection requires a value (edition, users or off; \"-\" clears it)",
-		help: `  --multi-user-detection MODE   How a Windows host with no device identity template
-                                decides it is shared: edition (default: multi-session
-                                editions and the RD Session Host role), users (also two
-                                developers seen scanning on two days each), off`,
+		help: `  --multi-user-detection MODE   How a Windows host decides it is shared and scans each
+                                signed-in session separately: edition (default:
+                                multi-session editions and the RD Session Host role),
+                                users (also two developers seen scanning on two days
+                                each), off (one shared scan per tick)`,
 		set: func(c *Config, v string) error {
 			v = strings.ToLower(strings.TrimSpace(v))
 			switch v {
