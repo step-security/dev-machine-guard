@@ -54,7 +54,7 @@ func NormalizeDevice(value string) (string, error) {
 		return Normalize(value, "device")
 	}
 	invalid := func(why string) (string, error) {
-		return "", fmt.Errorf("Invalid device ID template %q: %s. Use the tokens {serial} and {hostname}, joined by letters, digits, @, ., _, +, or -.", trimmed, why) //nolint:staticcheck // ST1005: matches the ID diagnostics.
+		return "", fmt.Errorf("Invalid device ID template %q: %s. Use the tokens {serial} and {hostname}, joined by letters, digits, @, ., _, +, ~, or -.", trimmed, why) //nolint:staticcheck // ST1005: matches the ID diagnostics.
 	}
 	if len(trimmed) > 256 {
 		return invalid("longer than 256 characters")
@@ -84,10 +84,12 @@ func NormalizeDevice(value string) (string, error) {
 	return trimmed, nil
 }
 
-// literalRune reports the first byte of s outside the ID allowlist, if any.
+// literalRune validates template literals only; user and literal-device IDs
+// retain Normalize's allowlist. Tilde is supported by the installer generator
+// and preserved by device.SanitizeDeviceID.
 func literalRune(s string) (byte, bool) {
 	for _, c := range []byte(s) {
-		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || strings.ContainsRune("@._+-", rune(c))) {
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || strings.ContainsRune("@._+~-", rune(c))) {
 			return c, false
 		}
 	}

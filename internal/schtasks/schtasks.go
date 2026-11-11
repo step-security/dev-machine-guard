@@ -54,15 +54,6 @@ func IsTaskRegistered(ctx context.Context, exec executor.Executor) bool {
 func Install(exec executor.Executor, log *progress.Logger, maxExec time.Duration) error {
 	ctx := context.Background()
 
-	// Check for existing installation and upgrade
-	if isConfigured(ctx, exec) {
-		log.Progress("Existing agent installation detected. Upgrading...")
-		if err := doUninstall(ctx, exec, log); err != nil {
-			log.Warn("failed to remove previous scheduled task: %v — continuing install anyway", err)
-		}
-		log.Progress("Previous installation removed. Installing new version...")
-	}
-
 	binaryPath, err := executablePath()
 	if err != nil {
 		return fmt.Errorf("determining binary path: %w", err)
@@ -74,20 +65,28 @@ func Install(exec executor.Executor, log *progress.Logger, maxExec time.Duration
 	}
 
 	logDir := resolveLogDir(exec)
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		return fmt.Errorf("creating log directory: %w", err)
+	if err := prepareLogDirectory(ctx, exec, logDir); err != nil {
+		return err
 	}
 
-	// On an admin install the state dir is C:\ProgramData\StepSecurity, which
-	// inherits ACLs that only let non-admin users read. The /ru INTERACTIVE
-	// tasks run as the signed-in user, who must write their own session
-	// state and the shared logs and visit file: hardenStateDirACLs grants
-	// exactly that and keeps the config, identity, markers and updater state
-	// SYSTEM and Administrators only.
+	// Secure per-session state before removing existing tasks, so a failed
+	// permission migration leaves the previous installation registered.
 	if exec.IsRoot() {
-		if err := hardenStateDirACLs(ctx, exec, logDir); err != nil {
-			log.Warn("could not secure %s for per-session scans (%v) — signed-in users may be unable to write their state or logs there", logDir, err)
+		aclCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := hardenStateDirACLs(aclCtx, exec, logDir)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("secure per-session state directory: %w", err)
 		}
+	}
+
+	// Check for existing installation and upgrade
+	if isConfigured(ctx, exec) {
+		log.Progress("Existing agent installation detected. Upgrading...")
+		if err := doUninstall(ctx, exec, log); err != nil {
+			log.Warn("failed to remove previous scheduled task: %v — continuing install anyway", err)
+		}
+		log.Progress("Previous installation removed. Installing new version...")
 	}
 
 	// Pass --install-dir to the task command. logDir already carries the
