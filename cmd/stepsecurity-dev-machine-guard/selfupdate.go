@@ -20,9 +20,9 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/faultinject"
-	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/retire"
 	"github.com/step-security/dev-machine-guard/internal/schtasks"
 	"github.com/step-security/dev-machine-guard/internal/selfupdate"
 	"github.com/step-security/dev-machine-guard/internal/telemetry"
@@ -146,6 +146,7 @@ func runSelfUpdate(args []string) int {
 	})
 	exec := executor.NewReal()
 	machineConfig := config.ConfigFilePath()
+	var scopesTruncated sync.Once
 
 	// The scan tasks' settings follow whether the host scans per session,
 	// which can change after install (the sticky multi-user marker) while a
@@ -172,12 +173,19 @@ func runSelfUpdate(args []string) int {
 		VerifySeed:      func(p string) error { return authenticode.SameSeedPublisher(p, selfExe) },
 		InstallerBusy:   selfupdate.InstallerBusy,
 		Smoke:           selfupdate.RunSmoke,
+		// A per-session scan holds only its own lock, so the switch waits on
+		// every session's lock as well as the machine-wide one.
 		AcquireInstance: func() (func(), error) {
-			lk, err := lock.Acquire(exec)
+			release, complete, err := retire.AcquireScans()
 			if err != nil {
 				return nil, err
 			}
-			return lk.Release, nil
+			if !complete {
+				scopesTruncated.Do(func() {
+					logf("self-update: too many session state directories to check them all; switching once the listed ones are idle")
+				})
+			}
+			return release, nil
 		},
 		EnsureACLs: func() ([]string, error) {
 			var drifted []string

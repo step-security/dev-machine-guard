@@ -349,6 +349,24 @@ func HoldScans(ctx context.Context, log *progress.Logger) (release func(), idle 
 	return holdScans(ctx, scopes, log)
 }
 
+// AcquireScans takes, without blocking, the machine-wide instance lock and
+// the per-session lock of every session state directory, so the caller knows
+// no listed scan is running; it returns an error wrapping lock.ErrHeld while
+// one is. The SYSTEM updater takes it before switching versions: a
+// per-session scan holds only its own lock, so the machine-wide lock alone no
+// longer means no scan runs. complete is false when the users\ tree was past
+// the listing bounds and only the scopes listed before them were locked;
+// unlike the retire, the updater still switches then, because the tree is
+// user-creatable and a full one must not hold the updates back.
+func AcquireScans() (release func(), complete bool, err error) {
+	scopes, complete := stateScopes()
+	lk, err := lock.AcquireAll(scopes)
+	if err != nil {
+		return nil, complete, err
+	}
+	return lk.Release, complete, nil
+}
+
 func holdScans(ctx context.Context, scopes []string, log *progress.Logger) (release func(), idle bool) {
 	for {
 		if ctx.Err() != nil {

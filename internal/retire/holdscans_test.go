@@ -142,3 +142,65 @@ func TestHoldScans_UninspectableLockIsNotIdle(t *testing.T) {
 		t.Fatal("an uninspectable lock was taken as proof that no scan runs")
 	}
 }
+
+// The updater's switch: a session scan holds only its own lock, and
+// AcquireScans refuses while it runs; once the host is idle it holds the
+// machine-wide lock and every session's, so no listed scan starts mid-switch.
+func TestAcquireScans_RefusesWhileASessionScanRuns(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(paths.HomeEnvVar, root)
+	for _, d := range []string{"dev1-aaaaaaaaaaaa", "dev2-bbbbbbbbbbbb"} {
+		if err := os.MkdirAll(filepath.Join(root, "users", d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(lock.SetTargetForTest(testLockTarget(t)))
+
+	scan, err := lock.AcquireSibling("dev2-bbbbbbbbbbbb") // dev2's scan is mid-flight
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := AcquireScans(); !errors.Is(err, lock.ErrHeld) {
+		t.Fatalf("AcquireScans while dev2's scan runs: err=%v, want ErrHeld", err)
+	}
+	scan.Release()
+
+	release, complete, err := AcquireScans()
+	if err != nil || !complete {
+		t.Fatalf("AcquireScans on an idle host: complete=%v err=%v", complete, err)
+	}
+	for _, s := range []string{"dev1-aaaaaaaaaaaa", "dev2-bbbbbbbbbbbb"} {
+		if _, err := lock.AcquireSibling(s); !errors.Is(err, lock.ErrHeld) {
+			t.Errorf("%s's scan could start during the switch: err=%v", s, err)
+		}
+	}
+	if _, err := lock.Acquire(nil); !errors.Is(err, lock.ErrHeld) {
+		t.Errorf("a machine-wide scan could start during the switch: err=%v", err)
+	}
+	release()
+}
+
+// Past the listing bound the updater still switches (a user can fill the
+// tree; that must not hold updates back), holding the machine-wide lock and
+// the scopes listed before the bound.
+func TestAcquireScans_SwitchesPastTheListingBound(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(paths.HomeEnvVar, root)
+	for i := range maxScanHoldScopes + 1 {
+		if err := os.MkdirAll(filepath.Join(root, "users", fmt.Sprintf("u%03d-aaaaaaaaaaaa", i)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(lock.SetTargetForTest(testLockTarget(t)))
+	release, complete, err := AcquireScans()
+	if err != nil || complete {
+		t.Fatalf("AcquireScans past the bound: complete=%v err=%v, want a partial hold", complete, err)
+	}
+	if _, err := lock.Acquire(nil); !errors.Is(err, lock.ErrHeld) {
+		t.Errorf("machine-wide lock not held: err=%v", err)
+	}
+	if _, err := lock.AcquireSibling("u000-aaaaaaaaaaaa"); !errors.Is(err, lock.ErrHeld) {
+		t.Errorf("first listed scope not held: err=%v", err)
+	}
+	release()
+}
