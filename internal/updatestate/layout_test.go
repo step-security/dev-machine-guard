@@ -3,6 +3,7 @@ package updatestate
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -52,5 +53,38 @@ func TestStagingDir(t *testing.T) {
 		if IsSweepable(name) != want {
 			t.Errorf("IsSweepable(%q) != %v", name, want)
 		}
+	}
+}
+
+func TestRunFiles(t *testing.T) {
+	l := Layout{DataRoot: t.TempDir()}
+	v := Version{Major: 1, Minor: 20}
+	if got := l.RunFileFor(v, "S-1-5-21-1-2-3-1003"); got != filepath.Join(l.RunsDir(), "1.20.0.S-1-5-21-1-2-3-1003.json") {
+		t.Errorf("RunFileFor = %s", got)
+	}
+	for _, bad := range []string{"", `..\x`, "a/b", "a.b"} {
+		if got := l.RunFileFor(v, bad); got != l.RunFile(v) {
+			t.Errorf("RunFileFor(%q) = %s, want the shared file", bad, got)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(l.RunsDir(), "1.20.0.dir.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		"1.20.0.json", "1.20.0.S-1-5-21-1-2-3-1003.json", "1.20.0.501.json", // run files
+		"1.20.0.501.json.lock", ".1.20.0.501.json.tmp-123", "1.20.01.json", "1.2.0.json", "1.20.0.a.b.json", "backup.json", // not
+	} {
+		if err := os.WriteFile(filepath.Join(l.RunsDir(), name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := l.RunFiles(v)
+	want := []string{
+		filepath.Join(l.RunsDir(), "1.20.0.501.json"),
+		filepath.Join(l.RunsDir(), "1.20.0.S-1-5-21-1-2-3-1003.json"),
+		filepath.Join(l.RunsDir(), "1.20.0.json"),
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("RunFiles = %v, want %v", got, want)
 	}
 }

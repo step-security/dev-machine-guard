@@ -321,7 +321,9 @@ jobs:
           # (GUI subsystem, hence Start-Process -Wait) and records the run.
           $p = Start-Process -FilePath $boot -ArgumentList @("run", "version", "--install-dir=$data") -Wait -PassThru
           Check ($p.ExitCode -eq 0) "bootstrap run exit 0 ($($p.ExitCode))"
-          $runs = Get-Content "$data\runs\$ver.json" -Raw | ConvertFrom-Json
+          # Each user writes runs\<v>.<token owner SID>.json (Administrators when elevated).
+          $runFile = "$data\runs\$ver.$([System.Security.Principal.WindowsIdentity]::GetCurrent().Owner.Value).json"
+          $runs = Get-Content $runFile -Raw | ConvertFrom-Json
           $last = $runs.records[-1]
           Check ($last.version -eq $ver -and $last.exit_code -eq 0) "run record finalized: $($runs | ConvertTo-Json -Compress)"
 
@@ -382,7 +384,9 @@ jobs:
           # The device still scans: the bootstrap launches current and records it.
           $p = Start-Process -FilePath $boot -ArgumentList @("run", "version", "--install-dir=$data") -Wait -PassThru
           Check ($p.ExitCode -eq 0) "bootstrap run after the rollback exits 0 ($($p.ExitCode))"
-          $runs = Get-Content "$data\runs\$ver.json" -Raw | ConvertFrom-Json
+          # Each user writes runs\<v>.<token owner SID>.json (Administrators when elevated).
+          $runFile = "$data\runs\$ver.$([System.Security.Principal.WindowsIdentity]::GetCurrent().Owner.Value).json"
+          $runs = Get-Content $runFile -Raw | ConvertFrom-Json
           Check ($runs.records[-1].exit_code -eq 0) "run recorded on $ver"
           Done
 
