@@ -20,6 +20,7 @@ import (
 // empty value clears the override, null leaves it as it is.
 func explicitIdentities(data []byte, includeDevice, bootstrapFile bool) (map[string]string, error) {
 	fields := map[string]string{}
+	seen := map[string]bool{} // every identity key, null included, so duplicates fail in any order
 	d := json.NewDecoder(strings.NewReader(string(data)))
 	tok, err := d.Token()
 	if err != nil || tok != json.Delim('{') {
@@ -44,9 +45,10 @@ func explicitIdentities(data []byte, includeDevice, bootstrapFile bool) (map[str
 		if kind == "" {
 			continue
 		}
-		if _, exists := fields[kind]; exists {
+		if seen[kind] {
 			return nil, fmt.Errorf("duplicate %s_id", kind)
 		}
+		seen[kind] = true
 		if string(value) == "null" {
 			if kind == "device" && bootstrapFile {
 				continue

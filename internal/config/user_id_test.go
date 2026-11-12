@@ -794,3 +794,32 @@ func TestFromFileDeviceIDCompatibility(t *testing.T) {
 		})
 	}
 }
+
+// A duplicate device_id fails whichever order the keys come in, a null one
+// included, and leaves the config as it was.
+func TestFromFileDuplicateDeviceIDRejected(t *testing.T) {
+	for _, keys := range []string{
+		`"device_id":null,"Device_ID":"new-device"`,
+		`"Device_ID":"new-device","device_id":null`,
+		`"device_id":"","device_id":"new-device"`,
+	} {
+		t.Run(keys, func(t *testing.T) {
+			withHome(t)
+			if err := save(&ConfigFile{DeviceID: "old-device", CustomerID: "customer", APIKey: "old-key", APIEndpoint: "https://example.test"}); err != nil {
+				t.Fatal(err)
+			}
+			before := configBytes(t)
+			from := filepath.Join(t.TempDir(), "bootstrap.json")
+			if err := os.WriteFile(from, []byte(`{"customer_id":"customer","api_key":"test-key","api_endpoint":"https://example.test",`+keys+`}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			err := runConfigureNonInteractive(NonInteractiveOptions{FromFile: from}, absentUser())
+			if err == nil || !strings.Contains(err.Error(), "duplicate device_id") {
+				t.Fatalf("err = %v, want a duplicate device_id rejection", err)
+			}
+			if !bytes.Equal(before, configBytes(t)) {
+				t.Fatal("rejected file changed config")
+			}
+		})
+	}
+}
