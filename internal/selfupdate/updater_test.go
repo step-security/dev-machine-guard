@@ -1444,3 +1444,67 @@ func TestCheckReasonOrder(t *testing.T) {
 		}
 	}
 }
+
+// Each user's scans write their own run file; the probation judges them all.
+// A healthy run in one user's file confirms, and bad runs spread over two
+// users' files roll back.
+func TestProbationReadsEveryUsersRunFile(t *testing.T) {
+	pv := mustV("1.20.0")
+	t.Run("healthy in one user's file confirms", func(t *testing.T) {
+		e := newEnv(t)
+		e.installVersion("1.19.0")
+		e.writeState(baseState("1.19.0", ""))
+		e.tick() // switch to 1.20.0
+		code := 0
+		must(t, updatestate.AppendRun(e.L.RunFileFor(pv, "S-1-5-21-1-2-3-1003"), updatestate.RunRecord{RunID: "a", Version: "1.20.0", Started: true, ExitCode: &code, At: e.now}))
+		e.now = e.now.Add(time.Hour)
+		e.tick()
+		if st := e.state(); st.Probation != nil || st.Current != "1.20.0" {
+			t.Fatalf("probation not confirmed from a per-user run file: %+v", st)
+		}
+	})
+	t.Run("bad runs across users roll back", func(t *testing.T) {
+		e := newEnv(t)
+		e.installVersion("1.19.0")
+		e.writeState(baseState("1.19.0", ""))
+		e.tick()
+		early := e.state().Probation.Since.Add(-time.Hour) // the seq rule counts them anyway
+		for i, owner := range []string{"S-1-5-21-1-2-3-1003", "S-1-5-21-1-2-3-1004"} {
+			if e.state().Current != "1.20.0" {
+				break
+			}
+			f, id := e.L.RunFileFor(pv, owner), fmt.Sprintf("crash-%d", i)
+			must(t, updatestate.AppendRun(f, updatestate.RunRecord{RunID: id, Version: "1.20.0"}))
+			must(t, updatestate.FinalizeRun(f, id, 2, false, early))
+			e.now = e.now.Add(time.Hour)
+			e.tick()
+		}
+		if e.state().Current != "1.19.0" {
+			t.Fatalf("not rolled back on bad runs in two users' files: %+v", e.state())
+		}
+	})
+}
+
+// The switch records each existing per-user file's sequence, so a user's
+// runs from before the switch never count toward the probation.
+func TestSwitchRecordsPerUserSinceSeqs(t *testing.T) {
+	e := newEnv(t)
+	e.installVersion("1.19.0")
+	e.writeState(baseState("1.19.0", ""))
+	pv := mustV("1.20.0")
+	f := e.L.RunFileFor(pv, "S-1-5-21-1-2-3-1003")
+	for _, id := range []string{"a", "b"} {
+		must(t, updatestate.AppendRun(f, updatestate.RunRecord{RunID: id, Version: "1.20.0"}))
+		must(t, updatestate.FinalizeRun(f, id, 2, false, e.now))
+	}
+	e.tick()
+	p := e.state().Probation
+	if p == nil || p.SinceSeqs[filepath.Base(f)] != 2 {
+		t.Fatalf("probation = %+v, want since_seqs[%s] = 2", p, filepath.Base(f))
+	}
+	e.now = e.now.Add(time.Hour)
+	e.tick()
+	if e.state().Current != "1.20.0" {
+		t.Fatalf("pre-switch crashes counted toward the probation: %+v", e.state())
+	}
+}

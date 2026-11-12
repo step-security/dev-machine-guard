@@ -62,6 +62,7 @@ func TestHardenStateDirACLs_LeastPrivilege(t *testing.T) {
 	mock.SetIsRoot(true)
 	stubDir(mock, root, "(RX,WD,AD)", "(OI)(IO)R")
 	stubDir(mock, filepath.Join(root, "users"), "(RX,WD,AD)", "(OI)(CI)(IO)RX")
+	stubDir(mock, filepath.Join(root, "runs"), "(RX,WD)")
 	for _, name := range sharedFilesUnderTest {
 		stubFile(mock, filepath.Join(root, name), "M", true)
 	}
@@ -109,6 +110,7 @@ func TestHardenStateDirACLs_RefusesLinks(t *testing.T) {
 		link string // path under the root replaced by a link
 	}{
 		{"users directory", "users"},
+		{"runs directory", "runs"},
 		{"shared log", "agent.error.log"},
 		{"protected marker", "image-builder.json"},
 		{"state directory", "state"},

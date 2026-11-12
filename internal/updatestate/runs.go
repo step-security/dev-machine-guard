@@ -174,7 +174,7 @@ func writeRuns(path string, recs []RunRecord, protect string, maxSeq int) error 
 	if err != nil {
 		return err
 	}
-	// #nosec G301 -- runs\ is shared by the user scan and the SYSTEM updater.
+	// #nosec G301 -- runs\ holds every user's run file; the SYSTEM updater reads them.
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -214,8 +214,8 @@ func MarkRunStarted(path, runID string) error {
 }
 
 // RunLockPath is the lock beside a run file (runs\<v>.json.lock) that every
-// read-modify-write of it takes: the bootstrap's AppendRun/FinalizeRun (via
-// Layout.RunLockFile) and the agent's MarkRunStartedLocked.
+// read-modify-write of it takes: the bootstrap's AppendRun/FinalizeRun and
+// the agent's MarkRunStartedLocked.
 func RunLockPath(runFile string) string { return runFile + ".lock" }
 
 // MarkRunStartedLocked is the agent's MarkRunStarted under the run-record

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -556,18 +557,21 @@ func (t *tick) health(ctx context.Context) (closed bool, err error) {
 	p.Ticks++
 	healthy, neutral, bad := 0, 0, 0
 	v, _ := updatestate.ParseVersion(p.Version)
-	for _, r := range updatestate.ReadRuns(t.L.RunFile(v)) {
-		if !inProbation(r, p) {
-			continue
-		}
-		switch updatestate.ClassifyRun(r) {
-		case updatestate.RunHealthy:
-			healthy++
-			bad = 0
-		case updatestate.RunNeutral:
-			neutral++
-		case updatestate.RunBad:
-			bad++
+	shared := t.L.RunFile(v)
+	for _, f := range t.L.RunFiles(v) {
+		for _, r := range updatestate.ReadRuns(f) {
+			if !inProbation(r, p, f == shared, filepath.Base(f)) {
+				continue
+			}
+			switch updatestate.ClassifyRun(r) {
+			case updatestate.RunHealthy:
+				healthy++
+				bad = 0
+			case updatestate.RunNeutral:
+				neutral++
+			case updatestate.RunBad:
+				bad++
+			}
 		}
 	}
 	p.OK, p.Bad = healthy, bad
@@ -597,12 +601,19 @@ func (t *tick) health(ctx context.Context) (closed bool, err error) {
 	return true, nil
 }
 
-// inProbation reports whether run r belongs to probation p: by sequence
-// (seq > since_seq) when both are recorded, so clock jumps can't drop
-// runs; by time only for records or probations without one.
-func inProbation(r updatestate.RunRecord, p *updatestate.Probation) bool {
-	if r.Seq > 0 && p.SinceSeq != nil {
-		return r.Seq > *p.SinceSeq
+// inProbation reports whether run r of run file name belongs to probation
+// p: by sequence (seq > the file's seq at the switch) when both are
+// recorded, so clock jumps can't drop runs; by time only for records or
+// probations without one. Since_seq is the shared file's; a per-user file
+// missing from since_seqs didn't exist at the switch (seq 0).
+func inProbation(r updatestate.RunRecord, p *updatestate.Probation, shared bool, name string) bool {
+	if r.Seq > 0 {
+		switch {
+		case shared && p.SinceSeq != nil:
+			return r.Seq > *p.SinceSeq
+		case !shared && (p.SinceSeqs != nil || p.SinceSeq != nil):
+			return r.Seq > p.SinceSeqs[name]
+		}
 	}
 	return !r.At.Before(p.Since)
 }
@@ -728,6 +739,9 @@ func cloneState(s *updatestate.State) *updatestate.State {
 		if p.SinceSeq != nil {
 			v := *p.SinceSeq
 			p.SinceSeq = &v
+		}
+		if p.SinceSeqs != nil {
+			p.SinceSeqs = maps.Clone(p.SinceSeqs)
 		}
 		c.Probation = &p
 	}
@@ -888,7 +902,13 @@ func (t *tick) switchTo(ctx context.Context, v updatestate.Version) int {
 	next.Previous = old
 	next.Current = target
 	sinceSeq := updatestate.MaxRunSeq(t.L.RunFile(v))
-	next.Probation = &updatestate.Probation{Version: target, Since: t.now.UTC(), SmokeOK: true, SinceSeq: &sinceSeq}
+	sinceSeqs := map[string]int{}
+	for _, f := range t.L.RunFiles(v) {
+		if f != t.L.RunFile(v) {
+			sinceSeqs[filepath.Base(f)] = updatestate.MaxRunSeq(f)
+		}
+	}
+	next.Probation = &updatestate.Probation{Version: target, Since: t.now.UTC(), SmokeOK: true, SinceSeq: &sinceSeq, SinceSeqs: sinceSeqs}
 	next.SwitchDeferrals = 0
 	next.PendingSwitch = ""
 	enqueueTo(next, t.now, t.dedupeWindow(), EventOK, old, target, "", "")

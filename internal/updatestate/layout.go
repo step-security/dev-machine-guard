@@ -5,7 +5,8 @@
 //	<install root>\versions\.staging-<v>-*\   never executed
 //	<install root>\seed\<msi-ver>\            MSI-owned fallback payload
 //	<install root>\state\{state.json,update.lock,update.log}
-//	<data root>\runs\<v>.json                 user-writable, advisory only
+//	<data root>\runs\<v>.<owner>.json         each user's own, advisory only
+//	<data root>\runs\<v>.json                 shared (bootstraps before per-user files)
 package updatestate
 
 import (
@@ -45,8 +46,54 @@ func (l Layout) LogFile() string   { return filepath.Join(l.StateDir(), "update.
 
 func (l Layout) RunsDir() string { return filepath.Join(l.DataRoot, "runs") }
 
+// RunFile is the shared run file (runs\<v>.json) written before run files
+// were per user. Users can't write it under the hardened state-dir ACLs;
+// the updater still reads it, and it is the fallback when the user can't
+// be identified.
 func (l Layout) RunFile(v Version) string {
 	return filepath.Join(l.RunsDir(), v.String()+".json")
+}
+
+// RunFileFor is owner's own run file, runs\<v>.<owner>.json: each user
+// creates and owns theirs, so no user writes another's (RunOwner). An
+// invalid owner falls back to RunFile.
+func (l Layout) RunFileFor(v Version, owner string) string {
+	if !validRunOwner(owner) {
+		return l.RunFile(v)
+	}
+	return filepath.Join(l.RunsDir(), v.String()+"."+owner+".json")
+}
+
+// maxRunFiles bounds how many run files of one version RunFiles returns:
+// the directory is user-writable.
+const maxRunFiles = 256
+
+// RunFiles lists every run file of v, the shared one and each user's, in
+// name order. The updater judges a probation from all of them.
+func (l Layout) RunFiles(v Version) []string {
+	entries, err := os.ReadDir(l.RunsDir())
+	if err != nil {
+		return nil
+	}
+	shared, prefix := v.String()+".json", v.String()+"."
+	var out []string
+	for _, e := range entries {
+		name := e.Name()
+		if !e.Type().IsRegular() {
+			continue
+		}
+		if name != shared {
+			owner, ok := strings.CutPrefix(name, prefix)
+			if owner, ok = strings.CutSuffix(owner, ".json"); !ok || !validRunOwner(owner) {
+				continue // a lock, a temp file, another version's file
+			}
+		}
+		out = append(out, filepath.Join(l.RunsDir(), name))
+		if len(out) == maxRunFiles {
+			break
+		}
+	}
+	return out
 }
 
 // StagingDir creates a fresh versions\.staging-<v>-<rand> directory. It sits

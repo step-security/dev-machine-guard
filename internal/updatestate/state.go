@@ -88,9 +88,13 @@ type Probation struct {
 	OK      int       `json:"ok"`
 	Bad     int       `json:"bad"`
 	SmokeOK bool      `json:"smoke_ok"`
-	// SinceSeq is the run file's highest sequence number at the switch;
+	// SinceSeq is the shared run file's highest sequence number at the switch;
 	// runs with a higher seq belong to the probation (additive).
 	SinceSeq *int `json:"since_seq,omitempty"` // nil: an older probation (time rule)
+	// SinceSeqs is each per-user run file's highest sequence number at the
+	// switch, by file name; a file absent here is newer than the switch, so
+	// all its runs belong to the probation (additive).
+	SinceSeqs map[string]int `json:"since_seqs,omitempty"`
 	// Ticks counts update ticks that evaluated this probation, so it closes
 	// even if the clock jumps (additive).
 	Ticks int `json:"ticks,omitempty"`
