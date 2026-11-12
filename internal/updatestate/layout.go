@@ -83,8 +83,9 @@ func (l Layout) RunFiles(v Version) []string {
 			continue
 		}
 		if name != shared {
-			owner, ok := strings.CutPrefix(name, prefix)
-			if owner, ok = strings.CutSuffix(owner, ".json"); !ok || !validRunOwner(owner) {
+			rest, hasPrefix := strings.CutPrefix(name, prefix)
+			owner, hasSuffix := strings.CutSuffix(rest, ".json")
+			if !hasPrefix || !hasSuffix || !validRunOwner(owner) {
 				continue // a lock, a temp file, another version's file
 			}
 		}

@@ -72,7 +72,7 @@ func TestRunFiles(t *testing.T) {
 	}
 	for _, name := range []string{
 		"1.20.0.json", "1.20.0.S-1-5-21-1-2-3-1003.json", "1.20.0.501.json", // run files
-		"1.20.0.501.json.lock", ".1.20.0.501.json.tmp-123", "1.20.01.json", "1.2.0.json", "1.20.0.a.b.json", // not
+		"1.20.0.501.json.lock", ".1.20.0.501.json.tmp-123", "1.20.01.json", "1.2.0.json", "1.20.0.a.b.json", "backup.json", // not
 	} {
 		if err := os.WriteFile(filepath.Join(l.RunsDir(), name), nil, 0o600); err != nil {
 			t.Fatal(err)
