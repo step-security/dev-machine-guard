@@ -20,6 +20,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/faultinject"
+	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 	"github.com/step-security/dev-machine-guard/internal/retire"
@@ -146,7 +147,7 @@ func runSelfUpdate(args []string) int {
 	})
 	exec := executor.NewReal()
 	machineConfig := config.ConfigFilePath()
-	var scopesTruncated sync.Once
+	var scopesTruncated, lockFailed sync.Once
 
 	// The scan tasks' settings follow whether the host scans per session,
 	// which can change after install (the sticky multi-user marker) while a
@@ -178,6 +179,9 @@ func runSelfUpdate(args []string) int {
 		AcquireInstance: func() (func(), error) {
 			release, complete, err := retire.AcquireScans()
 			if err != nil {
+				if !errors.Is(err, lock.ErrHeld) {
+					lockFailed.Do(func() { logf("self-update: the scan locks could not be taken: %v", err) })
+				}
 				return nil, err
 			}
 			if !complete {

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
@@ -199,8 +200,71 @@ func TestAcquireScans_SwitchesPastTheListingBound(t *testing.T) {
 	if _, err := lock.Acquire(nil); !errors.Is(err, lock.ErrHeld) {
 		t.Errorf("machine-wide lock not held: err=%v", err)
 	}
-	if _, err := lock.AcquireSibling("u000-aaaaaaaaaaaa"); !errors.Is(err, lock.ErrHeld) {
-		t.Errorf("first listed scope not held: err=%v", err)
+	held := 0
+	for i := range maxScanHoldScopes + 1 {
+		lk, err := lock.AcquireSibling(fmt.Sprintf("u%03d-aaaaaaaaaaaa", i))
+		if errors.Is(err, lock.ErrHeld) {
+			held++
+		} else if err == nil {
+			lk.Release()
+		}
+	}
+	if held != maxScanHoldScopes {
+		t.Errorf("%d session locks held, want the %d listed before the bound", held, maxScanHoldScopes)
+	}
+	release()
+}
+
+// Past the entry bound the directories already read are kept: the listing
+// is incomplete, not empty.
+func TestStateScopes_KeepsTheScopesReadBeforeTheEntryBound(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(paths.HomeEnvVar, root)
+	users := filepath.Join(root, "users")
+	if err := os.MkdirAll(users, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const dirs = 10
+	for i := range dirs {
+		if err := os.Mkdir(filepath.Join(users, fmt.Sprintf("dev%d-aaaaaaaaaaaa", i)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	extra := 4
+	for i := range maxUsersDirEntries - dirs + extra {
+		if err := os.WriteFile(filepath.Join(users, fmt.Sprintf("stray%05d", i)), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scopes, complete := stateScopes()
+	if complete {
+		t.Fatal("stateScopes() reported a complete listing past the entry bound")
+	}
+	if len(scopes) < dirs-extra {
+		t.Errorf("stateScopes() kept %d scopes, want at least the %d read before the bound", len(scopes), dirs-extra)
+	}
+}
+
+// A directory name longer than any user token is no session's scope: it is
+// skipped, so a planted one cannot make the updater's locks fail (its mutex
+// name would exceed the Windows limit) and hold the switch back.
+func TestAcquireScans_SkipsANameNoSessionCanHave(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(paths.HomeEnvVar, root)
+	planted := strings.Repeat("x", device.MaxUserTokenLen+1)
+	for _, d := range []string{planted, "dev1-aaaaaaaaaaaa"} {
+		if err := os.MkdirAll(filepath.Join(root, "users", d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scopes, complete := stateScopes()
+	if !complete || len(scopes) != 1 || scopes[0] != "dev1-aaaaaaaaaaaa" {
+		t.Fatalf("stateScopes() = %q (complete %v), want only the session scope", scopes, complete)
+	}
+	t.Cleanup(lock.SetTargetForTest(testLockTarget(t)))
+	release, _, err := AcquireScans()
+	if err != nil {
+		t.Fatalf("AcquireScans with a planted name: %v", err)
 	}
 	release()
 }
