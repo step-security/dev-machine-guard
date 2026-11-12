@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [1.19.1] - 2026-11-13
+
+### Fixed
+
+- **Windows: per-user run records under the hardened state-dir ACLs.** The 1.19.0 ACL hardening left standard users no access to `runs\`, so scheduled scans wrote no run records and every update probation waited out its 72 h window to a smoke-only confirm. Each user now writes `runs\<version>.<owner>.json`, `runs\` lets users create files they alone own, and the updater judges probation from every run file of the version (#297).
+- **Probation no longer counts stray files.** A file such as `backup.json` in `runs\` counted toward the probation; only files with the version prefix do now.
+- **Bootstrap files with an empty `device_id` are accepted again.** 1.19.0 rejected `"device_id": ""` in `configure --from-file` and the MSI's from-file action, which 1.18.1 accepted. An empty value clears the override and `null` leaves it; non-empty values are still validated (#298).
+- **A duplicate identity key after a null one is rejected.** `{"device_id":null,"Device_ID":"x"}` slipped past the duplicate check while the reverse order was rejected.
+- **The updater resolves the same device id as the scan.** With the machine-wide `STEPSEC_DEVICE_ID` override, update checks and events used to report under the hardware serial while scans reported under the template's id (#299).
+- **A literal device id no longer overwrites the SYSTEM hardware-id cache.** Only hardware results are cached; a configured id is recomputed on every call.
+- **Self-update defers the version switch while any session scan runs.** On per-session hosts the updater now takes the machine-wide lock and every session's lock before switching, so it no longer switches under a running session scan; session scopes listed before the `users\` bounds are kept and over-long entries are skipped (#300).
+
 ## [1.19.0] - 2026-11-11
 
 ### Added
@@ -474,6 +486,7 @@ First open-source release. The scanning engine was previously an internal enterp
 - Execution log capture and base64 encoding
 - Instance locking to prevent concurrent runs
 
+[1.19.1]: https://github.com/step-security/dev-machine-guard/compare/v1.19.0...v1.19.1
 [1.19.0]: https://github.com/step-security/dev-machine-guard/compare/v1.18.1...v1.19.0
 [1.18.1]: https://github.com/step-security/dev-machine-guard/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/step-security/dev-machine-guard/compare/v1.17.0...v1.18.0
