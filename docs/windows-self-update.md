@@ -87,7 +87,9 @@ the state on disk.
 6. Run `agent.exe self-check` from the staged directory as SYSTEM (in a
    job, 60 s limit). A failure quarantines the version.
 7. Wait (up to 10 minutes) until no scan is running, then switch `current`
-   to the new version and start its probation.
+   to the new version and start its probation. On a host that scans per
+   session this covers every session with a state directory under `users\`
+   (up to 64; past that the switch waits on the first 64 listed).
 8. Report the result.
 
 ## Health, rollback and quarantine
