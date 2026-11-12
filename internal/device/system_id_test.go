@@ -162,3 +162,32 @@ func TestSystemIDExpandsTemplate(t *testing.T) {
 		t.Fatalf("nameless host: SystemID = %q", got)
 	}
 }
+
+// A machine-wide STEPSEC_DEVICE_ID (the virtual-desktop guide sets one at
+// provisioning) reaches the SYSTEM updater too: SystemID resolves the same
+// template, with the same precedence over config.json, as the scan, so
+// update checks and events report under the device the scans report.
+func TestSystemIDHonoursEnvOverrideLikeTheScan(t *testing.T) {
+	old := config.DeviceID
+	t.Cleanup(func() { config.DeviceID = old })
+	stubProbe(t, "HW-1", true)
+	cache := `C:\x\device-id`
+	for _, tc := range []struct{ name, env, configured, want string }{
+		{"template", "{hostname}", "", "avd-host-07"},
+		{"literal", "fleet-host-42", "", "fleet-host-42"},
+		{"over config.json", "{hostname}", "configured-1", "avd-host-07"},
+		{"serial template", "{serial}-vdi", "", "HW-1-vdi"},
+	} {
+		config.DeviceID = tc.configured
+		m := systemMock()
+		m.SetHostname("AVD-HOST-07")
+		m.SetEnv(EnvDeviceID, tc.env)
+		got := SystemID(context.Background(), m, cache, SystemProbeTimeout)
+		if got != tc.want {
+			t.Errorf("%s: SystemID = %q, want %q", tc.name, got, tc.want)
+		}
+		if scan := ResolveIdentity(m, "HW-1", "AVD-HOST-07", "jdoe"); scan.DeviceID != got {
+			t.Errorf("%s: scan reports %q, SYSTEM %q", tc.name, scan.DeviceID, got)
+		}
+	}
+}
