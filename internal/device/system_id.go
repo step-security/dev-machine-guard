@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 )
 
@@ -20,25 +19,27 @@ var systemProbe = probeSerial
 // systemIDCache is the SYSTEM-only identity cache (state\device-id).
 type systemIDCache struct {
 	DeviceID string `json:"device_id"`
-	Source   string `json:"source"` // "hardware" | "configured"
+	Source   string `json:"source"` // "hardware" ("configured" from older builds is ignored)
 }
 
 // SystemID is the device identity for the SYSTEM self-updater. probeTimeout
 // bounds the hardware probe (the self-check passes a short one so its
 // smoke test can't time out on a wedged WMI). It never
 // reads the shared ProgramData device-id file, which users can write (M-9).
-// A configured device_id is resolved the way the scan resolves it: a literal
-// as given; a template expanded with the host name and the machine identity
-// (systemMachineID). A template that still carries the retired {user} token
-// falls back to the machine identity, as the scan does.
-// Only a hardware result or a literal configured id is cached: a template's
-// expansion is recomputed from the hardware cache each time, so a later probe
-// failure never leaves SYSTEM with an id the user scans do not use. "" when
-// nothing is usable.
+// The configured identity is the one the scan uses (IdentityTemplate:
+// STEPSEC_DEVICE_ID, then config.json's device_id): a literal as given; a
+// template expanded with the host name and the machine identity
+// (systemMachineID). The variable comes from the SYSTEM task's inherited
+// environment, so only a machine-wide one applies, which only an
+// administrator can set. A template that still carries the retired {user}
+// token falls back to the machine identity, as the scan does.
+// Only a hardware result is cached: a configured id is recomputed each time,
+// so it never overwrites the hardware cache, and a later probe failure never
+// leaves SYSTEM with an id the user scans do not use. "" when nothing is
+// usable.
 func SystemID(ctx context.Context, exec executor.Executor, cachePath string, probeTimeout time.Duration) string {
-	template := strings.TrimSpace(config.DeviceID)
+	template, _ := IdentityTemplate(exec)
 	if template != "" && !strings.Contains(template, "{") {
-		writeSystemIDCache(exec, cachePath, template, "configured")
 		return template
 	}
 	lower := strings.ToLower(template)
@@ -106,8 +107,8 @@ func systemMachineID(ctx context.Context, exec executor.Executor, cachePath stri
 	if cachePath != "" {
 		if data, err := exec.ReadFile(cachePath); err == nil && len(data) <= 4096 {
 			var c systemIDCache
-			// A configured id is only valid while the config still has it
-			// (config.DeviceID is empty here, so it was removed).
+			// A configured id is only valid while it is still configured
+			// (no override is in force here, so it was removed).
 			if json.Unmarshal(data, &c) == nil && usableSerial(c.DeviceID) && c.Source == "hardware" {
 				return c.DeviceID
 			}
