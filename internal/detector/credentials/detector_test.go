@@ -495,6 +495,13 @@ func TestDetect_InventoriesTheKnownLocations(t *testing.T) {
 		if got.Count != expect.want.Count || got.Protection != expect.want.Protection || got.Location != expect.location {
 			t.Errorf("%s: %d/%q at %q, want %d/%q at %q", id, got.Count, got.Protection, got.Location, expect.want.Count, expect.want.Protection, expect.location)
 		}
+		if got.Category == model.CredentialCategoryAITools {
+			if got.Kinds == nil || *got.Kinds != (model.CredentialKinds{APIKey: got.Count}) {
+				t.Errorf("%s: API fixture kinds = %+v", id, got.Kinds)
+			}
+		} else if got.Kinds != nil {
+			t.Errorf("%s: existing and MCP sources must omit kinds", id)
+		}
 		// Every read is made by the agent's own process, and a record silent on that
 		// would mean two things on the same machine.
 		if got.CollectionPrincipal != model.CredentialPrincipalAgentEffective {
@@ -1463,5 +1470,68 @@ func TestDetect_ProjectThroughResolvedHome(t *testing.T) {
 				t.Fatalf("home spelling dropped project credential: admitted=%d count=%d found=%v errors=%v", len(projects.Files), finding.Count, ok, info.Errors)
 			}
 		})
+	}
+}
+
+func TestDetect_CursorAccountKinds(t *testing.T) {
+	for _, tt := range []struct {
+		name, access, refresh string
+		count                 int
+		opaque                bool
+	}{
+		{"readable pair", "synthetic-access", "synthetic-refresh", 2, false},
+		{"protected pair", "cursor-safe-storage:v1:synthetic", "cursor-safe-storage:v1:synthetic", 1, true},
+		{"mixed pair", "synthetic-access", "cursor-safe-storage:v1:synthetic", 2, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			home := testHome(t)
+			editorRoot := ".config/"
+			if runtime.GOOS == model.PlatformDarwin {
+				editorRoot = "Library/Application Support/"
+			}
+			if runtime.GOOS == model.PlatformWindows {
+				editorRoot = "AppData/Roaming/"
+			}
+			path := filepath.Join(home, filepath.FromSlash(editorRoot+"Cursor/User/globalStorage/state.vscdb"))
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			db, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			if _, err := db.Exec(`CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT); INSERT INTO ItemTable VALUES ('cursorAuth/accessToken', ?), ('cursorAuth/refreshToken', ?), ('cursorAuth/openAIKey', 'synthetic-key'), ('cursorAuth/unrelated', 'synthetic-ignore');`, tt.access, tt.refresh); err != nil {
+				t.Fatal(err)
+			}
+			info := detect(t, home)
+			got, ok := findingFor(info, sourceCursor)
+			want := model.CredentialKinds{APIKey: 1, ToolAccount: tt.count - 1}
+			if !ok || got.Count != tt.count || got.Kinds == nil || *got.Kinds != want {
+				t.Fatalf("found=%v count=%d kinds=%+v errors=%v", ok, got.Count, got.Kinds, info.Errors)
+			}
+			opaque := false
+			for _, e := range info.Errors {
+				if e.SourceID == sourceCursor && e.ReasonCode == model.CredentialReasonUnsupportedEncoding {
+					opaque = true
+				}
+			}
+			if opaque != tt.opaque || info.ScanComplete == tt.opaque {
+				t.Fatalf("opaque=%v complete=%v want opaque=%v", opaque, info.ScanComplete, tt.opaque)
+			}
+		})
+	}
+}
+
+func TestDetect_AICredentialReferenceKinds(t *testing.T) {
+	home := testHome(t)
+	writeTree(t, home, map[string]string{
+		".config/opencode/opencode.json": `{"providers":{"example":{"settings":{"apiKey":"{file:shared.txt}","authToken":"{file:shared.txt}"}}}}`,
+		".config/opencode/shared.txt":    "synthetic-material",
+	})
+	info := detect(t, home)
+	got, ok := findingFor(info, sourceOpenCode)
+	if !ok || got.Count != 1 || got.Kinds == nil || *got.Kinds != (model.CredentialKinds{Other: 1}) || !strings.HasSuffix(got.Location, "/shared.txt") {
+		t.Fatalf("found=%v count=%d kinds=%+v location=%s errors=%v", ok, got.Count, got.Kinds, got.Location, info.Errors)
 	}
 }

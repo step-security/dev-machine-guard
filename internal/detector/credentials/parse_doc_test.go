@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
 // TestParseGCPADC covers the shapes this file takes. One file is one credential
@@ -590,6 +592,80 @@ func TestOpenCodeCredentialFileReferences(t *testing.T) {
 			got := parse(in)
 			if got.Count != 0 || len(got.Refs) != 1 {
 				t.Fatalf("count=%d references=%d; want count=0 references=1", got.Count, len(got.Refs))
+			}
+		})
+	}
+}
+
+func TestAIToolCredentialKinds(t *testing.T) {
+	key := "sk-or-v1-" + strings.Repeat("a", 64)
+	cases := []struct {
+		name, source, path, body string
+		rows                     []dbRow
+		want                     model.CredentialKinds
+		hints                    int
+	}{
+		{name: "Claude key", source: sourceClaudeCode, path: ".claude.json", body: `{"primaryApiKey":"` + key + `"}`, want: model.CredentialKinds{APIKey: 1}, hints: 1},
+		{name: "Claude account grant is one", source: sourceClaudeCode, path: ".credentials.json", body: `{"claudeAiOauth":{"accessToken":"` + key + `","refreshToken":"synthetic-refresh","expiresAt":1}}`, want: model.CredentialKinds{ToolAccount: 1}},
+		{name: "Claude Console or federation profile stays other", source: sourceClaudeCode, path: "credentials/example.json", body: `{"access_token":"` + key + `","refresh_token":"synthetic-refresh"}`, want: model.CredentialKinds{Other: 1}},
+		{name: "Claude environment exact purpose", source: sourceClaudeCode, path: "settings.json", body: `{"env":{"ANTHROPIC_API_KEY":"synthetic-key","CLAUDE_CODE_OAUTH_TOKEN":"synthetic-account","ANTHROPIC_AUTH_TOKEN":"synthetic-gateway","PASSWORD":"synthetic-password"}}`, want: model.CredentialKinds{APIKey: 1, ToolAccount: 1, Other: 2}},
+		{name: "Codex all independent forms", source: sourceCodex, path: "auth.json", body: `{"OPENAI_API_KEY":"` + key + `","tokens":{"access_token":"synthetic-access","refresh_token":"synthetic-refresh"},"personal_access_token":"synthetic-pat","agent_identity":"synthetic-identity","bedrock_api_key":{"api_key":"` + key + `"},"bedrock_access_keys":{"secret_access_key":"synthetic-secret","session_token":"synthetic-session"}}`, want: model.CredentialKinds{APIKey: 2, ToolAccount: 2, Other: 2}, hints: 1},
+		{name: "Codex gateway OAuth is not account access", source: sourceCodex, path: "gateway_oauth.json", body: `{"example":{"access_token":"synthetic-access","refresh_token":"synthetic-refresh"}}`, want: model.CredentialKinds{Other: 1}},
+		{name: "Codex bearer retains hints without becoming API kind", source: sourceCodex, path: "config.toml", body: "[model_providers.example]\nexperimental_bearer_token = \"" + key + "\"\n", want: model.CredentialKinds{Other: 1}, hints: 1},
+		{name: "OpenCode V1 provider identities", source: sourceOpenCode, path: "auth.json", body: `{"key":{"type":"api","key":"synthetic-key"},"openai":{"type":"oauth","access":"synthetic-access"},"github-copilot":{"type":"oauth","refresh":"synthetic-refresh"},"custom":{"type":"oauth","access":"synthetic-custom"}}`, want: model.CredentialKinds{APIKey: 1, ToolAccount: 2, Other: 1}},
+		{name: "OpenCode V2 explicit account method", source: sourceOpenCode, path: "opencode.db", rows: []dbRow{{Key: "openai", Value: `{"type":"oauth","methodID":"chatgpt-browser","access":"synthetic-access","refresh":"synthetic-refresh"}`}}, want: model.CredentialKinds{ToolAccount: 1}},
+		{name: "OpenCode V2 unknown OAuth method", source: sourceOpenCode, path: "opencode.db", rows: []dbRow{{Key: "openai", Value: `{"type":"oauth","methodID":"custom","access":"synthetic-access"}`}}, want: model.CredentialKinds{Other: 1}},
+		{name: "Pi OAuth can contain API key", source: sourcePi, path: "auth.json", body: `{"openrouter":{"type":"oauth","access":"` + key + `","refresh":""},"anthropic":{"type":"oauth","access":"synthetic-account"},"openai-codex":{"type":"oauth","refresh":"synthetic-refresh"},"custom":{"type":"oauth","access":"synthetic-custom"}}`, want: model.CredentialKinds{APIKey: 1, ToolAccount: 2, Other: 1}},
+		{name: "Pi refresh only cannot prove OpenRouter API key", source: sourcePi, path: "auth.json", body: `{"openrouter":{"type":"oauth","refresh":"synthetic-refresh"}}`, want: model.CredentialKinds{Other: 1}},
+		{name: "Pi API entry does not classify its generic env token", source: sourcePi, path: "auth.json", body: `{"example":{"type":"api_key","key":"synthetic-key","env":{"TOKEN":"synthetic-token","OPENAI_API_KEY":"synthetic-provider"}}}`, want: model.CredentialKinds{APIKey: 2, Other: 1}},
+		{name: "Hermes manual pools and account provider", source: sourceHermes, path: "auth.json", body: `{"providers":{"openai-codex":{"tokens":{"access_token":"synthetic-access","refresh_token":"synthetic-refresh"}},"nous":{"agent_key":"synthetic-agent"}},"credential_pool":{"example":[{"auth_type":"api_key","access_token":"` + key + `"},{"auth_type":null,"access_token":"synthetic-untyped"},{"auth_type":"oauth","access_token":"synthetic-oauth"}]}}`, want: model.CredentialKinds{APIKey: 2, ToolAccount: 1, Other: 2}, hints: 1},
+		{name: "Hermes env account and service material", source: sourceHermes, path: ".env", body: "OPENAI_API_KEY=synthetic-key\nCLAUDE_CODE_OAUTH_TOKEN=synthetic-account\nANTHROPIC_TOKEN=synthetic-token\nOP_SERVICE_ACCOUNT_TOKEN=synthetic-service\n", want: model.CredentialKinds{APIKey: 1, ToolAccount: 1, Other: 2}},
+		{name: "Copilot bearer not BYOK", source: sourceCopilotCLI, path: "providers.json", body: `{"providers":[{"apiKey":"synthetic-key","bearerToken":"` + key + `","headers":{"Authorization":"synthetic-header"}}]}`, want: model.CredentialKinds{APIKey: 1, Other: 2}, hints: 1},
+		{name: "VS Code header purpose stays unknown", source: sourceVSCode, path: "chatLanguageModels.json", body: `[{"apiKey":"synthetic-key","models":[{"requestHeaders":{"Authorization":"Bearer ` + key + `"},"url":"https://example.invalid/model?token=synthetic-token"}]}]`, want: model.CredentialKinds{APIKey: 1, Other: 2}, hints: 1},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			in := fileInput{Path: tt.path, Data: []byte(tt.body), Rows: tt.rows, SQLite: tt.rows != nil, Fragments: true}
+			got := fileParsers[tt.source](in)
+			count := tt.want.APIKey + tt.want.ToolAccount + tt.want.Other
+			if got.Kinds != tt.want || got.Count != count || got.Unrecognized || got.Opaque || got.Capped || len(got.Hints) != tt.hints {
+				t.Fatalf("got kinds=%+v count=%d unrecognized=%v opaque=%v capped=%v hints=%d; want kinds=%+v hints=%d", got.Kinds, got.Count, got.Unrecognized, got.Opaque, got.Capped, len(got.Hints), tt.want, tt.hints)
+			}
+			in.Fragments = false
+			off := fileParsers[tt.source](in)
+			if off.Kinds != got.Kinds || off.observation != got.observation || len(off.Hints) != 0 {
+				t.Fatal("fragment setting changed kinds or base inventory")
+			}
+		})
+	}
+}
+
+func TestCursorAccountRepresentations(t *testing.T) {
+	key := "sk-or-v1-" + strings.Repeat("a", 64)
+	cases := []struct {
+		name, access, refresh string
+		count                 int
+		opaque                bool
+	}{
+		{"raw account pair", "synthetic-access", "synthetic-refresh", 1, false},
+		{"quoted non-JWT account", "\"synthetic-access\"", "", 1, false},
+		{"account key spelling never hints", key, "", 1, false},
+		{"protected v1", "cursor-safe-storage:v1:synthetic", "", 0, true},
+		{"unknown protected version", "cursor-safe-storage:v2:synthetic", "", 0, true},
+		{"quoted protected", "\"cursor-safe-storage:v1:synthetic\"", "", 0, true},
+		{"Buffer protected", `{"type":"Buffer","data":[1,2]}`, "", 0, true},
+		{"Buffer empty", `{"type":"Buffer","data":[]}`, "", 0, false},
+		{"unknown envelope", `{"encrypted":"synthetic"}`, "", 0, true},
+		{"array envelope", `["synthetic"]`, "", 0, true},
+		{"damaged envelope", `{"encrypted":`, "", 0, true},
+		{"plain and protected", "synthetic-access", "cursor-safe-storage:v1:synthetic", 1, true},
+		{"empty", "null", `""`, 0, false},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseCursor(fileInput{Fragments: true, Rows: []dbRow{{Key: "cursorAuth/accessToken", Value: tt.access}, {Key: "cursorAuth/refreshToken", Value: tt.refresh}}})
+			if got.Count != tt.count || got.Kinds != (model.CredentialKinds{ToolAccount: tt.count}) || got.Opaque != tt.opaque || got.Unrecognized || len(got.Hints) != 0 {
+				t.Fatalf("count=%d kinds=%+v opaque=%v unrecognized=%v hints=%d", got.Count, got.Kinds, got.Opaque, got.Unrecognized, len(got.Hints))
 			}
 		})
 	}

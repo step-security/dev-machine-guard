@@ -473,3 +473,9 @@ Presence is tri-state (`yes` / `no` / `unknown`): a probe that cannot read the r
 ## Adding New Detections
 
 Want to add detection for a new tool, IDE, or framework? See [docs/adding-detections.md](docs/adding-detections.md) or open a [New Detection issue](.github/ISSUE_TEMPLATE/new_detection.yml).
+
+## Credential classification
+
+The eight AI-tool credential sources report per-file counts of API keys, recognized tool-account credentials and other secrets. Classification uses known storage fields and provider semantics, independently of the optional key-fragment setting. It does not establish which credential a tool uses, whether an account has a paid subscription, or how requests are billed. Existing credential and MCP counts are unchanged. Raw one-hop reference files remain classified as other when their purpose is ambiguous.
+
+Cursor account discovery reads only `cursorAuth/accessToken` and `cursorAuth/refreshToken` alongside the existing provider-key slots in the known `state.vscdb` files. A readable access/refresh pair counts once. Protected account envelopes remain opaque and make coverage incomplete; they are not decrypted or counted from their presence. Account credentials never emit key fragments.

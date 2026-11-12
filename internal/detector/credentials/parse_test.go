@@ -724,3 +724,29 @@ func TestCredentialFragmentFamiliesAndBounds(t *testing.T) {
 		}
 	})
 }
+
+func TestCredentialKindsRespectCountCap(t *testing.T) {
+	var f fold
+	for range maxAICount - 1 {
+		f.entryKind(kindToolAccount)
+	}
+	var next fold
+	next.entryKind(kindAPIKey)
+	next.entryKind(kindOther)
+	f.absorb(&next)
+	if f.count != maxAICount || !f.capped || f.kinds != (model.CredentialKinds{APIKey: 1, ToolAccount: maxAICount - 1}) {
+		t.Fatalf("count=%d capped=%v kinds=%+v", f.count, f.capped, f.kinds)
+	}
+	before := f.kinds
+	if f.entryKind(kindOther) || f.kinds != before {
+		t.Fatal("refused entry changed kind counts")
+	}
+	// A raw file may be shared by differently typed consumers. Its purpose is
+	// not inferred from whichever consumer happened to discover it first.
+	for _, fragments := range []bool{false, true} {
+		got := rawSecret([]byte("sk-or-v1-"+strings.Repeat("a", 64)), fragments)
+		if got.Count != 1 || got.Kinds != (model.CredentialKinds{Other: 1}) {
+			t.Fatalf("raw reference kinds=%+v count=%d", got.Kinds, got.Count)
+		}
+	}
+}

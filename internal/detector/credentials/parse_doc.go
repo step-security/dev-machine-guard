@@ -1038,7 +1038,7 @@ func parseClaudeCode(in fileInput) parsed {
 	case name == ".credentials.json":
 		return parseDoc(in, literalGrammar, func(c counter, doc any) {
 			root := c.object(doc)
-			c.grant(root["claudeAiOauth"], "accessToken", "refreshToken")
+			c.classified(kindToolAccount).grant(root["claudeAiOauth"], "accessToken", "refreshToken")
 			claudePluginSecrets(c, root)
 		})
 	case name == "settings.json" || name == "settings.local.json":
@@ -1049,7 +1049,7 @@ func parseClaudeCode(in fileInput) parsed {
 	// The account key only. The approved-key list beside it keeps the tail of
 	// every key the developer accepted and is never read.
 	return parseDoc(in, literalGrammar, func(c counter, doc any) {
-		c.key(c.object(doc)["primaryApiKey"])
+		c.classified(kindAPIKey).key(c.object(doc)["primaryApiKey"])
 	})
 }
 
@@ -1129,9 +1129,9 @@ func parseCodex(in fileInput) parsed {
 // grant, a personal access token, an agent identity, and Bedrock keys.
 func codexAuth(c counter, doc any) {
 	root := c.object(doc)
-	c.key(root["OPENAI_API_KEY"])
-	c.grant(root["tokens"], "id_token", "access_token", "refresh_token")
-	c.value(root["personal_access_token"])
+	c.classified(kindAPIKey).key(root["OPENAI_API_KEY"])
+	c.classified(kindToolAccount).grant(root["tokens"], "id_token", "access_token", "refresh_token")
+	c.classified(kindToolAccount).value(root["personal_access_token"])
 	switch identity := root["agent_identity"].(type) {
 	case nil:
 	case string:
@@ -1141,7 +1141,7 @@ func codexAuth(c counter, doc any) {
 	default:
 		c.f.unrecognized = true
 	}
-	c.field(root, "bedrock_api_key", "api_key")
+	c.classified(kindAPIKey).field(root, "bedrock_api_key", "api_key")
 	c.grant(root["bedrock_access_keys"], "secret_access_key", "session_token")
 }
 
@@ -1173,13 +1173,17 @@ func parseOpenCode(in fileInput) parsed {
 	}
 	if openCodeStore(in.Path, in.Config) {
 		return parseDoc(in, literalGrammar, func(c counter, doc any) {
-			for _, rec := range c.object(doc) {
+			for provider, rec := range c.object(doc) {
 				r := c.object(rec)
 				switch r["type"] {
 				case "api":
-					c.key(r["key"])
+					c.classified(kindAPIKey).key(r["key"])
 				case "oauth":
-					c.grant(r, "access", "refresh")
+					kind := kindOther
+					if provider == "openai" || provider == "github-copilot" {
+						kind = kindToolAccount
+					}
+					c.classified(kind).grant(r, "access", "refresh")
 				case "wellknown":
 					c.value(r["token"])
 				default:
@@ -1193,7 +1197,7 @@ func parseOpenCode(in fileInput) parsed {
 		for _, provider := range c.object(root["provider"]) {
 			p := c.object(provider)
 			options := c.object(p["options"])
-			c.key(options["apiKey"])
+			c.classified(kindAPIKey).key(options["apiKey"])
 			c.headers(options["headers"])
 			for _, model := range c.object(p["models"]) {
 				c.headers(c.object(model)["headers"])
@@ -1218,7 +1222,7 @@ func parseOpenCode(in fileInput) parsed {
 // read from it.
 func openCodeSettings(c counter, m map[string]any) {
 	settings := c.object(m["settings"])
-	c.key(settings["apiKey"])
+	c.classified(kindAPIKey).key(settings["apiKey"])
 	c.value(settings["authToken"])
 	c.value(settings["accessToken"])
 	c.headers(m["headers"])
@@ -1289,9 +1293,13 @@ func openCodeRows(in fileInput, mcp bool) parsed {
 		c := counter{f: &units, p: &p, g: literalGrammar}
 		switch v["type"] {
 		case "key":
-			c.key(v["key"])
+			c.classified(kindAPIKey).key(v["key"])
 		case "oauth":
-			c.grant(v, "access", "refresh")
+			kind := kindOther
+			if (row.Key == "openai" && (v["methodID"] == "chatgpt-browser" || v["methodID"] == "chatgpt-headless")) || (row.Key == "github-copilot" && v["methodID"] == "device") {
+				kind = kindToolAccount
+			}
+			c.classified(kind).grant(v, "access", "refresh")
 			if isMCP {
 				c.field(v, "metadata", "client", "client_secret")
 			}
@@ -1360,14 +1368,24 @@ func openCodeProviders(in fileInput) map[string]bool {
 func parsePi(in fileInput) parsed {
 	if filepath.Base(in.Path) == "auth.json" {
 		return parseDoc(in, piGrammar, func(c counter, doc any) {
-			for _, rec := range c.object(doc) {
+			for provider, rec := range c.object(doc) {
 				r := c.object(rec)
 				switch r["type"] {
 				case "api_key":
-					c.key(r["key"])
+					c.classified(kindAPIKey).key(r["key"])
 					c.env(r["env"], false)
 				case "oauth":
-					c.literalCounter().grant(r, "access", "refresh")
+					kind := kindOther
+					switch provider {
+					case "anthropic", "openai-codex", "github-copilot":
+						kind = kindToolAccount
+					case "openrouter":
+						// This adapter stores an issued API key in the access field.
+						if literalGrammar.literalAny(r["access"]) {
+							kind = kindAPIKey
+						}
+					}
+					c.literalCounter().classified(kind).grant(r, "access", "refresh")
 				default:
 					c.f.unrecognized = true
 				}
@@ -1377,7 +1395,7 @@ func parsePi(in fileInput) parsed {
 	return parseDoc(in, piGrammar, func(c counter, doc any) {
 		for _, provider := range c.object(c.object(doc)["providers"]) {
 			p := c.object(provider)
-			c.key(p["apiKey"])
+			c.classified(kindAPIKey).key(p["apiKey"])
 			c.headers(p["headers"])
 			for _, model := range c.list(p["models"]) {
 				c.headers(c.object(model)["headers"])
@@ -1455,10 +1473,12 @@ func parseHermes(in fileInput) parsed {
 				base := hermesEnvBase(name)
 				switch {
 				case base == "" || value == hermesManaged || !hermesGrammar.literal(value):
+				case base == "CLAUDE_CODE_OAUTH_TOKEN":
+					f.entryKind(kindToolAccount)
 				case hermesTokenEnv[base]:
 					f.entry()
 				default:
-					f.key(value)
+					f.keyKind(value, kindAPIKey)
 				}
 			}
 			return true
@@ -1474,9 +1494,9 @@ func parseHermes(in fileInput) parsed {
 	}
 	return parseDoc(in, hermesGrammar, func(c counter, doc any) {
 		root := c.object(doc)
-		c.key(c.at(root, "model", "api_key"))
+		c.classified(kindAPIKey).key(c.at(root, "model", "api_key"))
 		for _, task := range c.object(root["auxiliary"]) {
-			c.key(c.at(task, "api_key"))
+			c.classified(kindAPIKey).key(c.at(task, "api_key"))
 		}
 		for _, provider := range c.list(root["custom_providers"]) {
 			hermesCustomProvider(c, provider)
@@ -1495,7 +1515,7 @@ func hermesCustomProvider(c counter, v any) {
 	if !c.g.literalAny(key) {
 		key = p["apiKey"]
 	}
-	c.key(key)
+	c.classified(kindAPIKey).key(key)
 	c.headers(p["extra_headers"])
 }
 
@@ -1520,7 +1540,7 @@ func hermesAuth(c counter, doc any) {
 	for id, rec := range c.object(root["providers"]) {
 		r := c.object(rec)
 		if id == "openai-codex" {
-			c.grant(r["tokens"], "access_token", "refresh_token", "id_token")
+			c.classified(kindToolAccount).grant(r["tokens"], "access_token", "refresh_token", "id_token")
 			continue
 		}
 		hermesGrant(c, r)
@@ -1534,7 +1554,7 @@ func hermesAuth(c counter, doc any) {
 			r := c.object(row)
 			switch r["auth_type"] {
 			case nil, "api_key":
-				c.key(r["access_token"])
+				c.classified(kindAPIKey).key(r["access_token"])
 			default:
 				c.grant(r, "access_token", "refresh_token", "agent_key", "anon_token")
 			}
@@ -1575,7 +1595,7 @@ func parseCopilotCLI(in fileInput) parsed {
 	return parseDoc(in, literalGrammar, func(c counter, doc any) {
 		for _, provider := range c.list(c.object(doc)["providers"]) {
 			p := c.object(provider)
-			c.key(p["apiKey"])
+			c.classified(kindAPIKey).key(p["apiKey"])
 			c.key(p["bearerToken"])
 			c.headers(p["headers"])
 		}
@@ -1602,12 +1622,19 @@ func parseCopilotCLIMCP(in fileInput) parsed {
 	})
 }
 
-// parseCursor reads Cursor's provider key slots. A plaintext slot holds the key
-// as a string; a protected slot holds an encrypted buffer, empty when unset.
+// parseCursor reads Cursor's provider keys and account access/refresh slots.
+// The account pair is one credential, and protected material is never counted.
 func parseCursor(in fileInput) parsed {
 	var p parsed
 	f := fold{fragments: in.Fragments}
+	account := false
 	for _, row := range in.Rows {
+		if row.Key == "cursorAuth/accessToken" || row.Key == "cursorAuth/refreshToken" {
+			readable, opaque := cursorAccountValue(row.Value)
+			account = account || readable
+			p.Opaque = p.Opaque || opaque
+			continue
+		}
 		if strings.HasPrefix(row.Key, "secret://") {
 			editorEnvelope(&p, &f, row.Value)
 			continue
@@ -1622,13 +1649,48 @@ func parseCursor(in fileInput) parsed {
 		}
 		// Google keys have no recognized whole-value form.
 		if strings.HasSuffix(row.Key, "/googleKey") {
-			f.entry()
+			f.entryKind(kindAPIKey)
 		} else {
-			f.key(value)
+			f.keyKind(value, kindAPIKey)
 		}
+	}
+	if account {
+		f.entryKind(kindToolAccount)
 	}
 	f.into(&p)
 	return p
+}
+
+// cursorAccountValue accepts readable account strings and recognizes opaque
+// wrappers without decrypting or interpreting the token itself.
+func cursorAccountValue(value string) (readable, opaque bool) {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "null" {
+		return false, false
+	}
+	var quoted string
+	if json.Unmarshal([]byte(value), &quoted) == nil {
+		value = strings.TrimSpace(quoted)
+	}
+	if value == "" {
+		return false, false
+	}
+	if strings.HasPrefix(value, "cursor-safe-storage:") {
+		return false, true
+	}
+	if strings.HasPrefix(value, "{") || strings.HasPrefix(value, "[") {
+		var envelope any
+		if json.Unmarshal([]byte(value), &envelope) != nil {
+			return false, true
+		}
+		if object, ok := envelope.(map[string]any); ok && object["type"] == "Buffer" {
+			if data, ok := object["data"].([]any); ok && len(data) == 0 {
+				return false, false
+			}
+		}
+		return false, holdsValues(envelope)
+	}
+	return true, false
 }
 
 // editorEnvelope classifies an encrypted editor value: an empty buffer holds
@@ -1670,7 +1732,7 @@ func parseVSCode(in fileInput) parsed {
 	return parseDoc(in, editorGrammar, func(c counter, doc any) {
 		for _, group := range c.list(doc) {
 			g := c.object(group)
-			c.key(g["apiKey"])
+			c.classified(kindAPIKey).key(g["apiKey"])
 			c.url(g["url"])
 			for _, model := range c.list(g["models"]) {
 				m := c.object(model)

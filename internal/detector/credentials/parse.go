@@ -254,6 +254,7 @@ type fold struct {
 	fragments bool
 	hints     map[model.CredentialKeyFragment]int
 	dropped   bool
+	kinds     model.CredentialKinds
 }
 
 // add records one credential. A state outside the two-value vocabulary is not a
@@ -648,6 +649,7 @@ type parsed struct {
 	Opaque     bool
 	Unresolved bool
 	Refs       []fileRef
+	Kinds      model.CredentialKinds
 	// The fragments of the recognized keys counted, when the tenant opted in,
 	// and whether the per-finding bound left any out.
 	Hints        []model.CredentialKeyFragment
@@ -689,15 +691,37 @@ var fileParsers = map[string]fileParser{
 	sourceSharedMCPConfig: parseSharedMCPConfig,
 }
 
+// credentialKind describes a known field's purpose, never a token's spelling
+// or eligibility for fragments. The zero value preserves ambiguous material.
+type credentialKind uint8
+
+const (
+	kindOther credentialKind = iota
+	kindAPIKey
+	kindToolAccount
+)
+
 // entry records one retained credential and reports whether it was counted.
 // These files hold their material as text, so every entry is plaintext; an
 // encrypted store is reported opaque rather than counted.
 func (f *fold) entry() bool {
+	return f.entryKind(kindOther)
+}
+
+func (f *fold) entryKind(kind credentialKind) bool {
 	if f.count >= maxAICount {
 		f.capped = true
 		return false
 	}
 	f.add(model.CredentialProtectionPlaintext)
+	switch kind {
+	case kindAPIKey:
+		f.kinds.APIKey++
+	case kindToolAccount:
+		f.kinds.ToolAccount++
+	default:
+		f.kinds.Other++
+	}
 	return true
 }
 
@@ -705,7 +729,11 @@ func (f *fold) entry() bool {
 // recognized provider key also leaves its fragment. A fragment is only ever
 // kept for a counted entry, so a location's occurrences never exceed its count.
 func (f *fold) key(value string) {
-	if !f.entry() || !f.fragments {
+	f.keyKind(value, kindOther)
+}
+
+func (f *fold) keyKind(value string, kind credentialKind) {
+	if !f.entryKind(kind) || !f.fragments {
 		return
 	}
 	hint, ok := keyHint(value)
@@ -724,8 +752,13 @@ func (f *fold) key(value string) {
 
 // absorb adds another fold's entries and fragments to this one.
 func (f *fold) absorb(o *fold) {
-	for range o.count {
-		f.entry()
+	for _, group := range []struct {
+		kind  credentialKind
+		count int
+	}{{kindAPIKey, o.kinds.APIKey}, {kindToolAccount, o.kinds.ToolAccount}, {kindOther, o.kinds.Other}} {
+		for range group.count {
+			f.entryKind(group.kind)
+		}
 	}
 	f.unrecognized = f.unrecognized || o.unrecognized
 	f.dropped = f.dropped || o.dropped
@@ -750,6 +783,7 @@ func (f *fold) absorb(o *fold) {
 // into closes the fold into a file's result.
 func (f *fold) into(p *parsed) {
 	p.observation = f.result()
+	p.Kinds = f.kinds
 	f.hintsInto(p)
 }
 
@@ -982,9 +1016,10 @@ func keyEnvName(name string) bool {
 // resolves it from a file, that file is named instead, and where it is a VS Code
 // input, the input is noted so the cached value can be matched to it.
 type counter struct {
-	f *fold
-	p *parsed
-	g grammar
+	f    *fold
+	p    *parsed
+	g    grammar
+	kind credentialKind
 	// The directory a relative file reference resolves against, and the
 	// project a "${workspaceFolder}" names, when the file belongs to one.
 	dir       string
@@ -993,6 +1028,13 @@ type counter struct {
 	// Input identifiers that feed a credential slot, collected only when set,
 	// each true while every slot it feeds holds an API key.
 	inputs map[string]bool
+}
+
+// classified selects the purpose of an exact field or known provider record.
+// It does not change counting, reference resolution or fragment eligibility.
+func (c counter) classified(kind credentialKind) counter {
+	c.kind = kind
+	return c
 }
 
 // openCodeFileRef matches OpenCode's file substitution and captures its path.
@@ -1027,9 +1069,9 @@ func (c counter) header(v any) {
 func (c counter) slot(s string, key bool) {
 	if c.g.literal(s) {
 		if key {
-			c.f.key(s)
+			c.f.keyKind(s, c.kind)
 		} else {
-			c.f.entry()
+			c.f.entryKind(c.kind)
 		}
 		return
 	}
@@ -1092,11 +1134,12 @@ func (c counter) list(v any) []any {
 // provider key: servers name their key variables freely.
 func (c counter) env(v any, mcp bool) {
 	for name, value := range c.object(v) {
+		field := c.classified(environmentKind(name))
 		switch {
 		case secretEnvName(name, mcp) && keyEnvName(name):
-			c.key(value)
+			field.key(value)
 		case secretEnvName(name, mcp):
-			c.value(value)
+			field.value(value)
 		case mcp:
 			if s, ok := value.(string); ok {
 				if _, known := keyFamilyOf(s); known {
@@ -1105,6 +1148,22 @@ func (c counter) env(v any, mcp bool) {
 			}
 		}
 	}
+}
+
+// environmentKind uses the declared variable, not its value. Generic bearer
+// tokens and credentials for custom endpoints do not establish account access.
+func environmentKind(name string) credentialKind {
+	upper := strings.ToUpper(strings.TrimSpace(name))
+	switch upper {
+	case "CLAUDE_CODE_OAUTH_TOKEN":
+		return kindToolAccount
+	case "ANTHROPIC_AUTH_TOKEN":
+		return kindOther
+	}
+	if providerEnvNames[upper] || insomniaEnvName(name) == "api_key" || insomniaEnvName(name) == "apikey" {
+		return kindAPIKey
+	}
+	return kindOther
 }
 
 // headers counts the authentication headers of one header map.
@@ -1210,7 +1269,7 @@ func (c counter) grant(v any, keys ...string) {
 	m := c.object(v)
 	switch {
 	case slices.ContainsFunc(keys, func(k string) bool { return c.g.literalAny(m[k]) }):
-		c.f.entry()
+		c.f.entryKind(c.kind)
 	case slices.ContainsFunc(keys, func(k string) bool { return holdsValues(m[k]) }):
 		c.f.unrecognized = true
 	}
@@ -1236,6 +1295,7 @@ func observedKeys(data []byte, fragments bool, fill func(data []byte, f *fold) b
 		if !fill(data, f) {
 			return false
 		}
+		p.Kinds = f.kinds
 		f.hintsInto(&p)
 		return true
 	})

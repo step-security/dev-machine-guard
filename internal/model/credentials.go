@@ -109,6 +109,14 @@ type CredentialScanInfo struct {
 	DurationMs int64 `json:"duration_ms"`
 }
 
+// CredentialKinds partitions a finding's count by the owning tool's storage
+// schema. Other includes credentials whose purpose the schema does not establish.
+type CredentialKinds struct {
+	APIKey      int `json:"api_key,omitzero"`
+	ToolAccount int `json:"tool_account,omitzero"`
+	Other       int `json:"other,omitzero"`
+}
+
 // CredentialFinding describes one credential location.
 type CredentialFinding struct {
 	SourceID string `json:"source_id"`
@@ -125,6 +133,10 @@ type CredentialFinding struct {
 	// How many credentials the location holds. Always at least one: a location
 	// with none produces no finding at all.
 	Count int `json:"count"`
+
+	// The stored material in supported AI-tool files, independent of whether
+	// the tool currently uses it or the account has a paid subscription.
+	Kinds *CredentialKinds `json:"kinds,omitempty"`
 
 	Protection string `json:"protection"`
 

@@ -655,7 +655,11 @@ func (d *Detector) record(ctx context.Context, scan *scanState, s source, path, 
 	if p.Count == 0 {
 		return
 	}
-	at := scan.addFinding(d.buildFinding(ctx, scan, s, path, resolved, info, p.observation))
+	finding := d.buildFinding(ctx, scan, s, path, resolved, info, p.observation)
+	if s.Category == model.CredentialCategoryAITools {
+		finding.Kinds = new(p.Kinds)
+	}
+	at := scan.addFinding(finding)
 	if at >= 0 {
 		scan.attachFragments(at, p)
 	}

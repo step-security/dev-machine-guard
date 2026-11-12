@@ -63,9 +63,10 @@ var dbSpecs = map[string]dbSpec{
 	sourceOpenCode:    openCodeCredentials,
 	sourceOpenCodeMCP: openCodeCredentials,
 	sourceCursor: editorItems(
-		`SELECT key, CAST(value AS TEXT) FROM ItemTable WHERE key IN (?, ?, ?, ?, ?, ?) LIMIT 10001`,
+		`SELECT key, CAST(value AS TEXT) FROM ItemTable WHERE key IN (?, ?, ?, ?, ?, ?, ?, ?) LIMIT 10001`,
 		"cursorAuth/openAIKey", "cursorAuth/claudeKey", "cursorAuth/googleKey",
 		"secret://cursorAuth/openAIKey", "secret://cursorAuth/claudeKey", "secret://cursorAuth/googleKey",
+		"cursorAuth/accessToken", "cursorAuth/refreshToken",
 	),
 	sourceCursorMCP: editorItems(
 		`SELECT key, CAST(value AS TEXT) FROM ItemTable WHERE key >= ? AND key < ? LIMIT 10001`,
