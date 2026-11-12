@@ -15,8 +15,10 @@ import (
 
 // explicitIdentities validates identity keys without losing merge semantics or
 // unknown config fields. Device validation applies only to explicit imports;
-// existing configured device IDs remain readable for compatibility.
-func explicitIdentities(data []byte, includeDevice bool) (map[string]string, error) {
+// existing configured device IDs remain readable for compatibility. A
+// bootstrap file (bootstrapFile) keeps v1.18.1's reading of device_id: an
+// empty value clears the override, null leaves it as it is.
+func explicitIdentities(data []byte, includeDevice, bootstrapFile bool) (map[string]string, error) {
 	fields := map[string]string{}
 	d := json.NewDecoder(strings.NewReader(string(data)))
 	tok, err := d.Token()
@@ -46,6 +48,9 @@ func explicitIdentities(data []byte, includeDevice bool) (map[string]string, err
 			return nil, fmt.Errorf("duplicate %s_id", kind)
 		}
 		if string(value) == "null" {
+			if kind == "device" && bootstrapFile {
+				continue
+			}
 			return nil, fmt.Errorf("%s_id must be a non-empty string", kind)
 		}
 		var raw string
@@ -55,7 +60,9 @@ func explicitIdentities(data []byte, includeDevice bool) (map[string]string, err
 		// A device id may also be a template the agent expands per scan, or
 		// "-" to clear the override; a user id is always a literal.
 		var id string
-		if kind == "device" {
+		if kind == "device" && bootstrapFile && strings.TrimSpace(raw) == "" {
+			id = ""
+		} else if kind == "device" {
 			id, err = identity.NormalizeDevice(raw)
 		} else {
 			id, err = identity.Normalize(raw, kind)

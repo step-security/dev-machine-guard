@@ -228,7 +228,7 @@ var retiredConfigKeys = map[string]bool{"use_legacy_package_scan": true}
 // c's values as they are (configure --from-file relies on this to merge),
 // and unknown keys are kept for MarshalJSON.
 func (c *ConfigFile) UnmarshalJSON(data []byte) error {
-	fields, err := explicitIdentities(data, false)
+	fields, err := explicitIdentities(data, false, false)
 	if err != nil {
 		return err
 	}
@@ -1110,7 +1110,7 @@ func runConfigureNonInteractive(opts NonInteractiveOptions, exec executor.Execut
 		if err != nil {
 			return fmt.Errorf("encoding configure flags: %w", err)
 		}
-		inlineIDs, err = explicitIdentities(valuesData, true)
+		inlineIDs, err = explicitIdentities(valuesData, true, false)
 		if err != nil {
 			return fmt.Errorf("applying configure flags: %w", err)
 		}
@@ -1132,7 +1132,7 @@ func runConfigureNonInteractive(opts NonInteractiveOptions, exec executor.Execut
 		if err := json.Unmarshal(data, &fromFile); err != nil {
 			return fmt.Errorf("parsing --from-file %q: %w", opts.FromFile, err)
 		}
-		ids, err := explicitIdentities(data, true)
+		ids, err := explicitIdentities(data, true, true)
 		if err != nil {
 			return fmt.Errorf("parsing --from-file %q: %w", opts.FromFile, err)
 		}

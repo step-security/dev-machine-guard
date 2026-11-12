@@ -716,7 +716,7 @@ func TestUserIDReadOverrideCannotWriteDefault(t *testing.T) {
 	}
 }
 func TestConfiguredDeviceIDInputValidation(t *testing.T) {
-	for _, value := range []string{"", " ", "root", "UnKnOwN", "bad/id", "bad\n", strings.Repeat("a", 257), "new+device@example.com"} {
+	for _, value := range []string{"root", "UnKnOwN", "bad/id", "bad\n", strings.Repeat("a", 257), "new+device@example.com"} {
 		t.Run(value, func(t *testing.T) {
 			withHome(t)
 			seedUserConfig(t)
@@ -745,6 +745,51 @@ func TestConfiguredDeviceIDInputValidation(t *testing.T) {
 				if !bytes.Equal(before, configBytes(t)) {
 					t.Fatal("invalid device ID changed config")
 				}
+			}
+		})
+	}
+}
+
+// A bootstrap file accepted by v1.18.1 still configures: an empty device_id
+// clears the override (as "-" does, and as v1.18.1's merge did), null and an
+// omitted key keep it, and a literal stored before validation existed stays
+// readable. Non-empty values are still validated (above).
+func TestFromFileDeviceIDCompatibility(t *testing.T) {
+	const creds = `"customer_id":"customer","api_key":"test-key","api_endpoint":"https://example.test"`
+	for _, tc := range []struct {
+		name, deviceKey, stored, want string
+	}{
+		{"empty on a fresh install", `,"device_id":""`, "", ""},
+		{"blank on a fresh install", `,"device_id":"  "`, "", ""},
+		{"null on a fresh install", `,"device_id":null`, "", ""},
+		{"case-variant key clears an override", `,"Device_ID":""`, "old-device", ""},
+		{"empty clears an override", `,"device_id":""`, "old-device", ""},
+		{"null keeps an override", `,"device_id":null`, "old-device", "old-device"},
+		{"omitted keeps an override", ``, "old-device", "old-device"},
+		{"omitted keeps a legacy literal", ``, "root", "root"},
+		{"null keeps a legacy literal", `,"device_id":null`, "root", "root"},
+		{"empty clears a legacy literal", `,"device_id":""`, "root", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withHome(t)
+			if tc.stored != "" {
+				if err := save(&ConfigFile{DeviceID: tc.stored, CustomerID: "customer", APIKey: "old-key", APIEndpoint: "https://example.test"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			from := filepath.Join(t.TempDir(), "bootstrap.json")
+			if err := os.WriteFile(from, []byte("{"+creds+tc.deviceKey+"}"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := runConfigureNonInteractive(NonInteractiveOptions{FromFile: from}, absentUser()); err != nil {
+				t.Fatalf("bootstrap file rejected: %v", err)
+			}
+			got, err := readExistingStrict()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.DeviceID != tc.want || got.APIKey != "test-key" {
+				t.Fatalf("device_id = %q api_key = %q, want device_id %q and the file's credentials", got.DeviceID, got.APIKey, tc.want)
 			}
 		})
 	}
