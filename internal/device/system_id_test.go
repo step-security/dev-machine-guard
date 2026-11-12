@@ -191,3 +191,25 @@ func TestSystemIDHonoursEnvOverrideLikeTheScan(t *testing.T) {
 		}
 	}
 }
+
+// A literal override is never cached: the hardware id cached before it stays
+// the fallback once the override is removed and the probe then fails, so
+// SYSTEM does not drift from the id the scans keep using.
+func TestSystemIDLiteralOverrideKeepsTheHardwareCache(t *testing.T) {
+	noConfiguredID(t)
+	m := systemMock()
+	cache := `C:\x\device-id`
+	stubProbe(t, "HW-1", true)
+	if got := SystemID(context.Background(), m, cache, SystemProbeTimeout); got != "HW-1" {
+		t.Fatalf("hardware: SystemID = %q", got)
+	}
+	m.SetEnv(EnvDeviceID, "fleet-host-42")
+	if got := SystemID(context.Background(), m, cache, SystemProbeTimeout); got != "fleet-host-42" {
+		t.Fatalf("env literal: SystemID = %q", got)
+	}
+	m.SetEnv(EnvDeviceID, "")
+	stubProbe(t, "guid-1", false)
+	if got := SystemID(context.Background(), m, cache, SystemProbeTimeout); got != "HW-1" {
+		t.Fatalf("override removed, probe failing: SystemID = %q, want the cached hardware id", got)
+	}
+}

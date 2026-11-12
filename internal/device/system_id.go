@@ -19,7 +19,7 @@ var systemProbe = probeSerial
 // systemIDCache is the SYSTEM-only identity cache (state\device-id).
 type systemIDCache struct {
 	DeviceID string `json:"device_id"`
-	Source   string `json:"source"` // "hardware" | "configured"
+	Source   string `json:"source"` // "hardware" ("configured" from older builds is ignored)
 }
 
 // SystemID is the device identity for the SYSTEM self-updater. probeTimeout
@@ -29,17 +29,17 @@ type systemIDCache struct {
 // The configured identity is the one the scan uses (IdentityTemplate:
 // STEPSEC_DEVICE_ID, then config.json's device_id): a literal as given; a
 // template expanded with the host name and the machine identity
-// (systemMachineID). SYSTEM sees only a machine-wide STEPSEC_DEVICE_ID,
-// which only an administrator can set. A template that still carries the retired {user} token
-// falls back to the machine identity, as the scan does.
-// Only a hardware result or a literal configured id is cached: a template's
-// expansion is recomputed from the hardware cache each time, so a later probe
-// failure never leaves SYSTEM with an id the user scans do not use. "" when
-// nothing is usable.
+// (systemMachineID). The variable comes from the SYSTEM task's inherited
+// environment, so only a machine-wide one applies, which only an
+// administrator can set. A template that still carries the retired {user}
+// token falls back to the machine identity, as the scan does.
+// Only a hardware result is cached: a configured id is recomputed each time,
+// so it never overwrites the hardware cache, and a later probe failure never
+// leaves SYSTEM with an id the user scans do not use. "" when nothing is
+// usable.
 func SystemID(ctx context.Context, exec executor.Executor, cachePath string, probeTimeout time.Duration) string {
 	template, _ := IdentityTemplate(exec)
 	if template != "" && !strings.Contains(template, "{") {
-		writeSystemIDCache(exec, cachePath, template, "configured")
 		return template
 	}
 	lower := strings.ToLower(template)
