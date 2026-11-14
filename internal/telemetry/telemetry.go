@@ -1176,11 +1176,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	postPhase()
 
 	// Credential-location inventory — where this machine's developer tools keep
-	// credentials, and how well guarded each location is. Exact paths only, never
-	// a walk; every read byte-capped; nothing about the credential itself leaves
-	// the detector. A non-nil section always ships once the phase has run, because
-	// nil is the only "did not run" signal a reader has and a nil payload must
-	// never be readable as "this machine holds no credentials".
+	// credentials, and how well guarded each location is. Exact paths and bounded
+	// one-level listings only; project files come from the skills walk's own
+	// listings, never a walk of its own; every read byte-capped. Full credentials
+	// never leave the detector; tenant opt-in permits bounded key fragments.
+	// A non-nil section always ships once the phase has run, because nil is the
+	// only "did not run" signal a reader has
+	// and a nil payload must never be readable as "this machine holds no
+	// credentials".
 	//
 	// userExec (not exec): the account whose credentials this describes is the
 	// logged-in developer, not the service profile an unattended deploy runs as.
@@ -1188,7 +1191,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// the tenant has turned the phase off.
 	credentialScan := collectCredentials(ctx, tracker, log, cfg.CredentialScanningDisabled,
 		func(phaseCtx context.Context) *model.CredentialScanInfo {
-			return credentials.New(userExec).WithSkipper(tccSkipper).Detect(phaseCtx)
+			return credentials.New(userExec).WithSkipper(tccSkipper).
+				WithProjects(skillsResult.CredentialCandidates).
+				WithKeyFragments(cfg.CredentialKeyFragments).Detect(phaseCtx)
 		}, postPhase)
 
 	// Browser extension inventory — which extensions are installed in this

@@ -3,9 +3,9 @@ package model
 // Credential inventory wire types.
 //
 // A finding says which category of credential material lives at a location,
-// where it is, and how well protected it is. It never carries the credential —
-// no value, no substring, no digest, no fingerprint, and no category derived
-// from the secret's own characters. Protection state is derived by reading
+// where it is, and how well protected it is. It never carries a full credential,
+// digest or fingerprint. Tenant opt-in permits bounded prefixes and suffixes
+// with credential types for eligible API keys. Protection state comes from
 // secret-bearing bytes (a key container's structure, whether a field holds a
 // concrete value), which describes how material is guarded rather than what it
 // is.
@@ -25,6 +25,8 @@ const (
 	CredentialCategoryContainers     = "containers"
 	CredentialCategoryInfrastructure = "infrastructure"
 	CredentialCategoryAPIClients     = "api_clients"
+	CredentialCategoryAITools        = "ai_tools"
+	CredentialCategoryMCPServers     = "mcp_servers"
 )
 
 // Protection states, worst-case per source. Two values and no third: every
@@ -67,7 +69,7 @@ const (
 // CurrentCredentialSchemaVersion is the credential block's own shape version,
 // declared so a reader can reject or down-convert a shape it does not know
 // instead of silently dropping fields.
-const CurrentCredentialSchemaVersion = 1
+const CurrentCredentialSchemaVersion = 2
 
 // CredentialScanInfo is the credential inventory for one run. Its presence is
 // the "scan ran" sentinel and that is load-bearing: nil means no information,
@@ -89,6 +91,10 @@ type CredentialScanInfo struct {
 	// A cap bounded the result. Setting it also clears ScanComplete.
 	Truncated bool `json:"truncated,omitempty"`
 
+	// Key fragments were left out by a budget or a per-finding bound. It says
+	// nothing about the inventory itself, which keeps its own completeness.
+	KeyFragmentsTruncated bool `json:"key_fragments_truncated,omitempty"`
+
 	PayloadSchemaVersion int `json:"payload_schema_version"`
 
 	// The revision of the source list probed, so a narrower list is
@@ -101,6 +107,14 @@ type CredentialScanInfo struct {
 	CollectedAt int64 `json:"collected_at"`
 
 	DurationMs int64 `json:"duration_ms"`
+}
+
+// CredentialKinds partitions a finding's count by the owning tool's storage
+// schema. Other includes credentials whose purpose the schema does not establish.
+type CredentialKinds struct {
+	APIKey      int `json:"api_key,omitzero"`
+	ToolAccount int `json:"tool_account,omitzero"`
+	Other       int `json:"other,omitzero"`
 }
 
 // CredentialFinding describes one credential location.
@@ -119,6 +133,10 @@ type CredentialFinding struct {
 	// How many credentials the location holds. Always at least one: a location
 	// with none produces no finding at all.
 	Count int `json:"count"`
+
+	// The stored material in supported AI-tool files, independent of whether
+	// the tool currently uses it or the account has a paid subscription.
+	Kinds *CredentialKinds `json:"kinds,omitempty"`
 
 	Protection string `json:"protection"`
 
@@ -145,6 +163,21 @@ type CredentialFinding struct {
 	MTime int64 `json:"mtime"`
 
 	CollectionPrincipal string `json:"collection_principal"`
+
+	// Present only when the tenant opted in: a bounded prefix and suffix of each
+	// recognized provider key the location holds, never the key itself.
+	KeyFragments []CredentialKeyFragment `json:"key_fragments,omitempty"`
+}
+
+// CredentialKeyFragment is the public family prefix and first three characters,
+// and the last four characters, of a recognized provider key. Equal fragments
+// in one location are grouped, so Occurrences counts indistinguishable keys,
+// not distinct ones.
+type CredentialKeyFragment struct {
+	CredentialType string `json:"credential_type"`
+	Prefix         string `json:"prefix"`
+	Suffix         string `json:"suffix"`
+	Occurrences    int    `json:"occurrences"`
 }
 
 // CredentialError is one source attempted and not collected. Deliberately not a

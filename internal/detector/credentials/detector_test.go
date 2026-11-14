@@ -1,7 +1,9 @@
 package credentials
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -372,25 +374,61 @@ func TestDetect_InventoriesTheKnownLocations(t *testing.T) {
 	gcloud := perPlatform("AppData/Roaming/gcloud/application_default_credentials.json", ".config/gcloud/application_default_credentials.json")
 	ghHosts := perPlatform("AppData/Roaming/GitHub CLI/hosts.yml", ".config/gh/hosts.yml")
 	insomnia := insomniaRel("insomnia.Request.db")
+	hermes := perPlatform("AppData/Local/hermes/config.yaml", ".hermes/config.yaml")
+	editorRoot := perPlatform("AppData/Roaming/", ".config/")
+	if runtime.GOOS == model.PlatformDarwin {
+		editorRoot = "Library/Application Support/"
+	}
+	cursorDB := editorRoot + "Cursor/User/globalStorage/state.vscdb"
+	vscode := editorRoot + "Code/User/chatLanguageModels.json"
+	vscodeMCP := editorRoot + "Code/User/mcp.json"
 
 	writeTree(t, home, map[string]string{
-		".aws/credentials":    awsBody,
-		".aws/config":         "[profile work]\naws_session_token = " + canary + "\n",
-		".git-credentials":    gitBody,
-		".npmrc":              "//registry.example.invalid/:_authToken=" + canary + "\n",
-		".pypirc":             "[pypi]\nusername = __token__\npassword = " + canary + "\n",
-		".docker/config.json": dockerBody,
-		".kube/config":        kubeBody,
-		".vault-token":        canary,
-		".ssh/id_ed25519":     string(opensshKey("none", "none", "ssh-ed25519")),
-		netrc:                 "machine example.invalid login a-user password " + canary + "\n",
-		terraform:             `{"credentials":{"app.terraform.io":{"token":"` + canary + `"}}}`,
-		gcloud:                `{"type":"authorized_user","client_secret":"` + canary + `","refresh_token":"` + canary + `"}`,
-		ghHosts:               ghBody,
-		insomnia:              insomniaBody,
+		".aws/credentials":               awsBody,
+		".aws/config":                    "[profile work]\naws_session_token = " + canary + "\n",
+		".git-credentials":               gitBody,
+		".npmrc":                         "//registry.example.invalid/:_authToken=" + canary + "\n",
+		".pypirc":                        "[pypi]\nusername = __token__\npassword = " + canary + "\n",
+		".docker/config.json":            dockerBody,
+		".kube/config":                   kubeBody,
+		".vault-token":                   canary,
+		".ssh/id_ed25519":                string(opensshKey("none", "none", "ssh-ed25519")),
+		netrc:                            "machine example.invalid login a-user password " + canary + "\n",
+		terraform:                        `{"credentials":{"app.terraform.io":{"token":"` + canary + `"}}}`,
+		gcloud:                           `{"type":"authorized_user","client_secret":"` + canary + `","refresh_token":"` + canary + `"}`,
+		ghHosts:                          ghBody,
+		insomnia:                         insomniaBody,
+		".claude.json":                   `{"primaryApiKey":"` + canary + `","mcpServers":{"example":{"env":{"API_KEY":"` + canary + `"}}}}`,
+		".codex/auth.json":               `{"OPENAI_API_KEY":"` + canary + `"}`,
+		".codex/config.toml":             "[mcp_servers.example.env]\nAPI_KEY = \"" + canary + "\"\n",
+		".config/opencode/opencode.json": `{"provider":{"example":{"options":{"apiKey":"` + canary + `"}}},"mcp":{"example":{"environment":{"API_KEY":"` + canary + `"}}}}`,
+		".pi/agent/auth.json":            `{"example":{"type":"api_key","key":"` + canary + `"}}`,
+		".pi/agent/mcp.json":             `{"mcpServers":{"example":{"env":{"API_KEY":"` + canary + `"}}}}`,
+		hermes:                           "model:\n  api_key: " + canary + "\nmcp_servers:\n  example:\n    env:\n      API_KEY: " + canary + "\n",
+		".copilot/providers.json":        `{"providers":[{"apiKey":"` + canary + `"}]}`,
+		".copilot/mcp-config.json":       `{"mcpServers":{"example":{"env":{"API_KEY":"` + canary + `"}}}}`,
+		".cursor/mcp.json":               `{"mcpServers":{"example":{"env":{"API_KEY":"` + canary + `"}}}}`,
+		vscode:                           `[{"apiKey":"` + canary + `"}]`,
+		vscodeMCP:                        `{"servers":{"example":{"env":{"API_KEY":"` + canary + `"}}}}`,
+		"repo/.mcp.json":                 `{"mcpServers":{"example":{"env":{"API_KEY":"` + canary + `"}}}}`,
 	})
-
-	info := detect(t, home)
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(home, cursorDB)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(home, cursorDB))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT); INSERT INTO ItemTable VALUES ('cursorAuth/openAIKey', ?);`, canary); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(home, cursorDB), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	projects := ProjectCandidates{Home: home}
+	projects.File(filepath.Join(home, "repo"), ".mcp.json")
+	info := New(newMock(t, home)).withEnv(staticEnv(nil)).WithProjects(projects).Detect(t.Context())
 
 	if !info.ScanComplete || len(info.Errors) != 0 {
 		t.Errorf("scan_complete = %v with errors %+v", info.ScanComplete, info.Errors)
@@ -425,6 +463,23 @@ func TestDetect_InventoriesTheKnownLocations(t *testing.T) {
 		sourceTerraformCredentials: {obsPlain(1), perPlatform("$APPDATA/terraform.d/credentials.tfrc.json", "$HOME/.terraform.d/credentials.tfrc.json")},
 		sourceGCPADC:               {obsPlain(1), perPlatform("$APPDATA/gcloud/application_default_credentials.json", "$HOME/.config/gcloud/application_default_credentials.json")},
 		sourceInsomnia:             {obsPlain(2), insomniaLocation("insomnia.Request.db")},
+		sourceClaudeCode:           {obsPlain(1), "$HOME/.claude.json"},
+		sourceClaudeMCP:            {obsPlain(1), "$HOME/.claude.json"},
+		sourceCodex:                {obsPlain(1), "$HOME/.codex/auth.json"},
+		sourceCodexMCP:             {obsPlain(1), "$HOME/.codex/config.toml"},
+		sourceOpenCode:             {obsPlain(1), "$HOME/.config/opencode/opencode.json"},
+		sourceOpenCodeMCP:          {obsPlain(1), "$HOME/.config/opencode/opencode.json"},
+		sourcePi:                   {obsPlain(1), "$HOME/.pi/agent/auth.json"},
+		sourcePiMCP:                {obsPlain(1), "$HOME/.pi/agent/mcp.json"},
+		sourceHermes:               {obsPlain(1), "$HOME/" + hermes},
+		sourceHermesMCP:            {obsPlain(1), "$HOME/" + hermes},
+		sourceCopilotCLI:           {obsPlain(1), "$HOME/.copilot/providers.json"},
+		sourceCopilotCLIMCP:        {obsPlain(1), "$HOME/.copilot/mcp-config.json"},
+		sourceCursor:               {obsPlain(1), perPlatform("$APPDATA/Cursor/User/globalStorage/state.vscdb", "$HOME/"+cursorDB)},
+		sourceCursorMCP:            {obsPlain(1), "$HOME/.cursor/mcp.json"},
+		sourceVSCode:               {obsPlain(1), perPlatform("$APPDATA/Code/User/chatLanguageModels.json", "$HOME/"+vscode)},
+		sourceVSCodeMCP:            {obsPlain(1), perPlatform("$APPDATA/Code/User/mcp.json", "$HOME/"+vscodeMCP)},
+		sourceSharedMCPConfig:      {obsPlain(1), "$HOME/repo/.mcp.json"},
 	}
 	// Every catalog source is covered, so a source added without a fixture fails
 	// here rather than going untested end to end.
@@ -439,6 +494,13 @@ func TestDetect_InventoriesTheKnownLocations(t *testing.T) {
 		}
 		if got.Count != expect.want.Count || got.Protection != expect.want.Protection || got.Location != expect.location {
 			t.Errorf("%s: %d/%q at %q, want %d/%q at %q", id, got.Count, got.Protection, got.Location, expect.want.Count, expect.want.Protection, expect.location)
+		}
+		if got.Category == model.CredentialCategoryAITools {
+			if got.Kinds == nil || *got.Kinds != (model.CredentialKinds{APIKey: got.Count}) {
+				t.Errorf("%s: API fixture kinds = %+v", id, got.Kinds)
+			}
+		} else if got.Kinds != nil {
+			t.Errorf("%s: existing and MCP sources must omit kinds", id)
 		}
 		// Every read is made by the agent's own process, and a record silent on that
 		// would mean two things on the same machine.
@@ -1254,5 +1316,222 @@ func TestDetect_InsomniaLargerDatabases(t *testing.T) {
 			runDetectCases(t, []detectCase{{name: "tail found", source: sourceInsomnia,
 				tree: map[string]string{insomniaRel(tc.file): body.String()}, want: obsPlain(2), noError: true}})
 		})
+	}
+}
+
+func TestReadDB_HeldReadOnly(t *testing.T) {
+	for _, wal := range []bool{false, true} {
+		t.Run(fmt.Sprintf("wal_%v", wal), func(t *testing.T) {
+			dir := testHome(t)
+			path := filepath.Join(dir, "opencode.db")
+			db, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			db.SetMaxOpenConns(1)
+			if wal {
+				if _, err := db.Exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := db.Exec(`CREATE TABLE credential (integration_id TEXT PRIMARY KEY, value TEXT); INSERT INTO credential VALUES ('openai', '{"type":"key","key":"synthetic-material"}');`); err != nil {
+				t.Fatal(err)
+			}
+			before := map[string][]byte{}
+			for _, suffix := range []string{"", "-wal", "-shm"} {
+				body, err := os.ReadFile(path + suffix)
+				if err == nil {
+					before[suffix] = body
+				} else if !os.IsNotExist(err) {
+					t.Fatal(err)
+				}
+			}
+			rows, _, _, capped, err := readDB(t.Context(), safepath.New(dir, nil), path, openCodeCredentials)
+			if err != nil || capped || len(rows) != 1 {
+				t.Fatalf("rows=%d capped=%v err=%v, want one row", len(rows), capped, err)
+			}
+			for suffix, body := range before {
+				after, err := os.ReadFile(path + suffix)
+				if err != nil || !bytes.Equal(body, after) {
+					t.Fatalf("database sidecar %q changed: %v", suffix, err)
+				}
+			}
+			if _, err := os.Stat(path + "-journal"); !os.IsNotExist(err) {
+				t.Fatalf("reader created journal: %v", err)
+			}
+		})
+	}
+}
+
+func TestReadDB_ReplacementIsDrift(t *testing.T) {
+	dir := testHome(t)
+	path := filepath.Join(dir, "opencode.db")
+	if err := os.WriteFile(path, []byte("old database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := safepath.New(dir, nil)
+	f, _, info, err := r.OpenReadOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := os.Rename(path, path+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("new database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !drifted(r, path, f, info, nil, nil) {
+		t.Fatal("replaced database was accepted as unchanged")
+	}
+}
+
+func TestDetect_AIToolCredentialReferences(t *testing.T) {
+	key := "sk-or-v1-" + strings.Repeat("a", 64)
+	for _, tt := range []struct {
+		name, body string
+		hints      int
+	}{
+		{"API key", `{"mcp":{"servers":{"example":{"headers":{"X-API-Key":"{file:key.txt}"}}}}}`, 1},
+		{"client secret", `{"mcp":{"servers":{"example":{"oauth":{"client_secret":"{file:key.txt}"}}}}}`, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			home := testHome(t)
+			writeTree(t, home, map[string]string{".config/opencode/opencode.json": tt.body, ".config/opencode/key.txt": key})
+			info := New(newMock(t, home)).withEnv(staticEnv(nil)).WithKeyFragments(true).Detect(t.Context())
+			for _, finding := range info.Findings {
+				if finding.SourceID == sourceOpenCodeMCP && strings.HasSuffix(finding.Location, "/key.txt") {
+					if finding.Count != 1 || len(finding.KeyFragments) != tt.hints {
+						t.Fatalf("count=%d hints=%d; want count=1 hints=%d", finding.Count, len(finding.KeyFragments), tt.hints)
+					}
+					return
+				}
+			}
+			t.Fatal("referenced credential file was not inventoried")
+		})
+	}
+}
+
+func TestDetect_HermesTokenLocations(t *testing.T) {
+	runDetectCases(t, []detectCase{
+		{name: "Unicode MCP token filename", tree: map[string]string{"hermes/mcp-tokens/服务.json": `{"access_token":"synthetic-token"}`}, env: map[string]string{"HERMES_HOME": "{home}/hermes"}, source: sourceHermesMCP, want: obsPlain(1), location: "$HOME/hermes/mcp-tokens/服务.json"},
+		{name: "shared Nous beneath custom profile root", tree: map[string]string{"custom/shared/nous_auth.json": `{"access_token":"synthetic-token"}`}, env: map[string]string{"HERMES_HOME": "{home}/custom/profiles/dev"}, source: sourceHermes, want: obsPlain(1), location: "$HOME/custom/shared/nous_auth.json"},
+	})
+}
+
+func TestDetect_OpenCodeExplicitConfigDatabaseOwnership(t *testing.T) {
+	for _, name := range []string{"opencode.json", "team.json", "auth.json", "mcp-auth.json"} {
+		t.Run(name, func(t *testing.T) {
+			home := testHome(t)
+			config := filepath.Join(home, "config", name)
+			writeTree(t, home, map[string]string{"config/" + name: `{"providers":{"custom":{}}}`})
+			path := filepath.Join(home, ".local", "share", "opencode", "opencode.db")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			db, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			if _, err := db.Exec(`CREATE TABLE credential (integration_id TEXT PRIMARY KEY, value TEXT); INSERT INTO credential VALUES ('custom', '{"type":"key","key":"synthetic-material"}');`); err != nil {
+				t.Fatal(err)
+			}
+			info := New(newMock(t, home)).withEnv(staticEnv(map[string]string{"OPENCODE_CONFIG": config})).Detect(t.Context())
+			finding, ok := findingFor(info, sourceOpenCode)
+			if !ok || finding.Count != 1 || !strings.HasSuffix(finding.Location, "/opencode.db") {
+				t.Fatalf("explicit config %s did not establish database ownership: count=%d found=%v errors=%v", name, finding.Count, ok, info.Errors)
+			}
+		})
+	}
+}
+
+func TestDetect_ProjectThroughResolvedHome(t *testing.T) {
+	base := testHome(t)
+	home := filepath.Join(base, "home")
+	alias := filepath.Join(base, "alias")
+	if err := os.Mkdir(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(home, alias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	writeTree(t, home, map[string]string{"repo/.mcp.json": `{"mcpServers":{"example":{"env":{"API_KEY":"synthetic-material"}}}}`})
+	for _, walkRoot := range []string{alias, home} {
+		t.Run(filepath.Base(walkRoot), func(t *testing.T) {
+			projects := ProjectCandidates{Home: alias, HomeResolved: home}
+			projects.File(filepath.Join(walkRoot, "repo"), ".mcp.json")
+			mock := newMock(t, alias)
+			mock.SetSymlink(alias, home)
+			info := New(mock).withEnv(staticEnv(nil)).WithProjects(projects).Detect(t.Context())
+			finding, ok := findingFor(info, sourceSharedMCPConfig)
+			if !ok || finding.Count != 1 {
+				t.Fatalf("home spelling dropped project credential: admitted=%d count=%d found=%v errors=%v", len(projects.Files), finding.Count, ok, info.Errors)
+			}
+		})
+	}
+}
+
+func TestDetect_CursorAccountKinds(t *testing.T) {
+	for _, tt := range []struct {
+		name, access, refresh string
+		count                 int
+		opaque                bool
+	}{
+		{"readable pair", "synthetic-access", "synthetic-refresh", 2, false},
+		{"protected pair", "cursor-safe-storage:v1:synthetic", "cursor-safe-storage:v1:synthetic", 1, true},
+		{"mixed pair", "synthetic-access", "cursor-safe-storage:v1:synthetic", 2, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			home := testHome(t)
+			editorRoot := ".config/"
+			if runtime.GOOS == model.PlatformDarwin {
+				editorRoot = "Library/Application Support/"
+			}
+			if runtime.GOOS == model.PlatformWindows {
+				editorRoot = "AppData/Roaming/"
+			}
+			path := filepath.Join(home, filepath.FromSlash(editorRoot+"Cursor/User/globalStorage/state.vscdb"))
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			db, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			if _, err := db.Exec(`CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT); INSERT INTO ItemTable VALUES ('cursorAuth/accessToken', ?), ('cursorAuth/refreshToken', ?), ('cursorAuth/openAIKey', 'synthetic-key'), ('cursorAuth/unrelated', 'synthetic-ignore');`, tt.access, tt.refresh); err != nil {
+				t.Fatal(err)
+			}
+			info := detect(t, home)
+			got, ok := findingFor(info, sourceCursor)
+			want := model.CredentialKinds{APIKey: 1, ToolAccount: tt.count - 1}
+			if !ok || got.Count != tt.count || got.Kinds == nil || *got.Kinds != want {
+				t.Fatalf("found=%v count=%d kinds=%+v errors=%v", ok, got.Count, got.Kinds, info.Errors)
+			}
+			opaque := false
+			for _, e := range info.Errors {
+				if e.SourceID == sourceCursor && e.ReasonCode == model.CredentialReasonUnsupportedEncoding {
+					opaque = true
+				}
+			}
+			if opaque != tt.opaque || info.ScanComplete == tt.opaque {
+				t.Fatalf("opaque=%v complete=%v want opaque=%v", opaque, info.ScanComplete, tt.opaque)
+			}
+		})
+	}
+}
+
+func TestDetect_AICredentialReferenceKinds(t *testing.T) {
+	home := testHome(t)
+	writeTree(t, home, map[string]string{
+		".config/opencode/opencode.json": `{"providers":{"example":{"settings":{"apiKey":"{file:shared.txt}","authToken":"{file:shared.txt}"}}}}`,
+		".config/opencode/shared.txt":    "synthetic-material",
+	})
+	info := detect(t, home)
+	got, ok := findingFor(info, sourceOpenCode)
+	if !ok || got.Count != 1 || got.Kinds == nil || *got.Kinds != (model.CredentialKinds{Other: 1}) || !strings.HasSuffix(got.Location, "/shared.txt") {
+		t.Fatalf("found=%v count=%d kinds=%+v location=%s errors=%v", ok, got.Count, got.Kinds, got.Location, info.Errors)
 	}
 }

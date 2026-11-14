@@ -126,6 +126,19 @@ On Windows, `~` refers to the user's home directory (`%USERPROFILE%`). Claude De
 | Pi                 | `~/.pi/agent/mcp.json` (or `$PI_CODING_AGENT_DIR/mcp.json`)      | _(same)_                                       | Pi        |
 | Pi (project)       | `.pi/mcp.json` in a project directory                            | _(same)_                                       | Pi        |
 
+## AI Tool and MCP Credential Locations
+
+The credential-location inventory reports which files hold credential material, with a count, the file's protection and its location. Values are parsed on the device and never sent. Two categories cover AI tools:
+
+| Category | Sources |
+|----------|---------|
+| `ai_tools` | Claude Code and Anthropic config (`~/.claude`, `$CLAUDE_CONFIG_DIR`, `~/.claude.json`, `credentials/*.json` under the Anthropic config directory), Codex (`$CODEX_HOME` or `~/.codex`), OpenCode (data directory `auth.json` and databases, config directory `opencode.json`/`.jsonc`, `$OPENCODE_CONFIG`, `opencode.json`/`.jsonc` under `$OPENCODE_CONFIG_DIR`, `$OPENCODE_DB`), Pi (`auth.json`, `models.json`), Hermes Agent (each profile's `.env`, `config.yaml`, `auth.json` and the shared auth directory), Copilot CLI (`config.json`, `providers.json`, `$COPILOT_PROVIDERS_CONFIG`), Cursor (editor state databases), VS Code (`chatLanguageModels.json`) |
+| `mcp_servers` | MCP declarations and OAuth state of the same tools (`.claude.json`, Codex `config.toml` and MCP OAuth files, OpenCode `mcp-auth.json` and MCP rows, Pi `mcp.json`/`mcp-auth.json`, Hermes `mcp_servers` and `mcp-tokens`, Copilot CLI `mcp-config.json`, `mcp-oauth-config` and `mcp-secrets`, Cursor `mcp.json` and MCP rows, VS Code `mcp.json` and cached MCP inputs), plus the shared project `.mcp.json` |
+
+Project files (`.claude/settings.json`, `.codex/config.toml`, `opencode.json`, `.pi/mcp.json`, `.github/mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `*.code-workspace`, `.mcp.json`) come from the projects inside the home that the skills walk already lists; the inventory runs no walk of its own. Directory listings are bounded per directory and in total, editor and OpenCode databases are opened read-only with fixed queries and a read budget, and an encrypted store is reported as unsupported rather than decrypted.
+
+When the tenant opts in, a finding for a recognized API key format (OpenAI, Anthropic, OpenRouter, GitHub personal access tokens) also carries a hint: the provider prefix with three more characters and the last four characters, grouped with an occurrence count and capped per finding and per scan. OAuth tokens, passwords and client secrets never produce a hint. A hint can match more than one key, so it is never a unique identifier.
+
 ## AI Agent Skills
 Dev Machine Guard inventories every installed **agent skill** — a directory containing a `SKILL.md` manifest — across Claude Code, Codex, OpenCode, Cursor, Gemini CLI, GitHub Copilot, Pi, Factory, Amp, Grok Build (`~/.grok/skills`, `.grok/skills`), Kimi Code (`~/.kimi-code/skills`, `.kimi-code/skills`), Muse Code (`~/.config/muse/skills`), Hermes Agent (`~/.hermes/skills` or `%LOCALAPPDATA%\hermes\skills`, `.hermes/skills`), Oh My Pi (`~/.omp/agent/skills`, `~/.omp/agent/managed-skills`, `.omp/skills`), Kiro (IDE and CLI, one shared root), Windsurf, Antigravity, OpenClaw, the cross-agent `~/.agents` convention, and skills installed via [skills.sh](https://skills.sh). It probes each agent's global, system, project, and plugin skill directories; skills.sh lock files add upstream provenance (joined by symlink-resolved path). Detection is pure filesystem reads (no subprocesses), bounded by a 60-second budget and per-root caps.
 
@@ -460,3 +473,9 @@ Presence is tri-state (`yes` / `no` / `unknown`): a probe that cannot read the r
 ## Adding New Detections
 
 Want to add detection for a new tool, IDE, or framework? See [docs/adding-detections.md](docs/adding-detections.md) or open a [New Detection issue](.github/ISSUE_TEMPLATE/new_detection.yml).
+
+## Credential classification
+
+The eight AI-tool credential sources report per-file counts of API keys, recognized tool-account credentials and other secrets. Classification uses known storage fields and provider semantics, independently of the optional key-fragment setting. It does not establish which credential a tool uses, whether an account has a paid subscription, or how requests are billed. Existing credential and MCP counts are unchanged. Raw one-hop reference files remain classified as other when their purpose is ambiguous.
+
+Cursor account discovery reads only `cursorAuth/accessToken` and `cursorAuth/refreshToken` alongside the existing provider-key slots in the known `state.vscdb` files. A readable access/refresh pair counts once. Protected account envelopes remain opaque and make coverage incomplete; they are not decrypted or counted from their presence. Account credentials never emit key fragments.
