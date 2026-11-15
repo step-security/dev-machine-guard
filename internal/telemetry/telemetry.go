@@ -710,7 +710,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// don't trigger system permission prompts when the agent runs without
 	// Full Disk Access. Nil when --include-tcc-protected is set and network
 	// volumes are walked (the default); every method is nil-safe.
-	tccSkipper := tcc.ForRun(executor.ResolveHome(exec), cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes)
+	home := executor.ResolveHome(exec)
+	tccSkipper := tcc.ForRun(home, cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes)
 	if cands := tccSkipper.Candidates(); len(cands) > 0 {
 		log.Debug("tcc skip list (%d): %v", len(cands), cands)
 	}
@@ -802,7 +803,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// MCP configs
 	phaseCtx, phaseCancel = startPhase(ctx, tracker, "mcp_config_scan")
 	log.Progress("Collecting MCP configuration files...")
-	mcpDetector := detector.NewMCPDetector(exec).WithSkipper(tccSkipper).WithPiEnvironment(userExec)
+	// One resolver serves the config scan and the plugin scan, so each sign-in
+	// store is read once per run. The phases run in sequence.
+	mcpAuth := detector.NewMCPAuthResolver(exec, userExec, home).WithSkipper(tccSkipper)
+	mcpDetector := detector.NewMCPDetector(exec).WithSkipper(tccSkipper).WithPiEnvironment(userExec).WithAuth(mcpAuth)
 	mcpConfigs := mcpDetector.DetectEnterprise(phaseCtx, searchDirs)
 	for _, c := range mcpConfigs {
 		log.Progress("  Found: %s config (%s)", c.ConfigSource, c.Vendor)
@@ -1156,7 +1160,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// uploading definition contents. Scan info remains present for empty results.
 	phaseCtx, phaseCancel = startPhase(ctx, tracker, "agent_skills_scan")
 	log.Progress("Collecting AI agent skills...")
-	skillsDetector := detector.NewSkillsDetector(userExec).WithSkipper(tccSkipper).WithAgentVersions(detector.AgentVersions(cliTools))
+	skillsDetector := detector.NewSkillsDetector(userExec).WithSkipper(tccSkipper).WithAgentVersions(detector.AgentVersions(cliTools)).WithMCPAuth(mcpAuth)
 	skillsResult := skillsDetector.DetectSkills(phaseCtx, collectProjectRoots(nodeProjects, pythonProjects), searchDirs)
 	agentSkills, agentSkillScan := skillsResult.Skills, skillsResult.Info
 	log.Progress("  Found %d agent skills across %d roots", len(agentSkills), len(agentSkillScan.RootsScanned))

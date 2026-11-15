@@ -56,7 +56,8 @@ type MCPDetector struct {
 	exec    executor.Executor
 	skipper *tcc.Skipper
 	piEnv   executor.Executor
-	piDir   string // Pi's agent directory, resolved during discovery
+	piDir   string           // Pi's agent directory, resolved during discovery
+	auth    *MCPAuthResolver // sign-in status per server; nil leaves it unset
 }
 
 func NewMCPDetector(exec executor.Executor) *MCPDetector {
@@ -76,6 +77,13 @@ func (d *MCPDetector) WithSkipper(s *tcc.Skipper) *MCPDetector {
 // cannot. Other sources keep the detector's own executor.
 func (d *MCPDetector) WithPiEnvironment(exec executor.Executor) *MCPDetector {
 	d.piEnv = exec
+	return d
+}
+
+// WithAuth reports, for each server of an enterprise config, what its client
+// stores about signing in. Returns the detector for chaining.
+func (d *MCPDetector) WithAuth(r *MCPAuthResolver) *MCPDetector {
+	d.auth = r
 	return d
 }
 
@@ -144,12 +152,17 @@ func (d *MCPDetector) DetectEnterprise(ctx context.Context, searchDirs []string)
 			contentBase64 = base64.StdEncoding.EncodeToString(filtered)
 		}
 
-		results = append(results, model.MCPConfigEnterprise{
+		config := model.MCPConfigEnterprise{
 			ConfigSource:        loc.SourceName,
 			ConfigPath:          loc.ConfigPath,
 			Vendor:              loc.Vendor,
 			ConfigContentBase64: contentBase64,
-		})
+		}
+		// Without content the backend has no server to attach a status to.
+		if contentBase64 != "" {
+			config.ServerAuth = d.auth.resolveConfig(ctx, loc.SourceName, loc.ConfigPath, content)
+		}
+		results = append(results, config)
 	}
 
 	return results

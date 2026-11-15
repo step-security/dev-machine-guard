@@ -984,8 +984,25 @@ func (r *pluginRootScan) mcpServerComponents(servers json.RawMessage, rel, point
 			Kind: model.PluginComponentMCP, Name: name, RelativePath: rel, DeclarationPointer: serverPointer, DefinitionPath: configPath, ResolvedDefinitionPath: resolvedPath,
 			MCPConfig: &model.MCPConfigEnterprise{ConfigSource: r.attr.source, ConfigPath: configPath, Vendor: r.attr.vendor, ConfigContentBase64: base64.StdEncoding.EncodeToString(body)},
 		}
+		if auth := r.s.d.mcpAuth; auth != nil {
+			c.MCPConfig.ServerAuth = []model.MCPServerAuth{auth.resolveServer(r.s.ctx, r.attr.source, configPath, name, r.mcpRuntimeName(name), declarations[name])}
+		}
 		r.addComponent(c)
 	}
+}
+
+// mcpRuntimeName is the name a plugin's client keys its MCP stores by. Claude
+// Code namespaces a plugin server under the plugin's manifest name, or under
+// the plugin's own name when the manifest gives none.
+func (r *pluginRootScan) mcpRuntimeName(name string) string {
+	if r.attr.source != "claude_plugin" {
+		return name
+	}
+	namespace := r.p.ManifestName
+	if namespace == "" {
+		namespace = r.p.Name
+	}
+	return "plugin:" + namespace + ":" + name
 }
 
 // skillDirs enumerates skill directories under dir: direct children when

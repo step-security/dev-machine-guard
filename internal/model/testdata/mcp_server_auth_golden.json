@@ -1,0 +1,250 @@
+{
+  "mcp_configs": [
+    {
+      "config_source": "claude_code",
+      "config_path": "/home/testuser/.claude.json",
+      "vendor": "Anthropic",
+      "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7ImxhYi1jbGVhcmVkIjp7InVybCI6Imh0dHBzOi8vYi5leGFtcGxlLmNvbS9tY3AifSwibGFiLWVudiI6eyJjb21tYW5kIjoibGFiIn0sImxhYi1oZWFkZXIiOnsidXJsIjoiaHR0cHM6Ly9hLmV4YW1wbGUuY29tL21jcCJ9LCJsYWItaGVscGVyIjp7InVybCI6Imh0dHBzOi8vYS5leGFtcGxlLmNvbS9tY3AifSwibGFiLWxvY2FsIjp7ImNvbW1hbmQiOiJsYWIifSwibGFiLW9hdXRoIjp7InVybCI6Imh0dHBzOi8vYS5leGFtcGxlLmNvbS9tY3AifSwibGFiLW9wZW4iOnsidXJsIjoiaHR0cHM6Ly9jLmV4YW1wbGUuY29tL21jcCJ9LCJsYWItcmVtb3RlIjp7ImFyZ3MiOlsiLXkiLCJtY3AtcmVtb3RlQDAuMTYuNiIsImh0dHBzOi8vbWNwLmV4YW1wbGUuY29tL21jcCJdLCJjb21tYW5kIjoibnB4In0sImxhYi1yZW1vdGUtZmlsZSI6eyJhcmdzIjpbIm1jcC1yZW1vdGUiLCJodHRwczovL21jcC5leGFtcGxlLmNvbS9tY3AiLCItLWhlYWRlci1maWxlIiwiaGVhZGVycy50eHQiXSwiY29tbWFuZCI6Im5weCJ9LCJsYWItcmVtb3RlLXBlbmRpbmciOnsiYXJncyI6WyJtY3AtcmVtb3RlIiwiaHR0cHM6Ly9tY3AuZXhhbXBsZS5jb20vbWNwIiwiLS1oZWFkZXIiLCJYLVRlbmFudDogYWNtZSJdLCJjb21tYW5kIjoibnB4In0sImxhYi1zdGRpbyI6eyJjb21tYW5kIjoibGFiLXN0ZGlvIn19fQ==",
+      "server_auth": [
+        {
+          "server_name": "lab-cleared",
+          "status": "needs_auth",
+          "evidence": "claude_token_cleared"
+        },
+        {
+          "server_name": "lab-env",
+          "status": "static_credential",
+          "evidence": "config_env_key"
+        },
+        {
+          "server_name": "lab-header",
+          "status": "static_credential",
+          "evidence": "config_header"
+        },
+        {
+          "server_name": "lab-helper",
+          "status": "static_credential",
+          "evidence": "config_header_helper"
+        },
+        {
+          "server_name": "lab-local",
+          "status": "not_applicable",
+          "evidence": "local_stdio"
+        },
+        {
+          "server_name": "lab-oauth",
+          "status": "credential_saved",
+          "evidence": "claude_token_file"
+        },
+        {
+          "server_name": "lab-open",
+          "status": "unknown",
+          "evidence": "no_record"
+        },
+        {
+          "server_name": "lab-remote",
+          "status": "credential_saved",
+          "evidence": "mcp_remote_token_file"
+        },
+        {
+          "server_name": "lab-remote-file",
+          "status": "unknown",
+          "evidence": "join_failed"
+        },
+        {
+          "server_name": "lab-remote-pending",
+          "status": "needs_auth",
+          "evidence": "mcp_remote_signin_pending"
+        },
+        {
+          "server_name": "lab-stdio",
+          "status": "needs_auth",
+          "evidence": "claude_needs_auth_cache"
+        }
+      ]
+    },
+    {
+      "config_source": "cursor",
+      "config_path": "/home/testuser/.cursor/mcp.json",
+      "vendor": "Cursor",
+      "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7ImxhYi1jbGkiOnsidXJsIjoiaHR0cHM6Ly9jLmV4YW1wbGUuY29tL21jcCJ9LCJsYWItY2xpLXBlbmRpbmciOnsidXJsIjoiaHR0cHM6Ly9kLmV4YW1wbGUuY29tL21jcCJ9LCJsYWItb2F1dGgiOnsidXJsIjoiaHR0cHM6Ly9hLmV4YW1wbGUuY29tL21jcCJ9LCJsYWItcGVuZGluZyI6eyJ1cmwiOiJodHRwczovL2IuZXhhbXBsZS5jb20vbWNwIn19fQ==",
+      "server_auth": [
+        {
+          "server_name": "lab-cli",
+          "status": "credential_saved",
+          "evidence": "cursor_cli_token_file"
+        },
+        {
+          "server_name": "lab-cli-pending",
+          "status": "needs_auth",
+          "evidence": "cursor_cli_registration_only"
+        },
+        {
+          "server_name": "lab-oauth",
+          "status": "credential_saved",
+          "evidence": "cursor_token_key"
+        },
+        {
+          "server_name": "lab-pending",
+          "status": "needs_auth",
+          "evidence": "cursor_no_token"
+        }
+      ]
+    },
+    {
+      "config_source": "windsurf",
+      "config_path": "/home/testuser/.codeium/windsurf/mcp_config.json",
+      "vendor": "Codeium",
+      "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7ImxhYi1vYXV0aCI6eyJzZXJ2ZXJVcmwiOiJodHRwczovL2EuZXhhbXBsZS5jb20vbWNwIn19fQ==",
+      "server_auth": [
+        {
+          "server_name": "lab-oauth",
+          "status": "unknown",
+          "evidence": "client_not_supported"
+        }
+      ]
+    },
+    {
+      "config_source": "codex",
+      "config_path": "/home/testuser/.codex/config.toml",
+      "vendor": "OpenAI",
+      "config_content_base64": "W21jcF9zZXJ2ZXJzXQpbbWNwX3NlcnZlcnMubGFiLWJlYXJlcl0KdXJsID0gJ2h0dHBzOi8vYS5leGFtcGxlLmNvbS9tY3AnCgpbbWNwX3NlcnZlcnMubGFiLWV4cGlyZWRdCnVybCA9ICdodHRwczovL2IuZXhhbXBsZS5jb20vbWNwJwoKW21jcF9zZXJ2ZXJzLmxhYi1vYXV0aF0KdXJsID0gJ2h0dHBzOi8vYS5leGFtcGxlLmNvbS9tY3AnCgpbbWNwX3NlcnZlcnMubGFiLW9wZW5dCnVybCA9ICdodHRwczovL2MuZXhhbXBsZS5jb20vbWNwJwo=",
+      "server_auth": [
+        {
+          "server_name": "lab-bearer",
+          "status": "static_credential",
+          "evidence": "config_bearer_env"
+        },
+        {
+          "server_name": "lab-expired",
+          "status": "needs_auth",
+          "evidence": "codex_token_expired"
+        },
+        {
+          "server_name": "lab-oauth",
+          "status": "credential_saved",
+          "evidence": "codex_token_file"
+        },
+        {
+          "server_name": "lab-open",
+          "status": "unknown",
+          "evidence": "encrypted_store"
+        }
+      ]
+    },
+    {
+      "config_source": "copilot",
+      "config_path": "/home/testuser/.copilot/mcp-config.json",
+      "vendor": "GitHub",
+      "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7ImxhYi1vYXV0aCI6eyJ1cmwiOiJodHRwczovL2EuZXhhbXBsZS5jb20vbWNwIn0sImxhYi1wZW5kaW5nIjp7InVybCI6Imh0dHBzOi8vYi5leGFtcGxlLmNvbS9tY3AifX19",
+      "server_auth": [
+        {
+          "server_name": "lab-oauth",
+          "status": "credential_saved",
+          "evidence": "copilot_signin_complete"
+        },
+        {
+          "server_name": "lab-pending",
+          "status": "needs_auth",
+          "evidence": "copilot_signin_pending"
+        }
+      ]
+    },
+    {
+      "config_source": "vscode",
+      "config_path": "/home/testuser/.config/Code/User/mcp.json",
+      "vendor": "Microsoft",
+      "config_content_base64": "eyJzZXJ2ZXJzIjp7ImxhYi1uby10b2tlbiI6eyJ1cmwiOiJodHRwczovL2MuZXhhbXBsZS5jb20vbWNwIn0sImxhYi1vYXV0aCI6eyJ1cmwiOiJodHRwczovL2EuZXhhbXBsZS5jb20vbWNwIn0sImxhYi1zaWduZWQtb3V0Ijp7InVybCI6Imh0dHBzOi8vYi5leGFtcGxlLmNvbS9tY3AifX19",
+      "server_auth": [
+        {
+          "server_name": "lab-no-token",
+          "status": "needs_auth",
+          "evidence": "vscode_no_token"
+        },
+        {
+          "server_name": "lab-oauth",
+          "status": "credential_saved",
+          "evidence": "vscode_token_key"
+        },
+        {
+          "server_name": "lab-signed-out",
+          "status": "needs_auth",
+          "evidence": "vscode_signed_out"
+        }
+      ]
+    },
+    {
+      "config_source": "vscodium",
+      "config_path": "/home/testuser/.config/VSCodium/User/mcp.json",
+      "vendor": "VSCodium",
+      "config_content_base64": "eyJzZXJ2ZXJzIjp7ImxhYi1vYXV0aCI6eyJ1cmwiOiJodHRwczovL2EuZXhhbXBsZS5jb20vbWNwIn19fQ==",
+      "server_auth": [
+        {
+          "server_name": "lab-oauth",
+          "status": "unknown",
+          "evidence": "store_unavailable"
+        }
+      ]
+    },
+    {
+      "config_source": "opencode",
+      "config_path": "/home/testuser/.config/opencode/opencode.json",
+      "vendor": "OpenCode",
+      "config_content_base64": "eyJtY3AiOnsibGFiLW9hdXRoIjp7InVybCI6Imh0dHBzOi8vYS5leGFtcGxlLmNvbS9tY3AifSwibGFiLXBlbmRpbmciOnsidXJsIjoiaHR0cHM6Ly9iLmV4YW1wbGUuY29tL21jcCJ9fX0=",
+      "server_auth": [
+        {
+          "server_name": "lab-oauth",
+          "status": "credential_saved",
+          "evidence": "opencode_token_file"
+        },
+        {
+          "server_name": "lab-pending",
+          "status": "needs_auth",
+          "evidence": "opencode_registration_only"
+        }
+      ]
+    },
+    {
+      "config_source": "pi",
+      "config_path": "/home/testuser/.pi/agent/mcp.json",
+      "vendor": "Pi",
+      "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7ImxhYi1vYXV0aCI6eyJ1cmwiOiJodHRwczovL2EuZXhhbXBsZS5jb20vbWNwIn0sImxhYi1wZW5kaW5nIjp7InVybCI6Imh0dHBzOi8vYi5leGFtcGxlLmNvbS9tY3AifX19",
+      "server_auth": [
+        {
+          "server_name": "lab-oauth",
+          "status": "credential_saved",
+          "evidence": "pi_token_file"
+        },
+        {
+          "server_name": "lab-pending",
+          "status": "needs_auth",
+          "evidence": "pi_registration_only"
+        }
+      ]
+    }
+  ],
+  "plugin_component": {
+    "component_id": "comp_c27b73ce530e83cd42d0ddb35345b4160ff7ed46f3d0ba6b316f7804076cf327",
+    "kind": "mcp",
+    "name": "lab-plugin",
+    "relative_path": ".mcp.json",
+    "status": "complete",
+    "definition_path": "/home/testuser/plugins/lab/.mcp.json",
+    "resolved_definition_path": "/home/testuser/plugins/lab/.mcp.json",
+    "declaration_pointer": "/mcpServers/lab-plugin",
+    "callable_names": [],
+    "mcp_config": {
+      "config_source": "claude_plugin",
+      "config_path": "/home/testuser/plugins/lab/.mcp.json",
+      "vendor": "Anthropic",
+      "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7ImxhYi1wbHVnaW4iOnsiY29tbWFuZCI6ImxhYi1wbHVnaW4ifX19",
+      "server_auth": [
+        {
+          "server_name": "lab-plugin",
+          "status": "needs_auth",
+          "evidence": "claude_needs_auth_cache"
+        }
+      ]
+    }
+  }
+}

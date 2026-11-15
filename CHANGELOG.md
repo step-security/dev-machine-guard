@@ -11,6 +11,7 @@ See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
 ### Added
 
+- **MCP server sign-in status.** Enterprise uploads add `server_auth` to each MCP config entry and each plugin MCP component. For each declared server it reports whether the client holds a saved sign-in (`credential_saved`), needs one (`needs_auth`), gets a credential from the config itself (`static_credential`), runs locally with no credential input (`not_applicable`) or cannot tell (`unknown`), with a closed evidence code. Claude Code, Codex, GitHub Copilot CLI, Pi, OpenCode, Cursor, the VS Code family and mcp-remote are covered from their own files. Nothing is run, no credential store or server is contacted, and no token or anything derived from one is sent. Community output is unchanged.
 - **Master-image builder switch.** `configure --image-builder` (MSI `IMAGEBUILDER=1`) writes a marker bound to the machine's hardware id; while it names the machine, enterprise scans exit before any beacon or upload, so an image team can sign in to the imaging machine without registering it as a device. Hosts built from the image carry another hardware id, ignore the marker and scan normally. The switch is deliberately not a bootstrap.json key. `identity --json` reports `image_builder`, `configure show` prints it, `--image-builder=false` removes it.
 - **`device_id_template` in the payload.** Every upload reports the identity template in force when it carries a token, so the dashboard can tell how a device's id was built; absent for the hardware serial and for a literal id.
 
