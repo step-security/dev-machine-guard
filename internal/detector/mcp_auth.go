@@ -362,10 +362,12 @@ func nonEmptyValue(v any) bool {
 }
 
 // credentialWords are the words that make a header or variable name a
-// credential name on their own.
+// credential name on their own. "headers" covers variables that carry whole
+// HTTP headers, such as OPENAPI_MCP_HEADERS, which usually hold Authorization.
 var credentialWords = map[string]bool{
 	"token": true, "key": true, "apikey": true, "secret": true, "password": true, "passwd": true,
 	"pat": true, "auth": true, "authorization": true, "bearer": true, "credential": true, "credentials": true,
+	"headers": true,
 }
 
 // isCredentialName matches whole words, so PATH and AUTHOR are not taken for

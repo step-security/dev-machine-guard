@@ -160,12 +160,61 @@ func (d *MCPDetector) DetectEnterprise(ctx context.Context, searchDirs []string)
 		}
 		// Without content the backend has no server to attach a status to.
 		if contentBase64 != "" {
-			config.ServerAuth = d.auth.resolveConfig(ctx, loc.SourceName, loc.ConfigPath, content)
+			config.ServerAuth = d.serverAuth(ctx, loc.SourceName, loc.ConfigPath, content)
 		}
 		results = append(results, config)
 	}
 
 	return results
+}
+
+// authSource is the source whose client stores answer for a config file. A
+// walked Pi file or Copilot .github/mcp.json keeps its discovered label in the
+// inventory, but its servers still sign in through that client. A walked
+// .mcp.json stays unresolved: Claude and Copilot both read it.
+func (d *MCPDetector) authSource(source, configPath string) string {
+	if source != "discovered_mcp" {
+		return source
+	}
+	switch {
+	case isPiMCPPath(configPath, d.piDir):
+		return "pi"
+	case filepath.Base(configPath) == "mcp.json" && filepath.Base(filepath.Dir(configPath)) == ".github":
+		return "copilot_project"
+	}
+	return source
+}
+
+// serverAuth resolves the statuses for one config file. A walked
+// .github/mcp.json keeps the generic filter, so it can hold entries Copilot
+// would not load; only the entries Copilot loads answer from its store. The
+// Copilot filter only picks the names: its output drops the headers and env
+// the static rules read.
+func (d *MCPDetector) serverAuth(ctx context.Context, source, configPath string, content []byte) []model.MCPServerAuth {
+	client := d.authSource(source, configPath)
+	if client != "copilot_project" || client == source {
+		return d.auth.resolveConfig(ctx, client, configPath, content)
+	}
+	auth := d.auth.resolveConfig(ctx, source, configPath, content)
+	filtered, ok := filterCopilotMCP(content, true)
+	var loaded struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if !ok || json.Unmarshal(filtered, &loaded) != nil {
+		return auth
+	}
+	copilot := map[string]model.MCPServerAuth{}
+	for _, a := range d.auth.resolveConfig(ctx, client, configPath, content) {
+		if _, ok := loaded.MCPServers[a.ServerName]; ok {
+			copilot[a.ServerName] = a
+		}
+	}
+	for i, a := range auth {
+		if c, ok := copilot[a.ServerName]; ok {
+			auth[i] = c
+		}
+	}
+	return auth
 }
 
 // discoverProjectMCPConfigs finds .mcp.json files in Claude Code's recorded projects.

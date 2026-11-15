@@ -159,6 +159,7 @@ func TestIsCredentialName(t *testing.T) {
 		{"PAT", true},
 		{"client-secret", true},
 		{"BEARER", true},
+		{"OPENAPI_MCP_HEADERS", true},
 		{"PATH", false},
 		{"AUTHOR", false},
 		{"OAUTH_CLIENT_ID", false},
@@ -192,6 +193,7 @@ func TestStaticCredential(t *testing.T) {
 		{"empty header helper", `{"url":"https://a.example.com","headersHelper":""}`, ""},
 		{"codex bearer variable", `{"url":"https://a.example.com","bearer_token_env_var":"LAB_TOKEN"}`, "config_bearer_env"},
 		{"stdio credential env", `{"command":"lab","env":{"GITHUB_PERSONAL_ACCESS_TOKEN":"${GH_TOKEN}"}}`, "config_env_key"},
+		{"stdio header env", `{"command":"npx","env":{"OPENAPI_MCP_HEADERS":"{\"Authorization\":\"Bearer x\"}"}}`, "config_env_key"},
 		{"stdio plain env", `{"command":"lab","env":{"PATH":"/usr/bin","HOME":"/home/dev","MAX_TOKENS":"100"}}`, ""},
 		{"stdio empty credential env", `{"command":"lab","env":{"API_KEY":""}}`, ""},
 		{"remote env is not sent", `{"url":"https://a.example.com","env":{"API_KEY":"x"}}`, ""},
@@ -1187,6 +1189,64 @@ func TestPluginMCPServerAuth(t *testing.T) {
 				t.Errorf("got %+v, want %+v", got, tc.want)
 			}
 		})
+	}
+}
+
+// A scan that walks the home finds Pi's and Copilot's project files before it
+// adds them by name, so they keep the discovered label; their servers still
+// answer from their client's store.
+func TestMCPAuthWalkedClientFiles(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		".pi/agent/mcp.json":      `{"mcpServers":{"lab-oauth":{"url":"https://a.example.com/mcp"}}}`,
+		".pi/agent/mcp-auth.json": `{"https://a.example.com/mcp":{"tokens":{"access_token":"a"}}}`,
+		"proj/.pi/mcp.json":       `{"mcpServers":{"lab-project":{"url":"https://a.example.com/mcp"}}}`,
+		"proj/.github/mcp.json":   `{"mcpServers":{"lab-copilot":{"url":"https://b.example.com/mcp"},"lab-copilot-hdr":{"url":"https://b.example.com/mcp","headers":{"Authorization":"Bearer x"}}}}`,
+		"proj/.mcp.json":          `{"mcpServers":{"lab-shared":{"url":"https://b.example.com/mcp"}}}`,
+		"p2/.github/mcp.json":     `{"mcpServers":{"lab-odd-type":{"type":"weird","url":"https://b.example.com/mcp"}}}`,
+		"p3/.github/mcp.json":     `{"servers":{"lab-vs-shape":{"type":"http","url":"https://b.example.com/mcp"}}}`,
+		".copilot/mcp-oauth-config/" + strings.Repeat("c", 64) + ".json":     `{"serverUrl":"https://b.example.com/mcp"}`,
+		".copilot/mcp-oauth-config/" + strings.Repeat("c", 64) + ".verifier": `v`,
+	}
+	for rel, body := range files {
+		path := filepath.Join(home, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec := mcpFixtureExecutor{Executor: executor.NewReal(), home: home}
+	r := NewMCPAuthResolver(exec, exec, home).WithSkipper(tcc.New(home))
+	got := map[string]model.MCPServerAuth{}
+	for _, config := range NewMCPDetector(exec).WithSkipper(tcc.New(home)).WithAuth(r).DetectEnterprise(context.Background(), []string{home}) {
+		if config.ConfigSource != "discovered_mcp" {
+			continue
+		}
+		for _, a := range config.ServerAuth {
+			got[a.ServerName] = a
+		}
+	}
+	for name, want := range map[string][2]string{
+		"lab-oauth":   {model.MCPAuthCredentialSaved, "pi_token_file"},
+		"lab-project": {model.MCPAuthCredentialSaved, "pi_token_file"},
+		"lab-copilot": {model.MCPAuthNeedsAuth, "copilot_signin_pending"},
+		// The header in the file decides, not the store for its URL.
+		"lab-copilot-hdr": {model.MCPAuthStaticCredential, "config_header"},
+		"lab-shared":      {model.MCPAuthUnknown, "client_not_supported"},
+		// Copilot does not load these entries, so its store does not answer.
+		"lab-odd-type": {model.MCPAuthUnknown, "client_not_supported"},
+		"lab-vs-shape": {model.MCPAuthUnknown, "client_not_supported"},
+	} {
+		a, ok := got[name]
+		if !ok {
+			t.Fatalf("%s not found as a discovered config: %v", name, got)
+		}
+		t.Run(name, func(t *testing.T) { checkAuth(t, a, want[0], want[1]) })
 	}
 }
 
