@@ -224,7 +224,7 @@ func (d *SkillsDetector) DetectSkills(ctx context.Context, extraProjectRoots []s
 
 	// One state read supplies project roots and usage counters. Project discovery
 	// also includes package-scanner roots and bounded filesystem discovery.
-	state := readClaudeState(d.exec, d.skipper, home)
+	state := readClaudeState(d.exec, d.skipper, filepath.Join(home, ".claude.json"))
 	projectInfo := &model.AgentSkillScanInfo{}
 	projectCode := state.code
 	if projectCode == "" {

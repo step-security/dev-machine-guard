@@ -105,6 +105,42 @@
       ]
     },
     {
+      "config_source": "gemini",
+      "config_path": "/home/testuser/.gemini/settings.json",
+      "vendor": "Google",
+      "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7ImxhYi1leHBpcmVkIjp7InVybCI6Imh0dHBzOi8vYi5leGFtcGxlLmNvbS9tY3AifSwibGFiLW9hdXRoIjp7InVybCI6Imh0dHBzOi8vYS5leGFtcGxlLmNvbS9tY3AifX19",
+      "server_auth": [
+        {
+          "server_name": "lab-expired",
+          "status": "needs_auth",
+          "evidence": "gemini_token_expired"
+        },
+        {
+          "server_name": "lab-oauth",
+          "status": "credential_saved",
+          "evidence": "gemini_token_file"
+        }
+      ]
+    },
+    {
+      "config_source": "devin",
+      "config_path": "/home/testuser/.config/devin/mcp_config.json",
+      "vendor": "Cognition",
+      "config_content_base64": "eyJtY3BTZXJ2ZXJzIjp7ImxhYi1leHBpcmVkIjp7InNlcnZlclVybCI6Imh0dHBzOi8vYi5leGFtcGxlLmNvbS9tY3AifSwibGFiLW9hdXRoIjp7InNlcnZlclVybCI6Imh0dHBzOi8vYS5leGFtcGxlLmNvbS9tY3AifX19",
+      "server_auth": [
+        {
+          "server_name": "lab-expired",
+          "status": "needs_auth",
+          "evidence": "devin_token_expired"
+        },
+        {
+          "server_name": "lab-oauth",
+          "status": "credential_saved",
+          "evidence": "devin_token_file"
+        }
+      ]
+    },
+    {
       "config_source": "codex",
       "config_path": "/home/testuser/.codex/config.toml",
       "vendor": "OpenAI",

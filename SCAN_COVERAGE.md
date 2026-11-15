@@ -114,17 +114,21 @@ On Windows, `~` refers to the user's home directory (`%USERPROFILE%`). Claude De
 |--------------------|------------------------------------------------------------------|------------------------------------------------|-----------|
 | Claude Desktop     | `~/Library/Application Support/Claude/claude_desktop_config.json`| `%APPDATA%/Claude/claude_desktop_config.json`  | Anthropic |
 | Claude Code        | `~/.claude/settings.json`                                        | _(same)_                                       | Anthropic |
-| Claude Code        | `~/.claude.json`                                                 | _(same)_                                       | Anthropic |
+| Claude Code        | `~/.claude.json`, or the legacy `~/.claude/.config.json` (or `$CLAUDE_CONFIG_DIR/.config.json`) when it is not empty, as Claude Code itself chooses | _(same)_ | Anthropic |
 | Cursor             | `~/.cursor/mcp.json`                                             | _(same)_                                       | Cursor    |
 | Windsurf           | `~/.codeium/windsurf/mcp_config.json`                            | _(same)_                                       | Codeium   |
-| Antigravity        | `~/.gemini/antigravity/mcp_config.json`                          | _(same)_                                       | Google    |
+| Antigravity        | `~/.gemini/config/mcp_config.json` and the older `~/.gemini/antigravity/mcp_config.json` | _(same)_          | Google    |
+| Gemini CLI         | `~/.gemini/settings.json` (`mcpServers`)                         | _(same)_                                       | Google    |
+| Devin              | `~/.config/devin/mcp_config.json`                                | `%APPDATA%/devin/mcp_config.json`              | Cognition |
 | Zed                | `~/.config/zed/settings.json`                                    | _(same)_                                       | Zed       |
-| Open Interpreter   | `~/.config/open-interpreter/config.yaml`                         | _(same)_                                       | OpenSource|
+| Open Interpreter   | `~/.openinterpreter/config.toml` (or `$INTERPRETER_HOME/config.toml`) | _(same)_                                  | OpenSource|
 | Codex              | `~/.codex/config.toml`                                           | _(same)_                                       | OpenAI    |
-| OpenCode           | `~/.config/opencode/opencode.json` (and `.jsonc`)                | _(same)_                                       | OpenCode  |
+| OpenCode           | `~/.config/opencode/opencode.json` (and `.jsonc`); OpenCode 2.x `mcp.servers` is sent in the 1.x `mcp` shape | _(same)_ | OpenCode  |
 | OpenCode (project) | `opencode.json` / `opencode.jsonc` in a project directory        | _(same)_                                       | OpenCode  |
 | Pi                 | `~/.pi/agent/mcp.json` (or `$PI_CODING_AGENT_DIR/mcp.json`)      | _(same)_                                       | Pi        |
 | Pi (project)       | `.pi/mcp.json` in a project directory                            | _(same)_                                       | Pi        |
+
+A file that starts with a UTF-8 byte order mark is read. A server entry that is not an object is skipped without dropping the other servers of its file. A server URL written as Gemini CLI's `httpUrl` or as Cline's nested `transport.url` is sent as `url`.
 
 ## MCP Sign-in Status
 
@@ -141,8 +145,11 @@ Enterprise uploads add `server_auth` to each MCP config entry and each plugin MC
 | Cursor | MCP key names in the editor `state.vscdb`, and the CLI `~/.cursor/projects/*/mcp-auth.json` files |
 | VS Code, Insiders, VSCodium | The provider list, grant rows and token key names in the `globalStorage/state.vscdb` beside the user `mcp.json` |
 | mcp-remote | The token and client files for the wrapper's key in `~/.mcp-auth/mcp-remote-v1/` (or `MCP_REMOTE_CONFIG_DIR`) |
+| Open Interpreter | `.credentials.json` in its root, the same format and rule as Codex |
+| Gemini CLI | `~/.gemini/mcp-oauth-tokens.json` |
+| Devin | The server's own token file in `~/.local/share/devin/mcp/oauth/` (`%APPDATA%\devin\mcp\oauth\` on Windows) |
 
-Limits: Claude Code on macOS keeps sign-ins in the Keychain, so a server the needs-auth cache does not name reports `unknown`/`encrypted_store`. Codex uses the OS credential store by default, with the same result. A VS Code sign-in through a built-in provider (GitHub, Microsoft) reports `no_record`. A remote server of any other client reports `client_not_supported`. Editor databases under `~/Library` are opened by exact path only, and no other file in a macOS protected folder is read.
+Limits: Claude Code on macOS keeps sign-ins in the Keychain, so a server the needs-auth cache does not name reports `unknown`/`encrypted_store`. Codex and Open Interpreter use the OS credential store by default, and Antigravity always keeps sign-ins in an encrypted store, with the same result. A VS Code sign-in through a built-in provider (GitHub, Microsoft) reports `no_record`. A remote server of any other client reports `client_not_supported`. Editor databases under `~/Library` are opened by exact path only, and no other file in a macOS protected folder is read.
 
 ## AI Tool and MCP Credential Locations
 

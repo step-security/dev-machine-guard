@@ -187,6 +187,7 @@ func TestStaticCredential(t *testing.T) {
 		{"white space header value", `{"url":"https://a.example.com","headers":{"Authorization":"  "}}`, ""},
 		{"other header", `{"url":"https://a.example.com","headers":{"X-Tenant":"acme"}}`, ""},
 		{"codex header", `{"url":"https://a.example.com","http_headers":{"Authorization":"Bearer x"}}`, "config_header"},
+		{"cline transport header", `{"transport":{"type":"streamableHttp","url":"https://a.example.com","headers":{"Authorization":"Bearer x"}}}`, "config_header"},
 		{"codex env header names a variable", `{"url":"https://a.example.com","env_http_headers":{"Authorization":"LAB_TOKEN"}}`, "config_header"},
 		{"claude header helper", `{"url":"https://a.example.com","headersHelper":"/usr/local/bin/lab-headers"}`, "config_header_helper"},
 		{"codex header helper", `{"url":"https://a.example.com","http_headers_helper":"lab-headers"}`, "config_header_helper"},
@@ -584,6 +585,67 @@ func TestCodexMCPAuth(t *testing.T) {
 			status: model.MCPAuthUnknown, evidence: "store_unavailable"},
 	}
 	runAuthCases(t, "codex", ".codex/config.toml", cases)
+}
+
+// TestMCPAuth_GeminiDevinAntigravityOpenInterpreter covers the clients whose
+// stores are one plain file or none a passive scan can read.
+func TestMCPAuth_GeminiDevinAntigravityOpenInterpreter(t *testing.T) {
+	gemini := func(entries string) map[string]string {
+		return map[string]string{".gemini/mcp-oauth-tokens.json": "[" + entries + "]"}
+	}
+	geminiEntry := func(name, url, token string) string {
+		return `{"serverName":"` + name + `","mcpServerUrl":"` + url + `","token":` + token + `}`
+	}
+	usable, expired := `{"accessToken":"t","expiresAt":`+strconv.Itoa(futureMs)+`}`, `{"accessToken":"t","expiresAt":`+strconv.Itoa(pastMs)+`}`
+	const a, b = "https://a.example.com/mcp", "https://b.example.com/mcp"
+	runAuthCases(t, "gemini", ".gemini/settings.json", []authCase{
+		{name: "gemini saved", server: "lab-oauth", decl: `{"httpUrl":"` + a + `"}`, files: gemini(geminiEntry("lab-oauth", a, usable)),
+			status: model.MCPAuthCredentialSaved, evidence: "gemini_token_file"},
+		{name: "gemini expired", server: "lab-oauth", decl: `{"httpUrl":"` + a + `"}`, files: gemini(geminiEntry("lab-oauth", a, expired)),
+			status: model.MCPAuthNeedsAuth, evidence: "gemini_token_expired"},
+		{name: "gemini prefers the entry at the configured URL", server: "lab-oauth", decl: `{"httpUrl":"` + a + `"}`,
+			files:  gemini(geminiEntry("lab-oauth", b, usable) + "," + geminiEntry("lab-oauth", a+"/", expired)),
+			status: model.MCPAuthNeedsAuth, evidence: "gemini_token_expired"},
+		{name: "gemini no entry", server: "lab-oauth", decl: `{"httpUrl":"` + a + `"}`, files: gemini(geminiEntry("lab-other", a, usable)),
+			status: model.MCPAuthUnknown, evidence: "no_record"},
+		{name: "gemini no file", server: "lab-oauth", decl: `{"httpUrl":"` + a + `"}`, status: model.MCPAuthUnknown, evidence: "no_record"},
+		{name: "gemini malformed", server: "lab-oauth", decl: `{"httpUrl":"` + a + `"}`, files: map[string]string{".gemini/mcp-oauth-tokens.json": `{}`},
+			status: model.MCPAuthUnknown, evidence: "store_unavailable"},
+	})
+
+	// The file name Devin wrote for this server and URL on all three platforms.
+	const devinDecl = `{"url":"http://localhost:39300/mcp"}`
+	devin := func(dir, token string) map[string]string {
+		return map[string]string{dir + "/fb3c034d3904bae0.json": token}
+	}
+	const devinDir = ".local/share/devin/mcp/oauth"
+	runAuthCases(t, "devin", ".config/devin/mcp_config.json", []authCase{
+		{name: "devin saved", server: "lab-oauth", decl: devinDecl, files: devin(devinDir, `{"access_token":"t","expires_at":`+strconv.Itoa(futureMs/1000)+`}`),
+			status: model.MCPAuthCredentialSaved, evidence: "devin_token_file"},
+		{name: "devin expired", server: "lab-oauth", decl: devinDecl, files: devin(devinDir, `{"access_token":"t","expires_at":`+strconv.Itoa(pastMs/1000)+`}`),
+			status: model.MCPAuthNeedsAuth, evidence: "devin_token_expired"},
+		{name: "devin no file", server: "lab-oauth", decl: devinDecl, status: model.MCPAuthUnknown, evidence: "no_record"},
+		{name: "devin malformed", server: "lab-oauth", decl: devinDecl, files: devin(devinDir, `[]`),
+			status: model.MCPAuthUnknown, evidence: "store_unavailable"},
+		{name: "devin on Windows", goos: model.PlatformWindows, env: map[string]string{"APPDATA": "~/AppData/Roaming"}, server: "lab-oauth", decl: devinDecl,
+			files:  devin("AppData/Roaming/devin/mcp/oauth", `{"access_token":"t"}`),
+			status: model.MCPAuthCredentialSaved, evidence: "devin_token_file"},
+	})
+
+	runAuthCases(t, "antigravity", ".gemini/config/mcp_config.json", []authCase{
+		{name: "antigravity", server: "lab-oauth", decl: `{"serverUrl":"` + a + `"}`, status: model.MCPAuthUnknown, evidence: "encrypted_store"},
+	})
+
+	oiEntry := `{"k1":{"server_name":"lab-oauth","client_id":"c","server_url":"` + a + `","access_token":"t"}}`
+	runAuthCases(t, "open_interpreter", ".openinterpreter/config.toml", []authCase{
+		{name: "open interpreter file store", server: "lab-oauth", decl: labOAuth, files: map[string]string{".openinterpreter/.credentials.json": oiEntry},
+			status: model.MCPAuthCredentialSaved, evidence: "codex_token_file"},
+		{name: "open interpreter ignores the Codex root", server: "lab-oauth", decl: labOAuth, files: map[string]string{".codex/.credentials.json": oiEntry},
+			status: model.MCPAuthUnknown, evidence: "encrypted_store"},
+		{name: "INTERPRETER_HOME", server: "lab-oauth", decl: labOAuth, env: map[string]string{"INTERPRETER_HOME": "~/oi-alt"},
+			files:  map[string]string{"oi-alt/.credentials.json": oiEntry},
+			status: model.MCPAuthCredentialSaved, evidence: "codex_token_file"},
+	})
 }
 
 func TestCopilotMCPAuth(t *testing.T) {
@@ -1401,6 +1463,14 @@ func TestMCPServerAuthGoldenProducer(t *testing.T) {
 		".config/VSCodium/User/mcp.json": `{"servers":{"lab-oauth":{"type":"http","url":"` + a + `"}}}`,
 
 		".codeium/windsurf/mcp_config.json": `{"mcpServers":{"lab-oauth":{"serverUrl":"` + a + `"}}}`,
+
+		".gemini/settings.json": `{"mcp":{"allowed":["lab-oauth"]},"mcpServers":{"lab-oauth":{"httpUrl":"` + a + `"},"lab-expired":{"httpUrl":"` + b + `"}}}`,
+		".gemini/mcp-oauth-tokens.json": `[{"serverName":"lab-oauth","mcpServerUrl":"` + a + `","token":{"accessToken":"t"}},
+			{"serverName":"lab-expired","mcpServerUrl":"` + b + `","token":{"accessToken":"t","expiresAt":` + strconv.Itoa(pastMs) + `}}]`,
+
+		".config/devin/mcp_config.json":                                    `{"mcpServers":{"lab-oauth":{"serverUrl":"` + a + `"},"lab-expired":{"serverUrl":"` + b + `"}}}`,
+		".local/share/devin/mcp/oauth/" + devinTokenFile("lab-oauth", a):   `{"access_token":"t"}`,
+		".local/share/devin/mcp/oauth/" + devinTokenFile("lab-expired", b): `{"access_token":"t","expires_at":` + strconv.Itoa(pastMs/1000) + `}`,
 
 		"plugins/lab/.mcp.json": `{"mcpServers":{"lab-plugin":{"command":"lab-plugin"}}}`,
 	})

@@ -74,12 +74,14 @@ type mcpAuthClient func(ctx context.Context, r *MCPAuthResolver, configPath stri
 // servers are reported as not supported.
 var mcpAuthClients = map[string]mcpAuthClient{
 	"claude_code": claudeMCPAuth, "project_mcp": claudeMCPAuth, "claude_plugin": claudeMCPAuth,
-	"codex":   codexMCPAuth,
+	"codex": codexMCPAuth, "open_interpreter": openInterpreterMCPAuth,
 	"copilot": copilotUserMCPAuth, "copilot_project": copilotMCPAuth, "copilot_plugin": copilotMCPAuth,
 	"pi": piMCPAuth, "pi_project": piMCPAuth,
 	"opencode": openCodeMCPAuth,
 	"cursor":   cursorMCPAuth,
 	"vscode":   vscodeMCPAuth, "vscode_insiders": vscodeMCPAuth, "vscodium": vscodeMCPAuth,
+	"gemini": geminiMCPAuth, "antigravity": antigravityMCPAuth,
+	"devin": devinMCPAuth,
 }
 
 // Reasons an unknown status carries.
@@ -199,11 +201,11 @@ type mcpDecl struct {
 // the server keys are decoded: ~/.claude.json can hold many megabytes of
 // project history beside them.
 func mcpDeclarations(source, configPath string, content []byte) []mcpDecl {
-	if source == "codex" && strings.HasSuffix(configPath, ".toml") {
+	if isCodexTOML(source, configPath) {
 		var config struct {
 			Servers map[string]any `toml:"mcp_servers"`
 		}
-		if toml.Unmarshal(content, &config) != nil {
+		if toml.Unmarshal(bytes.TrimPrefix(content, utf8BOM), &config) != nil {
 			return nil
 		}
 		var out []mcpDecl
@@ -220,7 +222,7 @@ func mcpDeclarations(source, configPath string, content []byte) []mcpDecl {
 	// Relax the syntax only where the config filter does, so both read the
 	// same servers.
 	data := bytes.TrimPrefix(content, utf8BOM)
-	if source == "zed" {
+	if source == "zed" || source == "gemini" {
 		data = stripJSONCComments(data)
 	}
 	bare := source == "copilot_project" || isCopilotProjectMCP(configPath)
@@ -242,7 +244,7 @@ func mcpDeclarations(source, configPath string, content []byte) []mcpDecl {
 		return nil
 	}
 	var out []mcpDecl
-	for _, servers := range []json.RawMessage{doc.MCPServers, doc.Servers, doc.ContextServers, doc.MCP} {
+	for _, servers := range []json.RawMessage{doc.MCPServers, doc.Servers, doc.ContextServers, openCodeServers(doc.MCP)} {
 		out = append(out, serverDecls(servers)...)
 	}
 	var projects map[string]struct {
@@ -283,6 +285,11 @@ func newMCPAuthServer(name, runtimeName string, fields map[string]any) mcpAuthSe
 	if s.url == "" {
 		s.url, _ = fields["serverUrl"].(string)
 	}
+	_, hasURL := fields["url"]
+	_, hasServerURL := fields["serverUrl"]
+	if u, ok := liftedServerURL(fields); ok && !hasURL && !hasServerURL {
+		s.url, _ = u.(string)
+	}
 	s.remote = s.url != "" || fields["type"] == "remote"
 	switch command := fields["command"].(type) {
 	case string:
@@ -311,8 +318,9 @@ func anyStrings(v any) []string {
 // supplies, or "" when there is none. Only the names and the emptiness of the
 // values are tested.
 func staticCredential(s mcpAuthServer) string {
-	for _, key := range []string{"headers", "http_headers", "env_http_headers"} {
-		if credentialEntry(s.fields[key]) {
+	transport, _ := s.fields["transport"].(map[string]any)
+	for _, headers := range []any{s.fields["headers"], s.fields["http_headers"], s.fields["env_http_headers"], transport["headers"]} {
+		if credentialEntry(headers) {
 			return "config_header"
 		}
 	}

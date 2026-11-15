@@ -14,7 +14,22 @@ import (
 // cannot be used, so a server with no entry has its sign-in, if any, where a
 // passive scan does not look.
 func codexMCPAuth(_ context.Context, r *MCPAuthResolver, _ string, s mcpAuthServer) (string, string) {
-	entries, err := r.codexOAuthEntries()
+	root := filepath.Join(r.home, ".codex")
+	if home := r.exec.Getenv("CODEX_HOME"); filepath.IsAbs(home) {
+		root = home
+	}
+	return r.codexStoreAuth(root, s)
+}
+
+// openInterpreterMCPAuth answers for Open Interpreter, a Codex fork that keeps
+// the same credentials file under its own root.
+func openInterpreterMCPAuth(_ context.Context, r *MCPAuthResolver, _ string, s mcpAuthServer) (string, string) {
+	return r.codexStoreAuth(openInterpreterHome(r.exec, r.home), s)
+}
+
+// codexStoreAuth answers from the credentials file under a Codex root.
+func (r *MCPAuthResolver) codexStoreAuth(root string, s mcpAuthServer) (string, string) {
+	entries, err := r.codexOAuthEntries(root)
 	if err != nil {
 		return model.MCPAuthUnknown, mcpAuthStoreUnavailable
 	}
@@ -38,13 +53,9 @@ type codexOAuthEntry struct {
 	usable     bool
 }
 
-// codexOAuthEntries reads CODEX_HOME/.credentials.json, joined by the
-// plaintext server name and URL that Codex itself also accepts as a match.
-func (r *MCPAuthResolver) codexOAuthEntries() ([]codexOAuthEntry, error) {
-	root := filepath.Join(r.home, ".codex")
-	if home := r.exec.Getenv("CODEX_HOME"); filepath.IsAbs(home) {
-		root = home
-	}
+// codexOAuthEntries reads <root>/.credentials.json, joined by the plaintext
+// server name and URL that Codex itself also accepts as a match.
+func (r *MCPAuthResolver) codexOAuthEntries(root string) ([]codexOAuthEntry, error) {
 	path := filepath.Join(root, ".credentials.json")
 	return loadStore(r, "codex:"+path, func() ([]codexOAuthEntry, error) {
 		var doc map[string]json.RawMessage

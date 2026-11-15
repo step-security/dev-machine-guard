@@ -1,6 +1,7 @@
 package detector
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -30,9 +31,13 @@ var mcpConfigDefinitions = []mcpConfigSpec{
 	{"claude_code", "~/.claude.json", "", "", "Anthropic"},
 	{"cursor", "~/.cursor/mcp.json", "", "", "Cursor"},
 	{"windsurf", "~/.codeium/windsurf/mcp_config.json", "", "", "Codeium"},
+	{"antigravity", "~/.gemini/config/mcp_config.json", "", "", "Google"},
 	{"antigravity", "~/.gemini/antigravity/mcp_config.json", "", "", "Google"},
+	{"gemini", "~/.gemini/settings.json", "", "", "Google"},
+	// Devin CLI and Devin Desktop share this file.
+	{"devin", "~/.config/devin/mcp_config.json", "%APPDATA%/devin/mcp_config.json", "", "Cognition"},
 	{"zed", "~/.config/zed/settings.json", "", "", "Zed"},
-	{"open_interpreter", "~/.config/open-interpreter/config.yaml", "", "", "OpenSource"},
+	{"open_interpreter", "~/.openinterpreter/config.toml", "", "", "OpenSource"},
 	{"codex", "~/.codex/config.toml", "", "", "OpenAI"},
 	{"copilot", "~/.copilot/mcp-config.json", "", "", "GitHub"},
 	// VS Code and VS Code-based editors keep user-level MCP servers in
@@ -122,7 +127,7 @@ func (d *MCPDetector) DetectEnterprise(ctx context.Context, searchDirs []string)
 
 	for _, loc := range d.allConfigLocations(ctx, homeDir, searchDirs) {
 		reader := d.exec
-		if loc.SourceName == "codex" || loc.SourceName == model.AgentCopilot || loc.SourceName == "pi" || loc.SourceName == "pi_project" || isPiMCPPath(loc.ConfigPath, d.piDir) || isCopilotProjectMCP(loc.ConfigPath) {
+		if loc.SourceName == "codex" || loc.SourceName == "open_interpreter" || loc.SourceName == model.AgentCopilot || loc.SourceName == "pi" || loc.SourceName == "pi_project" || isPiMCPPath(loc.ConfigPath, d.piDir) || isCopilotProjectMCP(loc.ConfigPath) {
 			roots := []string{filepath.Dir(loc.ConfigPath)}
 			if isCopilotProjectMCP(loc.ConfigPath) {
 				project := filepath.Dir(loc.ConfigPath)
@@ -253,6 +258,12 @@ func (d *MCPDetector) resolveConfigPath(spec mcpConfigSpec, homeDir string) stri
 			return filepath.Join(root, "config.toml")
 		}
 	}
+	if spec.SourceName == "open_interpreter" {
+		return filepath.Join(openInterpreterHome(d.exec, homeDir), "config.toml")
+	}
+	if spec.SourceName == "claude_code" && spec.ConfigPath == "~/.claude.json" {
+		return claudeGlobalConfigPath(d.exec, homeDir)
+	}
 	if d.exec.GOOS() == model.PlatformWindows && spec.WinConfigPath != "" {
 		return resolveEnvPath(d.exec, spec.WinConfigPath)
 	}
@@ -266,9 +277,11 @@ func (d *MCPDetector) resolveConfigPath(spec mcpConfigSpec, homeDir string) stri
 // Returns the filtered content and true on success, or nil and false if
 // filtering failed (to avoid leaking secrets from raw fallback).
 func (d *MCPDetector) filterMCPContent(sourceName, configPath string, content []byte) ([]byte, bool) {
-	if sourceName == "codex" && strings.HasSuffix(configPath, ".toml") {
+	// Windows PowerShell 5.1 writes a BOM that neither parser accepts.
+	content = bytes.TrimPrefix(content, utf8BOM)
+	if isCodexTOML(sourceName, configPath) {
 		var config struct {
-			Servers map[string]map[string]any `toml:"mcp_servers"`
+			Servers map[string]any `toml:"mcp_servers"`
 		}
 		if toml.Unmarshal(content, &config) != nil || config.Servers == nil {
 			return nil, false
@@ -300,8 +313,8 @@ func (d *MCPDetector) filterMCPContent(sourceName, configPath string, content []
 
 	jsonInput := content
 
-	// Strip JSONC comments for Zed
-	if sourceName == "zed" {
+	// Zed and Gemini CLI accept comments in their settings.
+	if sourceName == "zed" || sourceName == "gemini" {
 		jsonInput = stripJSONCComments(jsonInput)
 	}
 
@@ -395,7 +408,7 @@ func (d *MCPDetector) extractMCPServers(raw map[string]json.RawMessage) map[stri
 	// valid mcpServers sitting beside it, so a value that isn't a map of servers
 	// is skipped rather than emitted empty.
 	if servers, ok := raw["mcp"]; ok {
-		if filtered := filterServerFields(servers); filtered != nil {
+		if filtered := filterServerFields(openCodeServers(servers)); filtered != nil {
 			result["mcp"] = filtered
 			found = true
 		}
@@ -448,8 +461,11 @@ func filterProjectScopedMCPServers(projectsRaw json.RawMessage) map[string]any {
 // real-world credential locations too (a bearer token or API key in a query
 // string, an --api-key flag baked into args), so the kept values still pass
 // through redact.Value before being uploaded.
+//
+// An entry that is not an object is not a server and is skipped on its own.
+// A map whose entries are all such values is not a server map, so it gives nil.
 func filterServerFields(serversRaw json.RawMessage) map[string]any {
-	var servers map[string]map[string]any
+	var servers map[string]json.RawMessage
 	if err := json.Unmarshal(serversRaw, &servers); err != nil {
 		return nil
 	}
@@ -457,16 +473,74 @@ func filterServerFields(serversRaw json.RawMessage) map[string]any {
 	result := make(map[string]any)
 	allowedKeys := map[string]bool{"command": true, "args": true, "serverUrl": true, "url": true}
 
-	for name, serverConfig := range servers {
+	for name, raw := range servers {
+		var serverConfig map[string]any
+		if json.Unmarshal(raw, &serverConfig) != nil {
+			continue
+		}
 		filtered := make(map[string]any)
 		for k, v := range serverConfig {
 			if allowedKeys[k] {
 				filtered[k] = redact.Value(v)
 			}
 		}
+		_, hasURL := serverConfig["url"]
+		_, hasServerURL := serverConfig["serverUrl"]
+		if u, ok := liftedServerURL(serverConfig); ok && !hasURL && !hasServerURL {
+			filtered["url"] = redact.Value(u)
+		}
 		result[name] = filtered
 	}
+	if len(servers) > 0 && len(result) == 0 {
+		return nil
+	}
 	return result
+}
+
+// liftedServerURL is the URL of a server that declares it under another name:
+// Gemini CLI's httpUrl, else Cline's nested transport.url.
+func liftedServerURL(server map[string]any) (any, bool) {
+	if u, ok := server["httpUrl"]; ok {
+		return u, true
+	}
+	transport, _ := server["transport"].(map[string]any)
+	u, ok := transport["url"]
+	return u, ok
+}
+
+// openCodeServers is the server map of an mcp value: OpenCode 2.x nests it
+// under servers, 1.x keeps the servers directly under mcp. A 1.x server can
+// itself be named servers; every 1.x entry carries a string type, a 2.x
+// server map does not.
+func openCodeServers(mcp json.RawMessage) json.RawMessage {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(mcp, &fields) != nil {
+		return mcp
+	}
+	var servers map[string]json.RawMessage
+	if json.Unmarshal(fields["servers"], &servers) != nil || servers == nil {
+		return mcp
+	}
+	var entryType string
+	if json.Unmarshal(servers["type"], &entryType) == nil && entryType != "" {
+		return mcp
+	}
+	return fields["servers"]
+}
+
+// isCodexTOML reports a config in Codex's TOML format: Codex's own and Open
+// Interpreter's, a Codex fork.
+func isCodexTOML(sourceName, configPath string) bool {
+	return (sourceName == "codex" || sourceName == "open_interpreter") && strings.HasSuffix(configPath, ".toml")
+}
+
+// openInterpreterHome is Open Interpreter's root: an absolute
+// INTERPRETER_HOME, else ~/.openinterpreter. It does not read CODEX_HOME.
+func openInterpreterHome(exec executor.Executor, home string) string {
+	if root := exec.Getenv("INTERPRETER_HOME"); filepath.IsAbs(root) {
+		return root
+	}
+	return filepath.Join(home, ".openinterpreter")
 }
 
 // stripJSONCComments removes // and /* */ comments from JSONC content,
