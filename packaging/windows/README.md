@@ -247,7 +247,7 @@ Detection rule:
 | Rule type | Registry |
 | Key path | `HKEY_LOCAL_MACHINE\SOFTWARE\StepSecurity` |
 | Value name | `AgentVersion` |
-| Detection method | String comparison, **Equals** `<msi version>` (e.g. `1.19.0`) |
+| Detection method | String comparison, **Equals** `<msi version>` (e.g. `1.19.1`) |
 | Associated with a 32-bit app on 64-bit clients | No |
 
 **Self-update does not break this rule.** `AgentVersion` always names the

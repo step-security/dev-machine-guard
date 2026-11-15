@@ -391,3 +391,13 @@ func TestUserToken_NonLatinNameKeepsAToken(t *testing.T) {
 		t.Fatal("two non-Latin names must not collide")
 	}
 }
+
+// A user token never exceeds MaxUserTokenLen, the bound the state-scope
+// listing trusts, however long the account name.
+func TestUserToken_FitsMaxUserTokenLen(t *testing.T) {
+	for _, user := range []string{strings.Repeat("a", 600), `CONTOSO\` + strings.Repeat("b", 300), strings.Repeat("c", 400) + "@example.com"} {
+		if tok := userToken("windows", false, user); len(tok) > MaxUserTokenLen {
+			t.Errorf("token for a %d-byte name is %d bytes, over %d", len(user), len(tok), MaxUserTokenLen)
+		}
+	}
+}

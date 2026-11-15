@@ -53,6 +53,9 @@ const (
 	// so two accounts sharing a short name on one host cannot be made to
 	// collide by chance or by choosing a domain name.
 	UserTokenFingerprintLen = 12
+	// MaxUserTokenLen bounds a user token, and so a per-session state scope:
+	// a sanitized short name, a dash and the fingerprint.
+	MaxUserTokenLen = maxDeviceIDLen + 1 + UserTokenFingerprintLen
 )
 
 // Identity is the resolved device identity for this run.

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -369,6 +370,13 @@ func TestNetrcWriter_RejectsAmbiguousOrMalformedInput(t *testing.T) {
 		{"duplicate end marker", dmgNetrcBegin + "\n" + netrcExpected + "\n" + dmgNetrcEnd + "\n" + dmgNetrcEnd + "\n"},
 		{"incomplete MDM marker", mdmNetrcBegin + "\n" + netrcExpected + "\n"},
 		{"end before begin", dmgNetrcEnd + "\n" + dmgNetrcBegin + "\n" + netrcExpected + "\n"},
+		{"incomplete unowned credential", "machine registry.stepsecurity.io\nlogin reader\npassword"},
+		{"incomplete MDM credential", mdmNetrcBegin + "\nmachine registry.stepsecurity.io\nlogin reader\npassword\n" + mdmNetrcEnd},
+		{"incomplete wrong host", dmgNetrcBegin + "\nmachine other.example\nlogin reader\npassword\n" + dmgNetrcEnd},
+		{"incomplete duplicate directive", dmgNetrcBegin + "\nmachine registry.stepsecurity.io\nlogin reader\npassword\npassword secret\n" + dmgNetrcEnd},
+		{"incomplete unknown directive", dmgNetrcBegin + "\nmachine registry.stepsecurity.io\nprotocol https\npassword\n" + dmgNetrcEnd},
+		{"incomplete quoted value", dmgNetrcBegin + "\nmachine registry.stepsecurity.io\nlogin \"reader\npassword\n" + dmgNetrcEnd},
+		{"incomplete multiple hosts", dmgNetrcBegin + "\nmachine registry.stepsecurity.io\npassword\nmachine other.example\nlogin reader\n" + dmgNetrcEnd},
 		{"lone carriage return", "machine other.example\rlogin user"},
 		{"invalid utf8", string([]byte{0xff, 0xfe})},
 	}
@@ -794,5 +802,63 @@ func TestNetrcWriter_ReadAndMDMMarker(t *testing.T) {
 	}
 	if status, err := w.Observation(netrcExpected); err != nil || status != authTokenMatch {
 		t.Fatalf("MDM credential Observation = %q, %v, want match", status, err)
+	}
+}
+
+func TestNetrcWriter_RepairsIncompleteOwnedCredentials(t *testing.T) {
+	for _, body := range []string{"machine registry.stepsecurity.io\nlogin\npassword token", "machine registry.stepsecurity.io\nlogin reader\npassword", "machine registry.stepsecurity.io\nlogin\npassword"} {
+		t.Run(body, func(t *testing.T) {
+			prefix := "machine other.example login reader password preserve\n"
+			w, path := newNetrcTestWriter(t, []byte(prefix+dmgNetrcBegin+"\n"+body+"\n"+dmgNetrcEnd+"\n"))
+			hardenSecureTestFile(t, w.file)
+			if ok, err := w.Converged(netrcExpected); err != nil || ok {
+				t.Fatalf("before repair converged=%v err=%v", ok, err)
+			}
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cleared, changed, err := clearNetrc(before, "registry.stepsecurity.io")
+			if err != nil || !changed || !bytes.Equal(cleared, []byte(strings.TrimSuffix(prefix, "\n"))) {
+				t.Fatalf("direct clear changed=%v err=%v", changed, err)
+			}
+			if _, err := w.Write(netrcExpected); err != nil {
+				t.Fatal(err)
+			}
+			if ok, err := w.Converged(netrcExpected); err != nil || !ok {
+				t.Fatalf("converged=%v err=%v", ok, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.HasPrefix(data, []byte(prefix)) {
+				t.Fatal("unrelated credential changed")
+			}
+			if _, err := w.Clear(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestNetrcRepair_PreservesRawBoundaries(t *testing.T) {
+	for _, newline := range []string{"\n", "\r\n"} {
+		t.Run(fmt.Sprintf("newline_%q", newline), func(t *testing.T) {
+			prefix := "\xef\xbb\xbfmachine other.example login reader password preserve\r\n"
+			initial := []byte(prefix + dmgNetrcBegin + newline + "machine registry.stepsecurity.io" + newline + "login reader" + newline + "password" + newline + dmgNetrcEnd + newline)
+			original := bytes.Clone(initial)
+			rewritten, err := rewriteNetrc(initial, "registry.stepsecurity.io", netrcExpected)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(initial, original) || !bytes.HasPrefix(rewritten, []byte(prefix)) {
+				t.Fatal("repair changed original or unrelated bytes")
+			}
+			cleared, changed, err := clearNetrc(initial, "registry.stepsecurity.io")
+			if err != nil || !changed || !bytes.Equal(cleared, []byte(strings.TrimSuffix(prefix, "\r\n"))) {
+				t.Fatalf("clear changed=%v err=%v", changed, err)
+			}
+		})
 	}
 }

@@ -56,12 +56,12 @@ var precreatedProtectedFiles = []string{"device-id", "image-builder.json", "mult
 // updater's state the SYSTEM tasks trust, next to every session's own state;
 // the earlier blanket Users:Modify grant let any signed-in user replace them
 // and redirect what SYSTEM runs. Users may list and read the tree, create
-// files there and their own subdirectory under users\ (what they create is
-// theirs through CREATOR OWNER), read what SYSTEM creates there later
-// (through an inherit-only grant on the root, so a marker written after this
-// ran is readable at once), and Modify the shared logs, the visit file and the
-// unscoped per-run state; the protected files and state\ stay SYSTEM and
-// Administrators only.
+// files there, their own subdirectory under users\ and their own run files
+// under runs\ (what they create is theirs through CREATOR OWNER), read what
+// SYSTEM creates there later (through an inherit-only grant on the root, so
+// a marker written after this ran is readable at once), and Modify the
+// shared logs, the visit file and the unscoped per-run state; the protected
+// files and state\ stay SYSTEM and Administrators only.
 //
 // Nothing here follows a link. On an install made before these grants every
 // user could write the directory, so a junction or symbolic link planted at
@@ -86,6 +86,10 @@ func hardenStateDirACLs(ctx context.Context, exec executor.Executor, root string
 	}
 	usersDir := filepath.Join(root, "users")
 	if err := ensureDir(usersDir); err != nil {
+		return err
+	}
+	runsDir := filepath.Join(root, "runs")
+	if err := ensureDir(runsDir); err != nil {
 		return err
 	}
 	for _, name := range sharedWritableFiles {
@@ -128,6 +132,10 @@ func hardenStateDirACLs(ctx context.Context, exec executor.Executor, root string
 	// users\: create their own session directory; read the others' (no
 	// session writes another's state, so peers get no more than that).
 	dir(usersDir, "(RX,WD,AD)", "(OI)(CI)(IO)RX")
+	// runs\: create their own run file (runs\<v>.<sid>.json, its lock and
+	// temp files), theirs through CREATOR OWNER; the SYSTEM updater reads
+	// every user's. No user reads or writes another's.
+	dir(runsDir, "(RX,WD)")
 	for _, name := range sharedWritableFiles {
 		file(filepath.Join(root, name), "M", true)
 	}
