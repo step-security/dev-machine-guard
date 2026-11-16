@@ -428,6 +428,13 @@ func (m *Mock) Glob(pattern string) ([]string, error) {
 	return nil, nil
 }
 
+func (m *Mock) LoggedInUserContext(ctx context.Context) (*user.User, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return m.LoggedInUser()
+}
+
 func (m *Mock) LoggedInUser() (*user.User, error) {
 	m.mu.RLock()
 	err := m.loggedInUserErr

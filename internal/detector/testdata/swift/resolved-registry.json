@@ -1,0 +1,14 @@
+{
+  "originHash" : "3d4d1f4c86166dc21da6e88ed50f8a10ff86679d5efa9335f9995cf511465ec0",
+  "pins" : [
+    {
+      "identity" : "exampleregistry.HelloWorld",
+      "kind" : "registry",
+      "location" : "",
+      "state" : {
+        "version" : "1.0.0"
+      }
+    }
+  ],
+  "version" : 3
+}

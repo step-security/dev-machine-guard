@@ -22,8 +22,14 @@ var lockFilePath = defaultLockFilePath
 
 func setLockTarget(p string) (old string) { old, lockFilePath = lockFilePath, p; return old }
 
-func acquire() (func(), error) {
-	f, err := openLockFile(lockFilePath)
+func lockTarget() string { return lockFilePath }
+
+func acquire() (func(), error) { return acquireTarget(lockFilePath) }
+
+// acquireTarget locks the given file; it never reads or writes the
+// package-level target, so callers may lock other targets concurrently.
+func acquireTarget(path string) (func(), error) {
+	f, err := openLockFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -32,9 +38,9 @@ func acquire() (func(), error) {
 	if err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = f.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, fmt.Errorf("%w (flock %s)", ErrHeld, lockFilePath)
+			return nil, fmt.Errorf("%w (flock %s)", ErrHeld, path)
 		}
-		return nil, fmt.Errorf("flock %s: %w", lockFilePath, err)
+		return nil, fmt.Errorf("flock %s: %w", path, err)
 	}
 	// The file is never unlinked: removing it would let a later run lock a
 	// fresh inode while another still holds the old one.

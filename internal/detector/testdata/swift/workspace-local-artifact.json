@@ -1,0 +1,46 @@
+{
+  "object" : {
+    "artifacts" : [
+      {
+        "kind" : {
+          "typedArtifactsArchive" : {
+            "_0" : [
+              "executable"
+            ]
+          }
+        },
+        "packageRef" : {
+          "identity" : "mybinarytoolplugin",
+          "kind" : "fileSystem",
+          "location" : "/Users/supermac/swift-inventory-lab-20261104/third-pass-20261105/reference/Fixtures/Miscellaneous/Plugins/MyBinaryToolPlugin",
+          "name" : "MyBinaryToolPlugin"
+        },
+        "path" : "/Users/supermac/swift-inventory-lab-20261104/third-pass-20261105/reference/Fixtures/Miscellaneous/Plugins/MyBinaryToolPlugin/Binaries/MyVendedSourceGenBuildTool.artifactbundle",
+        "source" : {
+          "type" : "local"
+        },
+        "targetName" : "MyVendedSourceGenBuildTool"
+      }
+    ],
+    "dependencies" : [
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "mybinarytoolplugin",
+          "kind" : "fileSystem",
+          "location" : "/Users/supermac/swift-inventory-lab-20261104/third-pass-20261105/reference/Fixtures/Miscellaneous/Plugins/MyBinaryToolPlugin",
+          "name" : "MyBinaryToolPlugin"
+        },
+        "state" : {
+          "name" : "fileSystem",
+          "path" : "/Users/supermac/swift-inventory-lab-20261104/third-pass-20261105/reference/Fixtures/Miscellaneous/Plugins/MyBinaryToolPlugin"
+        },
+        "subpath" : "mybinarytoolplugin"
+      }
+    ],
+    "prebuilts" : [
+
+    ]
+  },
+  "version" : 7
+}

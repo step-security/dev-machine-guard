@@ -277,8 +277,33 @@ func TestAutoUpdateConfigRoundTrip(t *testing.T) {
 	if cf.AutoUpdate == nil || *cf.AutoUpdate || cf.UpdateMirrorURL != "https://m" || cf.UpdateLagBehind != 1 || cf.UpdateCooldownHours != 2 {
 		t.Fatalf("decoded %+v", cf)
 	}
-	off := false
-	if !(NonInteractiveOptions{AutoUpdate: &off}).HasAny() {
+	if !(NonInteractiveOptions{Values: map[string]any{"auto_update": false}}).HasAny() {
 		t.Fatal("--auto-update alone is not a non-interactive configure")
+	}
+}
+
+// A config.json edited with PowerShell 5.1 carries a byte-order mark; the
+// agent reads it rather than treating the file as invalid.
+func TestReadExisting_StripsUTF8BOM(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("STEPSECURITY_HOME", dir)
+	cfgPath := filepath.Join(dir, ".stepsecurity", "config.json")
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgPath, []byte("\xef\xbb\xbf"+`{"customer_id":"bom-cust","device_tag":"bom"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := readExisting()
+	if err != nil {
+		t.Fatalf("readExisting: %v", err)
+	}
+	if cfg.CustomerID != "bom-cust" || cfg.DeviceTag != "bom" {
+		t.Errorf("config not read through the BOM: %+v", cfg)
+	}
+	if got := stripUTF8BOM([]byte("{}")); string(got) != "{}" {
+		t.Errorf("stripUTF8BOM altered a file without a BOM: %q", got)
 	}
 }

@@ -85,7 +85,7 @@ func checkSelfCheck(out []byte, want updatestate.Version) error {
 		return fmt.Errorf("self-check reports version %q, want %s", sc.Version, want)
 	case !sc.ConfigOK:
 		return fmt.Errorf("self-check could not load the config")
-	case strings.TrimSpace(sc.DeviceID) == "" || sc.DeviceID == "unknown":
+	case strings.TrimSpace(sc.DeviceID) == "", sc.DeviceID == "unknown":
 		return fmt.Errorf("self-check resolved no device id")
 	}
 	return nil

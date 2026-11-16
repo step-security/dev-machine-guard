@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -484,5 +485,45 @@ func TestRunSkipsUploadWithoutSeam(t *testing.T) {
 	// Stdout should still be the allow response.
 	if !strings.HasPrefix(strings.TrimSpace(stdout.String()), "{") {
 		t.Errorf("stdout should be JSON allow response: %q", stdout.String())
+	}
+}
+
+type blockedSessionHookExecutor struct {
+	*executor.Mock
+	release chan struct{}
+}
+
+func (e *blockedSessionHookExecutor) LoggedInUser() (*user.User, error) {
+	<-e.release
+	return nil, context.DeadlineExceeded
+}
+func (e *blockedSessionHookExecutor) LoggedInUserContext(ctx context.Context) (*user.User, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestRunSessionTimeoutStillEmitsAllow(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	rt, _ := newRuntime(t, strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"ls"}}`), &stdout, &stderr)
+	mock := executor.NewMock()
+	mock.SetEnv("USER_EMAIL", "email@example.com")
+	stalled := &blockedSessionHookExecutor{mock, make(chan struct{})}
+	rt.Exec = stalled
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	done, finished := make(chan struct{}), make(chan struct{})
+	go func() { defer close(finished); _ = rt.Run(ctx, event.HookPreToolUse); close(done) }()
+	defer func() { close(stalled.release); <-finished }()
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("session lookup prevented hook response")
+	}
+	var response map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("allow response %q: %v", stdout.Bytes(), err)
+	}
+	if response["continue"] != true {
+		t.Fatalf("expected allow response: %s", stdout.Bytes())
 	}
 }

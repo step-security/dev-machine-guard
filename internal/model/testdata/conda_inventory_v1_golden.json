@@ -1,0 +1,2785 @@
+{
+  "conda_inventory": {
+    "schema_version": 1,
+    "status": "partial",
+    "reasons": [
+      "checksum_invalid",
+      "extraction_incomplete",
+      "identity_mismatch",
+      "parse_error",
+      "path_unresolved",
+      "unsupported_format"
+    ],
+    "sources": [
+      {
+        "source_id": "266f67373bf5dc891480aa8476916fcc532cdae720870f240a266c7186445608",
+        "kind": "environment_root",
+        "path": "/home/conda-fixture/.conda",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "5095d71153a7a9dd9325f7e6d68dde71a15f69375cff45892dd65c59e77ac369",
+          "590b2b4eec96442d5c5377f70557ec07bbefd9909f7bb8e39ca4046e1e855322"
+        ]
+      },
+      {
+        "source_id": "590b2b4eec96442d5c5377f70557ec07bbefd9909f7bb8e39ca4046e1e855322",
+        "kind": "environment",
+        "path": "/home/conda-fixture/.conda/envs/old",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "266f67373bf5dc891480aa8476916fcc532cdae720870f240a266c7186445608",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "5095d71153a7a9dd9325f7e6d68dde71a15f69375cff45892dd65c59e77ac369",
+        "kind": "cache_root",
+        "path": "/home/conda-fixture/.conda/pkgs",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "266f67373bf5dc891480aa8476916fcc532cdae720870f240a266c7186445608",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "169b92ae182586d6f8fdcb30c48f8c3e958231e6899504caf1dd614bf08d7f54",
+        "kind": "project_search_root",
+        "path": "/home/conda-fixture/code",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "checksum_invalid",
+          "parse_error",
+          "path_unresolved",
+          "unsupported_format"
+        ],
+        "discovered_sources": [
+          "8568924ffe60831511f5475f4551661b50d5f1a3b59abf69d82f2b0eec930b2c",
+          "8882f2f353a0f5fab7d5b5c93b358ceb516bb68f3aedf78a784f54a7a4fb4365",
+          "92c28c0ba712bfb535e951797e04a774844a97103e725e301c747562ee7394c8",
+          "b0d66dc8152740865f0a2e2b86436817a30ce99fca52fb188a4fe055bb66dedd",
+          "b840da77d8f9482a0939bfb8f1fc6da557d6f4d8ee3776a83954c6554d8f1f3e",
+          "d9a75864c8f41e89b10bdf5b56a7000918aedc7e5bf94850766c73e477a51a6f",
+          "e5f3f1c7edfefe89d273e70b9499c9d8f1c06d5e20c82b550cb065c3107a8503",
+          "ecb5f6f5ec7650b18091fab5e3c543516242acad7ecbb4d38d406659ea1bab9d",
+          "f2e191ea4e4f880646dba9600ec70347b47b925bb5a5e70f028b5a5c0b930218",
+          "f5f006a186c729de2b3b53b8de79bdfe06462f89795c336e47c85153940a46a4"
+        ]
+      },
+      {
+        "source_id": "92c28c0ba712bfb535e951797e04a774844a97103e725e301c747562ee7394c8",
+        "kind": "manifest",
+        "path": "/home/conda-fixture/code/legacy/environment.yaml",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "unsupported_format"
+        ],
+        "parent_source_id": "169b92ae182586d6f8fdcb30c48f8c3e958231e6899504caf1dd614bf08d7f54",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "e5f3f1c7edfefe89d273e70b9499c9d8f1c06d5e20c82b550cb065c3107a8503",
+        "kind": "lockfile",
+        "path": "/home/conda-fixture/code/lockonly/conda-lock.yaml",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "unsupported_format"
+        ],
+        "parent_source_id": "169b92ae182586d6f8fdcb30c48f8c3e958231e6899504caf1dd614bf08d7f54",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "8568924ffe60831511f5475f4551661b50d5f1a3b59abf69d82f2b0eec930b2c",
+        "kind": "environment",
+        "path": "/home/conda-fixture/code/proj/.conda",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "169b92ae182586d6f8fdcb30c48f8c3e958231e6899504caf1dd614bf08d7f54",
+        "discovered_sources": [
+          "7eec6a439266f25fff0fa95bff382f6482dc77d686ee26eb5c42a1e7148cc150"
+        ]
+      },
+      {
+        "source_id": "7eec6a439266f25fff0fa95bff382f6482dc77d686ee26eb5c42a1e7148cc150",
+        "kind": "installed_metadata",
+        "path": "/home/conda-fixture/code/proj/.conda/conda-meta/tzdata-2024b-hc8b5060_0.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "8568924ffe60831511f5475f4551661b50d5f1a3b59abf69d82f2b0eec930b2c",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "8882f2f353a0f5fab7d5b5c93b358ceb516bb68f3aedf78a784f54a7a4fb4365",
+        "kind": "environment",
+        "path": "/home/conda-fixture/code/proj/.pixi/envs/default",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "169b92ae182586d6f8fdcb30c48f8c3e958231e6899504caf1dd614bf08d7f54",
+        "discovered_sources": [
+          "8b81732cb2f96e82db8406a9866e79fdfa721669b7f67b5c2e87f314f2d8d0d2"
+        ]
+      },
+      {
+        "source_id": "8b81732cb2f96e82db8406a9866e79fdfa721669b7f67b5c2e87f314f2d8d0d2",
+        "kind": "installed_metadata",
+        "path": "/home/conda-fixture/code/proj/.pixi/envs/default/conda-meta/bzip2-1.0.8-h99b78c6_7.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "8882f2f353a0f5fab7d5b5c93b358ceb516bb68f3aedf78a784f54a7a4fb4365",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "b840da77d8f9482a0939bfb8f1fc6da557d6f4d8ee3776a83954c6554d8f1f3e",
+        "kind": "lockfile",
+        "path": "/home/conda-fixture/code/proj/conda-dev.lock",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "169b92ae182586d6f8fdcb30c48f8c3e958231e6899504caf1dd614bf08d7f54",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "f5f006a186c729de2b3b53b8de79bdfe06462f89795c336e47c85153940a46a4",
+        "kind": "lockfile",
+        "path": "/home/conda-fixture/code/proj/conda-lock.yml",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "169b92ae182586d6f8fdcb30c48f8c3e958231e6899504caf1dd614bf08d7f54",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "d9a75864c8f41e89b10bdf5b56a7000918aedc7e5bf94850766c73e477a51a6f",
+        "kind": "manifest",
+        "path": "/home/conda-fixture/code/proj/environment.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "169b92ae182586d6f8fdcb30c48f8c3e958231e6899504caf1dd614bf08d7f54",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "ecb5f6f5ec7650b18091fab5e3c543516242acad7ecbb4d38d406659ea1bab9d",
+        "kind": "manifest",
+        "path": "/home/conda-fixture/code/proj/environment.yml",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "unsupported_format"
+        ],
+        "parent_source_id": "169b92ae182586d6f8fdcb30c48f8c3e958231e6899504caf1dd614bf08d7f54",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "b0d66dc8152740865f0a2e2b86436817a30ce99fca52fb188a4fe055bb66dedd",
+        "kind": "lockfile",
+        "path": "/home/conda-fixture/code/proj/explicit.txt",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "checksum_invalid",
+          "path_unresolved",
+          "unsupported_format"
+        ],
+        "parent_source_id": "169b92ae182586d6f8fdcb30c48f8c3e958231e6899504caf1dd614bf08d7f54",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "f2e191ea4e4f880646dba9600ec70347b47b925bb5a5e70f028b5a5c0b930218",
+        "kind": "lockfile",
+        "path": "/home/conda-fixture/code/proj/pixi.lock",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "parse_error",
+          "path_unresolved",
+          "unsupported_format"
+        ],
+        "parent_source_id": "169b92ae182586d6f8fdcb30c48f8c3e958231e6899504caf1dd614bf08d7f54",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "e7ec231863b1bc8edab1b685308e90dd04f182fad925819dac32e79edf614572",
+        "kind": "environment",
+        "path": "/home/conda-fixture/elsewhere/env",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "bb32d82dc06eb9c8097c67967b5e9df0d14a4d3fc8dfd02e9e7c04a340987899"
+        ]
+      },
+      {
+        "source_id": "bb32d82dc06eb9c8097c67967b5e9df0d14a4d3fc8dfd02e9e7c04a340987899",
+        "kind": "installed_metadata",
+        "path": "/home/conda-fixture/elsewhere/env/conda-meta/tzdata-2024b-hc8b5060_0.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "e7ec231863b1bc8edab1b685308e90dd04f182fad925819dac32e79edf614572",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "da693a486ea65aeea89bab365b6eef47d5c51705ce9747b681b7e01dba81add2",
+        "kind": "environment",
+        "path": "/home/conda-fixture/extra-envs/lead",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "8266022daf7ecb5cbfd81157b6fc455ea9302e1ec42b6a9f968c5cf482567946"
+        ]
+      },
+      {
+        "source_id": "8266022daf7ecb5cbfd81157b6fc455ea9302e1ec42b6a9f968c5cf482567946",
+        "kind": "installed_metadata",
+        "path": "/home/conda-fixture/extra-envs/lead/conda-meta/tzdata-2024b-hc8b5060_0.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "da693a486ea65aeea89bab365b6eef47d5c51705ce9747b681b7e01dba81add2",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "ea9d821958bb278f3e36c927e88e22c145566195e8241996074d27ce16fe487d",
+        "kind": "cache_root",
+        "path": "/home/conda-fixture/extra-pkgs",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "73e5a52ccb3f4340673dba807732638de9f420ecc0b403c9fe0c6bec35aba9b1"
+        ]
+      },
+      {
+        "source_id": "73e5a52ccb3f4340673dba807732638de9f420ecc0b403c9fe0c6bec35aba9b1",
+        "kind": "cached_metadata",
+        "path": "/home/conda-fixture/extra-pkgs/bzip2-1.0.8-h99b78c6_7/info",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "ea9d821958bb278f3e36c927e88e22c145566195e8241996074d27ce16fe487d",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "6396a85b7203ff38792b3d6fff47d5e34a52e026e6be07439bed7b3406766968",
+        "kind": "environment_root",
+        "path": "/home/conda-fixture/micromamba",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "discovered_sources": [
+          "30cd09f26710bf9a4fc31c9c0e22d4ed9e683bbbb8f88088dc0101d63560f3be",
+          "546b6c9a72268becf2d609ea85a89feecad8befed9c24ea232ec03cd231ad136"
+        ]
+      },
+      {
+        "source_id": "30cd09f26710bf9a4fc31c9c0e22d4ed9e683bbbb8f88088dc0101d63560f3be",
+        "kind": "environment",
+        "path": "/home/conda-fixture/micromamba/envs/mm",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "6396a85b7203ff38792b3d6fff47d5e34a52e026e6be07439bed7b3406766968",
+        "discovered_sources": [
+          "0ae9ababd8509cfcfd6bf6c179c8a21f1cd14b5e6c6ade0bbe2611d6f6daa870"
+        ]
+      },
+      {
+        "source_id": "0ae9ababd8509cfcfd6bf6c179c8a21f1cd14b5e6c6ade0bbe2611d6f6daa870",
+        "kind": "installed_metadata",
+        "path": "/home/conda-fixture/micromamba/envs/mm/conda-meta/tzdata-2024b-hc8b5060_0.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "30cd09f26710bf9a4fc31c9c0e22d4ed9e683bbbb8f88088dc0101d63560f3be",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "546b6c9a72268becf2d609ea85a89feecad8befed9c24ea232ec03cd231ad136",
+        "kind": "cache_root",
+        "path": "/home/conda-fixture/micromamba/pkgs",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "6396a85b7203ff38792b3d6fff47d5e34a52e026e6be07439bed7b3406766968",
+        "discovered_sources": [
+          "65faf540894f460bf17ffd8d4b48e13cc8104f3547614fa111d61485c23c860e"
+        ]
+      },
+      {
+        "source_id": "65faf540894f460bf17ffd8d4b48e13cc8104f3547614fa111d61485c23c860e",
+        "kind": "cached_metadata",
+        "path": "/home/conda-fixture/micromamba/pkgs/https/conda.anaconda.org/conda-forge/noarch/tzdata-2024b-hc8b5060_0/info",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "546b6c9a72268becf2d609ea85a89feecad8befed9c24ea232ec03cd231ad136",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "8dc721ae571bee611bdd909718abdf2e2bd9bab27066a89da47da3062d804433",
+        "kind": "environment",
+        "path": "/home/conda-fixture/miniforge3",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "identity_mismatch",
+          "parse_error"
+        ],
+        "parent_source_id": "4e3181daa840753de0e00f23864850f814f84bb1d6c5cfbaa4e4428a381c5895",
+        "discovered_sources": [
+          "28567b858752581faee43baa3b8f6601ab39dbec21cfcdc5083af1b5f2a8599e",
+          "3de8bf25aa0f52a9a71dd53b7fec7deb0c68e9c938721095b43adfcfaf7172cb",
+          "67fc599074c9aeb3bd787b82b3389011ff4571e6234e2f04423e7e1f2c671099",
+          "8d17336200358fa5f7177968135a9c4a9f1444caab629d30be91d3c644daaf95"
+        ]
+      },
+      {
+        "source_id": "4e3181daa840753de0e00f23864850f814f84bb1d6c5cfbaa4e4428a381c5895",
+        "kind": "environment_root",
+        "path": "/home/conda-fixture/miniforge3",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "checksum_invalid",
+          "extraction_incomplete",
+          "identity_mismatch",
+          "parse_error",
+          "unsupported_format"
+        ],
+        "discovered_sources": [
+          "26968fd601fe9a0c5e9391f1ae73450ad3147be6afa0467b9ac850b4d5452167",
+          "8133a77545a0f880bd67c7a3c67117cf8a70e117e46e5b5350b64708b3c7fb32",
+          "848afec415da3c5b8d15de7836f2c8847d20204f472a9a6e52fd1df5669c2867",
+          "8dc721ae571bee611bdd909718abdf2e2bd9bab27066a89da47da3062d804433",
+          "f4edad469ac296456cf650e3e36d71248cbe1f477fa5104e9acba134abda9ea0"
+        ]
+      },
+      {
+        "source_id": "28567b858752581faee43baa3b8f6601ab39dbec21cfcdc5083af1b5f2a8599e",
+        "kind": "installed_metadata",
+        "path": "/home/conda-fixture/miniforge3/conda-meta/_openmp_mutex-4.5-2_gnu.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "8dc721ae571bee611bdd909718abdf2e2bd9bab27066a89da47da3062d804433",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "3de8bf25aa0f52a9a71dd53b7fec7deb0c68e9c938721095b43adfcfaf7172cb",
+        "kind": "installed_metadata",
+        "path": "/home/conda-fixture/miniforge3/conda-meta/broken-1.0-0.json",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "parse_error"
+        ],
+        "parent_source_id": "8dc721ae571bee611bdd909718abdf2e2bd9bab27066a89da47da3062d804433",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "67fc599074c9aeb3bd787b82b3389011ff4571e6234e2f04423e7e1f2c671099",
+        "kind": "installed_metadata",
+        "path": "/home/conda-fixture/miniforge3/conda-meta/conda-launchers-1.0.0-h57928b3_0.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "8dc721ae571bee611bdd909718abdf2e2bd9bab27066a89da47da3062d804433",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "8d17336200358fa5f7177968135a9c4a9f1444caab629d30be91d3c644daaf95",
+        "kind": "installed_metadata",
+        "path": "/home/conda-fixture/miniforge3/conda-meta/renamed-1.0-0.json",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "identity_mismatch"
+        ],
+        "parent_source_id": "8dc721ae571bee611bdd909718abdf2e2bd9bab27066a89da47da3062d804433",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "f4edad469ac296456cf650e3e36d71248cbe1f477fa5104e9acba134abda9ea0",
+        "kind": "environment",
+        "path": "/home/conda-fixture/miniforge3/envs/app",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "checksum_invalid"
+        ],
+        "parent_source_id": "4e3181daa840753de0e00f23864850f814f84bb1d6c5cfbaa4e4428a381c5895",
+        "discovered_sources": [
+          "088aee0136ff849dc07e9f3ac5f9f329f2c3e1e2313c35b38595e52f75fe64d8",
+          "5be61c62f0aeb093e2c43b57e7471562846395315697b2053fcfba6a80334924",
+          "6e78693c21dbcf7c38ae8283b6c35c38affac5b61327933ca1a5ad162e3e62d7",
+          "7e8790301fe206973d89fe936416f826046c84a7c2033c188bdcde1be5555802",
+          "c67c447db0f264c541d513759e109da8f0e4ccf1a46b813e213ddc2c2e08cd15"
+        ]
+      },
+      {
+        "source_id": "088aee0136ff849dc07e9f3ac5f9f329f2c3e1e2313c35b38595e52f75fe64d8",
+        "kind": "installed_metadata",
+        "path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/ansi2html-1.9.5-py3_none_any_0.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "f4edad469ac296456cf650e3e36d71248cbe1f477fa5104e9acba134abda9ea0",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "7e8790301fe206973d89fe936416f826046c84a7c2033c188bdcde1be5555802",
+        "kind": "installed_metadata",
+        "path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/badsum-1.0-0.json",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "checksum_invalid"
+        ],
+        "parent_source_id": "f4edad469ac296456cf650e3e36d71248cbe1f477fa5104e9acba134abda9ea0",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "6e78693c21dbcf7c38ae8283b6c35c38affac5b61327933ca1a5ad162e3e62d7",
+        "kind": "installed_metadata",
+        "path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/packaging-24.1-pyhd8ed1ab_0.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "f4edad469ac296456cf650e3e36d71248cbe1f477fa5104e9acba134abda9ea0",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "5be61c62f0aeb093e2c43b57e7471562846395315697b2053fcfba6a80334924",
+        "kind": "installed_metadata",
+        "path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/secret-1.0-0.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "f4edad469ac296456cf650e3e36d71248cbe1f477fa5104e9acba134abda9ea0",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "c67c447db0f264c541d513759e109da8f0e4ccf1a46b813e213ddc2c2e08cd15",
+        "kind": "installed_metadata",
+        "path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/zlib-1.3.1-h4e2bd7c_1.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "f4edad469ac296456cf650e3e36d71248cbe1f477fa5104e9acba134abda9ea0",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "8133a77545a0f880bd67c7a3c67117cf8a70e117e46e5b5350b64708b3c7fb32",
+        "kind": "environment",
+        "path": "/home/conda-fixture/miniforge3/envs/empty",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "4e3181daa840753de0e00f23864850f814f84bb1d6c5cfbaa4e4428a381c5895",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "848afec415da3c5b8d15de7836f2c8847d20204f472a9a6e52fd1df5669c2867",
+        "kind": "environment",
+        "path": "/home/conda-fixture/miniforge3/envs/nohistory",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "extraction_incomplete"
+        ],
+        "parent_source_id": "4e3181daa840753de0e00f23864850f814f84bb1d6c5cfbaa4e4428a381c5895",
+        "discovered_sources": [
+          "1042b2d3f1008bf6e471905758dcd8a65f0703dbf35d5f5aa3c63c58ba5ed72d"
+        ]
+      },
+      {
+        "source_id": "1042b2d3f1008bf6e471905758dcd8a65f0703dbf35d5f5aa3c63c58ba5ed72d",
+        "kind": "installed_metadata",
+        "path": "/home/conda-fixture/miniforge3/envs/nohistory/conda-meta/tzdata-2024b-hc8b5060_0.json",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "848afec415da3c5b8d15de7836f2c8847d20204f472a9a6e52fd1df5669c2867",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "26968fd601fe9a0c5e9391f1ae73450ad3147be6afa0467b9ac850b4d5452167",
+        "kind": "cache_root",
+        "path": "/home/conda-fixture/miniforge3/pkgs",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "parse_error",
+          "unsupported_format"
+        ],
+        "parent_source_id": "4e3181daa840753de0e00f23864850f814f84bb1d6c5cfbaa4e4428a381c5895",
+        "discovered_sources": [
+          "6ec6d9deeda82a8c15f90197596e4daaee61d758e1d18e35dbf63168095487f9",
+          "7edc5fbd88f02c1e8dbae3d221010b0f3464eea40f3005ac46e9f085cd7b5f6d",
+          "b984f4e0492abcf8510c8eec68789e20ab8c6419553573d8e3997bcc1008bdb7"
+        ]
+      },
+      {
+        "source_id": "7edc5fbd88f02c1e8dbae3d221010b0f3464eea40f3005ac46e9f085cd7b5f6d",
+        "kind": "cached_metadata",
+        "path": "/home/conda-fixture/miniforge3/pkgs/broken-1.0-0/info",
+        "status": "partial",
+        "presence": "present",
+        "reasons": [
+          "parse_error"
+        ],
+        "parent_source_id": "26968fd601fe9a0c5e9391f1ae73450ad3147be6afa0467b9ac850b4d5452167",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "6ec6d9deeda82a8c15f90197596e4daaee61d758e1d18e35dbf63168095487f9",
+        "kind": "cached_metadata",
+        "path": "/home/conda-fixture/miniforge3/pkgs/packaging-24.1-pyhd8ed1ab_0/info",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "26968fd601fe9a0c5e9391f1ae73450ad3147be6afa0467b9ac850b4d5452167",
+        "discovered_sources": []
+      },
+      {
+        "source_id": "b984f4e0492abcf8510c8eec68789e20ab8c6419553573d8e3997bcc1008bdb7",
+        "kind": "cached_metadata",
+        "path": "/home/conda-fixture/miniforge3/pkgs/zlib-1.3.1-h4e2bd7c_1/info",
+        "status": "complete",
+        "presence": "present",
+        "reasons": [],
+        "parent_source_id": "26968fd601fe9a0c5e9391f1ae73450ad3147be6afa0467b9ac850b4d5452167",
+        "discovered_sources": []
+      }
+    ],
+    "projects": [
+      {
+        "manifest_source_id": "92c28c0ba712bfb535e951797e04a774844a97103e725e301c747562ee7394c8",
+        "manifest_path": "/home/conda-fixture/code/legacy/environment.yaml",
+        "project_path": "/home/conda-fixture/code/legacy",
+        "selection_status": "partial",
+        "lockfile_paths": []
+      },
+      {
+        "manifest_source_id": "d9a75864c8f41e89b10bdf5b56a7000918aedc7e5bf94850766c73e477a51a6f",
+        "manifest_path": "/home/conda-fixture/code/proj/environment.json",
+        "project_path": "/home/conda-fixture/code/proj",
+        "selection_status": "observed",
+        "lockfile_paths": [
+          "/home/conda-fixture/code/proj/conda-dev.lock",
+          "/home/conda-fixture/code/proj/conda-lock.yml",
+          "/home/conda-fixture/code/proj/explicit.txt",
+          "/home/conda-fixture/code/proj/pixi.lock"
+        ]
+      },
+      {
+        "manifest_source_id": "ecb5f6f5ec7650b18091fab5e3c543516242acad7ecbb4d38d406659ea1bab9d",
+        "manifest_path": "/home/conda-fixture/code/proj/environment.yml",
+        "project_path": "/home/conda-fixture/code/proj",
+        "selection_status": "partial",
+        "lockfile_paths": [
+          "/home/conda-fixture/code/proj/conda-dev.lock",
+          "/home/conda-fixture/code/proj/conda-lock.yml",
+          "/home/conda-fixture/code/proj/explicit.txt",
+          "/home/conda-fixture/code/proj/pixi.lock"
+        ]
+      }
+    ],
+    "packages": [
+      {
+        "source_id": "92c28c0ba712bfb535e951797e04a774844a97103e725e301c747562ee7394c8",
+        "source_path": "/home/conda-fixture/code/legacy/environment.yaml",
+        "package_name": "python",
+        "evidence": "declared_requirement",
+        "project_path": "/home/conda-fixture/code/legacy",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_specs": [
+          "python"
+        ],
+        "dependency_relation": "direct",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "7eec6a439266f25fff0fa95bff382f6482dc77d686ee26eb5c42a1e7148cc150",
+        "source_path": "/home/conda-fixture/code/proj/.conda/conda-meta/tzdata-2024b-hc8b5060_0.json",
+        "package_name": "tzdata",
+        "evidence": "installed_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "environment_path": "/home/conda-fixture/code/proj/.conda",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2024b",
+        "build": "hc8b5060_0",
+        "subdir": "noarch",
+        "build_number": 0,
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/noarch/tzdata-2024b-hc8b5060_0.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "7eec6a439266f25fff0fa95bff382f6482dc77d686ee26eb5c42a1e7148cc150",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/code/proj/.conda/conda-meta/tzdata-2024b-hc8b5060_0.json",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "7eec6a439266f25fff0fa95bff382f6482dc77d686ee26eb5c42a1e7148cc150",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/code/proj/.conda/conda-meta/tzdata-2024b-hc8b5060_0.json",
+            "verification": "not_verified"
+          }
+        ],
+        "installation": {
+          "path": "/home/conda-fixture/code/proj/.conda",
+          "path_status": "resolved",
+          "presence": "present"
+        }
+      },
+      {
+        "source_id": "8b81732cb2f96e82db8406a9866e79fdfa721669b7f67b5c2e87f314f2d8d0d2",
+        "source_path": "/home/conda-fixture/code/proj/.pixi/envs/default/conda-meta/bzip2-1.0.8-h99b78c6_7.json",
+        "package_name": "bzip2",
+        "evidence": "installed_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "environment_path": "/home/conda-fixture/code/proj/.pixi/envs/default",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.8",
+        "build": "h99b78c6_7",
+        "subdir": "osx-arm64",
+        "build_number": 0,
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://prefix.dev/conda-forge"
+        },
+        "artifact_url": "https://prefix.dev/conda-forge/osx-arm64/bzip2-1.0.8-h99b78c6_7.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "8b81732cb2f96e82db8406a9866e79fdfa721669b7f67b5c2e87f314f2d8d0d2",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/code/proj/.pixi/envs/default/conda-meta/bzip2-1.0.8-h99b78c6_7.json",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "8b81732cb2f96e82db8406a9866e79fdfa721669b7f67b5c2e87f314f2d8d0d2",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/code/proj/.pixi/envs/default/conda-meta/bzip2-1.0.8-h99b78c6_7.json",
+            "verification": "not_verified"
+          }
+        ],
+        "installation": {
+          "path": "/home/conda-fixture/code/proj/.pixi/envs/default",
+          "path_status": "resolved",
+          "presence": "present"
+        }
+      },
+      {
+        "source_id": "b840da77d8f9482a0939bfb8f1fc6da557d6f4d8ee3776a83954c6554d8f1f3e",
+        "source_path": "/home/conda-fixture/code/proj/conda-dev.lock",
+        "package_name": "_libgcc_mutex",
+        "evidence": "locked_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "0.1",
+        "build": "conda_forge",
+        "subdir": "linux-64",
+        "target_platform": "linux-64",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "b840da77d8f9482a0939bfb8f1fc6da557d6f4d8ee3776a83954c6554d8f1f3e",
+            "source_kind": "lockfile",
+            "source_path": "/home/conda-fixture/code/proj/conda-dev.lock",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "f5f006a186c729de2b3b53b8de79bdfe06462f89795c336e47c85153940a46a4",
+        "source_path": "/home/conda-fixture/code/proj/conda-lock.yml",
+        "package_name": "_libgcc_mutex",
+        "evidence": "locked_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "0.1",
+        "build": "conda_forge",
+        "subdir": "linux-64",
+        "target_platform": "linux-64",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "f5f006a186c729de2b3b53b8de79bdfe06462f89795c336e47c85153940a46a4",
+            "source_kind": "lockfile",
+            "source_path": "/home/conda-fixture/code/proj/conda-lock.yml",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "f5f006a186c729de2b3b53b8de79bdfe06462f89795c336e47c85153940a46a4",
+        "source_path": "/home/conda-fixture/code/proj/conda-lock.yml",
+        "package_name": "private",
+        "evidence": "locked_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0",
+        "build": "0",
+        "subdir": "linux-64",
+        "target_platform": "linux-64",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/private"
+        },
+        "artifact_url": "https://conda.anaconda.org/private/linux-64/private-1.0-0.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "f5f006a186c729de2b3b53b8de79bdfe06462f89795c336e47c85153940a46a4",
+            "source_kind": "lockfile",
+            "source_path": "/home/conda-fixture/code/proj/conda-lock.yml",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "f5f006a186c729de2b3b53b8de79bdfe06462f89795c336e47c85153940a46a4",
+        "source_path": "/home/conda-fixture/code/proj/conda-lock.yml",
+        "package_name": "tzdata",
+        "evidence": "locked_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2024b",
+        "build": "hc8b5060_0",
+        "subdir": "noarch",
+        "target_platform": "linux-64",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/noarch/tzdata-2024b-hc8b5060_0.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "f5f006a186c729de2b3b53b8de79bdfe06462f89795c336e47c85153940a46a4",
+            "source_kind": "lockfile",
+            "source_path": "/home/conda-fixture/code/proj/conda-lock.yml",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "f5f006a186c729de2b3b53b8de79bdfe06462f89795c336e47c85153940a46a4",
+        "source_path": "/home/conda-fixture/code/proj/conda-lock.yml",
+        "package_name": "tzdata",
+        "evidence": "locked_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2024b",
+        "build": "hc8b5060_0",
+        "subdir": "noarch",
+        "target_platform": "osx-arm64",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/noarch/tzdata-2024b-hc8b5060_0.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "f5f006a186c729de2b3b53b8de79bdfe06462f89795c336e47c85153940a46a4",
+            "source_kind": "lockfile",
+            "source_path": "/home/conda-fixture/code/proj/conda-lock.yml",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "d9a75864c8f41e89b10bdf5b56a7000918aedc7e5bf94850766c73e477a51a6f",
+        "source_path": "/home/conda-fixture/code/proj/environment.json",
+        "package_name": "python",
+        "evidence": "declared_requirement",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_specs": [
+          "python=3.12"
+        ],
+        "dependency_relation": "direct",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "ecb5f6f5ec7650b18091fab5e3c543516242acad7ecbb4d38d406659ea1bab9d",
+        "source_path": "/home/conda-fixture/code/proj/environment.yml",
+        "package_name": "numpy",
+        "evidence": "declared_requirement",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_specs": [
+          "conda-forge::numpy\u003e=1.26"
+        ],
+        "dependency_relation": "direct",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "ecb5f6f5ec7650b18091fab5e3c543516242acad7ecbb4d38d406659ea1bab9d",
+        "source_path": "/home/conda-fixture/code/proj/environment.yml",
+        "package_name": "pip",
+        "evidence": "declared_requirement",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_specs": [
+          "pip"
+        ],
+        "dependency_relation": "direct",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "ecb5f6f5ec7650b18091fab5e3c543516242acad7ecbb4d38d406659ea1bab9d",
+        "source_path": "/home/conda-fixture/code/proj/environment.yml",
+        "package_name": "python",
+        "evidence": "declared_requirement",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "unknown",
+        "requested_specs": [
+          "python=3.12"
+        ],
+        "dependency_relation": "direct",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "b0d66dc8152740865f0a2e2b86436817a30ce99fca52fb188a4fe055bb66dedd",
+        "source_path": "/home/conda-fixture/code/proj/explicit.txt",
+        "package_name": "bzip2",
+        "evidence": "locked_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.8",
+        "build": "h93a5062_5",
+        "subdir": "osx-arm64",
+        "target_platform": "osx-arm64",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/osx-arm64/bzip2-1.0.8-h93a5062_5.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "b0d66dc8152740865f0a2e2b86436817a30ce99fca52fb188a4fe055bb66dedd",
+            "source_kind": "lockfile",
+            "source_path": "/home/conda-fixture/code/proj/explicit.txt",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "b0d66dc8152740865f0a2e2b86436817a30ce99fca52fb188a4fe055bb66dedd",
+        "source_path": "/home/conda-fixture/code/proj/explicit.txt",
+        "package_name": "libffi",
+        "evidence": "locked_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [
+          "checksum_invalid"
+        ],
+        "version_status": "known",
+        "version": "3.4.2",
+        "build": "h3422bc3_5",
+        "subdir": "osx-arm64",
+        "target_platform": "osx-arm64",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/osx-arm64/libffi-3.4.2-h3422bc3_5.tar.bz2",
+        "checksum_status": "partial",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "b0d66dc8152740865f0a2e2b86436817a30ce99fca52fb188a4fe055bb66dedd",
+        "source_path": "/home/conda-fixture/code/proj/explicit.txt",
+        "package_name": "local",
+        "evidence": "locked_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0",
+        "build": "0",
+        "subdir": "osx-arm64",
+        "target_platform": "osx-arm64",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "local",
+          "path": "/opt/channel"
+        },
+        "artifact_url": "/opt/channel/osx-arm64/local-1.0-0.conda",
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "b0d66dc8152740865f0a2e2b86436817a30ce99fca52fb188a4fe055bb66dedd",
+        "source_path": "/home/conda-fixture/code/proj/explicit.txt",
+        "package_name": "relative",
+        "evidence": "locked_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [
+          "path_unresolved"
+        ],
+        "version_status": "known",
+        "version": "1.0",
+        "build": "0",
+        "target_platform": "osx-arm64",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "b0d66dc8152740865f0a2e2b86436817a30ce99fca52fb188a4fe055bb66dedd",
+        "source_path": "/home/conda-fixture/code/proj/explicit.txt",
+        "package_name": "tzdata",
+        "evidence": "locked_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2024b",
+        "build": "hc8b5060_0",
+        "subdir": "noarch",
+        "target_platform": "osx-arm64",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/noarch/tzdata-2024b-hc8b5060_0.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "b0d66dc8152740865f0a2e2b86436817a30ce99fca52fb188a4fe055bb66dedd",
+            "source_kind": "lockfile",
+            "source_path": "/home/conda-fixture/code/proj/explicit.txt",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "b0d66dc8152740865f0a2e2b86436817a30ce99fca52fb188a4fe055bb66dedd",
+        "source_path": "/home/conda-fixture/code/proj/explicit.txt",
+        "package_name": "zlib",
+        "evidence": "locked_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.2.13",
+        "build": "h53f4e23_5",
+        "subdir": "osx-arm64",
+        "target_platform": "osx-arm64",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/private"
+        },
+        "artifact_url": "https://conda.anaconda.org/private/osx-arm64/zlib-1.2.13-h53f4e23_5.conda",
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "f2e191ea4e4f880646dba9600ec70347b47b925bb5a5e70f028b5a5c0b930218",
+        "source_path": "/home/conda-fixture/code/proj/pixi.lock",
+        "package_name": "bzip2",
+        "evidence": "locked_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.8",
+        "build": "h99b78c6_7",
+        "subdir": "osx-arm64",
+        "lock_environment": "default",
+        "target_platform": "osx-arm64",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://prefix.dev/conda-forge"
+        },
+        "artifact_url": "https://prefix.dev/conda-forge/osx-arm64/bzip2-1.0.8-h99b78c6_7.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "f2e191ea4e4f880646dba9600ec70347b47b925bb5a5e70f028b5a5c0b930218",
+            "source_kind": "lockfile",
+            "source_path": "/home/conda-fixture/code/proj/pixi.lock",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "f2e191ea4e4f880646dba9600ec70347b47b925bb5a5e70f028b5a5c0b930218",
+            "source_kind": "lockfile",
+            "source_path": "/home/conda-fixture/code/proj/pixi.lock",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "f2e191ea4e4f880646dba9600ec70347b47b925bb5a5e70f028b5a5c0b930218",
+        "source_path": "/home/conda-fixture/code/proj/pixi.lock",
+        "package_name": "minimal-project",
+        "evidence": "locked_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [
+          "path_unresolved"
+        ],
+        "version_status": "known",
+        "version": "0.1",
+        "build": "hbf21a9e_0",
+        "subdir": "linux-64",
+        "lock_environment": "default",
+        "target_platform": "linux-64",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "f2e191ea4e4f880646dba9600ec70347b47b925bb5a5e70f028b5a5c0b930218",
+        "source_path": "/home/conda-fixture/code/proj/pixi.lock",
+        "package_name": "tzdata",
+        "evidence": "locked_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2024b",
+        "build": "hc8b5060_0",
+        "subdir": "noarch",
+        "lock_environment": "default",
+        "target_platform": "linux-64",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://prefix.dev/conda-forge"
+        },
+        "artifact_url": "https://prefix.dev/conda-forge/noarch/tzdata-2024b-hc8b5060_0.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "f2e191ea4e4f880646dba9600ec70347b47b925bb5a5e70f028b5a5c0b930218",
+            "source_kind": "lockfile",
+            "source_path": "/home/conda-fixture/code/proj/pixi.lock",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "f2e191ea4e4f880646dba9600ec70347b47b925bb5a5e70f028b5a5c0b930218",
+            "source_kind": "lockfile",
+            "source_path": "/home/conda-fixture/code/proj/pixi.lock",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "f2e191ea4e4f880646dba9600ec70347b47b925bb5a5e70f028b5a5c0b930218",
+        "source_path": "/home/conda-fixture/code/proj/pixi.lock",
+        "package_name": "tzdata",
+        "evidence": "locked_package",
+        "project_path": "/home/conda-fixture/code/proj",
+        "scope": "project",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2024b",
+        "build": "hc8b5060_0",
+        "subdir": "noarch",
+        "lock_environment": "default",
+        "target_platform": "osx-arm64",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://prefix.dev/conda-forge"
+        },
+        "artifact_url": "https://prefix.dev/conda-forge/noarch/tzdata-2024b-hc8b5060_0.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "f2e191ea4e4f880646dba9600ec70347b47b925bb5a5e70f028b5a5c0b930218",
+            "source_kind": "lockfile",
+            "source_path": "/home/conda-fixture/code/proj/pixi.lock",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "f2e191ea4e4f880646dba9600ec70347b47b925bb5a5e70f028b5a5c0b930218",
+            "source_kind": "lockfile",
+            "source_path": "/home/conda-fixture/code/proj/pixi.lock",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "bb32d82dc06eb9c8097c67967b5e9df0d14a4d3fc8dfd02e9e7c04a340987899",
+        "source_path": "/home/conda-fixture/elsewhere/env/conda-meta/tzdata-2024b-hc8b5060_0.json",
+        "package_name": "tzdata",
+        "evidence": "installed_package",
+        "environment_path": "/home/conda-fixture/elsewhere/env",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2024b",
+        "build": "hc8b5060_0",
+        "subdir": "noarch",
+        "build_number": 0,
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/noarch/tzdata-2024b-hc8b5060_0.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "bb32d82dc06eb9c8097c67967b5e9df0d14a4d3fc8dfd02e9e7c04a340987899",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/elsewhere/env/conda-meta/tzdata-2024b-hc8b5060_0.json",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "bb32d82dc06eb9c8097c67967b5e9df0d14a4d3fc8dfd02e9e7c04a340987899",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/elsewhere/env/conda-meta/tzdata-2024b-hc8b5060_0.json",
+            "verification": "not_verified"
+          }
+        ],
+        "installation": {
+          "path": "/home/conda-fixture/elsewhere/env",
+          "path_status": "resolved",
+          "presence": "present"
+        }
+      },
+      {
+        "source_id": "8266022daf7ecb5cbfd81157b6fc455ea9302e1ec42b6a9f968c5cf482567946",
+        "source_path": "/home/conda-fixture/extra-envs/lead/conda-meta/tzdata-2024b-hc8b5060_0.json",
+        "package_name": "tzdata",
+        "evidence": "installed_package",
+        "environment_path": "/home/conda-fixture/extra-envs/lead",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2024b",
+        "build": "hc8b5060_0",
+        "subdir": "noarch",
+        "build_number": 0,
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/noarch/tzdata-2024b-hc8b5060_0.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "8266022daf7ecb5cbfd81157b6fc455ea9302e1ec42b6a9f968c5cf482567946",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/extra-envs/lead/conda-meta/tzdata-2024b-hc8b5060_0.json",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "8266022daf7ecb5cbfd81157b6fc455ea9302e1ec42b6a9f968c5cf482567946",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/extra-envs/lead/conda-meta/tzdata-2024b-hc8b5060_0.json",
+            "verification": "not_verified"
+          }
+        ],
+        "installation": {
+          "path": "/home/conda-fixture/extra-envs/lead",
+          "path_status": "resolved",
+          "presence": "present"
+        }
+      },
+      {
+        "source_id": "73e5a52ccb3f4340673dba807732638de9f420ecc0b403c9fe0c6bec35aba9b1",
+        "source_path": "/home/conda-fixture/extra-pkgs/bzip2-1.0.8-h99b78c6_7/info",
+        "package_name": "bzip2",
+        "evidence": "cached_package",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.8",
+        "build": "h99b78c6_7",
+        "subdir": "osx-arm64",
+        "build_number": 7,
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "0ae9ababd8509cfcfd6bf6c179c8a21f1cd14b5e6c6ade0bbe2611d6f6daa870",
+        "source_path": "/home/conda-fixture/micromamba/envs/mm/conda-meta/tzdata-2024b-hc8b5060_0.json",
+        "package_name": "tzdata",
+        "evidence": "installed_package",
+        "environment_path": "/home/conda-fixture/micromamba/envs/mm",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2024b",
+        "build": "hc8b5060_0",
+        "subdir": "noarch",
+        "build_number": 0,
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/noarch/tzdata-2024b-hc8b5060_0.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "0ae9ababd8509cfcfd6bf6c179c8a21f1cd14b5e6c6ade0bbe2611d6f6daa870",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/micromamba/envs/mm/conda-meta/tzdata-2024b-hc8b5060_0.json",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "0ae9ababd8509cfcfd6bf6c179c8a21f1cd14b5e6c6ade0bbe2611d6f6daa870",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/micromamba/envs/mm/conda-meta/tzdata-2024b-hc8b5060_0.json",
+            "verification": "not_verified"
+          }
+        ],
+        "installation": {
+          "path": "/home/conda-fixture/micromamba/envs/mm",
+          "path_status": "resolved",
+          "presence": "present"
+        }
+      },
+      {
+        "source_id": "65faf540894f460bf17ffd8d4b48e13cc8104f3547614fa111d61485c23c860e",
+        "source_path": "/home/conda-fixture/micromamba/pkgs/https/conda.anaconda.org/conda-forge/noarch/tzdata-2024b-hc8b5060_0/info",
+        "package_name": "tzdata",
+        "evidence": "cached_package",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2024b",
+        "build": "hc8b5060_0",
+        "subdir": "noarch",
+        "build_number": 0,
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "28567b858752581faee43baa3b8f6601ab39dbec21cfcdc5083af1b5f2a8599e",
+        "source_path": "/home/conda-fixture/miniforge3/conda-meta/_openmp_mutex-4.5-2_gnu.json",
+        "package_name": "_openmp_mutex",
+        "evidence": "installed_package",
+        "environment_path": "/home/conda-fixture/miniforge3",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "4.5",
+        "build": "2_gnu",
+        "subdir": "linux-64",
+        "build_number": 2,
+        "requested_specs": [
+          "_openmp_mutex=4.5=2_gnu"
+        ],
+        "dependency_relation": "direct",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-2_gnu.tar.bz2",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "28567b858752581faee43baa3b8f6601ab39dbec21cfcdc5083af1b5f2a8599e",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/miniforge3/conda-meta/_openmp_mutex-4.5-2_gnu.json",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "28567b858752581faee43baa3b8f6601ab39dbec21cfcdc5083af1b5f2a8599e",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/miniforge3/conda-meta/_openmp_mutex-4.5-2_gnu.json",
+            "verification": "not_verified"
+          }
+        ],
+        "installation": {
+          "path": "/home/conda-fixture/miniforge3",
+          "path_status": "resolved",
+          "presence": "present"
+        }
+      },
+      {
+        "source_id": "67fc599074c9aeb3bd787b82b3389011ff4571e6234e2f04423e7e1f2c671099",
+        "source_path": "/home/conda-fixture/miniforge3/conda-meta/conda-launchers-1.0.0-h57928b3_0.json",
+        "package_name": "conda-launchers",
+        "evidence": "installed_package",
+        "environment_path": "/home/conda-fixture/miniforge3",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0.0",
+        "build": "h57928b3_0",
+        "subdir": "win-64",
+        "build_number": 0,
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/win-64/conda-launchers-1.0.0-h57928b3_0.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "67fc599074c9aeb3bd787b82b3389011ff4571e6234e2f04423e7e1f2c671099",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/miniforge3/conda-meta/conda-launchers-1.0.0-h57928b3_0.json",
+            "verification": "not_verified"
+          }
+        ],
+        "installation": {
+          "path": "/home/conda-fixture/miniforge3",
+          "path_status": "resolved",
+          "presence": "present"
+        }
+      },
+      {
+        "source_id": "088aee0136ff849dc07e9f3ac5f9f329f2c3e1e2313c35b38595e52f75fe64d8",
+        "source_path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/ansi2html-1.9.5-py3_none_any_0.json",
+        "package_name": "ansi2html",
+        "evidence": "installed_package",
+        "environment_path": "/home/conda-fixture/miniforge3/envs/app",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.9.5",
+        "build": "py3_none_any_0",
+        "subdir": "noarch",
+        "build_number": 0,
+        "requested_specs": [
+          "conda-pypi::ansi2html"
+        ],
+        "dependency_relation": "direct",
+        "origin": {
+          "kind": "unknown"
+        },
+        "artifact_url": "https://files.pythonhosted.org/packages/ab/cd/ansi2html-1.9.5-py3-none-any.whl",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "088aee0136ff849dc07e9f3ac5f9f329f2c3e1e2313c35b38595e52f75fe64d8",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/ansi2html-1.9.5-py3_none_any_0.json",
+            "verification": "not_verified"
+          }
+        ],
+        "installation": {
+          "path": "/home/conda-fixture/miniforge3/envs/app",
+          "path_status": "resolved",
+          "presence": "present"
+        }
+      },
+      {
+        "source_id": "7e8790301fe206973d89fe936416f826046c84a7c2033c188bdcde1be5555802",
+        "source_path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/badsum-1.0-0.json",
+        "package_name": "badsum",
+        "evidence": "installed_package",
+        "environment_path": "/home/conda-fixture/miniforge3/envs/app",
+        "scope": "user",
+        "reasons": [
+          "checksum_invalid"
+        ],
+        "version_status": "known",
+        "version": "1.0",
+        "build": "0",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "partial",
+        "recorded_checksums": [],
+        "installation": {
+          "path": "/home/conda-fixture/miniforge3/envs/app",
+          "path_status": "resolved",
+          "presence": "present"
+        }
+      },
+      {
+        "source_id": "6e78693c21dbcf7c38ae8283b6c35c38affac5b61327933ca1a5ad162e3e62d7",
+        "source_path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/packaging-24.1-pyhd8ed1ab_0.json",
+        "package_name": "packaging",
+        "evidence": "installed_package",
+        "environment_path": "/home/conda-fixture/miniforge3/envs/app",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "24.1",
+        "build": "pyhd8ed1ab_0",
+        "subdir": "noarch",
+        "build_number": 0,
+        "requested_specs": [
+          "packaging"
+        ],
+        "dependency_relation": "direct",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/noarch/packaging-24.1-pyhd8ed1ab_0.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "6e78693c21dbcf7c38ae8283b6c35c38affac5b61327933ca1a5ad162e3e62d7",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/packaging-24.1-pyhd8ed1ab_0.json",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "6e78693c21dbcf7c38ae8283b6c35c38affac5b61327933ca1a5ad162e3e62d7",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/packaging-24.1-pyhd8ed1ab_0.json",
+            "verification": "not_verified"
+          }
+        ],
+        "installation": {
+          "path": "/home/conda-fixture/miniforge3/envs/app",
+          "path_status": "resolved",
+          "presence": "present"
+        }
+      },
+      {
+        "source_id": "5be61c62f0aeb093e2c43b57e7471562846395315697b2053fcfba6a80334924",
+        "source_path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/secret-1.0-0.json",
+        "package_name": "secret",
+        "evidence": "installed_package",
+        "environment_path": "/home/conda-fixture/miniforge3/envs/app",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0",
+        "build": "0",
+        "subdir": "osx-arm64",
+        "build_number": 0,
+        "requested_specs": [
+          "https://private.example.invalid/ch::secret",
+          "[redacted]"
+        ],
+        "dependency_relation": "direct",
+        "origin": {
+          "kind": "channel",
+          "url": "https://private.example.invalid/ch"
+        },
+        "artifact_url": "https://private.example.invalid/ch/osx-arm64/secret-1.0-0.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "5be61c62f0aeb093e2c43b57e7471562846395315697b2053fcfba6a80334924",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/secret-1.0-0.json",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "5be61c62f0aeb093e2c43b57e7471562846395315697b2053fcfba6a80334924",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/secret-1.0-0.json",
+            "verification": "not_verified"
+          }
+        ],
+        "installation": {
+          "path": "/home/conda-fixture/miniforge3/envs/app",
+          "path_status": "resolved",
+          "presence": "present"
+        }
+      },
+      {
+        "source_id": "c67c447db0f264c541d513759e109da8f0e4ccf1a46b813e213ddc2c2e08cd15",
+        "source_path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/zlib-1.3.1-h4e2bd7c_1.json",
+        "package_name": "zlib",
+        "evidence": "installed_package",
+        "environment_path": "/home/conda-fixture/miniforge3/envs/app",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.3.1",
+        "build": "h4e2bd7c_1",
+        "subdir": "osx-arm64",
+        "build_number": 0,
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/osx-arm64/zlib-1.3.1-h4e2bd7c_1.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "c67c447db0f264c541d513759e109da8f0e4ccf1a46b813e213ddc2c2e08cd15",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/zlib-1.3.1-h4e2bd7c_1.json",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "c67c447db0f264c541d513759e109da8f0e4ccf1a46b813e213ddc2c2e08cd15",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/zlib-1.3.1-h4e2bd7c_1.json",
+            "verification": "not_verified"
+          }
+        ],
+        "installation": {
+          "path": "/home/conda-fixture/miniforge3/envs/app",
+          "path_status": "resolved",
+          "presence": "present"
+        }
+      },
+      {
+        "source_id": "1042b2d3f1008bf6e471905758dcd8a65f0703dbf35d5f5aa3c63c58ba5ed72d",
+        "source_path": "/home/conda-fixture/miniforge3/envs/nohistory/conda-meta/tzdata-2024b-hc8b5060_0.json",
+        "package_name": "tzdata",
+        "evidence": "installed_package",
+        "environment_path": "/home/conda-fixture/miniforge3/envs/nohistory",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "2024b",
+        "build": "hc8b5060_0",
+        "subdir": "noarch",
+        "build_number": 0,
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/noarch/tzdata-2024b-hc8b5060_0.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "1042b2d3f1008bf6e471905758dcd8a65f0703dbf35d5f5aa3c63c58ba5ed72d",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/miniforge3/envs/nohistory/conda-meta/tzdata-2024b-hc8b5060_0.json",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "1042b2d3f1008bf6e471905758dcd8a65f0703dbf35d5f5aa3c63c58ba5ed72d",
+            "source_kind": "installed_metadata",
+            "source_path": "/home/conda-fixture/miniforge3/envs/nohistory/conda-meta/tzdata-2024b-hc8b5060_0.json",
+            "verification": "not_verified"
+          }
+        ],
+        "installation": {
+          "path": "/home/conda-fixture/miniforge3/envs/nohistory",
+          "path_status": "resolved",
+          "presence": "present"
+        }
+      },
+      {
+        "source_id": "7edc5fbd88f02c1e8dbae3d221010b0f3464eea40f3005ac46e9f085cd7b5f6d",
+        "source_path": "/home/conda-fixture/miniforge3/pkgs/broken-1.0-0/info",
+        "package_name": "broken",
+        "evidence": "cached_package",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.0",
+        "build": "0",
+        "subdir": "noarch",
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      },
+      {
+        "source_id": "6ec6d9deeda82a8c15f90197596e4daaee61d758e1d18e35dbf63168095487f9",
+        "source_path": "/home/conda-fixture/miniforge3/pkgs/packaging-24.1-pyhd8ed1ab_0/info",
+        "package_name": "packaging",
+        "evidence": "cached_package",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "24.1",
+        "build": "pyhd8ed1ab_0",
+        "subdir": "noarch",
+        "build_number": 0,
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "channel",
+          "url": "https://conda.anaconda.org/conda-forge"
+        },
+        "artifact_url": "https://conda.anaconda.org/conda-forge/noarch/packaging-24.1-pyhd8ed1ab_0.conda",
+        "checksum_status": "recorded",
+        "recorded_checksums": [
+          {
+            "algorithm": "sha256",
+            "value": "adfa71f158cbd872a36394c56c3568e6034aa55c623634b37a4836bd036e6b91",
+            "source_id": "6ec6d9deeda82a8c15f90197596e4daaee61d758e1d18e35dbf63168095487f9",
+            "source_kind": "cached_metadata",
+            "source_path": "/home/conda-fixture/miniforge3/pkgs/packaging-24.1-pyhd8ed1ab_0/info",
+            "verification": "not_verified"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f77c7d05dc47868e181135af65cb6e26",
+            "source_id": "6ec6d9deeda82a8c15f90197596e4daaee61d758e1d18e35dbf63168095487f9",
+            "source_kind": "cached_metadata",
+            "source_path": "/home/conda-fixture/miniforge3/pkgs/packaging-24.1-pyhd8ed1ab_0/info",
+            "verification": "not_verified"
+          }
+        ]
+      },
+      {
+        "source_id": "b984f4e0492abcf8510c8eec68789e20ab8c6419553573d8e3997bcc1008bdb7",
+        "source_path": "/home/conda-fixture/miniforge3/pkgs/zlib-1.3.1-h4e2bd7c_1/info",
+        "package_name": "zlib",
+        "evidence": "cached_package",
+        "scope": "user",
+        "reasons": [],
+        "version_status": "known",
+        "version": "1.3.1",
+        "build": "h4e2bd7c_1",
+        "subdir": "osx-arm64",
+        "build_number": 1,
+        "requested_specs": [],
+        "dependency_relation": "unknown",
+        "origin": {
+          "kind": "unknown"
+        },
+        "checksum_status": "absent",
+        "recorded_checksums": []
+      }
+    ]
+  },
+  "conda_config_audit": {
+    "schema_version": 1,
+    "status": "partial",
+    "reasons": [
+      "unsupported_format"
+    ],
+    "files": [
+      {
+        "source_id": "3f4fcd270ad1354c965f6204b48485437e499f9a35039c4a365002cda8c80238",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/.conda/envs/old/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "fccd20fd38f19103ee9e898e9422c3c3fc1cbf2d69fef24b4cf48dc38ed03004",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/.conda/envs/old/conda-meta/state",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "5eb09960ea8b8bf26b987a0a8a796ef06c7870bb1cf86a758106b51140c49ef0",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/.conda/envs/old/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "1e28888b9a4db7e19673916da27a4eac6c20f2ff68f344ad8ecccbd3a421955f",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/code/proj/.conda/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "889b06a123f92046a753bc9b4bf3263d399001d2bc572e6320959ef362c2f2a4",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/code/proj/.conda/conda-meta/state",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "d284b01066b6cc18752be9014f81224f2c949be9832a4821d269bebbc9149327",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/code/proj/.conda/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "9791d0de6cef0838c33f42bbf1dfb30fd64ed9e831a6fb46168ba671bcec5831",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/code/proj/.pixi/envs/default/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "37dd009d09b27382142b7dc2b8e8241ffd2d29b0deacd0f0a7c2077d8548cea6",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/code/proj/.pixi/envs/default/conda-meta/state",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "1b7fefff2bfc0db28c45a72663337e6e5c75add692d2091c7ee59823691886dc",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/code/proj/.pixi/envs/default/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "2c0f3089f5cb4efb77575fe896ecec5fa1034ec6cf8bdabda70d7d1c733fd76e",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/elsewhere/env/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "549717b2c640d853c64952518cb21c98e2cc9eafd8cf9645c86b2481d864869d",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/elsewhere/env/conda-meta/state",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "45f0a0749bcb86da6d4638522fe2e2c983ba79cf8b2d97db0841c7765f1db5a0",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/elsewhere/env/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "295a087fa62bf4d3795f0be102cd989e3a6a8f609c657eae959193df9fb7c857",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/extra-envs/lead/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "401058b3a6425a060a5540b041e3635eca9c872df607be1754ef3baf008ec1a3",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/extra-envs/lead/conda-meta/state",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "ae4d9f193358b4d232745dde475c1b575f62a9db71f7e7d0cc943a2a725a965f",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/extra-envs/lead/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "46529beeda2468e4856195f6a78713c158e7c2775c272699b45cb597e3acf2cc",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/micromamba/envs/mm/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "b6d0957f4870cf09c2383748bc6fff24d16522c57b99da37e1fe6caea1743f3f",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/micromamba/envs/mm/conda-meta/state",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "c4aa99146c6017f72342fa3022cca1ec724505a121141908e2bc6e3606330b18",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/micromamba/envs/mm/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "1acadae2c8e71507e068f1f3ba6ad0edc29a0bd9d5a93a450a583285ea69884f",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/miniforge3/conda-meta/state",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "auth_configured",
+            "display": "true",
+            "source_id": "1acadae2c8e71507e068f1f3ba6ad0edc29a0bd9d5a93a450a583285ea69884f",
+            "redacted": true
+          },
+          {
+            "key": "proxy_servers.0.scheme",
+            "display": "https",
+            "source_id": "1acadae2c8e71507e068f1f3ba6ad0edc29a0bd9d5a93a450a583285ea69884f",
+            "redacted": false
+          },
+          {
+            "key": "proxy_servers.0.url",
+            "display": "https://proxy.example.invalid:8443",
+            "source_id": "1acadae2c8e71507e068f1f3ba6ad0edc29a0bd9d5a93a450a583285ea69884f",
+            "redacted": true
+          },
+          {
+            "key": "ssl_verify",
+            "display": "false",
+            "source_id": "1acadae2c8e71507e068f1f3ba6ad0edc29a0bd9d5a93a450a583285ea69884f",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "347a0dfc1b0792db4029fceb84251ae12cd6e04756578381f6d464b25af232cc",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/miniforge3/envs/app/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "4bf38d8673aa1f442245baac2df4b4779bbe04ad50b10eafb8a6e90b417138dd",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/miniforge3/envs/app/conda-meta/state",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "b84ee83aaf19eac0302c263463b261b3b525b92a101bc6306e3521cf94536b71",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/miniforge3/envs/app/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "a2d2261fa814eb2a5f560d0c5bffb39abf838d6b82fb6a31d5a4a56f14a67c0e",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/miniforge3/envs/empty/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "ce1382901006c68f19fc14e67560c8602dc00b77a600117365f391797991055e",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/miniforge3/envs/empty/conda-meta/state",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "2edf851d23dd7479cacfe7763464c12065ee735ca57b6a7b9878c1f96b852c35",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/miniforge3/envs/empty/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "76b2d728713ac77a946f0fe383edf7bf0a5a35d49693e25a7e53d4a006810400",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/miniforge3/envs/nohistory/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "28a7a5d48ed0ea91d9ab5401ae2be0e4bdfa8f48dfa25d4126351b44c852a101",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/miniforge3/envs/nohistory/conda-meta/state",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "9808c5338d578d4ddcc8080547c0438b7a38874ffe251a17b9bb120168edf3c4",
+        "manager": "conda",
+        "scope": "environment",
+        "path": "/home/conda-fixture/miniforge3/envs/nohistory/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+        "manager": "conda",
+        "scope": "process",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "auth_configured",
+            "display": "true",
+            "source_id": "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+            "redacted": true
+          },
+          {
+            "key": "channel_alias",
+            "display": "https://conda.example.invalid",
+            "source_id": "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+            "redacted": true
+          },
+          {
+            "key": "envs_dirs",
+            "display": "[\"/home/conda-fixture/extra-envs\"]",
+            "source_id": "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+            "redacted": false
+          },
+          {
+            "key": "pkgs_dirs",
+            "display": "[\"/home/conda-fixture/extra-pkgs\"]",
+            "source_id": "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+            "redacted": false
+          },
+          {
+            "key": "proxy_servers.0.scheme",
+            "display": "https",
+            "source_id": "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+            "redacted": false
+          },
+          {
+            "key": "proxy_servers.0.url",
+            "display": "https://proxy.example.invalid:8443/",
+            "source_id": "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+            "redacted": true
+          }
+        ]
+      },
+      {
+        "source_id": "64800ed55ac4a98fd02daf8fce379686137f59f28d0c6eb924e5bee954dcc33c",
+        "manager": "conda",
+        "scope": "project",
+        "path": "/home/conda-fixture/code/legacy/environment.yaml",
+        "status": "present",
+        "reasons": [
+          "unsupported_format"
+        ],
+        "settings": [
+          {
+            "key": "channels.0.url",
+            "display": "conda-forge",
+            "source_id": "64800ed55ac4a98fd02daf8fce379686137f59f28d0c6eb924e5bee954dcc33c",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "fd030ee54d2fde1e5e0463e9f2cdf06715ef46c02da7a75b7d0e0e575dc1834e",
+        "manager": "conda",
+        "scope": "project",
+        "path": "/home/conda-fixture/code/proj/environment.json",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "channels.0.url",
+            "display": "conda-forge",
+            "source_id": "fd030ee54d2fde1e5e0463e9f2cdf06715ef46c02da7a75b7d0e0e575dc1834e",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "48d0d8ae5865101a5c9940715c137925bb30c04c4dca1da46f347e987a935334",
+        "manager": "conda",
+        "scope": "project",
+        "path": "/home/conda-fixture/code/proj/environment.yml",
+        "status": "present",
+        "reasons": [
+          "unsupported_format"
+        ],
+        "settings": [
+          {
+            "key": "auth_configured",
+            "display": "true",
+            "source_id": "48d0d8ae5865101a5c9940715c137925bb30c04c4dca1da46f347e987a935334",
+            "redacted": true
+          },
+          {
+            "key": "channels.0.url",
+            "display": "nodefaults",
+            "source_id": "48d0d8ae5865101a5c9940715c137925bb30c04c4dca1da46f347e987a935334",
+            "redacted": false
+          },
+          {
+            "key": "channels.1.url",
+            "display": "http://mirror.example.invalid/conda",
+            "source_id": "48d0d8ae5865101a5c9940715c137925bb30c04c4dca1da46f347e987a935334",
+            "redacted": false
+          },
+          {
+            "key": "channels.2.url",
+            "display": "https://conda.anaconda.org/private",
+            "source_id": "48d0d8ae5865101a5c9940715c137925bb30c04c4dca1da46f347e987a935334",
+            "redacted": true
+          },
+          {
+            "key": "channels.3.url",
+            "display": "conda-forge",
+            "source_id": "48d0d8ae5865101a5c9940715c137925bb30c04c4dca1da46f347e987a935334",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "cc14367d378ef1288ad328fb0dbc11ceb53cd7aa54ba384b515b52a2c891c556",
+        "manager": "conda",
+        "scope": "system",
+        "path": "/etc/conda/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "41a9b9e6f1b5e09efc95e6153e74c6a78f477062764f819e726ec4aafcc4765e",
+        "manager": "conda",
+        "scope": "system",
+        "path": "/etc/conda/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "3873dcd0567c95bdea8fa213d6b0377f516b2603d6ebb3bcf79d2d7c4e791989",
+        "manager": "conda",
+        "scope": "system",
+        "path": "/home/conda-fixture/.conda/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "274c91f8fd0e518487dfa98f8f8327aafa0982a74181241380076c35f395dec9",
+        "manager": "conda",
+        "scope": "system",
+        "path": "/home/conda-fixture/.conda/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "e9a02e27193f4db654aa53c71545cd07e7573203cba76d647db9afb9d00cbbb1",
+        "manager": "conda",
+        "scope": "system",
+        "path": "/home/conda-fixture/micromamba/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "e983bfe89cff4ef8dfc3807076f9db16e69e51ff6893e54b0aaf51f7e39ffbd5",
+        "manager": "conda",
+        "scope": "system",
+        "path": "/home/conda-fixture/micromamba/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+        "manager": "conda",
+        "scope": "system",
+        "path": "/home/conda-fixture/miniforge3/.condarc",
+        "status": "present",
+        "reasons": [],
+        "settings": [
+          {
+            "key": "auth_configured",
+            "display": "true",
+            "source_id": "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+            "redacted": true
+          },
+          {
+            "key": "channels.0.url",
+            "display": "https://private.example.invalid/ch",
+            "source_id": "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+            "redacted": true
+          },
+          {
+            "key": "channels.1.url",
+            "display": "conda-forge",
+            "source_id": "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+            "redacted": false
+          },
+          {
+            "key": "safety_checks",
+            "display": "disabled",
+            "source_id": "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+            "redacted": false
+          },
+          {
+            "key": "ssl_verify",
+            "display": "false",
+            "source_id": "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+            "redacted": false
+          }
+        ]
+      },
+      {
+        "source_id": "95340df0e40b2879337cd85eaba4c0f653f4bbaa03855aca2679cb9c5fbcdced",
+        "manager": "conda",
+        "scope": "system",
+        "path": "/home/conda-fixture/miniforge3/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "b3a3776f29a7885df6cd8b06bfffe31b22285d5def6a767f5d6abe602b3937d8",
+        "manager": "conda",
+        "scope": "system",
+        "path": "/var/lib/conda/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "d79c35e22696941959a5d538b2dc377fbdc108b41860f7b5fd619ab11e8bc841",
+        "manager": "conda",
+        "scope": "system",
+        "path": "/var/lib/conda/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "6ccfc02ecad6754b7372ad51785c44e0bf1e7e251d839964014f40be470380ae",
+        "manager": "conda",
+        "scope": "user",
+        "path": "/home/conda-fixture/.conda/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "95d4b99914fd72e55cd32f14ba8e93120e9f35d9161dbfeb158c3fab829092f7",
+        "manager": "conda",
+        "scope": "user",
+        "path": "/home/conda-fixture/.conda/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "69092840e38aced3e075fcaa3826e06ff228cff25fb4a9ab35c52d61206f617e",
+        "manager": "conda",
+        "scope": "user",
+        "path": "/home/conda-fixture/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "fe90b147ff7a2fe722897c7d838ab293463748446272958b289f198e98c740be",
+        "manager": "conda",
+        "scope": "user",
+        "path": "/home/conda-fixture/.config/conda/.condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      },
+      {
+        "source_id": "69321c71222bd1f7c06cd9228172108986dbf19beb76065a92ab6c853d0710e9",
+        "manager": "conda",
+        "scope": "user",
+        "path": "/home/conda-fixture/.config/conda/condarc",
+        "status": "absent",
+        "reasons": [],
+        "settings": []
+      }
+    ],
+    "contexts": [
+      {
+        "manager": "conda",
+        "config_source_ids": [
+          "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+          "69092840e38aced3e075fcaa3826e06ff228cff25fb4a9ab35c52d61206f617e",
+          "95d4b99914fd72e55cd32f14ba8e93120e9f35d9161dbfeb158c3fab829092f7",
+          "6ccfc02ecad6754b7372ad51785c44e0bf1e7e251d839964014f40be470380ae",
+          "69321c71222bd1f7c06cd9228172108986dbf19beb76065a92ab6c853d0710e9",
+          "fe90b147ff7a2fe722897c7d838ab293463748446272958b289f198e98c740be",
+          "274c91f8fd0e518487dfa98f8f8327aafa0982a74181241380076c35f395dec9",
+          "3873dcd0567c95bdea8fa213d6b0377f516b2603d6ebb3bcf79d2d7c4e791989",
+          "e983bfe89cff4ef8dfc3807076f9db16e69e51ff6893e54b0aaf51f7e39ffbd5",
+          "e9a02e27193f4db654aa53c71545cd07e7573203cba76d647db9afb9d00cbbb1",
+          "95340df0e40b2879337cd85eaba4c0f653f4bbaa03855aca2679cb9c5fbcdced",
+          "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+          "d79c35e22696941959a5d538b2dc377fbdc108b41860f7b5fd619ab11e8bc841",
+          "b3a3776f29a7885df6cd8b06bfffe31b22285d5def6a767f5d6abe602b3937d8",
+          "41a9b9e6f1b5e09efc95e6153e74c6a78f477062764f819e726ec4aafcc4765e",
+          "cc14367d378ef1288ad328fb0dbc11ceb53cd7aa54ba384b515b52a2c891c556"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "conda",
+        "project_path": "/home/conda-fixture/code/legacy",
+        "config_source_ids": [
+          "64800ed55ac4a98fd02daf8fce379686137f59f28d0c6eb924e5bee954dcc33c"
+        ],
+        "selection_status": "partial"
+      },
+      {
+        "manager": "conda",
+        "project_path": "/home/conda-fixture/code/proj",
+        "config_source_ids": [
+          "48d0d8ae5865101a5c9940715c137925bb30c04c4dca1da46f347e987a935334"
+        ],
+        "selection_status": "partial"
+      },
+      {
+        "manager": "conda",
+        "project_path": "/home/conda-fixture/code/proj",
+        "config_source_ids": [
+          "fd030ee54d2fde1e5e0463e9f2cdf06715ef46c02da7a75b7d0e0e575dc1834e"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "conda",
+        "environment_path": "/home/conda-fixture/.conda/envs/old",
+        "config_source_ids": [
+          "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+          "fccd20fd38f19103ee9e898e9422c3c3fc1cbf2d69fef24b4cf48dc38ed03004",
+          "5eb09960ea8b8bf26b987a0a8a796ef06c7870bb1cf86a758106b51140c49ef0",
+          "3f4fcd270ad1354c965f6204b48485437e499f9a35039c4a365002cda8c80238",
+          "69092840e38aced3e075fcaa3826e06ff228cff25fb4a9ab35c52d61206f617e",
+          "95d4b99914fd72e55cd32f14ba8e93120e9f35d9161dbfeb158c3fab829092f7",
+          "6ccfc02ecad6754b7372ad51785c44e0bf1e7e251d839964014f40be470380ae",
+          "69321c71222bd1f7c06cd9228172108986dbf19beb76065a92ab6c853d0710e9",
+          "fe90b147ff7a2fe722897c7d838ab293463748446272958b289f198e98c740be",
+          "274c91f8fd0e518487dfa98f8f8327aafa0982a74181241380076c35f395dec9",
+          "3873dcd0567c95bdea8fa213d6b0377f516b2603d6ebb3bcf79d2d7c4e791989",
+          "e983bfe89cff4ef8dfc3807076f9db16e69e51ff6893e54b0aaf51f7e39ffbd5",
+          "e9a02e27193f4db654aa53c71545cd07e7573203cba76d647db9afb9d00cbbb1",
+          "95340df0e40b2879337cd85eaba4c0f653f4bbaa03855aca2679cb9c5fbcdced",
+          "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+          "d79c35e22696941959a5d538b2dc377fbdc108b41860f7b5fd619ab11e8bc841",
+          "b3a3776f29a7885df6cd8b06bfffe31b22285d5def6a767f5d6abe602b3937d8",
+          "41a9b9e6f1b5e09efc95e6153e74c6a78f477062764f819e726ec4aafcc4765e",
+          "cc14367d378ef1288ad328fb0dbc11ceb53cd7aa54ba384b515b52a2c891c556"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "conda",
+        "environment_path": "/home/conda-fixture/code/proj/.conda",
+        "config_source_ids": [
+          "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+          "889b06a123f92046a753bc9b4bf3263d399001d2bc572e6320959ef362c2f2a4",
+          "d284b01066b6cc18752be9014f81224f2c949be9832a4821d269bebbc9149327",
+          "1e28888b9a4db7e19673916da27a4eac6c20f2ff68f344ad8ecccbd3a421955f",
+          "69092840e38aced3e075fcaa3826e06ff228cff25fb4a9ab35c52d61206f617e",
+          "95d4b99914fd72e55cd32f14ba8e93120e9f35d9161dbfeb158c3fab829092f7",
+          "6ccfc02ecad6754b7372ad51785c44e0bf1e7e251d839964014f40be470380ae",
+          "69321c71222bd1f7c06cd9228172108986dbf19beb76065a92ab6c853d0710e9",
+          "fe90b147ff7a2fe722897c7d838ab293463748446272958b289f198e98c740be",
+          "274c91f8fd0e518487dfa98f8f8327aafa0982a74181241380076c35f395dec9",
+          "3873dcd0567c95bdea8fa213d6b0377f516b2603d6ebb3bcf79d2d7c4e791989",
+          "e983bfe89cff4ef8dfc3807076f9db16e69e51ff6893e54b0aaf51f7e39ffbd5",
+          "e9a02e27193f4db654aa53c71545cd07e7573203cba76d647db9afb9d00cbbb1",
+          "95340df0e40b2879337cd85eaba4c0f653f4bbaa03855aca2679cb9c5fbcdced",
+          "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+          "d79c35e22696941959a5d538b2dc377fbdc108b41860f7b5fd619ab11e8bc841",
+          "b3a3776f29a7885df6cd8b06bfffe31b22285d5def6a767f5d6abe602b3937d8",
+          "41a9b9e6f1b5e09efc95e6153e74c6a78f477062764f819e726ec4aafcc4765e",
+          "cc14367d378ef1288ad328fb0dbc11ceb53cd7aa54ba384b515b52a2c891c556"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "conda",
+        "environment_path": "/home/conda-fixture/code/proj/.pixi/envs/default",
+        "config_source_ids": [
+          "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+          "37dd009d09b27382142b7dc2b8e8241ffd2d29b0deacd0f0a7c2077d8548cea6",
+          "1b7fefff2bfc0db28c45a72663337e6e5c75add692d2091c7ee59823691886dc",
+          "9791d0de6cef0838c33f42bbf1dfb30fd64ed9e831a6fb46168ba671bcec5831",
+          "69092840e38aced3e075fcaa3826e06ff228cff25fb4a9ab35c52d61206f617e",
+          "95d4b99914fd72e55cd32f14ba8e93120e9f35d9161dbfeb158c3fab829092f7",
+          "6ccfc02ecad6754b7372ad51785c44e0bf1e7e251d839964014f40be470380ae",
+          "69321c71222bd1f7c06cd9228172108986dbf19beb76065a92ab6c853d0710e9",
+          "fe90b147ff7a2fe722897c7d838ab293463748446272958b289f198e98c740be",
+          "274c91f8fd0e518487dfa98f8f8327aafa0982a74181241380076c35f395dec9",
+          "3873dcd0567c95bdea8fa213d6b0377f516b2603d6ebb3bcf79d2d7c4e791989",
+          "e983bfe89cff4ef8dfc3807076f9db16e69e51ff6893e54b0aaf51f7e39ffbd5",
+          "e9a02e27193f4db654aa53c71545cd07e7573203cba76d647db9afb9d00cbbb1",
+          "95340df0e40b2879337cd85eaba4c0f653f4bbaa03855aca2679cb9c5fbcdced",
+          "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+          "d79c35e22696941959a5d538b2dc377fbdc108b41860f7b5fd619ab11e8bc841",
+          "b3a3776f29a7885df6cd8b06bfffe31b22285d5def6a767f5d6abe602b3937d8",
+          "41a9b9e6f1b5e09efc95e6153e74c6a78f477062764f819e726ec4aafcc4765e",
+          "cc14367d378ef1288ad328fb0dbc11ceb53cd7aa54ba384b515b52a2c891c556"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "conda",
+        "environment_path": "/home/conda-fixture/elsewhere/env",
+        "config_source_ids": [
+          "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+          "549717b2c640d853c64952518cb21c98e2cc9eafd8cf9645c86b2481d864869d",
+          "45f0a0749bcb86da6d4638522fe2e2c983ba79cf8b2d97db0841c7765f1db5a0",
+          "2c0f3089f5cb4efb77575fe896ecec5fa1034ec6cf8bdabda70d7d1c733fd76e",
+          "69092840e38aced3e075fcaa3826e06ff228cff25fb4a9ab35c52d61206f617e",
+          "95d4b99914fd72e55cd32f14ba8e93120e9f35d9161dbfeb158c3fab829092f7",
+          "6ccfc02ecad6754b7372ad51785c44e0bf1e7e251d839964014f40be470380ae",
+          "69321c71222bd1f7c06cd9228172108986dbf19beb76065a92ab6c853d0710e9",
+          "fe90b147ff7a2fe722897c7d838ab293463748446272958b289f198e98c740be",
+          "274c91f8fd0e518487dfa98f8f8327aafa0982a74181241380076c35f395dec9",
+          "3873dcd0567c95bdea8fa213d6b0377f516b2603d6ebb3bcf79d2d7c4e791989",
+          "e983bfe89cff4ef8dfc3807076f9db16e69e51ff6893e54b0aaf51f7e39ffbd5",
+          "e9a02e27193f4db654aa53c71545cd07e7573203cba76d647db9afb9d00cbbb1",
+          "95340df0e40b2879337cd85eaba4c0f653f4bbaa03855aca2679cb9c5fbcdced",
+          "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+          "d79c35e22696941959a5d538b2dc377fbdc108b41860f7b5fd619ab11e8bc841",
+          "b3a3776f29a7885df6cd8b06bfffe31b22285d5def6a767f5d6abe602b3937d8",
+          "41a9b9e6f1b5e09efc95e6153e74c6a78f477062764f819e726ec4aafcc4765e",
+          "cc14367d378ef1288ad328fb0dbc11ceb53cd7aa54ba384b515b52a2c891c556"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "conda",
+        "environment_path": "/home/conda-fixture/extra-envs/lead",
+        "config_source_ids": [
+          "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+          "401058b3a6425a060a5540b041e3635eca9c872df607be1754ef3baf008ec1a3",
+          "ae4d9f193358b4d232745dde475c1b575f62a9db71f7e7d0cc943a2a725a965f",
+          "295a087fa62bf4d3795f0be102cd989e3a6a8f609c657eae959193df9fb7c857",
+          "69092840e38aced3e075fcaa3826e06ff228cff25fb4a9ab35c52d61206f617e",
+          "95d4b99914fd72e55cd32f14ba8e93120e9f35d9161dbfeb158c3fab829092f7",
+          "6ccfc02ecad6754b7372ad51785c44e0bf1e7e251d839964014f40be470380ae",
+          "69321c71222bd1f7c06cd9228172108986dbf19beb76065a92ab6c853d0710e9",
+          "fe90b147ff7a2fe722897c7d838ab293463748446272958b289f198e98c740be",
+          "274c91f8fd0e518487dfa98f8f8327aafa0982a74181241380076c35f395dec9",
+          "3873dcd0567c95bdea8fa213d6b0377f516b2603d6ebb3bcf79d2d7c4e791989",
+          "e983bfe89cff4ef8dfc3807076f9db16e69e51ff6893e54b0aaf51f7e39ffbd5",
+          "e9a02e27193f4db654aa53c71545cd07e7573203cba76d647db9afb9d00cbbb1",
+          "95340df0e40b2879337cd85eaba4c0f653f4bbaa03855aca2679cb9c5fbcdced",
+          "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+          "d79c35e22696941959a5d538b2dc377fbdc108b41860f7b5fd619ab11e8bc841",
+          "b3a3776f29a7885df6cd8b06bfffe31b22285d5def6a767f5d6abe602b3937d8",
+          "41a9b9e6f1b5e09efc95e6153e74c6a78f477062764f819e726ec4aafcc4765e",
+          "cc14367d378ef1288ad328fb0dbc11ceb53cd7aa54ba384b515b52a2c891c556"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "conda",
+        "environment_path": "/home/conda-fixture/micromamba/envs/mm",
+        "config_source_ids": [
+          "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+          "b6d0957f4870cf09c2383748bc6fff24d16522c57b99da37e1fe6caea1743f3f",
+          "c4aa99146c6017f72342fa3022cca1ec724505a121141908e2bc6e3606330b18",
+          "46529beeda2468e4856195f6a78713c158e7c2775c272699b45cb597e3acf2cc",
+          "69092840e38aced3e075fcaa3826e06ff228cff25fb4a9ab35c52d61206f617e",
+          "95d4b99914fd72e55cd32f14ba8e93120e9f35d9161dbfeb158c3fab829092f7",
+          "6ccfc02ecad6754b7372ad51785c44e0bf1e7e251d839964014f40be470380ae",
+          "69321c71222bd1f7c06cd9228172108986dbf19beb76065a92ab6c853d0710e9",
+          "fe90b147ff7a2fe722897c7d838ab293463748446272958b289f198e98c740be",
+          "274c91f8fd0e518487dfa98f8f8327aafa0982a74181241380076c35f395dec9",
+          "3873dcd0567c95bdea8fa213d6b0377f516b2603d6ebb3bcf79d2d7c4e791989",
+          "e983bfe89cff4ef8dfc3807076f9db16e69e51ff6893e54b0aaf51f7e39ffbd5",
+          "e9a02e27193f4db654aa53c71545cd07e7573203cba76d647db9afb9d00cbbb1",
+          "95340df0e40b2879337cd85eaba4c0f653f4bbaa03855aca2679cb9c5fbcdced",
+          "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+          "d79c35e22696941959a5d538b2dc377fbdc108b41860f7b5fd619ab11e8bc841",
+          "b3a3776f29a7885df6cd8b06bfffe31b22285d5def6a767f5d6abe602b3937d8",
+          "41a9b9e6f1b5e09efc95e6153e74c6a78f477062764f819e726ec4aafcc4765e",
+          "cc14367d378ef1288ad328fb0dbc11ceb53cd7aa54ba384b515b52a2c891c556"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "conda",
+        "environment_path": "/home/conda-fixture/miniforge3",
+        "config_source_ids": [
+          "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+          "1acadae2c8e71507e068f1f3ba6ad0edc29a0bd9d5a93a450a583285ea69884f",
+          "69092840e38aced3e075fcaa3826e06ff228cff25fb4a9ab35c52d61206f617e",
+          "95d4b99914fd72e55cd32f14ba8e93120e9f35d9161dbfeb158c3fab829092f7",
+          "6ccfc02ecad6754b7372ad51785c44e0bf1e7e251d839964014f40be470380ae",
+          "69321c71222bd1f7c06cd9228172108986dbf19beb76065a92ab6c853d0710e9",
+          "fe90b147ff7a2fe722897c7d838ab293463748446272958b289f198e98c740be",
+          "274c91f8fd0e518487dfa98f8f8327aafa0982a74181241380076c35f395dec9",
+          "3873dcd0567c95bdea8fa213d6b0377f516b2603d6ebb3bcf79d2d7c4e791989",
+          "e983bfe89cff4ef8dfc3807076f9db16e69e51ff6893e54b0aaf51f7e39ffbd5",
+          "e9a02e27193f4db654aa53c71545cd07e7573203cba76d647db9afb9d00cbbb1",
+          "95340df0e40b2879337cd85eaba4c0f653f4bbaa03855aca2679cb9c5fbcdced",
+          "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+          "d79c35e22696941959a5d538b2dc377fbdc108b41860f7b5fd619ab11e8bc841",
+          "b3a3776f29a7885df6cd8b06bfffe31b22285d5def6a767f5d6abe602b3937d8",
+          "41a9b9e6f1b5e09efc95e6153e74c6a78f477062764f819e726ec4aafcc4765e",
+          "cc14367d378ef1288ad328fb0dbc11ceb53cd7aa54ba384b515b52a2c891c556"
+        ],
+        "selection_status": "partial"
+      },
+      {
+        "manager": "conda",
+        "environment_path": "/home/conda-fixture/miniforge3/envs/app",
+        "config_source_ids": [
+          "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+          "4bf38d8673aa1f442245baac2df4b4779bbe04ad50b10eafb8a6e90b417138dd",
+          "b84ee83aaf19eac0302c263463b261b3b525b92a101bc6306e3521cf94536b71",
+          "347a0dfc1b0792db4029fceb84251ae12cd6e04756578381f6d464b25af232cc",
+          "69092840e38aced3e075fcaa3826e06ff228cff25fb4a9ab35c52d61206f617e",
+          "95d4b99914fd72e55cd32f14ba8e93120e9f35d9161dbfeb158c3fab829092f7",
+          "6ccfc02ecad6754b7372ad51785c44e0bf1e7e251d839964014f40be470380ae",
+          "69321c71222bd1f7c06cd9228172108986dbf19beb76065a92ab6c853d0710e9",
+          "fe90b147ff7a2fe722897c7d838ab293463748446272958b289f198e98c740be",
+          "274c91f8fd0e518487dfa98f8f8327aafa0982a74181241380076c35f395dec9",
+          "3873dcd0567c95bdea8fa213d6b0377f516b2603d6ebb3bcf79d2d7c4e791989",
+          "e983bfe89cff4ef8dfc3807076f9db16e69e51ff6893e54b0aaf51f7e39ffbd5",
+          "e9a02e27193f4db654aa53c71545cd07e7573203cba76d647db9afb9d00cbbb1",
+          "95340df0e40b2879337cd85eaba4c0f653f4bbaa03855aca2679cb9c5fbcdced",
+          "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+          "d79c35e22696941959a5d538b2dc377fbdc108b41860f7b5fd619ab11e8bc841",
+          "b3a3776f29a7885df6cd8b06bfffe31b22285d5def6a767f5d6abe602b3937d8",
+          "41a9b9e6f1b5e09efc95e6153e74c6a78f477062764f819e726ec4aafcc4765e",
+          "cc14367d378ef1288ad328fb0dbc11ceb53cd7aa54ba384b515b52a2c891c556"
+        ],
+        "selection_status": "partial"
+      },
+      {
+        "manager": "conda",
+        "environment_path": "/home/conda-fixture/miniforge3/envs/empty",
+        "config_source_ids": [
+          "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+          "ce1382901006c68f19fc14e67560c8602dc00b77a600117365f391797991055e",
+          "2edf851d23dd7479cacfe7763464c12065ee735ca57b6a7b9878c1f96b852c35",
+          "a2d2261fa814eb2a5f560d0c5bffb39abf838d6b82fb6a31d5a4a56f14a67c0e",
+          "69092840e38aced3e075fcaa3826e06ff228cff25fb4a9ab35c52d61206f617e",
+          "95d4b99914fd72e55cd32f14ba8e93120e9f35d9161dbfeb158c3fab829092f7",
+          "6ccfc02ecad6754b7372ad51785c44e0bf1e7e251d839964014f40be470380ae",
+          "69321c71222bd1f7c06cd9228172108986dbf19beb76065a92ab6c853d0710e9",
+          "fe90b147ff7a2fe722897c7d838ab293463748446272958b289f198e98c740be",
+          "274c91f8fd0e518487dfa98f8f8327aafa0982a74181241380076c35f395dec9",
+          "3873dcd0567c95bdea8fa213d6b0377f516b2603d6ebb3bcf79d2d7c4e791989",
+          "e983bfe89cff4ef8dfc3807076f9db16e69e51ff6893e54b0aaf51f7e39ffbd5",
+          "e9a02e27193f4db654aa53c71545cd07e7573203cba76d647db9afb9d00cbbb1",
+          "95340df0e40b2879337cd85eaba4c0f653f4bbaa03855aca2679cb9c5fbcdced",
+          "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+          "d79c35e22696941959a5d538b2dc377fbdc108b41860f7b5fd619ab11e8bc841",
+          "b3a3776f29a7885df6cd8b06bfffe31b22285d5def6a767f5d6abe602b3937d8",
+          "41a9b9e6f1b5e09efc95e6153e74c6a78f477062764f819e726ec4aafcc4765e",
+          "cc14367d378ef1288ad328fb0dbc11ceb53cd7aa54ba384b515b52a2c891c556"
+        ],
+        "selection_status": "observed"
+      },
+      {
+        "manager": "conda",
+        "environment_path": "/home/conda-fixture/miniforge3/envs/nohistory",
+        "config_source_ids": [
+          "6211332a1c2ba3de4c64a9b0d567e00f9d2594fdce980d91c1c411881320eb83",
+          "28a7a5d48ed0ea91d9ab5401ae2be0e4bdfa8f48dfa25d4126351b44c852a101",
+          "9808c5338d578d4ddcc8080547c0438b7a38874ffe251a17b9bb120168edf3c4",
+          "76b2d728713ac77a946f0fe383edf7bf0a5a35d49693e25a7e53d4a006810400",
+          "69092840e38aced3e075fcaa3826e06ff228cff25fb4a9ab35c52d61206f617e",
+          "95d4b99914fd72e55cd32f14ba8e93120e9f35d9161dbfeb158c3fab829092f7",
+          "6ccfc02ecad6754b7372ad51785c44e0bf1e7e251d839964014f40be470380ae",
+          "69321c71222bd1f7c06cd9228172108986dbf19beb76065a92ab6c853d0710e9",
+          "fe90b147ff7a2fe722897c7d838ab293463748446272958b289f198e98c740be",
+          "274c91f8fd0e518487dfa98f8f8327aafa0982a74181241380076c35f395dec9",
+          "3873dcd0567c95bdea8fa213d6b0377f516b2603d6ebb3bcf79d2d7c4e791989",
+          "e983bfe89cff4ef8dfc3807076f9db16e69e51ff6893e54b0aaf51f7e39ffbd5",
+          "e9a02e27193f4db654aa53c71545cd07e7573203cba76d647db9afb9d00cbbb1",
+          "95340df0e40b2879337cd85eaba4c0f653f4bbaa03855aca2679cb9c5fbcdced",
+          "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+          "d79c35e22696941959a5d538b2dc377fbdc108b41860f7b5fd619ab11e8bc841",
+          "b3a3776f29a7885df6cd8b06bfffe31b22285d5def6a767f5d6abe602b3937d8",
+          "41a9b9e6f1b5e09efc95e6153e74c6a78f477062764f819e726ec4aafcc4765e",
+          "cc14367d378ef1288ad328fb0dbc11ceb53cd7aa54ba384b515b52a2c891c556"
+        ],
+        "selection_status": "partial"
+      }
+    ],
+    "credential_files": [
+      {
+        "path": "/home/conda-fixture/.netrc",
+        "status": "present",
+        "presence": "present"
+      },
+      {
+        "path": "/home/conda-fixture/Library/Application Support/binstar/data",
+        "status": "absent",
+        "presence": "absent"
+      },
+      {
+        "path": "/home/conda-fixture/_netrc",
+        "status": "absent",
+        "presence": "absent"
+      }
+    ],
+    "findings": [
+      {
+        "code": "conda-001",
+        "severity": "MEDIUM",
+        "source_id": "48d0d8ae5865101a5c9940715c137925bb30c04c4dca1da46f347e987a935334",
+        "key": "channels.1.url",
+        "detail": "Conda package channel uses an unencrypted connection."
+      },
+      {
+        "code": "conda-002",
+        "severity": "MEDIUM",
+        "source_id": "1acadae2c8e71507e068f1f3ba6ad0edc29a0bd9d5a93a450a583285ea69884f",
+        "key": "ssl_verify",
+        "detail": "TLS certificate verification is disabled by Conda configuration."
+      },
+      {
+        "code": "conda-002",
+        "severity": "MEDIUM",
+        "source_id": "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+        "key": "ssl_verify",
+        "detail": "TLS certificate verification is disabled by Conda configuration."
+      },
+      {
+        "code": "conda-003",
+        "severity": "MEDIUM",
+        "source_id": "1acadae2c8e71507e068f1f3ba6ad0edc29a0bd9d5a93a450a583285ea69884f",
+        "key": "auth_configured",
+        "detail": "Credentials are embedded in Conda configuration."
+      },
+      {
+        "code": "conda-003",
+        "severity": "MEDIUM",
+        "source_id": "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+        "key": "auth_configured",
+        "detail": "Credentials are embedded in Conda configuration."
+      },
+      {
+        "code": "conda-003",
+        "severity": "MEDIUM",
+        "source_id": "48d0d8ae5865101a5c9940715c137925bb30c04c4dca1da46f347e987a935334",
+        "key": "auth_configured",
+        "detail": "Credentials are embedded in Conda configuration."
+      },
+      {
+        "code": "conda-004",
+        "severity": "MEDIUM",
+        "source_id": "268d472eed2eaabd567a0f2373cb72738408224caf7fe91b25f96afb86040559",
+        "key": "safety_checks",
+        "detail": "Conda package safety checks are disabled."
+      }
+    ]
+  }
+}

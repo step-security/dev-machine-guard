@@ -37,9 +37,10 @@ func statePath() string {
 // StampLastFullRun records a completed full run (called from telemetry.Run
 // right after the upload succeeds). Best-effort by contract: on failure the
 // next gated invocation simply runs again.
-func StampLastFullRun(deviceID string, now time.Time) error {
+func StampLastFullRun(deviceID, machineID string, now time.Time) error {
 	return heartbeat.UpdateRunGate(statePath(), func(rg *heartbeat.RunGate) {
 		bindIdentity(rg, deviceID)
+		bindMachine(rg, machineID)
 		rg.LastFullRunAt = now.Unix()
 	})
 }
@@ -48,9 +49,10 @@ func StampLastFullRun(deviceID string, now time.Time) error {
 // gating fields after a successful check-in, preserving LastFullRunAt. The
 // interval — never the skip itself — is what the offline fallback replays, so
 // a stale cache can only delay a scan by one interval, not suppress it.
-func recordCheckin(deviceID string, d Directive, fetchedAt time.Time) error {
+func recordCheckin(deviceID, machineID string, d Directive, fetchedAt time.Time) error {
 	return heartbeat.UpdateRunGate(statePath(), func(rg *heartbeat.RunGate) {
 		bindIdentity(rg, deviceID)
+		bindMachine(rg, machineID)
 		rg.GatingEnabled = d.GatingEnabled
 		rg.EffectiveIntervalMinutes = d.EffectiveIntervalMinutes
 		rg.DirectiveFetchedAt = fetchedAt.Unix()
@@ -66,9 +68,25 @@ func bindIdentity(rg *heartbeat.RunGate, deviceID string) {
 	}
 }
 
-func persistIdentity(deviceID string) error {
+// usableSerial mirrors device.usableSerial for the record: "" and "unknown"
+// are not identities.
+func usableSerial(id string) bool {
+	id = strings.TrimSpace(id)
+	return id != "" && id != "unknown"
+}
+
+// bindMachine records which machine checked in (the machine identity, "" for
+// a WSL guest or an unresolved one, which leaves the record as it was).
+func bindMachine(rg *heartbeat.RunGate, machineID string) {
+	if machineID != "" {
+		rg.MachineID = machineID
+	}
+}
+
+func persistIdentity(deviceID, machineID string) error {
 	return heartbeat.UpdateRunGate(statePath(), func(rg *heartbeat.RunGate) {
 		bindIdentity(rg, deviceID)
+		bindMachine(rg, machineID)
 	})
 }
 

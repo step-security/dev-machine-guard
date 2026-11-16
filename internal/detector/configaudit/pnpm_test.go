@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
 func TestPnpmDetector_Discovery_AllScopes(t *testing.T) {
@@ -114,11 +115,14 @@ func TestPnpmDetector_Discovery_AllScopes(t *testing.T) {
 	if audit.Effective == nil {
 		t.Fatalf("expected effective view")
 	}
-	if _, ok := audit.Effective.Config["node-linker"]; !ok {
-		t.Errorf("effective config missing pnpm-specific node-linker key")
+	if got := audit.Effective.Config["registry"]; got != "https://registry.npmjs.org/" {
+		t.Errorf("effective registry = %v", got)
 	}
-	if got := audit.Effective.Config["auto-install-peers"]; got != true {
-		t.Errorf("effective auto-install-peers = %v, want true", got)
+	// Only security-relevant keys survive the effective allowlist.
+	for _, k := range []string{"node-linker", "auto-install-peers", "min-release-age"} {
+		if _, ok := audit.Effective.Config[k]; ok {
+			t.Errorf("effective config kept non-allowlisted key %q", k)
+		}
 	}
 }
 
@@ -144,11 +148,16 @@ func TestPnpmDetector_PnpmNotInstalled(t *testing.T) {
 	if audit.Effective != nil {
 		t.Errorf("effective view should be nil when pnpm missing, got %+v", audit.Effective)
 	}
-	if len(audit.Files) != 1 || audit.Files[0].Scope != "user" {
-		t.Fatalf("expected exactly the user file, got %+v", audit.Files)
+	var userFiles []model.NPMRCFile
+	for _, f := range audit.Files {
+		if f.Scope == "user" {
+			userFiles = append(userFiles, f)
+		} else if f.Exists || f.RuntimeApplicability != "unknown" {
+			t.Errorf("native file without a pnpm version should be absent and unknown: %+v", f)
+		}
 	}
-	if !audit.Files[0].Readable {
-		t.Errorf("user file should still be readable")
+	if len(userFiles) != 1 || !userFiles[0].Readable {
+		t.Fatalf("expected one readable user file, got %+v", userFiles)
 	}
 }
 
@@ -197,5 +206,93 @@ func TestPnpmDetector_EnvVars_Snapshot(t *testing.T) {
 	}
 	if pnpmHomeDisplay == "" || strings.Contains(pnpmHomeDisplay, "***") {
 		t.Errorf("PNPM_HOME should be shown in clear (not a secret), got %q", pnpmHomeDisplay)
+	}
+}
+
+func TestPnpmDetector_SourceApplicability(t *testing.T) {
+	tests := []struct {
+		name, goos, version, configYAML string
+		authFile                        string
+		env                             map[string]string
+		want                            map[string]string // path ("~" = home) → applicability
+		absent                          []string
+	}{
+		{name: "pnpm 10 reads native rc", goos: "linux", version: "10.11.0",
+			want: map[string]string{"~/.config/pnpm/rc": "applicable", "~/.config/pnpm/config.yaml": "ignored", "~/.config/pnpm/auth.ini": "ignored", "~/.npmrc": "applicable"}},
+		{name: "pnpm 11 reads yaml and auth.ini", goos: "linux", version: "11.6.0",
+			want: map[string]string{"~/.config/pnpm/rc": "ignored", "~/.config/pnpm/config.yaml": "applicable", "~/.config/pnpm/auth.ini": "applicable"}},
+		{name: "darwin native dir", goos: "darwin", version: "11.6.0",
+			want: map[string]string{"~/Library/Preferences/pnpm/config.yaml": "applicable"}},
+		{name: "xdg wins", goos: "darwin", version: "10.11.0", env: map[string]string{"XDG_CONFIG_HOME": "$ROOT/xdg"},
+			want: map[string]string{"$ROOT/xdg/pnpm/rc": "applicable"}, absent: []string{"~/Library/Preferences/pnpm/rc"}},
+		{name: "windows localappdata", goos: "windows", version: "11.6.0", env: map[string]string{"LOCALAPPDATA": "$ROOT/local"},
+			want: map[string]string{"$ROOT/local/pnpm/config/config.yaml": "applicable"}},
+		{name: "unknown version", goos: "linux",
+			want: map[string]string{"~/.config/pnpm/rc": "unknown", "~/.config/pnpm/config.yaml": "unknown", "~/.npmrc": "unknown"}},
+		{name: "pnpm 11 auth file override", goos: "linux", version: "11.6.0",
+			env:  map[string]string{"pnpm_config_npmrc_auth_file": "$ROOT/auth/npmrc", "npm_config_userconfig": "$ROOT/npm/npmrc"},
+			want: map[string]string{"$ROOT/auth/npmrc": "applicable"}, absent: []string{"$ROOT/npm/npmrc", "~/.npmrc"}},
+		{name: "auth override with yaml extension stays INI", goos: "linux", version: "12.16.1",
+			env: map[string]string{"pnpm_config_npmrc_auth_file": "$ROOT/auth.yaml"}, authFile: "$ROOT/auth.yaml",
+			want: map[string]string{"$ROOT/auth.yaml": "applicable"}},
+		{name: "auth file resolves in home", goos: "linux", version: "11.6.0",
+			env:  map[string]string{"pnpm_config_npmrc_auth_file": "~/auth/npmrc"},
+			want: map[string]string{"~/auth/npmrc": "applicable"}},
+		{name: "relative auth file resolves in home", goos: "linux", version: "11.6.0",
+			env:  map[string]string{"pnpm_config_npmrc_auth_file": "auth/npmrc"},
+			want: map[string]string{"~/auth/npmrc": "applicable"}},
+		{name: "pnpm 11 yaml auth file", goos: "linux", version: "11.6.0", configYAML: "npmrcAuthFile: $ROOT/yaml/npmrc\n",
+			env:  map[string]string{"npm_config_userconfig": "$ROOT/npm/npmrc"},
+			want: map[string]string{"$ROOT/yaml/npmrc": "applicable"}, absent: []string{"$ROOT/npm/npmrc"}},
+		{name: "pnpm 10 follows npm userconfig", goos: "linux", version: "10.11.0",
+			env:  map[string]string{"pnpm_config_npmrc_auth_file": "$ROOT/auth/npmrc", "npm_config_userconfig": "$ROOT/npm/npmrc"},
+			want: map[string]string{"$ROOT/npm/npmrc": "applicable"}, absent: []string{"$ROOT/auth/npmrc"}},
+		{name: "unreliable globalconfig query skipped", goos: "linux", version: "10.17.0",
+			absent: []string{"$ROOT/query/rc"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			home := filepath.Join(tmp, "home")
+			expand := func(s string) string { return strings.ReplaceAll(s, "$ROOT", filepath.ToSlash(tmp)) }
+			mock := executor.NewMock()
+			mock.SetGOOS(tc.goos)
+			mock.SetHomeDir(home)
+			for k, v := range tc.env {
+				mock.SetEnv(k, expand(v))
+			}
+			if tc.version != "" {
+				mock.SetPath("pnpm", "/bin/pnpm")
+				mock.SetCommand(tc.version+"\n", "", 0, "pnpm", "--version")
+				mock.SetCommand(expand("$ROOT/query/rc")+"\n", "", 0, "pnpm", "config", "get", "globalconfig")
+			}
+			if tc.configYAML != "" {
+				mustWriteFile(t, filepath.Join(home, ".config", "pnpm", "config.yaml"), expand(tc.configYAML))
+			}
+			if tc.authFile != "" {
+				mustWriteFile(t, expand(tc.authFile), "//registry.example/:_authToken=${TOKEN}\n")
+			}
+			d := NewPnpmDetector(mock)
+			d.ownerLookup = fixedOwner()
+			audit := d.Detect(context.Background(), nil, &user.User{HomeDir: home})
+
+			got := map[string]string{}
+			for _, f := range audit.Files {
+				if tc.authFile != "" && filepath.ToSlash(f.Path) == expand(tc.authFile) && (f.Format != "ini" || f.ParseError != "" || len(f.Entries) != 1 || !f.Entries[0].IsAuth) {
+					t.Errorf("auth override was not parsed as INI: %+v", f)
+				}
+				got[strings.ReplaceAll(strings.Replace(filepath.ToSlash(f.Path), filepath.ToSlash(home), "~", 1), filepath.ToSlash(tmp), "$ROOT")] = f.RuntimeApplicability
+			}
+			for p, want := range tc.want {
+				if got[p] != want {
+					t.Errorf("%s applicability = %q, want %q (all: %v)", p, got[p], want, got)
+				}
+			}
+			for _, p := range tc.absent {
+				if _, ok := got[p]; ok {
+					t.Errorf("%s should not be listed (all: %v)", p, got)
+				}
+			}
+		})
 	}
 }

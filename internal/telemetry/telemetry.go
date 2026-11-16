@@ -30,6 +30,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/featuregate"
+	"github.com/step-security/dev-machine-guard/internal/identity"
 	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/paths"
@@ -61,6 +62,8 @@ const serialProbeTimeout = 10 * time.Second
 
 // Payload is the enterprise telemetry JSON structure.
 type Payload struct {
+	UserIDMissing   bool `json:"user_id_missing"`
+	DeviceIDMissing bool `json:"device_id_missing"`
 	// PayloadSchemaVersion gates the delta-protocol sibling fields below
 	// (NodeProjectsUnchanged etc.). Zero/absent = legacy snapshot, every
 	// scanned project ships its full body in NodeProjects/PythonProjects.
@@ -68,7 +71,12 @@ type Payload struct {
 	CustomerID           string                 `json:"customer_id"`
 	DeviceID             string                 `json:"device_id"`
 	SerialNumber         string                 `json:"serial_number"`
+	DeviceIDSource       string                 `json:"device_id_source,omitempty"`   // env | config | serial | wsl_guest
+	DeviceIDTemplate     string                 `json:"device_id_template,omitempty"` // the template in force when it carries a token; "" for serial or literal ids
+	DeviceTag            string                 `json:"device_tag"`                   // config.json device_tag; always present so the backend can tell "cleared" from "older agent"
+	Virtualization       *model.Virtualization  `json:"virtualization,omitempty"`
 	UserIdentity         string                 `json:"user_identity"`
+	UserToken            string                 `json:"user_token,omitempty"` // the signed-in user's token (short name + fingerprint); the backend files this upload under that user of the device. "" for a service account
 	Hostname             string                 `json:"hostname"`
 	Platform             string                 `json:"platform"`
 	OSVersion            string                 `json:"os_version"`
@@ -140,6 +148,13 @@ type Payload struct {
 	NuGetConfigAudit    *model.NuGetConfigAudit    `json:"nuget_config_audit,omitempty"`
 	RubyInventory       *model.RubyInventory       `json:"ruby_inventory,omitempty"`
 	RubyConfigAudit     *model.RubyConfigAudit     `json:"ruby_config_audit,omitempty"`
+	CondaInventory      *model.CondaInventory      `json:"conda_inventory,omitempty"`
+	CondaConfigAudit    *model.CondaConfigAudit    `json:"conda_config_audit,omitempty"`
+	MavenInventory      *model.MavenInventory      `json:"maven_inventory,omitempty"`
+	MavenConfigAudit    *model.MavenConfigAudit    `json:"maven_config_audit,omitempty"`
+	GradleConfigAudit   *model.GradleConfigAudit   `json:"gradle_config_audit,omitempty"`
+	SwiftInventory      *model.SwiftInventory      `json:"swift_inventory,omitempty"`
+	SwiftConfigAudit    *model.SwiftConfigAudit    `json:"swift_config_audit,omitempty"`
 
 	ExecutionLogs      *ExecutionLogs      `json:"execution_logs,omitempty"`
 	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
@@ -440,11 +455,16 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	fmt.Fprintf(os.Stderr, "StepSecurity Device Agent v%s\n", buildinfo.Version)
 	fmt.Fprintf(os.Stderr, "==========================================\n\n")
 
-	// Resolve the serial before the lock so a refused run is attributable
-	// (the backend rejects an empty device_id).
+	// Resolve the identity before the lock so a refused run is attributable
+	// under the same id the scan would report (a configured identity, not
+	// only the serial). An incomplete identity leaves it empty and the
+	// lock_held beacon is skipped; the run gate reports that case. The
+	// session's user token is recorded for every beacon of this run.
 	serialCtx, serialCancel := context.WithTimeout(ctx, serialProbeTimeout)
-	probed := model.Device{SerialNumber: device.SerialNumber(serialCtx, exec)}
+	ident := device.ResolvedDeviceID(serialCtx, exec)
 	serialCancel()
+	setRunUserToken(ident.UserToken)
+	probed := model.Device{SerialNumber: ident.Serial, DeviceID: ident.DeviceID, DeviceIDSource: ident.Source, IdentityIncomplete: ident.Incomplete}
 	wslGuest := wslGuestFromConfig(cfg)
 	if wslGuest != nil {
 		deviceID = device.IDForGuest(probed, wslGuest.HostDeviceID, wslGuest.DistroID)
@@ -504,10 +524,30 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	phaseCtx, phaseCancel := startPhase(ctx, tracker, "device_info")
 	log.Progress("Gathering device information...")
 	dev := device.Gather(phaseCtx, exec)
+	dev.Virtualization = device.DetectVirtualization(phaseCtx, exec)
+	dev.DeviceTag = config.DeviceTag
 	// WSL detection (Windows host-side; feature-gated until the backend
 	// consumes device.wsl). No-op off Windows.
 	if featuregate.IsEnabled(featuregate.FeatureWSLDetection) {
 		dev.WSL = device.GatherWSL(phaseCtx, exec)
+	}
+	// The run gate already refused an incomplete identity before any beacon;
+	// this guards the paths that bypass it (kill switch, a direct run). No
+	// "started" post has happened yet, so returning here leaves no trace.
+	if dev.IdentityIncomplete {
+		endPhase(phaseCtx, phaseCancel, tracker, log, "device_info")
+		log.Progress("Device identity template %q cannot be completed on this machine — skipping this run", dev.DeviceIDTemplate)
+		return nil
+	}
+	// A host that scans every signed-in session separately has nothing to
+	// scan in a run with no signed-in user (SYSTEM, a device-context task):
+	// its users' sessions report for themselves, and a SYSTEM-profile scan
+	// would only file an empty inventory under the device. The run gate
+	// refused it already; this guards the paths that bypass the gate.
+	if dev.PerSessionScanning && dev.UserToken == "" && wslGuest == nil {
+		endPhase(phaseCtx, phaseCancel, tracker, log, "device_info")
+		log.Progress("Per-session scanning is on for this host and this run has no signed-in user (running as %q); the session tasks report per user — skipping this run", dev.UserIdentity)
+		return nil
 	}
 	deviceID = device.ID(dev)
 	if wslGuest != nil {
@@ -517,26 +557,41 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		// The device_info budget ran out before any source answered; retry on
 		// the run's deadline rather than upload without an identity.
 		dev.SerialNumber = device.SerialNumber(ctx, exec)
+		device.AttachIdentity(exec, &dev)
 		if deviceID = device.ID(dev); deviceID == "" {
 			phaseCancel()
 			return fmt.Errorf("device identity could not be determined")
 		}
 	}
-	// Single source of truth for "is this a real developer or a daemon
-	// context?" — same predicate the payload uses below, so the warning,
-	// the Developer: line, and the telemetry field always agree.
-	noUserLoggedIn := dev.UserIdentity == "" ||
-		dev.UserIdentity == "unknown" ||
-		(dev.UserIdentity == "root" && exec.IsRoot())
-	log.Progress("Device ID: %s", deviceID)
+	setRunUserToken(dev.UserToken)
+	// Gather decided whether this is a developer session or a daemon context
+	// (service accounts included); the user token applies the same rule, so
+	// the warning, the Developer: line, the telemetry field and the token
+	// agree.
+	noUserLoggedIn := dev.NoUserLoggedIn
+	if dev.DeviceIDSource == "" || dev.DeviceIDSource == device.IdentitySourceSerial {
+		log.Progress("Device ID: %s", deviceID)
+	} else {
+		log.Progress("Device ID: %s (source %s)", deviceID, dev.DeviceIDSource)
+	}
 	log.Progress("Serial Number: %s", dev.SerialNumber)
 	log.Progress("OS Version: %s", dev.OSVersion)
+	if v := device.FormatVirtualization(dev.Virtualization); v != "" {
+		log.Progress("Virtualization: %s", v)
+	}
+	if dev.DeviceTag != "" {
+		log.Progress("Device tag: %s", dev.DeviceTag)
+	}
 	if noUserLoggedIn {
 		log.Progress("Developer: (no user logged in)")
 	} else {
-		log.Progress("Developer: %s", dev.UserIdentity)
+		log.Progress("Developer: %s (user token %s)", dev.UserIdentity, dev.UserToken)
 	}
-	log.Debug("device gathered: hostname=%q platform=%q serial=%q user_identity=%q no_user=%v", dev.Hostname, dev.Platform, dev.SerialNumber, dev.UserIdentity, noUserLoggedIn)
+	log.Debug("device gathered: hostname=%q platform=%q device_id=%q source=%q serial=%q user_identity=%q no_user=%v",
+		dev.Hostname, dev.Platform, deviceID, dev.DeviceIDSource, dev.SerialNumber, dev.UserIdentity, noUserLoggedIn)
+	if identity.MissingUser(dev.UserIdentity) {
+		log.Warn(identity.MissingUserWarning)
+	}
 	if noUserLoggedIn {
 		log.Warn("no real developer identity (UserIdentity=%q, root=%v) — telemetry will be marked no_user_logged_in", dev.UserIdentity, exec.IsRoot())
 	}
@@ -747,7 +802,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// MCP configs
 	phaseCtx, phaseCancel = startPhase(ctx, tracker, "mcp_config_scan")
 	log.Progress("Collecting MCP configuration files...")
-	mcpDetector := detector.NewMCPDetector(exec).WithSkipper(tccSkipper)
+	mcpDetector := detector.NewMCPDetector(exec).WithSkipper(tccSkipper).WithPiEnvironment(userExec)
 	mcpConfigs := mcpDetector.DetectEnterprise(phaseCtx, searchDirs)
 	for _, c := range mcpConfigs {
 		log.Progress("  Found: %s config (%s)", c.ConfigSource, c.Vendor)
@@ -1208,6 +1263,30 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	endPhase(phaseCtx, phaseCancel, tracker, log, "ruby_scan")
 	postPhase()
 
+	// Conda metadata uses the raw executor and the same developer as Go/Cargo.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "conda_scan")
+	log.Progress("Collecting Conda packages and configuration...")
+	condaInventory, condaConfigAudit := detector.NewCondaScanner(exec, log).Scan(phaseCtx, browserTarget, searchDirs, cfg.IncludeNetworkVolumes)
+	log.Progress("  Conda: %d projects, %d package facts (inventory %s, config %s)", len(condaInventory.Projects), len(condaInventory.Packages), condaInventory.Status, condaConfigAudit.Status)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "conda_scan")
+	postPhase()
+
+	// Maven and Gradle metadata use the raw executor and the same developer as Go/Cargo.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "maven_scan")
+	log.Progress("Collecting Java/JVM packages and configuration...")
+	mavenInventory, mavenConfigAudit, gradleConfigAudit := detector.NewMavenScanner(exec, log).Scan(phaseCtx, browserTarget, searchDirs, cfg.IncludeNetworkVolumes)
+	log.Progress("  Java/JVM: %d projects, %d package facts (inventory %s, maven config %s, gradle config %s)", len(mavenInventory.Projects), len(mavenInventory.Packages), mavenInventory.Status, mavenConfigAudit.Status, gradleConfigAudit.Status)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "maven_scan")
+	postPhase()
+
+	// SwiftPM and Xcode metadata use the raw executor and the same developer as Go/Cargo.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "swift_scan")
+	log.Progress("Collecting Swift packages and configuration...")
+	swiftInventory, swiftConfigAudit := detector.NewSwiftScanner(exec, log).Scan(phaseCtx, browserTarget, searchDirs, cfg.IncludeNetworkVolumes)
+	log.Progress("  Swift: %d projects, %d package facts (inventory %s, config %s)", len(swiftInventory.Projects), len(swiftInventory.Packages), swiftInventory.Status, swiftConfigAudit.Status)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "swift_scan")
+	postPhase()
+
 	// npm + pip configuration audits — surface-only inventory of every
 	// .npmrc and pip.conf on the host, plus the merged effective views
 	// each tool would resolve. We use the user-aware executor so npm and
@@ -1255,6 +1334,13 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// ExecutionLogs. This measures scan and audit work but not the upload
 	// that follows — a payload cannot contain the log of its own upload.
 	reportUsageOnce()
+	// Logged before the execution log is captured so it reaches the
+	// downloadable log; status_info carries the final value, which also
+	// covers sleep during the upload itself.
+	if s := tracker.Snapshot(); s.SleptMs > 0 {
+		log.Progress("Note: system slept about %s during this run; reported durations exclude sleep",
+			(time.Duration(s.SleptMs) * time.Millisecond).Round(time.Second))
+	}
 
 	capture.Sync()
 	execLogsBase64 := capture.SnapshotBase64()
@@ -1307,9 +1393,15 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// Its own identity is unusable: the hostname is the Windows host's, and a
 	// minimal or WSL1 distro has no machine-id, so dev.SerialNumber reads
 	// "unknown" and every such distro would collide on one record.
-	deviceIdentity := dev.SerialNumber
+	//
+	// Otherwise device_id is the resolved identity (configured template or the
+	// machine id) while serial_number stays the machine identity, so a rebuilt
+	// virtual desktop that keeps its configured identity still reports the
+	// hardware change.
+	deviceIdentity, identitySource := dev.SerialNumber, dev.DeviceIDSource
 	if wslGuest != nil {
 		deviceIdentity = wslguest.DeviceID(wslGuest.HostDeviceID, wslGuest.DistroID)
+		identitySource = "wsl_guest"
 		log.Progress("WSL guest: distro %s on host %s — device id %s",
 			wslGuest.DistroID, wslGuest.HostDeviceID, deviceIdentity)
 	}
@@ -1318,18 +1410,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	payload := &Payload{
 		PayloadSchemaVersion: schemaVersion,
 		CustomerID:           config.CustomerID,
-		DeviceID:             deviceID,
-		SerialNumber:         deviceIdentity,
-		UserIdentity:         dev.UserIdentity,
-		Hostname:             dev.Hostname,
-		Platform:             dev.Platform,
-		OSVersion:            dev.OSVersion,
-		Resources:            dev.Resources,
+		DeviceIDSource:       identitySource,
+		DeviceIDTemplate:     dev.DeviceIDTemplate,
+		DeviceTag:            dev.DeviceTag,
+		Virtualization:       dev.Virtualization,
 		WSL:                  dev.WSL,
 		WSLGuest:             wslGuest,
 		AgentVersion:         buildinfo.Version,
 		CollectedAt:          endTime.Unix(),
-		NoUserLoggedIn:       noUserLoggedIn,
 
 		InvocationMethod: invocationMethod,
 		StatusInfo:       &finalStatusInfo,
@@ -1378,6 +1466,13 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		NuGetConfigAudit:        nugetConfigAudit,
 		RubyInventory:           rubyInventory,
 		RubyConfigAudit:         rubyConfigAudit,
+		CondaInventory:          condaInventory,
+		CondaConfigAudit:        condaConfigAudit,
+		MavenInventory:          mavenInventory,
+		MavenConfigAudit:        mavenConfigAudit,
+		GradleConfigAudit:       gradleConfigAudit,
+		SwiftInventory:          swiftInventory,
+		SwiftConfigAudit:        swiftConfigAudit,
 
 		ExecutionLogs: &ExecutionLogs{
 			OutputBase64: execLogsBase64,
@@ -1419,6 +1514,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// the inner JSON process-uploaded sees after gunzip, so it doubles as a
 	// backend ingestion fixture. Never set in production (zero impact when
 	// the flag/env var is unset).
+	payload.applyDevice(dev, deviceID, deviceIdentity)
+
 	if cfg.TelemetryOutFile != "" {
 		if err := writeTelemetryFile(cfg.TelemetryOutFile, payload); err != nil {
 			log.Error("telemetry-out: %v", err)
@@ -1437,7 +1534,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		}
 		// Same rationale for the run-gate stamp: the dev harness should show
 		// the same second-invocation gating behavior as a real upload.
-		if err := rungate.StampLastFullRun(deviceID, time.Now()); err != nil {
+		if err := rungate.StampLastFullRun(deviceID, dev.SerialNumber, time.Now()); err != nil {
 			log.Debug("run-gate: could not stamp last full run: %v", err)
 		}
 		return nil
@@ -1481,7 +1578,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 	// Record the completed full run for the run gate. Best-effort by
 	// contract: a missing stamp only means the next gated invocation runs.
-	if err := rungate.StampLastFullRun(deviceID, time.Now()); err != nil {
+	if err := rungate.StampLastFullRun(deviceID, dev.SerialNumber, time.Now()); err != nil {
 		log.Debug("run-gate: could not stamp last full run: %v", err)
 	}
 

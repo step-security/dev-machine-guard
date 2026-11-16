@@ -13,6 +13,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/step-security/dev-machine-guard/internal/config"
+	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/launcher"
 	"github.com/step-security/dev-machine-guard/internal/paths"
@@ -53,15 +54,6 @@ func IsTaskRegistered(ctx context.Context, exec executor.Executor) bool {
 func Install(exec executor.Executor, log *progress.Logger, maxExec time.Duration) error {
 	ctx := context.Background()
 
-	// Check for existing installation and upgrade
-	if isConfigured(ctx, exec) {
-		log.Progress("Existing agent installation detected. Upgrading...")
-		if err := doUninstall(ctx, exec, log); err != nil {
-			log.Warn("failed to remove previous scheduled task: %v — continuing install anyway", err)
-		}
-		log.Progress("Previous installation removed. Installing new version...")
-	}
-
 	binaryPath, err := executablePath()
 	if err != nil {
 		return fmt.Errorf("determining binary path: %w", err)
@@ -73,22 +65,28 @@ func Install(exec executor.Executor, log *progress.Logger, maxExec time.Duration
 	}
 
 	logDir := resolveLogDir(exec)
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		return fmt.Errorf("creating log directory: %w", err)
+	if err := prepareLogDirectory(ctx, exec, logDir); err != nil {
+		return err
 	}
 
-	// For admin installs the log dir lives at C:\ProgramData\StepSecurity,
-	// which inherits ACLs from C:\ProgramData and only grants non-admin
-	// users Read & Execute. The /ru INTERACTIVE task fires under the
-	// logged-in user (typically non-admin), and the agent's filelog
-	// opens agent.error.log here in append mode — that needs write
-	// access. Grant BUILTIN\Users (SID 545) Modify rights on the dir,
-	// propagated to files and subfolders.
+	// Secure per-session state before removing existing tasks, so a failed
+	// permission migration leaves the previous installation registered.
 	if exec.IsRoot() {
-		_, _, _, icaclsErr := exec.Run(ctx, "icacls", logDir, "/grant", "*S-1-5-32-545:(OI)(CI)M", "/Q")
-		if icaclsErr != nil {
-			log.Warn("could not adjust log dir ACLs (%v) — non-admin users may not be able to write to %s", icaclsErr, logDir)
+		aclCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := hardenStateDirACLs(aclCtx, exec, logDir)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("secure per-session state directory: %w", err)
 		}
+	}
+
+	// Check for existing installation and upgrade
+	if isConfigured(ctx, exec) {
+		log.Progress("Existing agent installation detected. Upgrading...")
+		if err := doUninstall(ctx, exec, log); err != nil {
+			log.Warn("failed to remove previous scheduled task: %v — continuing install anyway", err)
+		}
+		log.Progress("Previous installation removed. Installing new version...")
 	}
 
 	// Pass --install-dir to the task command. logDir already carries the
@@ -173,6 +171,38 @@ func RunNow(exec executor.Executor, log *progress.Logger) error {
 	return nil
 }
 
+// ReconcileTaskSettings re-applies the scan tasks' settings to whatever is
+// registered now: power and retry settings, the execution limit and, on a
+// host that scans per session, MultipleInstancesPolicy=Parallel. The policy
+// is decided at install time from what the host is then, but a host turns
+// shared later (the sticky marker, a second established developer) and a
+// self-update swaps binaries without touching the tasks, so such a host
+// would keep IgnoreNew and drop a second session's scan while the first
+// still runs. The SYSTEM updater calls this on every tick. Reports whether
+// the host scans per session and whether the tasks were registered at all (a
+// loader install or no install is a no-op).
+func ReconcileTaskSettings(exec executor.Executor, log *progress.Logger, maxExec time.Duration) (perSession, registered bool) {
+	ctx := context.Background()
+	if !isConfigured(ctx, exec) {
+		log.Debug("task settings reconcile: %q is not registered; nothing to do", taskName)
+		return false, false
+	}
+	timeLimit := executionTimeLimit(maxExec)
+	applyBatterySettings(ctx, exec, log, taskName, timeLimit)
+	// Installs made before the least-privilege grants keep their blanket
+	// Users:Modify until re-applied; the updater runs as SYSTEM, so every
+	// tick re-applies the ACLs (idempotent, a handful of icacls calls).
+	if exec.IsRoot() {
+		if err := hardenStateDirACLs(ctx, exec, resolveLogDir(exec)); err != nil {
+			log.Warn("could not secure the state directory for per-session scans: %v", err)
+		}
+	}
+	if _, _, code, err := exec.Run(ctx, "schtasks", "/query", "/tn", logonTaskName); err == nil && code == 0 {
+		applyBatterySettings(ctx, exec, log, logonTaskName, timeLimit)
+	}
+	return perSessionScanning(exec), true
+}
+
 // Uninstall removes the scheduled task. For an MSI bootstrap install it also
 // removes the update task, stops running DMG processes and deletes the
 // self-update state (see uninstallBootstrap).
@@ -194,6 +224,15 @@ func Uninstall(exec executor.Executor, log *progress.Logger) error {
 }
 
 func doUninstall(ctx context.Context, exec executor.Executor, log *progress.Logger) error {
+	// Stop running instances first: /delete removes the definition but
+	// leaves a scan that is already running, and its upload would restore
+	// the device right after `uninstall --retire` has retired it. Best
+	// effort: "no running instance" is a non-zero exit, ignored.
+	for _, name := range []string{taskName, logonTaskName} {
+		if _, estderr, eexit, eerr := exec.Run(ctx, "schtasks", "/end", "/tn", name); eerr != nil || eexit != 0 {
+			log.Debug("schtasks /end %q: exit_code=%d err=%v stderr=%q (ignored)", name, eexit, eerr, strings.TrimSpace(estderr))
+		}
+	}
 	_, stderr, exitCode, err := exec.Run(ctx, "schtasks", "/delete", "/tn", taskName, "/f")
 	log.Debug("schtasks /delete %q: exit_code=%d err=%v", taskName, exitCode, err)
 	if err != nil {
@@ -328,7 +367,7 @@ func applyBatterySettings(ctx context.Context, exec executor.Executor, log *prog
 		return
 	}
 
-	patched, changed := patchBatterySettings(decodeTaskXML(stdout), timeLimit)
+	patched, changed := patchBatterySettings(decodeTaskXML(stdout), timeLimit, perSessionScanning(exec))
 	if !changed {
 		if bad := settingsMismatches(patched, timeLimit); len(bad) > 0 {
 			log.Warn("could not patch settings for task %q (unrecognized task XML): %s", name, strings.Join(bad, ", "))
@@ -461,14 +500,39 @@ const (
 // replace existing elements in place; RestartOnFailure is injected last in
 // <Settings> (where Task Scheduler itself serializes it), so the result stays
 // valid in a single re-import.
-func patchBatterySettings(xml, timeLimit string) (string, bool) {
+//
+// perUser additionally sets MultipleInstancesPolicy=Parallel. The /ru
+// INTERACTIVE task fires in every logged-on session; with the default
+// IgnoreNew policy a second session's instance is dropped while the first
+// user's scan is still running, so on a host that scans per session only one
+// user would ever be scanned per tick. With shared scanning the default
+// stays: the singleton lock already serialises overlaps.
+func patchBatterySettings(xml, timeLimit string, perUser bool) (string, bool) {
 	out := xml
 	out = setXMLElement(out, "DisallowStartIfOnBatteries", "false")
 	out = setXMLElement(out, "StopIfGoingOnBatteries", "false")
 	out = setXMLElement(out, "StartWhenAvailable", "true")
 	out = setXMLElement(out, "ExecutionTimeLimit", timeLimit)
+	if perUser {
+		out = setXMLElement(out, "MultipleInstancesPolicy", "Parallel")
+	}
 	out = setRestartOnFailure(out, retryInterval, retryCount)
 	return out, out != xml
+}
+
+// perSessionScanning reports whether this host scans every signed-in
+// session separately (device.PerSessionScanning: a multi-session edition, the
+// RD Session Host role, the sticky marker, or two established developers
+// under the users rule). The /ru INTERACTIVE task then fires in every
+// logged-on session and needs MultipleInstancesPolicy=Parallel, or a second
+// session's instance is dropped while the first user's scan is still running.
+// With shared scanning the default stays: the singleton lock already
+// serialises overlaps, and Parallel would spawn a lock-refused instance every
+// tick a scan runs long. A host that becomes shared after install is caught
+// by ReconcileTaskSettings on the next updater tick.
+func perSessionScanning(exec executor.Executor) bool {
+	on, _ := device.PerSessionScanning(exec)
+	return on
 }
 
 // setRestartOnFailure forces <RestartOnFailure><Interval>..</Interval>

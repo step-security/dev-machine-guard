@@ -2039,3 +2039,42 @@ func TestLinkTarget(t *testing.T) {
 		})
 	})
 }
+
+// TestDetect_PiCustomAgentRoot: pi_user follows PI_CODING_AGENT_DIR, keeps the
+// default when the override cannot be resolved, and never relabels another
+// agent's root the override happens to name.
+func TestDetect_PiCustomAgentRoot(t *testing.T) {
+	tests := []struct {
+		name, env, dir, source string
+	}{
+		{"custom", "/opt/pi", "/opt/pi/skills/custom", "pi_user"},
+		{"relative keeps default", "relative/pi", testHome + "/.pi/agent/skills/fallback", "pi_user"},
+		{"shared root keeps its label", testHome + "/.agents", testHome + "/.agents/skills/shared", "agents_user"},
+		{"later root keeps its label", testHome + "/.factory", testHome + "/.factory/skills/fac", "factory_user"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m, fs := newSkillsMock()
+			m.SetEnv("PI_CODING_AGENT_DIR", tc.env)
+			fs.addSkill(tc.dir, "SKILL.md", validFrontmatter(filepath.Base(tc.dir), "d"), nil)
+			fs.addSkill(testHome+"/.pi/agent/skills/default", "SKILL.md", validFrontmatter("default", "d"), nil)
+			fs.commit()
+			records, info := NewSkillsDetector(m).Detect(context.Background(), nil, nil)
+			rec := findSkill(records, tc.source, filepath.Base(tc.dir))
+			if rec == nil || len(rec.SymlinkSources) != 0 {
+				t.Fatalf("%s record: %+v; records=%+v", tc.source, rec, records)
+			}
+			for _, r := range records {
+				if r.Source == "pi_user" && tc.source != "pi_user" {
+					t.Errorf("another agent's root relabeled: %+v", r)
+				}
+			}
+			if findSkill(records, "pi_user", "default") != nil && tc.env != "relative/pi" {
+				t.Error("a custom root must replace the default, not add to it")
+			}
+			if seen := map[string]bool{}; slices.ContainsFunc(info.RootsScanned, func(p string) bool { dup := seen[p]; seen[p] = true; return dup }) {
+				t.Errorf("roots scanned twice: %v", info.RootsScanned)
+			}
+		})
+	}
+}

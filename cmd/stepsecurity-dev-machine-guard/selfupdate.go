@@ -22,6 +22,9 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/faultinject"
 	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/model"
+	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/retire"
+	"github.com/step-security/dev-machine-guard/internal/schtasks"
 	"github.com/step-security/dev-machine-guard/internal/selfupdate"
 	"github.com/step-security/dev-machine-guard/internal/telemetry"
 	"github.com/step-security/dev-machine-guard/internal/updatestate"
@@ -59,7 +62,7 @@ func runEarlyVerbs(args []string) {
 func resolveDeviceID(ctx context.Context) string {
 	ctx, cancel := context.WithTimeout(ctx, deviceProbeTimeout)
 	defer cancel()
-	return device.ID(model.Device{SerialNumber: device.SerialNumber(ctx, executor.NewReal())})
+	return device.ResolvedDeviceID(ctx, executor.NewReal()).DeviceID
 }
 
 // selfCheckDeviceID resolves the self-check's device id. As SYSTEM (the
@@ -74,7 +77,7 @@ func selfCheckDeviceID(ctx context.Context, exec executor.Executor, system bool,
 	}
 	ctx, cancel := context.WithTimeout(ctx, deviceProbeTimeout)
 	defer cancel()
-	return device.ID(model.Device{SerialNumber: device.SerialNumber(ctx, exec)})
+	return device.ResolvedDeviceID(ctx, exec).DeviceID
 }
 
 // runSelfCheck is `agent self-check`: the S5 smoke test run by the updater
@@ -144,6 +147,17 @@ func runSelfUpdate(args []string) int {
 	})
 	exec := executor.NewReal()
 	machineConfig := config.ConfigFilePath()
+	var scopesTruncated, lockFailed sync.Once
+
+	// The scan tasks' settings follow whether the host scans per session,
+	// which can change after install (the sticky multi-user marker) while a
+	// self-update never re-registers tasks: reconcile them on every tick so a
+	// host that became shared runs one scan per signed-in session.
+	if runtime.GOOS == model.PlatformWindows {
+		if perSession, registered := schtasks.ReconcileTaskSettings(exec, progress.NewLogger(progress.LevelWarn), telemetry.ExecutionDeadline(config.MaxExecutionDuration)); registered {
+			logf("self-update: scan task settings reconciled (per-session scanning: %v)", perSession)
+		}
+	}
 
 	deps := &selfupdate.Deps{
 		Layout:  layout,
@@ -153,19 +167,29 @@ func runSelfUpdate(args []string) int {
 			HTTP: httpClient, APIEndpoint: config.APIEndpoint, CustomerID: config.CustomerID,
 			APIKey: config.APIKey, AgentVersion: buildinfo.Version, Arch: selfupdate.NativeArch(),
 			LagBehind: config.UpdateLagBehind, CooldownHours: config.UpdateCooldownHours,
-			MirrorURL: config.UpdateMirrorURL,
+			MirrorURL: config.UpdateMirrorURL, DeviceID: deviceID,
 		},
 		AutoUpdate:      config.AutoUpdate == nil || *config.AutoUpdate,
 		VerifyPublisher: func(p string) error { return authenticode.SamePublisher(p, selfExe) },
 		VerifySeed:      func(p string) error { return authenticode.SameSeedPublisher(p, selfExe) },
 		InstallerBusy:   selfupdate.InstallerBusy,
 		Smoke:           selfupdate.RunSmoke,
+		// A per-session scan holds only its own lock, so the switch waits on
+		// every session's lock as well as the machine-wide one.
 		AcquireInstance: func() (func(), error) {
-			lk, err := lock.Acquire(exec)
+			release, complete, err := retire.AcquireScans()
 			if err != nil {
+				if !errors.Is(err, lock.ErrHeld) {
+					lockFailed.Do(func() { logf("self-update: the scan locks could not be taken: %v", err) })
+				}
 				return nil, err
 			}
-			return lk.Release, nil
+			if !complete {
+				scopesTruncated.Do(func() {
+					logf("self-update: too many session state directories to check them all; switching once the listed ones are idle")
+				})
+			}
+			return release, nil
 		},
 		EnsureACLs: func() ([]string, error) {
 			var drifted []string
@@ -186,6 +210,14 @@ func runSelfUpdate(args []string) int {
 		},
 		RefreshDeviceID: func(context.Context) { _ = deviceID() },
 		Send: func(ctx context.Context, ev updatestate.OutboxEvent) error {
+			if deviceID() == "" {
+				// No usable identity in the SYSTEM context (no hardware
+				// serial, cached id or MachineGuid, or a {serial} template
+				// that cannot be completed): there is no row to attribute
+				// the event to, so it is logged and dropped.
+				logf("self-update: event %s not posted: no device identity in the SYSTEM context", ev.Event)
+				return nil
+			}
 			err := telemetry.PostUpdateEvent(ctx, httpClient, telemetry.UpdateEvent{
 				ExecutionID: ev.ExecutionID, DeviceID: deviceID(), InstallChannel: installChannelMSI,
 				Event: ev.Event, From: ev.From, To: ev.To, Error: ev.Error,
@@ -262,13 +294,17 @@ func reportBootstrapFallback() {
 	if env == "" || runtime.GOOS != model.PlatformWindows {
 		return
 	}
-	named := ""
+	named, logPath := "", ""
 	if l, err := ownLayout(); err == nil {
+		logPath = l.LogFile()
 		if st, _, err := updatestate.Load(l.StateFile()); err == nil && st != nil {
 			named = st.Current
 		}
 	}
 	reason, from, to := parseBootstrapFallback(env, named, os.Getenv(telemetry.EnvBootstrapVersion), buildinfo.Version)
+	if logPath != "" {
+		reason = withAdoptSeedOutcome(reason, logPath)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), deviceProbeTimeout)
 	defer cancel()
 	err := telemetry.PostUpdateEvent(ctx, nil, telemetry.UpdateEvent{

@@ -1,0 +1,9 @@
+{
+  "object" : [
+    {
+      "mirror" : "https://example.invalid/modern.git",
+      "original" : "https://example.invalid/original.git"
+    }
+  ],
+  "version" : 1
+}

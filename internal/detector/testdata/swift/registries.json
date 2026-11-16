@@ -1,0 +1,20 @@
+{
+  "authentication" : {
+
+  },
+  "registries" : {
+    "[default]" : {
+      "supportsAvailability" : false,
+      "url" : "https://registry.example.invalid/project"
+    },
+    "insecure" : {
+      "supportsAvailability" : false,
+      "url" : "http://registry.example.invalid/plain"
+    },
+    "local" : {
+      "supportsAvailability" : false,
+      "url" : "https://registry.example.invalid/local"
+    }
+  },
+  "version" : 1
+}

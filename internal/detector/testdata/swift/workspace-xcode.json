@@ -1,0 +1,47 @@
+{
+  "object" : {
+    "artifacts" : [
+
+    ],
+    "dependencies" : [
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "swift-algorithms",
+          "kind" : "remoteSourceControl",
+          "location" : "https://github.com/apple/swift-algorithms.git",
+          "name" : "swift-algorithms"
+        },
+        "state" : {
+          "checkoutState" : {
+            "revision" : "87e50f483c54e6efd60e885f7f5aa946cee68023",
+            "version" : "1.2.1"
+          },
+          "name" : "sourceControlCheckout"
+        },
+        "subpath" : "swift-algorithms"
+      },
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "swift-numerics",
+          "kind" : "remoteSourceControl",
+          "location" : "https://github.com/apple/swift-numerics.git",
+          "name" : "swift-numerics"
+        },
+        "state" : {
+          "checkoutState" : {
+            "revision" : "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
+            "version" : "1.1.1"
+          },
+          "name" : "sourceControlCheckout"
+        },
+        "subpath" : "swift-numerics"
+      }
+    ],
+    "prebuilts" : [
+
+    ]
+  },
+  "version" : 7
+}

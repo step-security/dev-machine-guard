@@ -115,5 +115,10 @@ func endPhase(phaseCtx context.Context, cancel context.CancelFunc,
 		log.Warn("phase %s exceeded budget %s — continuing with partial results", name, budget)
 	}
 	cancel()
-	tracker.Finish()
+	// A sleep is not a skipped step, so this is a progress note, not a
+	// warning: the phase's reported duration is its awake time.
+	if pc, finished := tracker.Finish(); finished && pc.SleptMs > 0 {
+		log.Progress("system slept about %s during phase %s; reported durations exclude sleep",
+			(time.Duration(pc.SleptMs) * time.Millisecond).Round(time.Second), name)
+	}
 }

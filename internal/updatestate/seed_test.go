@@ -68,3 +68,24 @@ func TestCopySeedVersionComparesSourceHashes(t *testing.T) {
 		t.Fatal("versions dir created from a changed seed")
 	}
 }
+
+// An open handle (an AV scanning the copied exe) blocks the final rename for
+// a while; the copy waits it out instead of failing.
+func TestCopySeedVersionRetriesBlockedRename(t *testing.T) {
+	l := Layout{InstallRoot: t.TempDir(), DataRoot: t.TempDir()}
+	v, _ := ParseVersion("1.21.0")
+	writeSeedFiles(t, l, v)
+	calls := stubRename(t, 0, nil)
+	osRename = func(src, dst string) error {
+		if *calls++; *calls <= 2 {
+			return errBlocked
+		}
+		return os.Rename(src, dst)
+	}
+	if _, err := l.CopySeedVersion(v, time.Now(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyVersionDir(l.VersionDir(v), v); err != nil || *calls != 3 {
+		t.Fatalf("verify=%v renames=%d, want nil and 3", err, *calls)
+	}
+}

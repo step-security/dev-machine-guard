@@ -144,7 +144,9 @@ func printNPMRCFileVerbose(w io.Writer, c *colors, f model.NPMRCFile) {
 
 	if f.ParseError != "" {
 		fmt.Fprintf(w, "│   %sparse error: %s%s\n", c.dim, f.ParseError, c.reset)
-		return
+		if len(f.Entries) == 0 {
+			return
+		}
 	}
 
 	if len(f.Entries) == 0 {

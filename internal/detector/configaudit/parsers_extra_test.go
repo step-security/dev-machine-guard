@@ -1,6 +1,7 @@
 package configaudit
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -56,7 +57,7 @@ func TestYarnFlavorFromFilename_Table(t *testing.T) {
 		{"yarn.lock", "classic"}, // unknown → fall through to classic; documents behavior
 	}
 	for _, tc := range cases {
-		if got := yarnFlavorFromFilename(tc.in); got != tc.want {
+		if got := yarnFlavorFromFilename(tc.in, ""); got != tc.want {
 			t.Errorf("yarnFlavorFromFilename(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
@@ -218,5 +219,109 @@ func TestIsBunAuthKey_Leaves(t *testing.T) {
 		if isBunAuthKey(k) {
 			t.Errorf("expected %q not auth", k)
 		}
+	}
+}
+
+func TestParseYarnClassic_QuotedAuthKey(t *testing.T) {
+	entries := parseYarnClassic([]byte(`"//npm.example.com/:_authToken" "npm_abcdefghijkl"` + "\n"))
+	if len(entries) != 1 {
+		t.Fatalf("entries = %+v", entries)
+	}
+	e := entries[0]
+	if e.Key != "//npm.example.com/:_authToken" || !e.IsAuth || !e.HasLiteralAuth || e.DisplayValue != "***ijkl" {
+		t.Errorf("got %+v", e)
+	}
+}
+
+func TestParseBunfig_EnvRefsAndRegistryTable(t *testing.T) {
+	toml := `
+[install]
+registry = { url = "https://user:pass@npm.example.com/", token = "$BUN_TOKEN" }
+
+[install.scopes]
+inline = "https://u:secretpw@npm.example.com/"
+`
+	sections, err := parseBunfig([]byte(toml))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	got := map[string]string{}
+	literal := map[string]bool{}
+	for _, s := range sections {
+		for _, e := range s.Entries {
+			got[s.Name+"."+e.Key] = e.DisplayValue
+			literal[s.Name+"."+e.Key] = e.HasLiteralAuth
+		}
+	}
+	want := map[string]string{
+		"install.registry.url":   "https://***@npm.example.com/",
+		"install.registry.token": "$BUN_TOKEN",
+		"install.scopes.inline":  "https://***@npm.example.com/",
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q (all: %v)", k, got[k], v, got)
+		}
+	}
+	if literal["install.registry.token"] || !literal["install.registry.url"] {
+		t.Errorf("has_literal_auth = %v", literal)
+	}
+}
+
+func TestParsePnpmYAML(t *testing.T) {
+	tests := []struct {
+		name, yaml, parseErr string
+		want                 map[string]string
+	}{
+		{"null distinct from zero", "minimumReleaseAge: null\ntrustLockfile: 0\n", "",
+			map[string]string{"minimumReleaseAge": "null", "trustLockfile": "0"}},
+		{"list and map", "minimumReleaseAgeExclude: [a, '@b/*']\nregistries:\n  '@s': https://u:pw@r.example/\n", "",
+			map[string]string{"minimumReleaseAgeExclude": "a,@b/*", "registries.@s": "https://***@r.example/"}},
+		{"structured auth redacted", "_auth:\n  https://r.example/:\n    authToken: npm_abcdefghijkl\n", "",
+			map[string]string{"_auth.https://r.example/.authToken": "***ijkl"}},
+		{"irrelevant keys ignored", "catalog:\n  react: ^18\npackages: [a]\n", "", map[string]string{}},
+		{"wrong type still shown", "minimumReleaseAge: [1]\n", "unexpected type for minimumReleaseAge",
+			map[string]string{"minimumReleaseAge": "1"}},
+		{"anchors rejected", "a: &x 1\nminimumReleaseAge: *x\n", "unsupported value for minimumReleaseAge", map[string]string{}},
+		{"non-mapping root", "- a\n", "invalid yaml", map[string]string{}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			entries, parseErr := parsePnpmYAML([]byte(tc.yaml))
+			if parseErr != tc.parseErr {
+				t.Errorf("parse error = %q, want %q", parseErr, tc.parseErr)
+			}
+			got := map[string]string{}
+			for _, e := range entries {
+				if got[e.Key] != "" {
+					got[e.Key] += ","
+				}
+				got[e.Key] += e.DisplayValue
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+				t.Errorf("entries = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDecodeCapture_StaticErrors(t *testing.T) {
+	tests := []struct {
+		name, stdout, want string
+		exit               int
+	}{
+		{"timeout", "npm_secret", "timed out", 124},
+		{"failure", "npm_secret", "command failed", 1},
+		{"empty", " \n", "empty output", 0},
+		{"null", "null", "malformed json output", 0},
+		{"array", `["npm_secret"]`, "malformed json output", 0},
+		{"garbage", `{"k": npm_secret`, "malformed json output", 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, got := decodeCapture(tc.stdout, tc.exit); got != tc.want {
+				t.Errorf("decodeCapture = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

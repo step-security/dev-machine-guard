@@ -1,14 +1,19 @@
 package configaudit
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
 // fixedOwner returns an ownerLookup hook with fixed values, used to keep
@@ -211,7 +216,7 @@ func TestNPMRCDetector_EnvVarRedaction(t *testing.T) {
 	d.gitTracked = func(_ context.Context, _ string) bool { return false }
 	d.inGitRepo = func(_ string) bool { return false }
 
-	envs := d.collectEnv()
+	envs := collectEnvVars(d.exec, npmEnvVars)
 
 	for _, e := range envs {
 		switch e.Name {
@@ -314,9 +319,9 @@ func TestNPMRCDetector_RespectsEnvOverridesForUserAndGlobal(t *testing.T) {
 	mock.SetPath("npm", "/usr/bin/npm")
 	mock.SetCommand("11.0.0\n", "", 0, "npm", "--version")
 	mock.SetCommand("/should/not/be/used\n", "", 0, "npm", "config", "get", "builtinconfig")
-	// NB: globalconfig command should NOT be called when env var is set.
-	// We still register it so test fails loud if it is.
-	mock.SetCommand("/should/not/be/used/global\n", "", 0, "npm", "config", "get", "globalconfig")
+	// npm's own answer already reflects the env; the env is the fallback
+	// when the query fails.
+	mock.SetCommand("", "", 1, "npm", "config", "get", "globalconfig")
 	mock.SetCommand("{}", "", 0, "npm", "config", "ls", "-l", "--json")
 	mock.SetCommand("", "", 0, "npm", "config", "ls", "-l")
 
@@ -340,7 +345,7 @@ func TestNPMRCDetector_RespectsEnvOverridesForUserAndGlobal(t *testing.T) {
 		t.Errorf("user scope path = %q, want %q (NPM_CONFIG_USERCONFIG should win over $HOME/.npmrc)", got, overriddenUser)
 	}
 	if got := pathsByScope["global"]; got != overriddenGlobal {
-		t.Errorf("global scope path = %q, want %q (NPM_CONFIG_GLOBALCONFIG should win)", got, overriddenGlobal)
+		t.Errorf("global scope path = %q, want %q (NPM_CONFIG_GLOBALCONFIG should be the fallback)", got, overriddenGlobal)
 	}
 }
 
@@ -359,6 +364,7 @@ func TestFindProjectConfigs_CancelledContext(t *testing.T) {
 	tmp := t.TempDir()
 	mustWriteFile(t, filepath.Join(tmp, "real", ".npmrc"), "registry=https://x/\n")
 	mustWriteFile(t, filepath.Join(tmp, "real", ".yarnrc"), "registry x\n")
+	mustWriteFile(t, filepath.Join(tmp, ".yarnrc.yml"), "\n") // ancestor of the yarn search root
 	mustWriteFile(t, filepath.Join(tmp, "real", "bunfig.toml"), "\n")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -370,10 +376,108 @@ func TestFindProjectConfigs_CancelledContext(t *testing.T) {
 	if got := NewPnpmDetector(mock).findProjectNPMRCs(ctx, tmp); len(got) != 0 {
 		t.Errorf("pnpm: got %v, want none", got)
 	}
-	if got := NewYarnDetector(mock).findProjectYarnConfigs(ctx, tmp); len(got) != 0 {
+	if got := NewYarnDetector(mock).findProjectYarnConfigs(ctx, filepath.Join(tmp, "real"), ""); len(got) != 0 {
 		t.Errorf("yarn: got %v, want none", got)
 	}
 	if got := NewBunDetector(mock).findProjectBunfigs(ctx, tmp); len(got) != 0 {
 		t.Errorf("bun: got %v, want none", got)
+	}
+}
+
+// TestJSConfigAudits_ProducerFixture runs the real npm, pnpm, Yarn and Bun
+// detectors over one home seeded with credential canaries in every value
+// shape they read, asserts no canary byte reaches the marshaled audits, and
+// pins the result as the shared wire fixture.
+func TestJSConfigAudits_ProducerFixture(t *testing.T) {
+	if runtime.GOOS == model.PlatformWindows {
+		t.Skip("canonical Unix fixture")
+	}
+	const canary = "CANARY"
+	tmp := t.TempDir()
+	home, code := filepath.Join(tmp, "home"), filepath.Join(tmp, "code", "app")
+	pem := `"-----BEGIN PRIVATE KEY-----\nCANARYpem\n-----END PRIVATE KEY-----"`
+	files := map[string]string{
+		filepath.Join(home, ".npmrc"): "registry=https://u:CANARYreg@r.example/\n" +
+			"//r.example/:_authToken=npm_CANARYtoken0001\n" +
+			"//r.example/:_password=${PW:-CANARYfallback}\n" +
+			"proxy=http://${U}:CANARYproxy@proxy.example/\n" +
+			"https-proxy=http://u:pw@CANARYat@proxy.example/\n" +
+			"key=" + pem + "\n" +
+			"min-release-age=7\n",
+		filepath.Join(home, ".config", "pnpm", "config.yaml"): "minimumReleaseAge: null\n" +
+			"registries:\n  '@s': https://u:CANARYyamlreg@r.example/\n" +
+			"_auth:\n  https://r.example/:\n    authToken: CANARYyaml0001\n",
+		filepath.Join(home, ".yarnrc"):     `"//r.example/:_authToken" "CANARYclassic0001"` + "\n",
+		filepath.Join(home, ".yarnrc.yml"): "npmAuthToken: \"${T:-CANARYberry}\"\nnpmRegistryServer: \"https://u:CANARYberryreg@r.example/\"\nnpmMinimalAgeGate: 3d\n",
+		filepath.Join(home, ".bunfig.toml"): "[install]\nminimumReleaseAge = 259200\n" +
+			"registry = { url = \"https://u:CANARYbunreg@r.example/\", token = \"CANARYbuntoken01\" }\n" +
+			"[install.scopes]\ninline = \"https://u:CANARYbunscope@r.example/\"\n",
+		filepath.Join(code, "pnpm-workspace.yaml"): "minimumReleaseAge: 1440\ncatalog:\n  CANARYcatalog: ^1\n",
+		filepath.Join(code, ".yarnrc.yml"):         "CANARYscalar\n",                 // decoder error quotes the value
+		filepath.Join(code, "bunfig.toml"):         "CANARYkey = 1\nCANARYkey = 2\n", // decoder error quotes the key
+	}
+	fixed := time.Unix(1_700_000_000, 0)
+	for p, content := range files {
+		mustWriteFile(t, p, content)
+		if err := os.Chtimes(p, fixed, fixed); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mock := executor.NewMock()
+	mock.SetGOOS(model.PlatformLinux)
+	mock.SetHomeDir(home)
+	mock.SetEnv("NPM_CONFIG_REGISTRY", "https://u:CANARYenv@r.example/")
+	mock.SetEnv("NPM_TOKEN", "npm_CANARYenvtok01")
+	for name, version := range map[string]string{"npm": "11.21.1", "pnpm": "11.22.0", "yarn": "4.18.1", "bun": "1.4.4"} {
+		bin := "/opt/" + name + "/bin/" + name
+		mock.SetPath(name, bin)
+		mock.SetCommand(version+"\n", "", 0, bin, "--version")
+		mock.SetCommand(version+"\n", "", 0, name, "--version")
+	}
+	mock.SetCommand(`{"registry":"https://u:CANARYeffreg@r.example/","min-release-age":null,"//r.example/:_authToken":"CANARYeff","key":"CANARYeffkey","node-options":"CANARYopts"}`,
+		"", 0, "npm", "config", "ls", "-l", "--json")
+	mock.SetCommand("; \"user\" config from \""+filepath.Join(home, ".npmrc")+"\"\nkey = \"CANARYtextkey\"\nregistry = \"https://u:CANARYtext@r.example/\"\n",
+		"", 0, "npm", "config", "ls", "-l")
+	mock.SetCommand(`{"minimumReleaseAge":null,"//r.example/:_authToken":"CANARYpnpmeff","httpsProxy":"http://u:CANARYpnpmproxy@p.example/","registries":{"default":"https://u:CANARYpnpmreg@r.example/"}}`,
+		"", 0, "pnpm", "config", "list", "--json")
+
+	loggedIn := &user.User{Username: "tester", HomeDir: home}
+	dirs := []string{filepath.Join(tmp, "code")}
+	ctx := context.Background()
+	npm := NewNPMRCDetector(mock)
+	pnpm := NewPnpmDetector(mock)
+	yarn := NewYarnDetector(mock)
+	bun := NewBunDetector(mock)
+	npm.ownerLookup, pnpm.ownerLookup, yarn.ownerLookup, bun.ownerLookup = fixedOwner(), fixedOwner(), fixedOwner(), fixedOwner()
+	notGit := func(string) bool { return false }
+	npm.inGitRepo, pnpm.inGitRepo, yarn.inGitRepo, bun.inGitRepo = notGit, notGit, notGit, notGit
+	audits := struct {
+		NPM  model.NPMRCAudit `json:"npmrc_audit"`
+		Pnpm model.PnpmAudit  `json:"pnpm_audit"`
+		Yarn model.YarnAudit  `json:"yarn_audit"`
+		Bun  model.BunAudit   `json:"bun_audit"`
+	}{npm.Detect(ctx, dirs, loggedIn), pnpm.Detect(ctx, dirs, loggedIn), yarn.Detect(ctx, dirs, loggedIn), bun.Detect(ctx, dirs, loggedIn)}
+
+	raw, err := json.MarshalIndent(audits, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := bytes.Index(raw, []byte(canary)); i >= 0 {
+		t.Fatalf("credential canary leaked: %s", raw[max(0, i-80):min(len(raw), i+40)])
+	}
+	raw = append(bytes.ReplaceAll(raw, []byte(tmp), []byte("/fixture")), '\n')
+	path := "../../model/testdata/js_config_audit_v2_golden.json"
+	if os.Getenv("UPDATE_JS_CONFIG_GOLDEN") == "1" {
+		if err := os.WriteFile(path, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(raw, want) {
+		t.Fatal("producer differs from shared JS config golden; review the contract before regenerating")
 	}
 }

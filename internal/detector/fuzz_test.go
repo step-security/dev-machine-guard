@@ -9,6 +9,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
 func FuzzNodeLockfiles(f *testing.F) {
@@ -138,6 +139,244 @@ func FuzzRubyMetadata(f *testing.F) {
 		}
 		if reason == "" && !configaudit.RubyGemName(n) {
 			t.Fatalf("invalid archive name %q", n)
+		}
+		if !bytes.Equal(data, before) {
+			t.Fatal("parser mutated input")
+		}
+	})
+}
+
+// FuzzCondaMetadata feeds one input to every Conda parser: each must be
+// deterministic, leave its input untouched, admit only valid identities and
+// never pass a credential, token or query through to output.
+func FuzzCondaMetadata(f *testing.F) {
+	for _, s := range []string{
+		condaZlibReceipt,
+		`{"name":"x","version":"1","build":"0","channel":"https://u:p@h/t/tok/c/noarch","url":"https://u:p@h/t/tok/c/noarch/x-1-0.conda","requested_specs":["c::x","https://u:p@h/x"]}`,
+		"name: a\nchannels:\n  - conda-forge\ndependencies:\n  - python=3.12\n  - conda-forge::numpy>=1.26\n  - pip:\n    - requests\n  - sel(win): m2\n",
+		`{"channels":["conda-forge"],"dependencies":["python"]}`,
+		"# platform: linux-64\n@EXPLICIT\nhttps://conda.anaconda.org/conda-forge/linux-64/bzip2-1.0.8-h4bc722e_7.conda#" + condaMD5A + "\nfile:///c/noarch/x-1-0.tar.bz2\n",
+		"version: 1\npackage:\n- manager: conda\n  name: x\n  version: '1'\n  platform: linux-64\n  url: https://c/linux-64/x-1-0.conda\n  hash:\n    md5: " + condaMD5A + "\n",
+		"version: 6\nenvironments:\n  default:\n    packages:\n      linux-64:\n        - conda: https://c/linux-64/x-1-0.conda\npackages:\n  - conda: https://c/linux-64/x-1-0.conda\n    sha256: " + condaSHA_A + "\n",
+		"version: 7\nplatforms:\n  - name: linux-64\nenvironments: {}\npackages: []\n",
+		"", "{", "\xff\x00", "a: &x [1]\nb: *x\n",
+	} {
+		f.Add([]byte(s))
+	}
+	leak := func(s string) bool {
+		// A token lives in a URL path; a host named "t" or a local
+		// directory named "t" is not one.
+		path := ""
+		if i := strings.Index(s, "://"); i >= 0 {
+			path = strings.TrimLeft(s[i+3:], "/")
+			if j := strings.IndexByte(path, '/'); j >= 0 {
+				path = path[j:]
+			} else {
+				path = ""
+			}
+		}
+		return strings.ContainsAny(s, "@?#") || strings.Contains(path, "/t/") || strings.Contains(s, "%2F") || strings.Contains(s, "%2f")
+	}
+	check := func(t *testing.T, pkgs []model.CondaPackage) {
+		t.Helper()
+		for _, p := range pkgs {
+			if _, ok := condaName(p.PackageName); !ok || condaVirtual(p.PackageName) {
+				t.Fatalf("invalid package name %q", p.PackageName)
+			}
+			if len(p.RequestedSpecs) > maxCondaRequestedSpecs {
+				t.Fatalf("%d requested specs", len(p.RequestedSpecs))
+			}
+			for _, s := range append([]string{p.ArtifactURL, p.Origin.URL}, p.RequestedSpecs...) {
+				if s != condaRedacted && leak(s) {
+					t.Fatalf("credential text survived: %q", s)
+				}
+			}
+			for _, h := range p.RecordedChecksums {
+				if !condaChecksum(h.Algorithm, h.Value) {
+					t.Fatalf("invalid checksum %+v", h)
+				}
+			}
+		}
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 16*1024 {
+			t.Skip()
+		}
+		before := bytes.Clone(data)
+		r, err := parseCondaRecord(data)
+		if r2, err2 := parseCondaRecord(data); !reflect.DeepEqual(r, r2) || (err == nil) != (err2 == nil) {
+			t.Fatal("record parse is not deterministic")
+		}
+		if err == nil {
+			check(t, []model.CondaPackage{condaFact(r)})
+		}
+		m, err := parseCondaEnvironment(data)
+		if m2, err2 := parseCondaEnvironment(data); !reflect.DeepEqual(m, m2) || (err == nil) != (err2 == nil) {
+			t.Fatal("manifest parse is not deterministic")
+		}
+		if err == nil {
+			for _, d := range m.declarations {
+				if _, ok := condaName(d.name); !ok || condaVirtual(d.name) || d.spec != condaRedacted && leak(d.spec) || d.channel != condaRedacted && leak(d.channel) {
+					t.Fatalf("invalid declaration %+v", d)
+				}
+			}
+		}
+		for _, parse := range []func([]byte) ([]condaLockEntry, []string, error){parseCondaExplicit, parseCondaLockYAML} {
+			entries, reasons, err := parse(data)
+			entries2, reasons2, err2 := parse(data)
+			if !reflect.DeepEqual(entries, entries2) || !slices.Equal(reasons, reasons2) || (err == nil) != (err2 == nil) {
+				t.Fatal("lock parse is not deterministic")
+			}
+			pkgs := []model.CondaPackage{}
+			for _, e := range entries {
+				if e.pkg.VersionStatus != "known" || e.pkg.Version == "" {
+					t.Fatalf("locked row without a version %+v", e.pkg)
+				}
+				pkgs = append(pkgs, e.pkg)
+			}
+			check(t, pkgs)
+		}
+		if !bytes.Equal(data, before) {
+			t.Fatal("parser mutated input")
+		}
+	})
+}
+
+func FuzzMavenMetadata(f *testing.F) {
+	for _, s := range []string{
+		mavenTestPOM("org.example", "app", "1.0"),
+		`<project><parent><groupId>g</groupId><artifactId>p</artifactId><version>1</version></parent><artifactId>a</artifactId>` +
+			`<dependencies><dependency><groupId>g</groupId><artifactId>d</artifactId><version>https://u:p@h/x</version><classifier/></dependency></dependencies>` +
+			`<build><plugins><plugin><artifactId>m</artifactId><dependencies><dependency><groupId>g</groupId><artifactId>pd</artifactId></dependency></dependencies></plugin></plugins></build>` +
+			`<profiles><profile><id>ci</id><dependencies><dependency><groupId>${g}</groupId><artifactId>x</artifactId></dependency></dependencies></profile></profiles></project>`,
+		"org.example:a:1.0=compileClasspath,runtimeClasspath\nempty=annotationProcessor\n",
+		"[versions]\nv = { strictly = \"[1,2)\" }\n[libraries]\na = { module = \"g:a\", version.ref = \"v\" }\nb = \"g:b:1\"\n",
+		`<verification-metadata><configuration><verify-metadata>true</verify-metadata></configuration><components><component group="g" name="a" version="1">` +
+			`<artifact name="a-1.jar"><sha256 value="` + mavenSHA256A + `"><also-trust value="` + mavenSHA256B + `"/></sha256></artifact></component></components></verification-metadata>`,
+		`<ivy-module version="2.0"><info organisation="g" module="a" revision="1"/></ivy-module>`,
+		"distributionUrl=https\\://u\\:p@h/x.zip\nwrapperSha256Sum=\\u0041\n",
+		"", "<", "\xff\x00", `<!DOCTYPE x [<!ENTITY a "b">]><project/>`,
+	} {
+		f.Add([]byte(s))
+	}
+	check := func(t *testing.T, ds []mavenDeclaration) {
+		t.Helper()
+		for _, d := range ds {
+			if mavenCoordinate(d.group) != "" || mavenCoordinate(d.artifact) != "" {
+				t.Fatalf("invalid declaration identity %+v", d)
+			}
+		}
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 16*1024 {
+			t.Skip()
+		}
+		before := bytes.Clone(data)
+		pom, err := parseMavenPOM(data)
+		if pom2, err2 := parseMavenPOM(data); !reflect.DeepEqual(pom, pom2) || (err == nil) != (err2 == nil) {
+			t.Fatal("POM parse is not deterministic")
+		}
+		if err == nil {
+			check(t, pom.declarations)
+		}
+		catalog, err := parseGradleCatalog(data)
+		if catalog2, err2 := parseGradleCatalog(data); !reflect.DeepEqual(catalog, catalog2) || (err == nil) != (err2 == nil) {
+			t.Fatal("catalog parse is not deterministic")
+		}
+		if err == nil {
+			check(t, catalog.declarations)
+		}
+		for _, legacy := range []string{"", "compileClasspath"} {
+			if lock, err := parseGradleLock(data, legacy); err == nil {
+				for _, e := range lock.entries {
+					if mavenCoordinate(e.group) != "" || mavenCoordinate(e.artifact) != "" || !mavenVersion(e.version) {
+						t.Fatalf("invalid lock entry %+v", e)
+					}
+				}
+			}
+		}
+		if refs, _, _, err := parseGradleVerification(data); err == nil {
+			for _, r := range refs {
+				if len(r.checksums) > maxMavenChecksums {
+					t.Fatalf("%d checksums", len(r.checksums))
+				}
+				for _, h := range r.checksums {
+					if len(h.value) != mavenHexLengths[h.algorithm] || strings.Trim(h.value, "0123456789abcdef") != "" {
+						t.Fatalf("invalid checksum %+v", h)
+					}
+				}
+			}
+		}
+		mavenIvyMatches(data, "g", "a", "1")
+		_, _, _, _ = mavenPOMIdentity(data)
+		props, _ := configaudit.ParseJavaProperties(data)
+		if len(props) > 4096 {
+			t.Fatalf("%d properties", len(props))
+		}
+		if !bytes.Equal(data, before) {
+			t.Fatal("parser mutated input")
+		}
+	})
+}
+
+func FuzzSwiftMetadata(f *testing.F) {
+	for _, s := range []string{
+		`{"version":1,"object":{"pins":[{"package":"A","repositoryURL":"https://github.com/a/a.git","state":{"revision":"r","version":"1.0.0"}}]}}`,
+		`{"version":2,"pins":[{"identity":"a","kind":"remoteSourceControl","location":"https://h/a","state":{"revision":"r","branch":"main"}}]}`,
+		`{"version":3,"originHash":"x","pins":[{"identity":"s.n","kind":"registry","location":"","state":{"version":"1.0.0"}}]}`,
+		`{"version":7,"object":{"dependencies":[{"packageRef":{"identity":"a","kind":"remoteSourceControl","location":"https://h/a","name":"a"},` +
+			`"state":{"name":"edited","path":null},"subpath":"a","basedOn":{"packageRef":{"identity":"a","kind":"remoteSourceControl","location":"https://h/a","name":"a"},` +
+			`"state":{"name":"sourceControlCheckout","checkoutState":{"revision":"r","version":"1.0.0"}},"subpath":"a","basedOn":null}}],` +
+			`"artifacts":[{"packageRef":{"identity":"a","kind":"remoteSourceControl","location":"https://h/a","name":"a"},"targetName":"T",` +
+			`"source":{"type":"remote","url":"https://h/t.zip","checksum":"` + strings.Repeat("a", 64) + `"},"path":"/x/T.artifactbundle","kind":{"typedArtifactsArchive":{"_0":[]}}}],"prebuilts":[]}}`,
+		`{"version":4,"object":{"dependencies":[{"packageRef":{"identity":"a","kind":"remote","path":"/r/a","name":"a"},"state":{"name":"local"},"subpath":"a"}],"artifacts":[]}}`,
+		"[core]\n\tbare = true\n[remote \"origin\"]\n\turl = \"https://h/a.git\" ; c\n",
+		`{"registry":"https://r.example","scmRepositoryURLs":[]}`,
+		"", "{", "\xff\x00",
+	} {
+		f.Add([]byte(s))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 16*1024 {
+			t.Skip()
+		}
+		before := bytes.Clone(data)
+		pins, reasons, err := parseSwiftResolved(data)
+		if pins2, reasons2, err2 := parseSwiftResolved(data); !reflect.DeepEqual(pins, pins2) || !slices.Equal(reasons, reasons2) || (err == nil) != (err2 == nil) {
+			t.Fatal("resolved parse is not deterministic")
+		}
+		ids := map[string]bool{}
+		for _, p := range pins {
+			if !swiftText(p.identity, 512) || ids[p.identity] || (p.version == "" && p.revision == "") {
+				t.Fatalf("invalid pin %+v", p)
+			}
+			ids[p.identity] = true
+		}
+		deps, artifacts, reasons, err := parseSwiftWorkspace(data)
+		if deps2, artifacts2, reasons2, err2 := parseSwiftWorkspace(data); !reflect.DeepEqual(deps, deps2) || !reflect.DeepEqual(artifacts, artifacts2) ||
+			!slices.Equal(reasons, reasons2) || (err == nil) != (err2 == nil) {
+			t.Fatal("workspace parse is not deterministic")
+		}
+		for _, d := range deps {
+			if !swiftText(d.identity, 512) {
+				t.Fatalf("invalid dependency %+v", d)
+			}
+		}
+		for _, a := range artifacts {
+			if !swiftText(a.identity, 512) || !slices.Contains([]string{"xcframework", "artifact_archive", "unknown"}, a.kind) {
+				t.Fatalf("invalid artifact %+v", a)
+			}
+		}
+		bare, origin, ok := parseSwiftGitConfig(data)
+		if bare2, origin2, ok2 := parseSwiftGitConfig(data); bare != bare2 || origin != origin2 || ok != ok2 {
+			t.Fatal("git config parse is not deterministic")
+		}
+		if !ok && origin != "" {
+			t.Fatal("unresolved git config returned an origin")
+		}
+		registry, err := parseSwiftReceipt(data)
+		if registry2, err2 := parseSwiftReceipt(data); registry != registry2 || (err == nil) != (err2 == nil) {
+			t.Fatal("receipt parse is not deterministic")
 		}
 		if !bytes.Equal(data, before) {
 			t.Fatal("parser mutated input")

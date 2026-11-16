@@ -1,0 +1,2 @@
+# CLI golden comparisons use the exact LF bytes emitted by Go on every OS.
+internal/cli/testdata/*.golden.* text eol=lf

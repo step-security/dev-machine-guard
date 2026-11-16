@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -217,6 +218,8 @@ func (t *tick) load() error {
 	}
 	t.d.Logf("self-update: %s; rebuilding on %s", reason, cur)
 	t.enqueue(EventStateCorrupt, "", cur.String(), reason, EventStateCorrupt)
+	// The bootstrap runs cur (versions\ or seed\) until the state says otherwise.
+	t.setRunning(cur.String())
 	return nil
 }
 
@@ -384,11 +387,7 @@ func (t *tick) adoptNewerSeed() error {
 		t.d.Logf("self-update: Windows Installer is running; seed %s adoption waits for the next tick", seed)
 		return nil
 	}
-	verify := t.d.VerifySeed
-	if verify == nil {
-		verify = t.d.VerifyPublisher
-	}
-	note, err := t.L.CopySeedVersion(seed, t.now, verify)
+	note, err := t.L.CopySeedVersion(seed, t.now, t.seedVerifier())
 	if err != nil {
 		t.d.Logf("self-update: copying seed %s: %v", seed, err)
 		return nil // retried next tick; the seed stays the bootstrap's fallback
@@ -412,6 +411,44 @@ func (t *tick) adoptNewerSeed() error {
 	}
 	t.setRunning(seed.String())
 	return nil
+}
+
+func (t *tick) seedVerifier() func(string) error {
+	if t.d.VerifySeed != nil {
+		return t.d.VerifySeed
+	}
+	return t.d.VerifyPublisher
+}
+
+// stageFromSeed copies seed\<v> into versions\<v> instead of downloading
+// v: typically a restage of current after the MSI's adopt-seed couldn't
+// place it. The seed is trusted as adoptNewerSeed trusts it (admin-only
+// dir, publisher-checked); the release's signatures are not consulted.
+// ok=false means download v instead; a non-nil err means the rename stayed
+// blocked, so a download would fail the same way and the tick gives up.
+func (t *tick) stageFromSeed(v updatestate.Version) (ok bool, err error) {
+	if !updatestate.VersionDirUsable(t.L.SeedDir(v)) || (t.d.InstallerBusy != nil && t.d.InstallerBusy()) {
+		return false, nil
+	}
+	if _, err := updatestate.EnsureProtectedDir(t.L.VersionsDir()); err != nil {
+		return false, nil
+	}
+	note, err := t.L.CopySeedVersion(v, t.now, t.seedVerifier())
+	if updatestate.RenameBlocked(err) {
+		return false, err
+	}
+	if err != nil {
+		t.d.Logf("self-update: copying seed %s failed, downloading it instead: %v", v, err)
+		return false, nil
+	}
+	if note != "" {
+		t.d.Logf("self-update: %s", note)
+	}
+	if err := updatestate.VerifyVersionDir(t.L.VersionDir(v), v); err != nil {
+		t.d.Logf("self-update: versions\\%s unusable after copying the seed, downloading it instead: %v", v, err)
+		return false, nil
+	}
+	return true, nil
 }
 
 // keep is the set of version dirs GC must not touch.
@@ -520,18 +557,21 @@ func (t *tick) health(ctx context.Context) (closed bool, err error) {
 	p.Ticks++
 	healthy, neutral, bad := 0, 0, 0
 	v, _ := updatestate.ParseVersion(p.Version)
-	for _, r := range updatestate.ReadRuns(t.L.RunFile(v)) {
-		if !inProbation(r, p) {
-			continue
-		}
-		switch updatestate.ClassifyRun(r) {
-		case updatestate.RunHealthy:
-			healthy++
-			bad = 0
-		case updatestate.RunNeutral:
-			neutral++
-		case updatestate.RunBad:
-			bad++
+	shared := t.L.RunFile(v)
+	for _, f := range t.L.RunFiles(v) {
+		for _, r := range updatestate.ReadRuns(f) {
+			if !inProbation(r, p, f == shared, filepath.Base(f)) {
+				continue
+			}
+			switch updatestate.ClassifyRun(r) {
+			case updatestate.RunHealthy:
+				healthy++
+				bad = 0
+			case updatestate.RunNeutral:
+				neutral++
+			case updatestate.RunBad:
+				bad++
+			}
 		}
 	}
 	p.OK, p.Bad = healthy, bad
@@ -561,12 +601,19 @@ func (t *tick) health(ctx context.Context) (closed bool, err error) {
 	return true, nil
 }
 
-// inProbation reports whether run r belongs to probation p: by sequence
-// (seq > since_seq) when both are recorded, so clock jumps can't drop
-// runs; by time only for records or probations without one.
-func inProbation(r updatestate.RunRecord, p *updatestate.Probation) bool {
-	if r.Seq > 0 && p.SinceSeq != nil {
-		return r.Seq > *p.SinceSeq
+// inProbation reports whether run r of run file name belongs to probation
+// p: by sequence (seq > the file's seq at the switch) when both are
+// recorded, so clock jumps can't drop runs; by time only for records or
+// probations without one. Since_seq is the shared file's; a per-user file
+// missing from since_seqs didn't exist at the switch (seq 0).
+func inProbation(r updatestate.RunRecord, p *updatestate.Probation, shared bool, name string) bool {
+	if r.Seq > 0 {
+		switch {
+		case shared && p.SinceSeq != nil:
+			return r.Seq > *p.SinceSeq
+		case !shared && (p.SinceSeqs != nil || p.SinceSeq != nil):
+			return r.Seq > p.SinceSeqs[name]
+		}
 	}
 	return !r.At.Before(p.Since)
 }
@@ -693,6 +740,9 @@ func cloneState(s *updatestate.State) *updatestate.State {
 			v := *p.SinceSeq
 			p.SinceSeq = &v
 		}
+		if p.SinceSeqs != nil {
+			p.SinceSeqs = maps.Clone(p.SinceSeqs)
+		}
 		c.Probation = &p
 	}
 	c.Quarantine = make(map[string]updatestate.Quarantine, len(s.Quarantine))
@@ -725,7 +775,9 @@ func (t *tick) update(ctx context.Context, probationClosed bool) int {
 	}
 
 	// S3 Target.
-	rel, err := t.d.Client.Latest(ctx)
+	rel, err := t.d.Client.LatestFor(ctx, CheckInfo{
+		Current: st.Current, Reason: checkReason(st, t.now, probationClosed, currentValid),
+	})
 	t.st.LastCheck = t.now.UTC()
 	if err != nil {
 		t.d.Logf("self-update: %v", err)
@@ -785,8 +837,11 @@ func (t *tick) update(ctx context.Context, probationClosed bool) int {
 	if target == st.Current {
 		// Current's dir was missing or damaged and is now restaged in place:
 		// the pointer already names it, so there is nothing to switch.
+		// update_ok (restaged) clears the earlier failure on the console.
 		t.d.Logf("self-update: restaged current %s", target)
+		t.enqueue(EventOK, target, target, "restaged", "")
 		t.countRestage(target)
+		t.setRunning(target)
 		return t.finish(ctx, ExitOK)
 	}
 
@@ -847,7 +902,13 @@ func (t *tick) switchTo(ctx context.Context, v updatestate.Version) int {
 	next.Previous = old
 	next.Current = target
 	sinceSeq := updatestate.MaxRunSeq(t.L.RunFile(v))
-	next.Probation = &updatestate.Probation{Version: target, Since: t.now.UTC(), SmokeOK: true, SinceSeq: &sinceSeq}
+	sinceSeqs := map[string]int{}
+	for _, f := range t.L.RunFiles(v) {
+		if f != t.L.RunFile(v) {
+			sinceSeqs[filepath.Base(f)] = updatestate.MaxRunSeq(f)
+		}
+	}
+	next.Probation = &updatestate.Probation{Version: target, Since: t.now.UTC(), SmokeOK: true, SinceSeq: &sinceSeq, SinceSeqs: sinceSeqs}
 	next.SwitchDeferrals = 0
 	next.PendingSwitch = ""
 	enqueueTo(next, t.now, t.dedupeWindow(), EventOK, old, target, "", "")
@@ -868,6 +929,22 @@ func (t *tick) switchTo(ctx context.Context, v updatestate.Version) int {
 }
 
 // waitInstance polls the scan instance mutex for up to the switch wait.
+// checkReason names the first condition that made this tick due.
+func checkReason(st *updatestate.State, now time.Time, probationClosed, currentValid bool) string {
+	switch {
+	case !currentValid:
+		return CheckInvalidCurrent
+	case st.LastCheck.IsZero():
+		return CheckFirst
+	case st.LastCheck.After(now):
+		return CheckClockSkew
+	case probationClosed:
+		return CheckProbationClosed
+	default:
+		return CheckInterval
+	}
+}
+
 func (t *tick) waitInstance(ctx context.Context) (func(), bool) {
 	deadline := time.Now().Add(duration(knobSwitchWait))
 	for {
@@ -896,10 +973,16 @@ func (t *tick) stage(ctx context.Context, rel *Release) (string, error) {
 			return "", nil
 		}
 		trash := filepath.Join(t.L.VersionsDir(), updatestate.TrashPrefix+v.String()+"-"+uuid.NewString()[:8])
-		if err := os.Rename(dir, trash); err != nil {
+		if err := updatestate.RenameDir(dir, trash); err != nil {
 			return EventStageFailed, fmt.Errorf("move invalid %s aside: %w", dir, err)
 		}
 		_ = os.RemoveAll(trash)
+	}
+	if ok, err := t.stageFromSeed(v); ok || err != nil {
+		if err != nil {
+			return EventStageFailed, err
+		}
+		return "", nil
 	}
 	if err := t.d.Client.VerifySignatures(rel); err != nil {
 		return EventVerifyFailed, err
@@ -950,7 +1033,7 @@ func (t *tick) stage(ctx context.Context, rel *Release) (string, error) {
 	if err := checkpoint("S4.manifest"); err != nil {
 		return EventStageFailed, err
 	}
-	if err := os.Rename(staging, dir); err != nil {
+	if err := updatestate.RenameDir(staging, dir); err != nil {
 		return EventStageFailed, err
 	}
 	committed = true

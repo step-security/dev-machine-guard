@@ -19,7 +19,10 @@ var System Clock = systemClock{}
 
 type systemClock struct{}
 
-func (systemClock) Wall() time.Time { return time.Now() }
+// Wall strips the monotonic reading: Sub on two stamps that carry one uses
+// the monotonic clock, which on macOS and Linux halts during sleep, so a
+// wall-clock difference taken that way could never show a sleep.
+func (systemClock) Wall() time.Time { return time.Now().Round(0) }
 
 // Deadline is a start point on a Clock.
 type Deadline struct {

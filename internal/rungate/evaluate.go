@@ -14,6 +14,18 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/progress"
 )
 
+// ReasonIdentityIncomplete is the skip reason when the configured device
+// identity template cannot be completed for this run ({serial} with no usable
+// machine identity). No check-in and no beacon: an id built from a missing
+// token would be a phantom device.
+const ReasonIdentityIncomplete = "identity_incomplete"
+
+// ReasonNoSessionUser is the skip reason for a run with no signed-in user on a
+// host that scans every signed-in session separately: the sessions report
+// for themselves, and a SYSTEM-profile scan would only file an empty
+// inventory under the device. No check-in and no beacon.
+const ReasonNoSessionUser = "no_session_user"
+
 // serialProbeTimeout bounds the device-id resolve (macOS ioreg is the slow
 // case). The result is cached for the process, so telemetry reuses it.
 const serialProbeTimeout = 10 * time.Second
@@ -68,10 +80,11 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 		log.Progress("Run gate: bypassed (--force-scan)")
 	}
 
-	// Device id: the guest identity, then the configured ID, then the machine
-	// ID from a bounded resolve. Without a real id the backend
-	// can't be asked anything meaningful — fail open rather than gate on a
-	// bogus one.
+	// Device id: the guest identity, then the resolved identity (configured
+	// template or literal, else the machine id from a bounded resolve;
+	// device.ResolvedDeviceID owns that precedence). Without a real id the
+	// backend can't be asked anything meaningful — fail open rather than gate
+	// on a bogus one.
 	st, stOK := readState()
 	previousID, previousConfiguredID := st.DeviceID, st.ConfiguredDeviceID
 	// Overrides added, changed, or removed must not reuse another identity's cadence.
@@ -81,16 +94,41 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 		stOK = false
 	}
 	deviceID := strings.TrimSpace(guestDeviceID)
+	machineID := ""
+	userToken := ""
 	if deviceID != "" {
 		log.Debug("run-gate: gating as WSL guest %s", deviceID)
-	} else if configuredID != "" {
-		deviceID = configuredID
 	} else {
 		// Always the process-wide resolver, never the cached ID: a stale one
 		// would gate as one device while telemetry uploads as another.
 		probeCtx, cancel := context.WithTimeout(ctx, serialProbeTimeout)
-		deviceID = device.SerialNumber(probeCtx, exec)
+		id := device.ResolvedDeviceID(probeCtx, exec)
 		cancel()
+		if id.Issue != "" {
+			log.Warn("run-gate: %s", id.Issue)
+		}
+		if id.Incomplete {
+			// Skipped regardless of --force-scan: there is no identity to
+			// force a run under. main logs the skip; this is its only trace.
+			log.Progress("Run gate: device identity template %q cannot be completed on this machine — skipping this run", id.Template)
+			return Result{Skip: true, Reason: ReasonIdentityIncomplete,
+				Detail: "set the identity template to one this machine can complete ({serial} needs a usable hardware serial)",
+				WSL:    wslWithOverride(WSLDirective{})}
+		}
+		if id.PerSession && id.UserToken == "" {
+			// Skipped regardless of --force-scan: the signed-in sessions
+			// report for themselves; nothing here would be attributed.
+			log.Progress("Run gate: per-session scanning is on for this host and this run has no signed-in user (running as %q); the session tasks report per user — skipping this run",
+				strings.TrimSpace(exec.Getenv("USERNAME")+exec.Getenv("USER")))
+			return Result{Skip: true, Reason: ReasonNoSessionUser,
+				Detail: "scans on this host run in each signed-in session",
+				WSL:    wslWithOverride(WSLDirective{})}
+		}
+		deviceID = id.DeviceID
+		userToken = id.UserToken
+		if usableSerial(id.Serial) {
+			machineID = id.Serial
+		}
 	}
 	if deviceID == "" || deviceID == "unknown" {
 		log.Debug("run-gate: no usable device id — failing open")
@@ -108,13 +146,13 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 
 	// Persist the reset before any network result or force/kill-switch exit.
 	if previousID != deviceID || previousConfiguredID != configuredID {
-		if err := persistIdentity(deviceID); err != nil {
+		if err := persistIdentity(deviceID, machineID); err != nil {
 			log.Debug("run-gate: could not persist device identity: %v", err)
 		}
 	}
 
 	log.Progress("Run gate: checking scan cadence with the dashboard...")
-	directive, wslDirective, credentialScanning, deltaEnabled, err := Checkin(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, deviceID, st.LastFullRunAt)
+	directive, wslDirective, credentialScanning, deltaEnabled, err := Checkin(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, deviceID, userToken, st.LastFullRunAt)
 	// Only an explicit false in this invocation's answer turns credential
 	// scanning off. A failed or silent check-in scans.
 	credentialDisabled := err == nil && credentialScanning != nil && !*credentialScanning
@@ -138,7 +176,7 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 			// Persist the resolved id + gating fields even on "full" answers so
 			// skipped wakeups never re-probe and the offline fallback stays
 			// current. Best-effort.
-			if perr := recordCheckin(deviceID, directive, in.Now); perr != nil {
+			if perr := recordCheckin(deviceID, machineID, directive, in.Now); perr != nil {
 				log.Debug("run-gate: could not persist check-in state: %v", perr)
 			}
 		} else {
@@ -159,7 +197,7 @@ func Evaluate(ctx context.Context, exec executor.Executor, log *progress.Logger,
 		// — the device can't reach the backend anyway.
 		if in.Directive != nil {
 			if err := PostSkipBeacon(ctx, config.APIEndpoint, config.APIKey, config.CustomerID,
-				deviceID, in.Directive.Reason, dec.NextEligibleAt); err != nil {
+				deviceID, userToken, in.Directive.Reason, dec.NextEligibleAt); err != nil {
 				log.Debug("run-gate: skip beacon not sent: %v", err)
 			}
 		}

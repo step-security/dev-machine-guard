@@ -62,7 +62,7 @@ C:\Program Files\StepSecurity\
 | Write tenant config to `C:\ProgramData\StepSecurity\config.json` | `seed\<version>\stepsecurity-dev-machine-guard.exe configure --non-interactive ...` (install / upgrade with credentials) |
 | Create `versions\` + `state\` (SYSTEM-owned, Users read-only), copy the seed into `versions\<version>`, point `current` at it unless a newer self-updated version is already current | `bootstrap.exe adopt-seed` (install, upgrade, repair; never fails the MSI) |
 | (Re)create the 3 scheduled tasks | `seed\<version>\stepsecurity-dev-machine-guard.exe install` (install, upgrade **and repair**) |
-| Real uninstall: delete the tasks, stop running DMG processes, remove `versions\`, `state\`, `RunningVersion` | `seed\<version>\stepsecurity-dev-machine-guard.exe uninstall` (skipped during a major upgrade; failures never block removal) |
+| Real uninstall: delete the tasks, stop running DMG processes, remove `versions\`, `state\`, `RunningVersion` | `seed\<version>\stepsecurity-dev-machine-guard.exe uninstall` (first retires the device in the dashboard when `config.json` has `retire_on_uninstall`; skipped during a major upgrade, which therefore never retires; failures never block removal) |
 
 Scheduled tasks:
 
@@ -75,6 +75,31 @@ Scheduled tasks:
 WiX's `WixQuietExec` (Util extension) → the bootstrap or the seed agent
 → `schtasks.exe`. This matters in environments where EDR blocks
 PowerShell egress — a common enterprise posture.
+
+Optional properties `DEVICEID` (device identity template, e.g.
+`{hostname}`), `DEVICETAG` (dashboard label, selectable by the
+dashboard's retirement scope) and `RETIREONUNINSTALL=1` are forwarded to
+`configure --device-id` / `--device-tag` / `--retire-on-uninstall`; all
+three are also accepted as `device_id` / `device_tag` /
+`retire_on_uninstall` keys in a `BOOTSTRAPFILE`. `IMAGEBUILDER=1` marks a
+master-image builder (`configure --image-builder`): scans stay off on that
+machine while every host built from its image scans normally; it is bound to
+the builder's hardware id and deliberately has no bootstrap key. See
+`docs/deploying-on-virtual-desktops.md`.
+
+## Installing at host creation from staged assets
+
+Image managers that run a script when a host is created (Nerdio scripted
+actions, an Azure Virtual Desktop custom script extension, Intune
+remediation) can stage the MSI and the tenant file in the master image and
+install on each new host instead of installing into the image. The
+provisioning entrypoint for that step lives in `scripts/windows/`
+(`Setup-Dmg.ps1`, with its own README and tests): it runs as SYSTEM,
+verifies the staged MSI before installing, chooses between install, healthy
+no-op, upgrade and task repair, and reports the outcome per host without
+printing the key. Nothing runs on the imaging machine, and agent releases
+reach the hosts through self-update, so an agent version never needs a new
+image.
 
 ## Self-update and `AUTOUPDATE`
 
@@ -222,7 +247,7 @@ Detection rule:
 | Rule type | Registry |
 | Key path | `HKEY_LOCAL_MACHINE\SOFTWARE\StepSecurity` |
 | Value name | `AgentVersion` |
-| Detection method | String comparison, **Equals** `<msi version>` (e.g. `1.18.1`) |
+| Detection method | String comparison, **Equals** `<msi version>` (e.g. `1.19.1`) |
 | Associated with a 32-bit app on 64-bit clients | No |
 
 **Self-update does not break this rule.** `AgentVersion` always names the

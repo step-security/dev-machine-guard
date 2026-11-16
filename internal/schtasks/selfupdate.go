@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -216,6 +218,88 @@ func removeAllRetry(dir string) error {
 	return err
 }
 
+// removeAllExceptRetry removes dir like removeAllRetry but keeps the file
+// keep and the directories leading to it. The MSI's own uninstall action
+// runs the seed agent, but a CLI `uninstall` on an MSI install runs the
+// versions\ agent: its image cannot be deleted while it runs, and failing the
+// whole uninstall for that one file would also skip the retire that follows
+// the teardown (the tasks are already gone by then).
+func removeAllExceptRetry(dir, keep string) error {
+	var err error
+	for i := 0; i < 5; i++ {
+		if err = removeAllExcept(dir, keep); err == nil {
+			return nil
+		}
+		time.Sleep(time.Second)
+	}
+	return err
+}
+
+// removeAllExcept deletes every file under dir except keep, then every
+// directory that became empty. Directories on keep's path stay. A missing
+// dir is not an error. The walk and the deletes go through an os.Root so a
+// symlink planted under dir can neither be followed nor redirect a delete.
+func removeAllExcept(dir, keep string) error {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	keepRel := ""
+	if isWithin(keep, dir) {
+		keepRel = filepath.ToSlash(filepath.Clean(keep)[len(filepath.Clean(dir))+1:])
+	}
+	var files, dirs []string
+	var firstErr error
+	note := func(err error) {
+		if err != nil && firstErr == nil && !errors.Is(err, fs.ErrNotExist) {
+			firstErr = err
+		}
+	}
+	_ = fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			note(err)
+			return nil
+		}
+		switch {
+		case d.IsDir():
+			dirs = append(dirs, path)
+		case !strings.EqualFold(path, keepRel):
+			files = append(files, path)
+		}
+		return nil
+	})
+	for _, f := range files {
+		note(root.Remove(filepath.FromSlash(f)))
+	}
+	for i := len(dirs) - 1; i >= 0; i-- {
+		d := dirs[i]
+		if d == "." || (keepRel != "" && strings.HasPrefix(strings.ToLower(keepRel), strings.ToLower(d)+"/")) {
+			continue
+		}
+		note(root.Remove(filepath.FromSlash(d)))
+	}
+	_ = root.Close()
+	if keepRel == "" {
+		note(os.Remove(dir))
+	}
+	return firstErr
+}
+
+// isWithin reports whether path lies under dir (case-insensitively, since
+// Windows paths are).
+func isWithin(path, dir string) bool {
+	p := filepath.Clean(path)
+	d := filepath.Clean(dir)
+	if len(p) <= len(d) || !strings.EqualFold(p[:len(d)], d) {
+		return false
+	}
+	return p[len(d)] == filepath.Separator
+}
+
 // uninstallBootstrap is the MSI bootstrap uninstall (spec §5): delete all 3
 // tasks, stop running DMG processes, then remove versions\, state\ and the
 // RunningVersion value. ProgramData is left alone (M-8 is out of scope).
@@ -231,8 +315,20 @@ func uninstallBootstrap(ctx context.Context, exec executor.Executor, log *progre
 		log.Warn("stopping running DMG processes: %v", err)
 	}
 	layout := updatestate.Layout{InstallRoot: root}
+	self, _ := os.Executable()
 	for _, dir := range []string{layout.VersionsDir(), layout.StateDir()} {
-		if err := removeAllRetry(dir); err != nil {
+		var err error
+		if self != "" && isWithin(self, dir) {
+			// This uninstall runs from the versions\ agent (a CLI `uninstall`
+			// on an MSI install, not the MSI's own action, which runs the
+			// seed): its image stays, everything else goes.
+			if err = removeAllExceptRetry(dir, self); err == nil {
+				log.Warn("left %s in place: it is the image of this uninstall; delete it once the command has exited, or remove the product with msiexec /x", self)
+			}
+		} else {
+			err = removeAllRetry(dir)
+		}
+		if err != nil {
 			errs = append(errs, fmt.Errorf("removing %s: %w", dir, err))
 		} else {
 			log.Debug("removed %s", dir)

@@ -53,6 +53,10 @@ jobs:
           args: '-no-fail -fmt sarif -out results.sarif ./...'
 
       - name: Upload SARIF to GitHub code-scanning
+        # Skipped in the merge queue: the temporary gh-readonly-queue branch is
+        # deleted on merge, before the upload lands, and code scanning rejects
+        # the missing ref. The push to main uploads the same commit.
+        if: github.event_name != 'merge_group'
         uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
         with:
           sarif_file: results.sarif

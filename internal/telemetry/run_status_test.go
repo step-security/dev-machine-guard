@@ -18,12 +18,15 @@ import (
 // and points APIEndpoint at the given test server. Restores on return.
 func withEnterpriseConfig(t *testing.T, endpoint string) func() {
 	t.Helper()
-	savedKey, savedCustomer, savedEndpoint := config.APIKey, config.CustomerID, config.APIEndpoint
+	savedKey, savedCustomer, savedEndpoint, savedTag := config.APIKey, config.CustomerID, config.APIEndpoint, config.DeviceTag
 	config.APIKey = "sk-test-123"
 	config.CustomerID = "test-customer"
 	config.APIEndpoint = endpoint
+	// Retirement applies to tagged devices only; the retire paths under test
+	// expect a lifecycle-managed device.
+	config.DeviceTag = "pool-a"
 	return func() {
-		config.APIKey, config.CustomerID, config.APIEndpoint = savedKey, savedCustomer, savedEndpoint
+		config.APIKey, config.CustomerID, config.APIEndpoint, config.DeviceTag = savedKey, savedCustomer, savedEndpoint, savedTag
 	}
 }
 

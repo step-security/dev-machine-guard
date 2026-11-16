@@ -25,6 +25,15 @@ import (
 // from blowing up the JSON payload.
 const maxNPMRCFiles = 1000
 
+// jsConfigAuditVersion marks npm/pnpm/Yarn/Bun audits whose sources,
+// applicability and effective capture follow each manager's runtime rules.
+// Payloads without it predate those rules.
+const jsConfigAuditVersion = 2
+
+// errNoCaptureContext is reported when there is no developer home to run a
+// manager from. Another user's home is never substituted.
+const errNoCaptureContext = "capture context unavailable"
+
 // npmEnvVars is the set of environment variables we always record on the
 // audit, regardless of whether they are set. Recording an unset var keeps
 // the audit shape stable across hosts and is the natural extension point
@@ -32,7 +41,9 @@ const maxNPMRCFiles = 1000
 var npmEnvVars = []string{
 	"NPM_TOKEN",
 	"NPM_CONFIG_USERCONFIG",
+	"npm_config_userconfig",
 	"NPM_CONFIG_GLOBALCONFIG",
+	"npm_config_globalconfig",
 	"NPM_CONFIG_REGISTRY",
 	"npm_config_registry",
 	"npm_config__authToken",
@@ -91,22 +102,24 @@ func (d *NPMRCDetector) WithSkipper(s *tcc.Skipper) *NPMRCDetector {
 // we resolve for the user-scope file.
 func (d *NPMRCDetector) Detect(ctx context.Context, searchDirs []string, loggedInUser *user.User) model.NPMRCAudit {
 	audit := model.NPMRCAudit{
-		Files: []model.NPMRCFile{},
-		Env:   d.collectEnv(),
+		Files:              []model.NPMRCFile{},
+		Env:                collectEnvVars(d.exec, npmEnvVars),
+		ConfigAuditVersion: jsConfigAuditVersion,
 	}
+	home := homeOf(loggedInUser)
 
 	npmPath, npmErr := d.exec.LookPath("npm")
 	if npmErr == nil {
 		audit.Available = true
 		audit.NPMPath = npmPath
-		audit.NPMVersion = d.npmVersion(ctx)
+		audit.NPMVersion = d.npmVersion(ctx, home)
 	}
 
 	// Resolve the four scopes. Each step is independent: if one fails (e.g.
 	// `npm config get globalconfig` returns nothing), the rest still run.
 	files := make([]model.NPMRCFile, 0, 8)
 	seen := make(map[string]bool)
-	add := func(scope, path string) {
+	add := func(scope, path, applies string) {
 		if path == "" {
 			return
 		}
@@ -114,38 +127,45 @@ func (d *NPMRCDetector) Detect(ctx context.Context, searchDirs []string, loggedI
 		if err == nil {
 			path = abs
 		}
-		if seen[path] {
-			return
+		if key := pathKey(d.exec, path); !seen[key] {
+			seen[key] = true
+			f := d.collectFile(ctx, path, scope)
+			f.RuntimeApplicability = applies
+			files = append(files, f)
 		}
-		seen[path] = true
-		files = append(files, d.collectFile(ctx, path, scope))
 	}
 
-	add("builtin", d.npmConfigGet(ctx, "builtinconfig"))
+	// npm itself resolves userconfig/globalconfig (env of any case, project
+	// and builtin files); its answer wins, env and defaults are fallbacks
+	// for when npm can't be run.
+	add("builtin", d.npmConfigGet(ctx, home, "builtinconfig"), "applicable")
 
-	if v := d.exec.Getenv("NPM_CONFIG_GLOBALCONFIG"); v != "" {
-		add("global", v)
-	} else {
-		add("global", d.npmConfigGet(ctx, "globalconfig"))
+	global := d.npmConfigGet(ctx, home, "globalconfig")
+	if global == "" {
+		global = firstEnv(d.exec, "NPM_CONFIG_GLOBALCONFIG", "npm_config_globalconfig")
 	}
+	add("global", global, "applicable")
 
-	if v := d.exec.Getenv("NPM_CONFIG_USERCONFIG"); v != "" {
-		add("user", v)
-	} else if loggedInUser != nil && loggedInUser.HomeDir != "" {
-		add("user", filepath.Join(loggedInUser.HomeDir, ".npmrc"))
+	userConfig := d.npmConfigGet(ctx, home, "userconfig")
+	if userConfig == "" {
+		userConfig = firstEnv(d.exec, "NPM_CONFIG_USERCONFIG", "npm_config_userconfig")
 	}
+	if userConfig == "" && home != "" {
+		userConfig = filepath.Join(home, ".npmrc")
+	}
+	add("user", userConfig, "applicable")
 
 	for _, dir := range searchDirs {
 		for _, p := range d.findProjectNPMRCs(ctx, dir) {
 			if len(files) >= maxNPMRCFiles {
 				break
 			}
-			add("project", p)
+			add("project", p, "unknown")
 		}
 	}
 
 	audit.Files = files
-	if eff := d.captureEffective(ctx); eff != nil {
+	if eff := d.captureEffective(ctx, home); eff != nil {
 		audit.Effective = eff
 	}
 
@@ -226,8 +246,9 @@ func shouldSkipNPMRCDir(path, name, root string) bool {
 // the caller can see "we looked here, nothing was there."
 func (d *NPMRCDetector) collectFile(ctx context.Context, path, scope string) model.NPMRCFile {
 	f := model.NPMRCFile{
-		Path:  path,
-		Scope: scope,
+		Path:   path,
+		Scope:  scope,
+		Format: "ini",
 	}
 
 	// Lstat first so a symlink doesn't get followed silently.
@@ -289,7 +310,7 @@ func (d *NPMRCDetector) collectFile(ctx context.Context, path, scope string) mod
 	sum := sha256.Sum256(data)
 	f.SHA256 = hex.EncodeToString(sum[:])
 
-	f.Entries = parseNPMRC(data)
+	f.Entries, f.ParseError = parseNPMRC(data)
 
 	if d.inGitRepo != nil && d.inGitRepo(path) {
 		f.InGitRepo = true
@@ -302,8 +323,10 @@ func (d *NPMRCDetector) collectFile(ctx context.Context, path, scope string) mod
 }
 
 // captureEffective runs `npm config ls -l --json` and `npm config ls -l` for
-// source attribution. Returns nil when npm is unavailable.
-func (d *NPMRCDetector) captureEffective(ctx context.Context) *model.NPMRCEffective {
+// source attribution, from the developer's home. Returns nil when npm is
+// unavailable. Only npmEffectiveKeys survive: npm's text listing prints
+// inline `key` PEM content and proxy URLs, so nothing else is forwarded.
+func (d *NPMRCDetector) captureEffective(ctx context.Context, home string) *model.NPMRCEffective {
 	if _, err := d.exec.LookPath("npm"); err != nil {
 		return nil
 	}
@@ -311,25 +334,100 @@ func (d *NPMRCDetector) captureEffective(ctx context.Context) *model.NPMRCEffect
 		SourceByKey: map[string]string{},
 		Config:      map[string]any{},
 	}
+	if home == "" {
+		eff.Error = errNoCaptureContext
+		return eff
+	}
+	eff.CaptureDirectory = home
 
-	stdoutJSON, _, exit, _ := d.exec.RunWithTimeout(ctx, 15*time.Second, "npm", "config", "ls", "-l", "--json")
-	if exit == 0 && strings.TrimSpace(stdoutJSON) != "" {
-		var parsed map[string]any
-		if err := json.Unmarshal([]byte(stdoutJSON), &parsed); err != nil {
-			eff.Error = "json decode: " + err.Error()
-		} else {
-			eff.Config = parsed
-		}
-	} else if eff.Error == "" && exit != 0 {
-		eff.Error = fmt.Sprintf("npm config ls -l --json exited with %d", exit)
+	stdoutJSON, _, exit, _ := d.exec.RunInDir(ctx, home, 15*time.Second, "npm", "config", "ls", "-l", "--json")
+	if parsed, msg := decodeCapture(stdoutJSON, exit); msg != "" {
+		eff.Error = msg
+	} else {
+		eff.Config = safeEffective(parsed, isNPMEffectiveKey)
 	}
 
-	stdoutText, _, exitText, _ := d.exec.RunWithTimeout(ctx, 15*time.Second, "npm", "config", "ls", "-l")
+	stdoutText, _, exitText, _ := d.exec.RunInDir(ctx, home, 15*time.Second, "npm", "config", "ls", "-l")
 	if exitText == 0 && stdoutText != "" {
-		eff.SourceByKey = parseSourceAttribution(stdoutText)
+		for k, src := range parseSourceAttribution(stdoutText) {
+			if isNPMEffectiveKey(k) {
+				eff.SourceByKey[k] = src
+			}
+		}
 	}
 
 	return eff
+}
+
+// npmEffectiveKeys are the effective settings forwarded from npm: registry
+// routing, release-age policy, proxy/TLS and config locations.
+var npmEffectiveKeys = map[string]bool{
+	"registry": true, "min-release-age": true, "min-release-age-exclude": true, "before": true,
+	"proxy": true, "https-proxy": true, "noproxy": true, "strict-ssl": true, "cafile": true,
+	"userconfig": true, "globalconfig": true,
+}
+
+func isNPMEffectiveKey(k string) bool {
+	return npmEffectiveKeys[k] || (strings.HasPrefix(k, "@") && strings.HasSuffix(k, ":registry"))
+}
+
+// decodeCapture turns a config-dump command's output into a map. Messages
+// are static: the output may hold credentials and is never echoed. Empty
+// output or JSON null is a failure, not an empty configuration.
+func decodeCapture(stdout string, exit int) (map[string]any, string) {
+	switch {
+	case exit == 124:
+		return nil, "timed out"
+	case exit != 0:
+		return nil, "command failed"
+	case strings.TrimSpace(stdout) == "":
+		return nil, "empty output"
+	}
+	var parsed map[string]any
+	if json.Unmarshal([]byte(stdout), &parsed) != nil || parsed == nil {
+		return nil, "malformed json output"
+	}
+	return parsed, ""
+}
+
+// safeEffective keeps allowed keys with scalar, string-list or string-map
+// values, masking URL credentials. null stays null so "unset" never reads
+// as a file value or zero; nested objects are dropped.
+func safeEffective(raw map[string]any, allow func(string) bool) map[string]any {
+	clean := func(v any) any {
+		if s, ok := v.(string); ok {
+			s, _ = redactURLUserinfo(s)
+			return s
+		}
+		return v
+	}
+	out := map[string]any{}
+	for k, v := range raw {
+		if !allow(k) {
+			continue
+		}
+		switch t := v.(type) {
+		case nil, bool, float64, string:
+			out[k] = clean(t)
+		case []any:
+			list := []any{}
+			for _, item := range t {
+				if s, ok := item.(string); ok {
+					list = append(list, clean(s))
+				}
+			}
+			out[k] = list
+		case map[string]any:
+			m := map[string]any{}
+			for mk, item := range t {
+				if s, ok := item.(string); ok {
+					m[mk] = clean(s)
+				}
+			}
+			out[k] = m
+		}
+	}
+	return out
 }
 
 // parseSourceAttribution scans the textual output of `npm config ls -l`,
@@ -373,8 +471,12 @@ func parseSourceAttribution(text string) map[string]string {
 }
 
 // npmVersion returns the npm CLI's version string, "unknown" on failure.
-func (d *NPMRCDetector) npmVersion(ctx context.Context) string {
-	stdout, _, exit, _ := d.exec.RunWithTimeout(ctx, 5*time.Second, "npm", "--version")
+// It runs from home, like the config captures, so both see the same npm.
+func (d *NPMRCDetector) npmVersion(ctx context.Context, home string) string {
+	if home == "" {
+		return "unknown"
+	}
+	stdout, _, exit, _ := d.exec.RunInDir(ctx, home, 5*time.Second, "npm", "--version")
 	if exit != 0 {
 		return "unknown"
 	}
@@ -388,8 +490,11 @@ func (d *NPMRCDetector) npmVersion(ctx context.Context) string {
 // npmConfigGet runs `npm config get <key>` and returns the trimmed value, or
 // empty if the call failed or the value is "undefined" (npm's literal output
 // for an unset key).
-func (d *NPMRCDetector) npmConfigGet(ctx context.Context, key string) string {
-	stdout, _, exit, _ := d.exec.RunWithTimeout(ctx, 5*time.Second, "npm", "config", "get", key)
+func (d *NPMRCDetector) npmConfigGet(ctx context.Context, home, key string) string {
+	if home == "" {
+		return ""
+	}
+	stdout, _, exit, _ := d.exec.RunInDir(ctx, home, 5*time.Second, "npm", "config", "get", key)
 	if exit != 0 {
 		return ""
 	}
@@ -400,23 +505,69 @@ func (d *NPMRCDetector) npmConfigGet(ctx context.Context, key string) string {
 	return v
 }
 
-// collectEnv builds a snapshot of the npm-relevant environment. Sensitive
-// values are redacted; the SHA-256 lets the change-tracking layer notice
-// rotation without ever surfacing the secret.
-func (d *NPMRCDetector) collectEnv() []model.NPMRCEnvVar {
-	out := make([]model.NPMRCEnvVar, 0, len(npmEnvVars))
-	for _, name := range npmEnvVars {
-		v := d.exec.Getenv(name)
+// collectEnvVars builds a snapshot of the named environment variables.
+// Sensitive values are redacted and URL credentials masked; the SHA-256 lets
+// the change-tracking layer notice rotation without ever surfacing the
+// secret. Windows env lookups ignore case, so a second spelling of an
+// already-recorded name would only duplicate it there.
+func collectEnvVars(exec executor.Executor, names []string) []model.NPMRCEnvVar {
+	out := make([]model.NPMRCEnvVar, 0, len(names))
+	seen := map[string]bool{}
+	for _, name := range names {
+		key := pathKey(exec, name)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		v := exec.Getenv(name)
 		ev := model.NPMRCEnvVar{Name: name, Set: v != ""}
 		if v != "" {
 			ev.ValueSHA256 = sha256Hex(v)
 			if secretEnvNamePattern.MatchString(name) {
 				ev.DisplayValue = redactSecret(v)
 			} else {
-				ev.DisplayValue = v
+				ev.DisplayValue, _ = redactURLUserinfo(v)
 			}
 		}
 		out = append(out, ev)
 	}
 	return out
+}
+
+// pathKey folds case on Windows, where paths and env names are
+// case-insensitive, so one file or variable isn't reported twice.
+func pathKey(exec executor.Executor, s string) string {
+	if exec.GOOS() == model.PlatformWindows {
+		return strings.ToLower(s)
+	}
+	return s
+}
+
+// firstEnv returns the first non-empty value among names.
+func firstEnv(exec executor.Executor, names ...string) string {
+	for _, name := range names {
+		if v := exec.Getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func homeOf(u *user.User) string {
+	if u == nil {
+		return ""
+	}
+	return u.HomeDir
+}
+
+// applicability reports whether the installed manager reads a source:
+// unknown when its version can't be established.
+func applicability(known, applies bool) string {
+	switch {
+	case !known:
+		return "unknown"
+	case applies:
+		return "applicable"
+	}
+	return "ignored"
 }

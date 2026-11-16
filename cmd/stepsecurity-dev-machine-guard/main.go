@@ -31,6 +31,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/paths"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 	"github.com/step-security/dev-machine-guard/internal/progress/filelog"
+	"github.com/step-security/dev-machine-guard/internal/retire"
 	"github.com/step-security/dev-machine-guard/internal/rungate"
 	"github.com/step-security/dev-machine-guard/internal/scan"
 	"github.com/step-security/dev-machine-guard/internal/schtasks"
@@ -100,7 +101,7 @@ func main() {
 
 	// Apply saved config values if CLI didn't explicitly override them.
 	// CLI flags always win over config file values (same as the shell script).
-	if len(config.SearchDirs) > 0 && len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME" {
+	if !cfg.SearchDirsSet && len(config.SearchDirs) > 0 && len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME" {
 		cfg.SearchDirs = config.SearchDirs
 	}
 	if cfg.EnableNPMScan == nil && config.EnableNPMScan != nil {
@@ -170,6 +171,26 @@ func main() {
 			paths.SetOverride(cfg.InstallDir)
 		}
 	}
+	// Per-session state: on a host that scans every signed-in session
+	// separately, the run-gate cache, delta scan state, node cache and run
+	// metrics of a session live under <install dir>/users/<user token>, all
+	// of them reporting under the one machine device. Set before the
+	// heartbeat below stamps last-run.json. Probes nothing (no serial), so it
+	// is free here.
+	// A scan first records who is running it in the machine-wide state: a
+	// second developer on the same host is what switches it to per-session
+	// scanning under the users rule (device/multiuser.go), and that must be
+	// known before the scope below is chosen.
+	// `identity` must answer what that scan would do, so it assumes today's
+	// visit here, before the per-session decision below is cached, without
+	// recording it.
+	switch cfg.Command {
+	case "send-telemetry":
+		device.RecordScanUser(exec)
+	case "identity":
+		device.ProspectiveScanUser(exec)
+	}
+	paths.SetUserScope(device.SessionScope(exec))
 	installDir := paths.Home() // "" when SetDisabled or home unresolved
 	logFilePath := ""
 	if installDir != "" {
@@ -208,6 +229,7 @@ func main() {
 		level = progress.LevelError
 	}
 	log := progress.NewLogger(level)
+	device.SetLogger(log)
 	if captureErr != nil {
 		// Non-fatal: a read-only $HOME shouldn't block the run.
 		log.Warn("file logging disabled: %v", captureErr)
@@ -242,38 +264,59 @@ func main() {
 		// through the no-prompt code path. This is how MSI/SCCM/Intune
 		// custom actions drive configuration — they can't talk to stdin.
 		opts := config.NonInteractiveOptions{
-			FromFile:      cfg.ConfigFromFile,
-			CustomerID:    cfg.ConfigCustomerID,
-			APIEndpoint:   cfg.ConfigAPIEndpoint,
-			APIKey:        cfg.ConfigAPIKey,
-			ScanFrequency: cfg.ConfigScanFrequency,
-			AutoUpdate:    cfg.ConfigAutoUpdate,
+			FromFile: cfg.ConfigFromFile,
+			Values:   cfg.ConfigValues,
 		}
-		if opts.APIKey == "" {
+		if _, ok := opts.Values["api_key"]; !ok {
 			// Env-var fallback keeps the secret off the msiexec command
 			// line (which lands in AppEnforce.log on every endpoint).
-			opts.APIKey = os.Getenv("DMG_API_KEY")
-		}
-		// Only forward --search-dirs to configure when the user actually
-		// passed it on this invocation. (cli.Parse defaults SearchDirs to
-		// ["$HOME"] for the scan path, which we must not persist here.)
-		if len(cfg.SearchDirs) > 0 && !(len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME") {
-			opts.SearchDirs = cfg.SearchDirs
+			if key := os.Getenv("DMG_API_KEY"); key != "" {
+				if opts.Values == nil {
+					opts.Values = map[string]any{}
+				}
+				opts.Values["api_key"] = key
+			}
 		}
 		if cfg.NonInteractive || opts.HasAny() {
 			if err := config.RunConfigureNonInteractive(opts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				// os.Exit skips defers; drain the stderr tee so configure errors are visible.
+				_ = capture.Stop()
 				os.Exit(1)
 			}
+		} else if cfg.ImageBuilder != nil {
+			// `configure --image-builder` alone: the switch below is the
+			// whole request, no prompts.
 		} else {
 			if err := config.RunConfigure(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				// os.Exit skips defers; drain the stderr tee so configure errors are visible.
+				_ = capture.Stop()
 				os.Exit(1)
 			}
 		}
 
+		// The master-image switch is a machine-bound marker, not a config
+		// key (a bootstrap file travels into every clone, the switch must
+		// not), so it is applied here after the config was written.
+		if cfg.ImageBuilder != nil {
+			if err := device.SetImageBuilder(exec, *cfg.ImageBuilder); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				_ = capture.Stop()
+				os.Exit(1)
+			}
+			if *cfg.ImageBuilder {
+				fmt.Println("Image builder: scans are off on this machine; hosts built from its image scan normally")
+			} else {
+				fmt.Println("Image builder: scans are on again on this machine")
+			}
+		}
+
 	case "configure show":
-		config.ShowConfigure()
+		config.ShowConfigure(resolvedIdentityLine(exec), imageBuilderLine(exec))
+
+	case "identity":
+		printIdentity(exec, cfg)
 
 	case "send-telemetry":
 		// Stamp the local heartbeat first — before the enterprise gate and
@@ -283,6 +326,14 @@ func main() {
 		if !config.IsEnterpriseMode() {
 			log.Error("Enterprise configuration not found. Run '%s configure' or download the script from your StepSecurity dashboard.", os.Args[0])
 			os.Exit(1)
+		}
+		// The master-image builder never scans (gateSkipsRun refuses too,
+		// for every entry point); checked here as well, ahead of the
+		// bootstrap-fallback report, so nothing at all reaches the backend.
+		// Clones carry another machine id and are not affected.
+		if device.ImageBuilderActive(exec) {
+			log.Progress("Image builder: scans are off on this machine (configure --image-builder=false to turn them back on)")
+			return
 		}
 		reportBootstrapFallback()
 		// Server-driven run gate: exit 0 quietly when the backend says this
@@ -439,6 +490,16 @@ func main() {
 
 	case "uninstall":
 		_, _ = fmt.Fprintf(os.Stdout, "StepSecurity Dev Machine Guard v%s\n\n", buildinfo.Version)
+		// Collect the identities to retire while config.json and the
+		// per-session state files are still on disk (the MSI removes nothing
+		// before this custom action, but a teardown script may wipe the
+		// install dir right after), tear the scheduler down so no scan can
+		// start or finish reporting, and only then retire: a scan that
+		// reported after the retire would have restored the device. A
+		// failed teardown exits below and leaves the device registered,
+		// since the agent is still in place. Best-effort by contract: a
+		// dead network must never leave the scheduler job behind.
+		retireIDs := retireCandidatesOnUninstall(exec, log, cfg)
 		switch runtime.GOOS {
 		case model.PlatformWindows:
 			if err := schtasks.Uninstall(exec, log); err != nil {
@@ -458,6 +519,14 @@ func main() {
 		default:
 			log.Error("Scheduled installation is not supported on %s", runtime.GOOS)
 			os.Exit(1)
+		}
+		// The scheduler is gone, but a scan already mid-flight (or one a
+		// failed stop left behind) would report after the retire and
+		// restore the device: wait for every instance lock on this host
+		// and keep them while posting.
+		if release, idle := holdScansForRetire(log, retireIDs); idle {
+			retireDevicesOnUninstall(exec, log, retireIDs)
+			release()
 		}
 
 	case "hooks install":
@@ -716,6 +785,15 @@ func findLegacyLeftovers(legacy string) []string {
 // it is copied onto cfg so every managed entry point hands the same answer to
 // telemetry.Run.
 func gateSkipsRun(exec executor.Executor, log *progress.Logger, cfg *cli.Config) bool {
+	// The master-image builder never scans, whichever path led here (the
+	// default enterprise verb, the install-time scan, send-telemetry): an
+	// image team signs in to update the image, and that session must not
+	// register the imaging machine as a device. Before the check-in, so
+	// nothing reaches the backend; --force-scan does not override it.
+	if device.ImageBuilderActive(exec) {
+		log.Progress("Image builder: scans are off on this machine (configure --image-builder=false to turn them back on)")
+		return true
+	}
 	// A run inside a WSL distro gates under the identity its host gave it, not
 	// under the distro's own (absent) serial.
 	res := rungate.Evaluate(context.Background(), exec, log, cfg.ForceScan,
@@ -749,6 +827,167 @@ func gateSkipsRun(exec executor.Executor, log *progress.Logger, cfg *cli.Config)
 func writeHeartbeat(exec executor.Executor, command string, log *progress.Logger) {
 	if err := heartbeat.Write(paths.HeartbeatFile(), command, telemetry.DetectInvocationMethod(exec, log)); err != nil {
 		log.Debug("heartbeat: failed to write %s: %v", paths.HeartbeatFile(), err)
+	}
+}
+
+// resolvedIdentityLine renders "<id> (source: env|config|serial)" for
+// `configure show`, or the reason the template cannot be completed here. It
+// lives in main because the device package depends on config, so config
+// cannot resolve the identity itself.
+func resolvedIdentityLine(exec executor.Executor) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	id := device.ResolvedDeviceID(ctx, exec)
+	if id.Incomplete {
+		return fmt.Sprintf("(incomplete: template %q cannot be completed on this machine)", id.Template)
+	}
+	line := fmt.Sprintf("%s (source: %s)", id.DeviceID, id.Source)
+	if id.Source == device.IdentitySourceEnv {
+		line += " via " + device.EnvDeviceID
+	}
+	if id.PerSession {
+		if id.UserToken == "" {
+			line += "; per-session scanning is on and this context has no signed-in user, so a scan here is skipped"
+		} else {
+			line += fmt.Sprintf("; per-session scanning is on (%s), this session reports as user %s", device.PerSessionReason(exec), id.UserToken)
+		}
+	}
+	if id.Issue != "" {
+		line += " — " + id.Issue
+	}
+	return line
+}
+
+// identityView is the `identity --json` object: the id every backend call of
+// a run uses, where it came from, and the session facts (whether this host
+// scans per session and which user token this session reports). The loaders
+// read it to report run failures under the same id as the agent.
+type identityView struct {
+	DeviceID     string `json:"device_id"`
+	Source       string `json:"source"`
+	Template     string `json:"template,omitempty"`
+	PerSession   bool   `json:"per_session"`
+	SessionScope string `json:"session_scope,omitempty"`
+	UserToken    string `json:"user_token,omitempty"`
+	Incomplete   bool   `json:"incomplete"`
+	Serial       string `json:"serial,omitempty"`
+	Issue        string `json:"issue,omitempty"`
+	// ImageBuilder is true when the machine-bound master-image switch is on
+	// here: scans exit before any beacon (configure --image-builder).
+	ImageBuilder bool `json:"image_builder"`
+}
+
+// printIdentity is the `identity` verb. It exits 0 even for an incomplete
+// identity: the output says so, and a caller that needs an id checks the
+// field rather than the exit code.
+func printIdentity(exec executor.Executor, cfg *cli.Config) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	// Today's prospective visit was taken at startup (before the scope was
+	// chosen), so this resolves exactly what the next scan would.
+	id := device.ResolvedDeviceID(ctx, exec)
+	if cfg.OutputFormat == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.SetEscapeHTML(false)
+		_ = enc.Encode(identityView{DeviceID: id.DeviceID, Source: id.Source, Template: id.Template, PerSession: id.PerSession,
+			SessionScope: id.SessionScope, UserToken: id.UserToken, Incomplete: id.Incomplete,
+			Serial: id.Serial, Issue: id.Issue, ImageBuilder: device.ImageBuilderActive(exec)})
+		return
+	}
+	fmt.Printf("%-16s %s\n", "Device ID:", resolvedIdentityLine(exec))
+	fmt.Printf("%-16s %s\n", "Template:", displayOrNone(id.Template))
+	fmt.Printf("%-16s %v\n", "Per session:", id.PerSession)
+	fmt.Printf("%-16s %s\n", "Session scope:", displayOrNone(id.SessionScope))
+	fmt.Printf("%-16s %s\n", "User token:", displayOrNone(id.UserToken))
+	fmt.Printf("%-16s %s\n", "Serial:", displayOrNone(id.Serial))
+	fmt.Printf("%-16s %v\n", "Image builder:", device.ImageBuilderActive(exec))
+}
+
+// imageBuilderLine is the `configure show` value of the master-image switch.
+func imageBuilderLine(exec executor.Executor) string {
+	if device.ImageBuilderActive(exec) {
+		return "true (scans are off on this machine; hosts built from its image scan normally)"
+	}
+	return "false (default)"
+}
+
+func displayOrNone(v string) string {
+	if v == "" {
+		return "(none)"
+	}
+	return v
+}
+
+// retireCandidatesOnUninstall decides whether `uninstall` retires this device
+// (`--retire` / `--no-retire`, else config.json's retire_on_uninstall, written
+// at provisioning time so a plain `msiexec /x` needs no extra arguments) and
+// collects every identity to retire while the state is still on disk: the
+// resolved machine identity plus every id the cached run records on this
+// host were written under (an older build's per-user ids included), so an
+// MSI custom action running as SYSTEM leaves no row behind. Nil when nothing
+// is to be retired.
+func retireCandidatesOnUninstall(exec executor.Executor, log *progress.Logger, cfg *cli.Config) []string {
+	retireWanted := cfg.UninstallRetire || (config.RetireOnUninstall && !cfg.UninstallNoRetire)
+	if !retireWanted {
+		return nil
+	}
+	if !config.IsEnterpriseMode() {
+		log.Debug("retire: skipped (no enterprise config)")
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), retire.TotalBudget)
+	defer cancel()
+	ids := retire.CollectIdentities(ctx, exec, log)
+	if len(ids) == 0 {
+		log.Warn("retire: no device id could be resolved; the device stays registered until it is retired from the dashboard or by inactivity")
+	}
+	return ids
+}
+
+// holdScansForRetire waits (bounded by retire.ScanHoldBudget) until no scan
+// runs on this host and returns the lock release, or idle=false with a
+// warning when one still runs: the retire is then skipped so a late upload
+// cannot restore a device the dashboard just dropped. Nothing to retire
+// means nothing to wait for.
+func holdScansForRetire(log *progress.Logger, ids []string) (release func(), idle bool) {
+	if len(ids) == 0 {
+		return func() {}, true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), retire.ScanHoldBudget)
+	defer cancel()
+	release, idle = retire.HoldScans(ctx, log)
+	if !idle {
+		log.Warn("a scan is still running after %s; not retiring: the device stays registered until it is retired from the dashboard or by inactivity (run `uninstall --retire` once the scan has finished)", retire.ScanHoldBudget)
+	}
+	return release, idle
+}
+
+// retireDevicesOnUninstall posts the retire for each collected identity once
+// the scheduler is gone, so nothing can report under them afterwards. A
+// failure is a warning, never an exit code.
+func retireDevicesOnUninstall(exec executor.Executor, log *progress.Logger, ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), retire.BudgetFor(len(ids)))
+	defer cancel()
+	for _, id := range ids {
+		status, err := retire.Post(ctx, config.APIEndpoint, config.APIKey, config.CustomerID, id, buildinfo.Version, exec.GOOS(), retire.ReasonUninstall)
+		switch {
+		case err == nil && status == retire.StatusOutOfScope:
+			// The tenant limits retirement to chosen device tags (Settings,
+			// Device activity) and this device is not among them.
+			log.Progress("Device %s is outside the dashboard's retirement scope; left registered", id)
+		case err == nil && status == retire.StatusUnknownDevice:
+			log.Debug("retire: %s is not registered in the dashboard; nothing to retire", id)
+		case err == nil:
+			log.Progress("Retired device %s in the dashboard", id)
+		case errors.Is(err, retire.ErrNotSupported):
+			log.Warn("retire: the dashboard backend does not support device retirement yet; %s stays registered (retire it from the dashboard or let inactivity retire it)", id)
+		default:
+			log.Warn("retire %s: %v", id, err)
+		}
 	}
 }
 
