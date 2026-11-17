@@ -1382,7 +1382,7 @@ func TestReadDB_ReplacementIsDrift(t *testing.T) {
 	if err := os.WriteFile(path, []byte("new database"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !drifted(r, path, f, info, nil, nil) {
+	if !drifted(r, path, path, f, info, nil, nil) {
 		t.Fatal("replaced database was accepted as unchanged")
 	}
 }
