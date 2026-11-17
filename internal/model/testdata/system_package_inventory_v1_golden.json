@@ -1,0 +1,355 @@
+{
+  "system_package_scans": [
+    {
+      "scan_type": "rpm",
+      "package_manager": {
+        "name": "rpm",
+        "version": "unknown",
+        "path": "/usr/bin/rpm"
+      },
+      "packages": [
+        {
+          "name": "bash",
+          "version": "1.0-1.fc40",
+          "arch": "x86_64",
+          "source": "bash-1.0-1.fc40.src.rpm",
+          "install_time_unix": 1700000000,
+          "scope": "machine",
+          "vendor": "Fedora Project",
+          "maintainer": "Fedora Project",
+          "url": "https://example.org",
+          "license": "MIT",
+          "signature": "RSA/SHA256",
+          "build_time_unix": 1690000000,
+          "installed_size": 1024
+        },
+        {
+          "name": "shadow-utils",
+          "version": "1.0-1.fc40",
+          "arch": "x86_64",
+          "source": "shadow-utils-1.0-1.fc40.src.rpm",
+          "install_time_unix": 1700000000,
+          "scope": "machine",
+          "vendor": "Fedora Project",
+          "maintainer": "Fedora Project",
+          "url": "https://example.org",
+          "license": "MIT",
+          "signature": "RSA/SHA256",
+          "build_time_unix": 1690000000,
+          "installed_size": 1024,
+          "epoch": 2
+        }
+      ],
+      "packages_count": 2,
+      "scan_duration_ms": 0,
+      "source_id": "machine-default",
+      "discovery_root": "machine-default",
+      "scope": "machine",
+      "status": "complete"
+    },
+    {
+      "scan_type": "dpkg",
+      "package_manager": {
+        "name": "dpkg",
+        "version": "unknown",
+        "path": "/usr/bin/dpkg-query"
+      },
+      "packages": [
+        {
+          "name": "coreutils",
+          "version": "1:2.0-1",
+          "arch": "amd64",
+          "source": "coreutils",
+          "install_time_unix": 1700000000,
+          "scope": "machine",
+          "vendor": "Debian",
+          "maintainer": "Debian Developers",
+          "section": "utils",
+          "installed_size": 4096
+        }
+      ],
+      "packages_count": 1,
+      "error": "unparsed output",
+      "scan_duration_ms": 0,
+      "source_id": "machine-default",
+      "discovery_root": "machine-default",
+      "scope": "machine",
+      "status": "partial"
+    },
+    {
+      "scan_type": "apk",
+      "packages": [],
+      "packages_count": 0,
+      "error": "query tool unavailable",
+      "scan_duration_ms": 0,
+      "source_id": "machine-default",
+      "discovery_root": "machine-default",
+      "scope": "machine",
+      "status": "failed"
+    },
+    {
+      "scan_type": "flatpak",
+      "package_manager": {
+        "name": "flatpak",
+        "version": "unknown",
+        "path": "/usr/bin/flatpak"
+      },
+      "packages": [
+        {
+          "name": "org.example.InventoryProbe",
+          "version": "unknown",
+          "arch": "aarch64",
+          "source": "fixture-repo",
+          "install_path": "/home/alice/.local/share/flatpak/app/org.example.InventoryProbe/aarch64/beta/active",
+          "scope": "user",
+          "channel": "beta",
+          "commit_hash": "022b70a6d320"
+        },
+        {
+          "name": "org.example.InventoryProbe",
+          "version": "unknown",
+          "arch": "aarch64",
+          "source": "fixture-repo",
+          "install_path": "/home/alice/.local/share/flatpak/app/org.example.InventoryProbe/aarch64/stable/active",
+          "scope": "user",
+          "channel": "stable",
+          "commit_hash": "229b8db313f9"
+        }
+      ],
+      "packages_count": 2,
+      "scan_duration_ms": 0,
+      "source_id": "/home/alice/.local/share/flatpak",
+      "discovery_root": "user-installation",
+      "scope": "user",
+      "status": "complete"
+    },
+    {
+      "scan_type": "flatpak",
+      "package_manager": {
+        "name": "flatpak",
+        "version": "unknown",
+        "path": "/usr/bin/flatpak"
+      },
+      "packages": [
+        {
+          "name": "org.example.InventoryProbe",
+          "version": "unknown",
+          "arch": "aarch64",
+          "source": "fixture-repo",
+          "install_path": "/var/lib/flatpak/app/org.example.InventoryProbe/aarch64/stable/active",
+          "scope": "machine",
+          "channel": "stable",
+          "commit_hash": "229b8db313f9"
+        }
+      ],
+      "packages_count": 1,
+      "scan_duration_ms": 0,
+      "source_id": "/var/lib/flatpak",
+      "discovery_root": "system-installations",
+      "scope": "machine",
+      "status": "complete"
+    },
+    {
+      "scan_type": "nix",
+      "packages": [
+        {
+          "name": "zlib",
+          "version": "1.3.1",
+          "install_path": "/nix/store/mrmm3hc3s1f6wnszxnwqfxvxhbchqbbi-zlib-1.3.1",
+          "scope": "user",
+          "element": "zlib",
+          "active": true,
+          "outputs": [
+            {
+              "name": "dev",
+              "path": "/nix/store/kkgnjmnpshqw9xbw8x39g1pl1a3h15xx-zlib-1.3.1-dev"
+            },
+            {
+              "name": "out",
+              "path": "/nix/store/mrmm3hc3s1f6wnszxnwqfxvxhbchqbbi-zlib-1.3.1"
+            }
+          ]
+        }
+      ],
+      "packages_count": 1,
+      "scan_duration_ms": 0,
+      "source_id": "/home/alice/.local/state/nix/profiles/profile",
+      "discovery_root": "/home/alice/.local/state/nix/profiles",
+      "scope": "user",
+      "status": "complete"
+    },
+    {
+      "scan_type": "nix",
+      "packages": [
+        {
+          "name": "hello",
+          "version": "2.12.1",
+          "install_path": "/nix/store/jppkr0h8aap5z7m4xy4vg5yrwlly9h2v-hello-2.12.1",
+          "scope": "machine",
+          "element": "paths:e82fa07eb02b8e5dece5d43c04e09ece643845bb013f41ecaaab3e3640e0e7b5",
+          "active": false,
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/jppkr0h8aap5z7m4xy4vg5yrwlly9h2v-hello-2.12.1"
+            }
+          ]
+        }
+      ],
+      "packages_count": 1,
+      "error": "profile changed during scan",
+      "scan_duration_ms": 0,
+      "source_id": "/nix/var/nix/profiles/default",
+      "discovery_root": "/nix/var/nix/profiles/default",
+      "scope": "machine",
+      "status": "partial"
+    },
+    {
+      "scan_type": "nix",
+      "packages": [
+        {
+          "name": "hello",
+          "version": "2.12.1",
+          "install_path": "/nix/store/jppkr0h8aap5z7m4xy4vg5yrwlly9h2v-hello-2.12.1",
+          "scope": "user",
+          "outputs": [
+            {
+              "path": "/nix/store/jppkr0h8aap5z7m4xy4vg5yrwlly9h2v-hello-2.12.1"
+            }
+          ]
+        },
+        {
+          "name": "hm-session-vars.sh",
+          "version": "unknown",
+          "install_path": "/nix/store/qgqw2bj57p5a3ml2j3q6xlhav8cw2dcn-hm-session-vars.sh",
+          "scope": "user",
+          "outputs": [
+            {
+              "path": "/nix/store/qgqw2bj57p5a3ml2j3q6xlhav8cw2dcn-hm-session-vars.sh"
+            }
+          ]
+        },
+        {
+          "name": "man-db",
+          "version": "2.13.0",
+          "install_path": "/nix/store/z2ib15rv88rh01ga3krx1qif3w7gz2v0-man-db-2.13.0",
+          "scope": "user",
+          "outputs": [
+            {
+              "path": "/nix/store/z2ib15rv88rh01ga3krx1qif3w7gz2v0-man-db-2.13.0"
+            }
+          ]
+        },
+        {
+          "name": "shared-mime-info",
+          "version": "2.4",
+          "install_path": "/nix/store/nq4xhpc6j36qc7hnrqpcb71bkdsbrfj7-shared-mime-info-2.4",
+          "scope": "user",
+          "outputs": [
+            {
+              "path": "/nix/store/nq4xhpc6j36qc7hnrqpcb71bkdsbrfj7-shared-mime-info-2.4"
+            }
+          ]
+        },
+        {
+          "name": "which",
+          "version": "2.23",
+          "install_path": "/nix/store/2izgqqfw4j4qvf93690561840nj1m2d6-which-2.23",
+          "scope": "user",
+          "outputs": [
+            {
+              "path": "/nix/store/2izgqqfw4j4qvf93690561840nj1m2d6-which-2.23"
+            }
+          ]
+        }
+      ],
+      "packages_count": 5,
+      "scan_duration_ms": 0,
+      "source_id": "/home/alice/.local/state/nix/profiles/home-manager/home-path",
+      "discovery_root": "/home/alice/.local/state/nix/profiles",
+      "scope": "user",
+      "status": "complete"
+    },
+    {
+      "scan_type": "nix",
+      "packages": [],
+      "packages_count": 0,
+      "error": "store path not registered",
+      "scan_duration_ms": 0,
+      "source_id": "/run/current-system/sw",
+      "discovery_root": "/run/current-system/sw",
+      "scope": "machine",
+      "status": "failed"
+    }
+  ],
+  "system_package_inventory": {
+    "schema_version": 1,
+    "discovery_roots": [
+      {
+        "scan_type": "rpm",
+        "scope": "machine",
+        "path": "machine-default"
+      },
+      {
+        "scan_type": "dpkg",
+        "scope": "machine",
+        "path": "machine-default"
+      },
+      {
+        "scan_type": "pacman",
+        "scope": "machine",
+        "path": "machine-default"
+      },
+      {
+        "scan_type": "apk",
+        "scope": "machine",
+        "path": "machine-default"
+      },
+      {
+        "scan_type": "snap",
+        "scope": "machine",
+        "path": "machine-default"
+      },
+      {
+        "scan_type": "flatpak",
+        "scope": "user",
+        "path": "user-installation"
+      },
+      {
+        "scan_type": "flatpak",
+        "scope": "machine",
+        "path": "system-installations"
+      },
+      {
+        "scan_type": "nix",
+        "scope": "user",
+        "path": "/home/alice/.local/state/nix/profiles"
+      },
+      {
+        "scan_type": "nix",
+        "scope": "user",
+        "path": "/nix/var/nix/profiles/per-user/alice"
+      },
+      {
+        "scan_type": "nix",
+        "scope": "machine",
+        "path": "/nix/var/nix/profiles/default"
+      },
+      {
+        "scan_type": "nix",
+        "scope": "machine",
+        "path": "/run/current-system/sw"
+      },
+      {
+        "scan_type": "nix",
+        "scope": "user",
+        "path": "/etc/profiles/per-user/alice"
+      },
+      {
+        "scan_type": "nix",
+        "scope": "user",
+        "path": "/home/alice/.nix-profile"
+      }
+    ]
+  }
+}

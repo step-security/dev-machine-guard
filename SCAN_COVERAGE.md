@@ -420,24 +420,34 @@ Enterprise telemetry emits `swift_inventory` and `swift_config_audit` for the re
 
 **Limits and privacy.** Each metadata file is capped at 2 MiB; discovery at 100,000 entries per root and depth 128; listings at 10,000 entries; inventory at 50,000 records; the audit at 256 KiB; combined sections at 16 MiB. Failures and limits carry partial coverage, and admitted records are kept when collection stops. `Package.resolved` versions other than 1–3, `workspace-state.json` versions other than 4–7 and registry download layouts that are not `<scope>/<name>/<SemVer>` are `unsupported_format` or `unsupported_layout`. A version-1 `Package.resolved` derives identity from the recorded URL, so a mirror whose last path component differs from the original yields a different identity there than in `workspace-state.json`. Not covered: paths given only on a command line (`--scratch-path`, `-derivedDataPath`, `-clonedSourcePackagesDirPath`), root-package binary artifacts and SwiftPM prebuilts, CocoaPods, Carthage and other users' homes. URL credentials, queries and fragments are removed before telemetry, and the Keychain, `.netrc` contents, `SWIFTPM_*` token, login and password variables and signing material are never collected.
 
-## System Package Scanning (Linux)
+## System Package Scanning (Linux, Nix)
 
-System package scanning is **automatic on Linux** — no opt-in flag required. Multiple package managers can coexist.
+System package scanning is **automatic on Linux**; no opt-in flag is required. Every package manager present is scanned on its own, so an empty or broken one does not hide another. Each scan carries a status (`complete`, `partial` or `failed`), a source and a scope. A fixed error text says why a scan is not complete; command output and file content are never sent.
 
 | Package Manager | Distributions                          | Rich Metadata                                                                 |
 |-----------------|----------------------------------------|-------------------------------------------------------------------------------|
-| rpm             | Fedora, RHEL, CentOS, SUSE, Amazon    | Name, version, arch, install time, source RPM, vendor, packager, URL, license, build time, size, signature |
-| dpkg            | Debian, Ubuntu, Mint, Pop!_OS          | Package, version, arch, source, maintainer, origin, section, installed size   |
-| pacman          | Arch, Manjaro, EndeavourOS             | Name, version, arch, URL, license, packager, build/install date, size, validation |
-| apk             | Alpine Linux                           | Name, version, arch, URL, license, origin, maintainer, build time, commit hash, size |
+| rpm             | Fedora, RHEL, CentOS, SUSE, Amazon    | Name, version, epoch, arch, install time, source RPM, vendor, packager, URL, license, build time, size, signature |
+| dpkg            | Debian, Ubuntu, Mint, Pop!_OS          | Package, version, arch, source, maintainer, origin, section, installed size. Packages removed with their configuration kept (`config-files`) are not reported |
+| pacman          | Arch, Manjaro, EndeavourOS             | Name, version, arch, URL, license, packager, build/install date, size, validation. Queried under the C locale |
+| apk             | Alpine Linux                           | Name, version, arch, URL, license, origin, maintainer, build time, commit hash, size. Read from the installed database (at most 8 MiB), else `apk list --installed` |
+
+A manager is present when its command is on `PATH` or its database exists (`/var/lib/rpm` or `/usr/lib/sysimage/rpm`, `/var/lib/dpkg/status`, `/var/lib/pacman/local`, `/lib/apk/db/installed` or `/usr/lib/apk/db/installed`). A database without its command is a `failed` scan. A failed query is a `failed` scan, not an empty one.
 
 ### Snap Packages
 
-Detected if `snap` is installed. Metadata: name, version, revision, tracking channel, publisher, confinement (strict/classic/devmode).
+Detected if `snap` is installed or `/var/lib/snapd` exists. Metadata: name, version, tracking channel, publisher, confinement (strict/classic/devmode).
 
 ### Flatpak Packages
 
-Detected if `flatpak` is installed. Metadata: app ID, name, version, arch, branch, origin, active commit, runtime.
+Detected if `flatpak` is installed. Applications only, one scan per installation (user, default system and each configured system installation), keyed by the installation's path. Metadata: app ID, version, arch, branch, origin, active commit, runtime; the install path is the deployment's `active` link. If `flatpak list` prints a line that cannot be parsed, such as a warning about a deployment it could not read, every Flatpak scan is `partial`.
+
+### Nix Packages (Linux and macOS)
+
+Nix profiles are read from disk; the agent never runs `nix`, a shell or a Nix expression. Profiles: `~/.local/state/nix/profiles` (or `$XDG_STATE_HOME`), `/nix/var/nix/profiles/per-user/<user>`, `/nix/var/nix/profiles/default`, a `~/.nix-profile` that is not a link to one of those, and `NIX_PROFILES` entries; on Linux also NixOS `/run/current-system/sw` and `/etc/profiles/per-user/<user>`. `manifest.json` (version 3) and the literal `manifest.nix` that `nix-env` writes are read; each element is one record with its element key, active flag and output paths. NixOS system and user environments and Home Manager `home-path` report their direct members, read from the Nix store database (`/nix/var/nix/db/db.sqlite`, opened read-only).
+
+Environment values are used only when the agent runs as the scanned user. Not covered: the full store closure, services, a custom `NIX_STORE_DIR`/`NIX_STATE_DIR` (reported `failed`), and a `manifest.nix` outside the literal subset. A read-only open of the store database can create its `-wal`/`-shm` files.
+
+**Limits.** At most 50,000 system package records per scan across all managers and Nix, 256 Flatpak installations and 1,024 Nix profiles; manifests at most 2 MiB and nesting depth 32, 10,000 elements and 64 outputs per element, 10,000 direct references per environment. A source cut by a limit is `partial`.
 
 ## WSL Detection (Windows)
 

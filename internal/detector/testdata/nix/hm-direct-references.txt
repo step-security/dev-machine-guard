@@ -1,0 +1,5 @@
+/nix/store/2izgqqfw4j4qvf93690561840nj1m2d6-which-2.23
+/nix/store/jppkr0h8aap5z7m4xy4vg5yrwlly9h2v-hello-2.12.1
+/nix/store/nq4xhpc6j36qc7hnrqpcb71bkdsbrfj7-shared-mime-info-2.4
+/nix/store/qgqw2bj57p5a3ml2j3q6xlhav8cw2dcn-hm-session-vars.sh
+/nix/store/z2ib15rv88rh01ga3krx1qif3w7gz2v0-man-db-2.13.0

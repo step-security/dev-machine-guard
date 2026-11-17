@@ -432,9 +432,11 @@ events), never to assemble an argv we then execute. Idiom: `shlex.Split`, fall b
 `strings.Fields` on error.
 
 ### 7.6 When a shell is unavoidable, quote every token
-The two legitimate shell paths (`RunAsUser` sourcing the user's rc; the Node PM-version PATH-prepend
+The legitimate shell paths (`RunAsUser` sourcing the user's rc; the Node PM-version PATH-prepend
 fallback) run the binary, **every arg, and every path** through `platformShellQuote` /
-`posixShellQuote` (POSIX `'…'` with `'\''`; Windows `"…"` with `\"`).
+`posixShellQuote` (POSIX `'…'` with `'\''`; Windows `"…"` with `\"`). The Flatpak list runs under
+the constant script `/bin/sh -c 'exec "$@" 2>&1'` to fold its warnings into stdout; every value is a
+positional argument, never part of the script.
 
 ---
 

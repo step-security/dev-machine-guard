@@ -2,6 +2,9 @@ package detector
 
 import (
 	"bytes"
+	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -377,6 +380,55 @@ func FuzzSwiftMetadata(f *testing.F) {
 		registry, err := parseSwiftReceipt(data)
 		if registry2, err2 := parseSwiftReceipt(data); registry != registry2 || (err == nil) != (err2 == nil) {
 			t.Fatal("receipt parse is not deterministic")
+		}
+		if !bytes.Equal(data, before) {
+			t.Fatal("parser mutated input")
+		}
+	})
+}
+
+func FuzzNixManifest(f *testing.F) {
+	files, err := filepath.Glob("testdata/nix/*manifest*")
+	if err != nil {
+		f.Fatal(err)
+	}
+	for _, p := range files {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(data)
+	}
+	for _, s := range []string{
+		`{"version":1,"elements":[{"active":true,"storePaths":["/nix/store/jppkr0h8aap5z7m4xy4vg5yrwlly9h2v-hello-2.12.1"]}]}`,
+		`[ { meta = { active = "false"; }; name = "x-${y}"; } ]`,
+		"", "{", "[", "\xff\x00",
+	} {
+		f.Add([]byte(s))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 16*1024 {
+			t.Skip()
+		}
+		before := bytes.Clone(data)
+		for _, parse := range []func([]byte) ([]model.SystemPackage, bool, error){parseNixManifestJSON, parseNixManifestLegacy} {
+			pkgs, incomplete, err := parse(data)
+			if pkgs2, incomplete2, err2 := parse(data); !reflect.DeepEqual(pkgs, pkgs2) || incomplete != incomplete2 || !errors.Is(err2, err) {
+				t.Fatal("manifest parse is not deterministic")
+			}
+			if err != nil && len(pkgs) > 0 {
+				t.Fatal("a rejected manifest returned records")
+			}
+			for _, p := range pkgs {
+				if p.Element == "" || nixStoreBase(p.InstallPath) == "" || len(p.Outputs) == 0 || len(p.Outputs) > maxNixOutputs {
+					t.Fatalf("invalid record %+v", p)
+				}
+				for _, o := range p.Outputs {
+					if nixStoreBase(o.Path) == "" {
+						t.Fatalf("output outside the store %+v", o)
+					}
+				}
+			}
 		}
 		if !bytes.Equal(data, before) {
 			t.Fatal("parser mutated input")

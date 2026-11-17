@@ -200,23 +200,32 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	if exec.GOOS() == model.PlatformLinux {
 		log.StepStart("Detecting system packages")
 		start = time.Now()
-		sysPkgDetector := detector.NewSystemPkgDetector(exec)
-		systemPkgManager = sysPkgDetector.Detect(ctx)
-		if systemPkgManager != nil {
-			systemPackages = sysPkgDetector.ListPackages(ctx)
-		}
-
-		// Snap and flatpak coexist with the system PM
-		for _, mgr := range sysPkgDetector.DetectAdditionalManagers(ctx) {
-			mgr := mgr
-			switch mgr.Name {
+		// Community output keeps one primary manager: the first that listed
+		// packages, else the first that answered.
+		var scans []model.SystemPackageScanResult
+		scans, flatpakPkgManager = detector.NewSystemPkgDetector(exec, log).Scan(ctx)
+		var fallback *model.SystemPackageScanResult
+		for i := range scans {
+			s := &scans[i]
+			switch s.ScanType {
 			case "snap":
-				snapPkgManager = &mgr
-				snapPackages = sysPkgDetector.ListSnapPackages(ctx)
+				snapPkgManager, snapPackages = s.PackageManager, s.Packages
 			case "flatpak":
-				flatpakPkgManager = &mgr
-				flatpakPackages = sysPkgDetector.ListFlatpakPackages(ctx)
+				flatpakPackages = append(flatpakPackages, s.Packages...)
+			default:
+				if s.Status == model.SystemPackageStatusFailed {
+					continue
+				}
+				if systemPkgManager == nil && len(s.Packages) > 0 {
+					systemPkgManager, systemPackages = s.PackageManager, s.Packages
+				}
+				if fallback == nil {
+					fallback = s
+				}
 			}
+		}
+		if systemPkgManager == nil && fallback != nil {
+			systemPkgManager, systemPackages = fallback.PackageManager, fallback.Packages
 		}
 		log.StepDone(time.Since(start))
 	}

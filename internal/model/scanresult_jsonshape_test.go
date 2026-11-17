@@ -66,3 +66,25 @@ func TestScanResult_AgentPlugins_OmittedWhenNil(t *testing.T) {
 		}
 	}
 }
+
+// A Windows scan sets none of the Linux and Nix source fields, so its bytes
+// match the shape before they existed; an inventory with no roots still says
+// so with an empty list.
+func TestSystemPackage_WindowsShapeAndEmptyRoots(t *testing.T) {
+	win := SystemPackageScanResult{ScanType: "winget", Packages: []SystemPackage{{Name: "Git.Git", Version: "2.45.1", Scope: "machine"}}, PackagesCount: 1, ScanDurationMs: 7}
+	b, err := json.Marshal(win)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `{"scan_type":"winget","packages":[{"name":"Git.Git","version":"2.45.1","scope":"machine"}],"packages_count":1,"scan_duration_ms":7}`
+	if string(b) != want {
+		t.Errorf("windows scan = %s\nwant %s", b, want)
+	}
+	b, err = json.Marshal(SystemPackageInventory{SchemaVersion: SystemPackageInventorySchemaVersion, DiscoveryRoots: []SystemPackageDiscoveryRoot{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != `{"schema_version":1,"discovery_roots":[]}` {
+		t.Errorf("empty inventory = %s", b)
+	}
+}

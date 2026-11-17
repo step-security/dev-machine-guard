@@ -120,7 +120,8 @@ type Payload struct {
 	PythonProjectsRemoved   []model.RemovedProjectRef       `json:"python_projects_removed,omitempty"`
 	PythonGlobalsUnchanged  []model.UnchangedGlobalRef      `json:"python_globals_unchanged,omitempty"`
 	SystemPackageScans      []model.SystemPackageScanResult `json:"system_package_scans"`
-	RuntimeScan             *model.RuntimeScanResult        `json:"runtime_scan,omitempty"` // nil = runtime inventory disabled
+	SystemPackageInventory  *model.SystemPackageInventory   `json:"system_package_inventory,omitempty"` // nil on Windows
+	RuntimeScan             *model.RuntimeScanResult        `json:"runtime_scan,omitempty"`             // nil = runtime inventory disabled
 	AIAgents                []model.AITool                  `json:"ai_agents"`
 	MCPConfigs              []model.MCPConfigEnterprise     `json:"mcp_configs"`
 	NPMRCAudit              *model.NPMRCAudit               `json:"npmrc_audit,omitempty"`
@@ -964,60 +965,21 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		fmt.Fprintln(os.Stderr)
 	}
 
-	// System package scanning: Linux (rpm, dpkg, pacman, apk, snap, flatpak)
-	// and Windows (ARP registry, choco, scoop, winget portable).
+	// System package scanning: Linux (rpm, dpkg, pacman, apk, snap, flatpak),
+	// Windows (ARP registry, choco, scoop, winget portable) and Nix on Linux and
+	// macOS. browserTarget is the target account for every passive scanner below.
 	var systemPackageScans []model.SystemPackageScanResult
+	var systemPackageInventory *model.SystemPackageInventory
+	browserTarget, _ := exec.LoggedInUser()
 
-	if exec.GOOS() == model.PlatformLinux {
+	if goos := exec.GOOS(); goos == model.PlatformLinux || goos == model.PlatformDarwin {
 		phaseCtx, phaseCancel = startPhase(ctx, tracker, "syspkg_scan")
 		log.Progress("Detecting system packages...")
-		sysPkgDetector := detector.NewSystemPkgDetector(userExec)
-
-		// Primary system PM (rpm, dpkg, pacman, or apk)
-		if pm := sysPkgDetector.Detect(phaseCtx); pm != nil {
-			log.Progress("  Found: %s v%s at %s", pm.Name, pm.Version, pm.Path)
-			start := time.Now()
-			packages := sysPkgDetector.ListPackages(phaseCtx)
-			duration := time.Since(start).Milliseconds()
-			if packages == nil {
-				packages = []model.SystemPackage{}
-			}
-			systemPackageScans = append(systemPackageScans, model.SystemPackageScanResult{
-				ScanType:       pm.Name,
-				PackageManager: pm,
-				Packages:       packages,
-				PackagesCount:  len(packages),
-				ScanDurationMs: duration,
-			})
-			log.Progress("  %s: %d packages in %dms", pm.Name, len(packages), duration)
+		systemPackageScans, systemPackageInventory = detector.ScanSystemPackages(phaseCtx, userExec, exec, log,
+			browserTarget, cfg.IncludeNetworkVolumes)
+		for _, s := range systemPackageScans {
+			log.Progress("  %s: %d packages in %dms (%s)", s.ScanType, s.PackagesCount, s.ScanDurationMs, s.Status)
 		}
-
-		// Additional PMs (snap, flatpak) — coexist with system PM
-		for _, mgr := range sysPkgDetector.DetectAdditionalManagers(phaseCtx) {
-			mgr := mgr
-			log.Progress("  Found: %s v%s at %s", mgr.Name, mgr.Version, mgr.Path)
-			start := time.Now()
-			var packages []model.SystemPackage
-			switch mgr.Name {
-			case "snap":
-				packages = sysPkgDetector.ListSnapPackages(phaseCtx)
-			case "flatpak":
-				packages = sysPkgDetector.ListFlatpakPackages(phaseCtx)
-			}
-			duration := time.Since(start).Milliseconds()
-			if packages == nil {
-				packages = []model.SystemPackage{}
-			}
-			systemPackageScans = append(systemPackageScans, model.SystemPackageScanResult{
-				ScanType:       mgr.Name,
-				PackageManager: &mgr,
-				Packages:       packages,
-				PackagesCount:  len(packages),
-				ScanDurationMs: duration,
-			})
-			log.Progress("  %s: %d packages in %dms", mgr.Name, len(packages), duration)
-		}
-
 		if len(systemPackageScans) == 0 {
 			log.Progress("  No system package managers found")
 		}
@@ -1034,9 +996,6 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		fmt.Fprintln(os.Stderr)
 		endPhase(phaseCtx, phaseCancel, tracker, log, "syspkg_scan")
 		postPhase()
-	} else {
-		log.Progress("System package scanning: skipped (macOS uses Homebrew)")
-		fmt.Fprintln(os.Stderr)
 	}
 
 	// Language runtime inventory (all platforms): every node/python/php/java/
@@ -1203,7 +1162,6 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// real inventory. A nil section is that decline, and it must stay nil.
 	phaseCtx, phaseCancel = startPhase(ctx, tracker, "browser_extensions_scan")
 	log.Progress("Inventorying browser extensions...")
-	browserTarget, _ := exec.LoggedInUser()
 	browserExtensionScan := browserext.New(userExec).WithOSVersion(dev.OSVersion).WithSkipper(tccSkipper).Detect(phaseCtx, browserTarget)
 	if browserExtensionScan == nil {
 		log.Progress("  Skipped: no interactive user to describe")
@@ -1442,6 +1400,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		PythonProjectsRemoved:   pyRemovedRefs,
 		PythonGlobalsUnchanged:  pyGlobalsUnchangedRefs,
 		SystemPackageScans:      systemPackageScans,
+		SystemPackageInventory:  systemPackageInventory,
 		RuntimeScan:             runtimeScan,
 		AIAgents:                allAI,
 		MCPConfigs:              mcpConfigs,

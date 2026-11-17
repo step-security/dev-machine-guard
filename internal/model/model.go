@@ -365,9 +365,9 @@ type SystemPackage struct {
 	Version         string `json:"version"`
 	Arch            string `json:"arch,omitempty"`              // CPU architecture: x86_64, amd64, noarch, arm64, etc.
 	Source          string `json:"source,omitempty"`            // Origin: source RPM, dpkg source, snap publisher, flatpak remote
-	InstallPath     string `json:"install_path,omitempty"`      // On-disk install root. Populated for snap (/snap/<name>/current) and flatpak (~/.local/share/flatpak/app/<id> or /var/lib/flatpak/app/<id>). Not applicable for rpm/dpkg/pacman/apk (file collections).
+	InstallPath     string `json:"install_path,omitempty"`      // On-disk install root. Populated for snap (/snap/<name>/current), flatpak (<installation>/app/<id>/<arch>/<branch>/active) and nix (store path). Not applicable for rpm/dpkg/pacman/apk (file collections).
 	InstallTimeUnix int64  `json:"install_time_unix,omitempty"` // Unix epoch seconds when installed (rpm, dpkg, pacman)
-	Scope           string `json:"scope,omitempty"`             // Windows: "machine" (HKLM, ProgramData) or "user" (HKCU, user profile)
+	Scope           string `json:"scope,omitempty"`             // "machine" or "user": Windows HKLM/ProgramData vs HKCU/profile; Linux and Nix copy the scan scope
 
 	// Provenance & trust signals
 	Vendor        string `json:"vendor,omitempty"`          // Distributor: rpm VENDOR, dpkg Origin
@@ -388,6 +388,20 @@ type SystemPackage struct {
 
 	// Source control
 	CommitHash string `json:"commit_hash,omitempty"` // apk commit, flatpak active commit
+
+	Epoch int `json:"epoch,omitempty"` // RPM epoch; 0 (none) is omitted
+	// Nix registration metadata. Element is the native registration key, never
+	// a display name; Active nil means unknown, and false is still installed.
+	Element string                `json:"element,omitempty"`
+	Active  *bool                 `json:"active,omitempty"`
+	Outputs []SystemPackageOutput `json:"outputs,omitempty"` // Nix only, so omitted elsewhere
+}
+
+// SystemPackageOutput is one registered Nix output. Name is set only when the
+// manifest proves which path it names.
+type SystemPackageOutput struct {
+	Name string `json:"name,omitempty"`
+	Path string `json:"path"`
 }
 
 // RuntimeInstall is one language runtime install found on disk (node, python,
@@ -444,12 +458,44 @@ type PythonPackage struct {
 // Unlike BrewScanResult (which sends raw base64), this sends pre-parsed packages
 // since syspkg.go already handles the format-specific parsing edge cases.
 type SystemPackageScanResult struct {
-	ScanType       string          `json:"scan_type"` // "rpm", "dpkg", "pacman", "apk", "snap", "flatpak"; Windows: "arp", "choco", "scoop", "winget"
+	ScanType       string          `json:"scan_type"` // "rpm", "dpkg", "pacman", "apk", "snap", "flatpak", "nix"; Windows: "arp", "choco", "scoop", "winget"
 	PackageManager *PkgManager     `json:"package_manager,omitempty"`
 	Packages       []SystemPackage `json:"packages"`
 	PackagesCount  int             `json:"packages_count"`
 	Error          string          `json:"error,omitempty"`
 	ScanDurationMs int64           `json:"scan_duration_ms"`
+
+	// Linux and Nix source identity. Windows leaves these empty, so its bytes
+	// are unchanged.
+	SourceID      string `json:"source_id,omitempty"`      // stable database, installation or profile path
+	DiscoveryRoot string `json:"discovery_root,omitempty"` // root that owns the source; empty for external leads
+	Scope         string `json:"scope,omitempty"`          // "machine" or "user"
+	Status        string `json:"status,omitempty"`         // SystemPackageStatus*
+}
+
+// System package source statuses.
+const (
+	SystemPackageStatusComplete = "complete"
+	SystemPackageStatusPartial  = "partial"
+	SystemPackageStatusFailed   = "failed"
+)
+
+// SystemPackageInventorySchemaVersion versions system_package_inventory.
+const SystemPackageInventorySchemaVersion = 1
+
+// SystemPackageInventory lists the discovery roots whose sources were fully
+// enumerated. Only these roots let the backend treat a missing source as
+// removed.
+type SystemPackageInventory struct {
+	SchemaVersion  int                          `json:"schema_version"`
+	DiscoveryRoots []SystemPackageDiscoveryRoot `json:"discovery_roots"`
+}
+
+// SystemPackageDiscoveryRoot is one fully enumerated root.
+type SystemPackageDiscoveryRoot struct {
+	ScanType string `json:"scan_type"`
+	Scope    string `json:"scope"`
+	Path     string `json:"path"`
 }
 
 // BrewScanResult holds raw Homebrew scan output for enterprise telemetry.

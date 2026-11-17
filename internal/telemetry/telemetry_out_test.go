@@ -228,6 +228,31 @@ func TestPayloadNuGetSections(t *testing.T) {
 	}
 }
 
+// TestPayloadSystemPackageSections: the system package golden decodes strictly
+// into Payload, and a payload without the inventory phase carries no section.
+func TestPayloadSystemPackageSections(t *testing.T) {
+	raw, err := os.ReadFile("../model/testdata/system_package_inventory_v1_golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload Payload
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&payload); err != nil {
+		t.Fatalf("system package golden does not fit Payload: %v", err)
+	}
+	if payload.SystemPackageInventory == nil || len(payload.SystemPackageScans) == 0 {
+		t.Fatal("system package sections not decoded into Payload")
+	}
+	data, err := json.Marshal(&Payload{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte(`"system_package_inventory"`)) {
+		t.Error("unrun section system_package_inventory was emitted")
+	}
+}
+
 func TestPayloadRubySections(t *testing.T) {
 	raw, err := os.ReadFile("../model/testdata/ruby_inventory_v1_golden.json")
 	if err != nil {
