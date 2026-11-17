@@ -922,8 +922,14 @@ func (s *scanState) addErrorOnce(sourceID, reason string) {
 
 // relocationKnown reports whether every variable that could move this source's
 // location was established. Asked per source: marking every source would spend
-// the snapshot's completeness on sources read exactly as configured.
+// the snapshot's completeness on sources read exactly as configured. A path root
+// counts too: its variable moves every default location under it.
 func (s *scanState) relocationKnown(src source) bool {
+	for _, l := range src.Locations {
+		if l.appliesTo(s.platform) && s.env.Unresolved[rootVars[l.Root]] {
+			return false
+		}
+	}
 	if len(src.Overrides) == 0 {
 		return true
 	}

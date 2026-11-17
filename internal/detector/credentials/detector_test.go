@@ -931,6 +931,7 @@ func TestDetect_Refusals(t *testing.T) {
 		// read exactly as configured.
 		{name: "an unresolved variable marks the source that reads it", tree: gitTree, unresolved: []string{"KUBECONFIG"}, source: sourceKubeconfig, reason: model.CredentialReasonLocationUnresolved, incomplete: true},
 		{name: "an unresolved variable spares a source whose own variables resolved", tree: gitTree, unresolved: []string{"KUBECONFIG"}, source: sourceAWSCredentials, noError: true, incomplete: true},
+		{name: "an unresolved path root marks the source whose defaults sit under it", tree: gitTree, unresolved: []string{"XDG_DATA_HOME"}, source: sourceOpenCode, reason: model.CredentialReasonLocationUnresolved, incomplete: true},
 		{name: "an unresolved variable does not stop the sources it does not govern", tree: gitTree, unresolved: []string{"KUBECONFIG"}, source: sourceGitCredentials, want: obsPlain(1), noError: true, incomplete: true},
 		// A file read does not observe a context, so the budget check happens between
 		// sources and the source it stops has to say why.

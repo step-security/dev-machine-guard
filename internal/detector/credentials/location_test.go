@@ -751,3 +751,21 @@ func TestRightsIncludeRead(t *testing.T) {
 		}
 	}
 }
+
+// An unresolved path root marks only sources with a default under that root on
+// this platform. Insomnia uses $XDG_CONFIG_HOME on Linux only.
+func TestRelocationKnown_PathRootPerPlatform(t *testing.T) {
+	for _, tc := range []struct {
+		platform, source string
+		want             bool
+	}{
+		{model.PlatformWindows, sourceInsomnia, true},
+		{model.PlatformLinux, sourceInsomnia, false},
+		{model.PlatformWindows, sourceOpenCode, false},
+	} {
+		scan := &scanState{platform: tc.platform, envOK: true, env: userEnv{Unresolved: map[string]bool{"XDG_CONFIG_HOME": true}}}
+		if got := scan.relocationKnown(sourceByID(t, tc.source)); got != tc.want {
+			t.Errorf("%s on %s: relocationKnown = %v, want %v", tc.source, tc.platform, got, tc.want)
+		}
+	}
+}
