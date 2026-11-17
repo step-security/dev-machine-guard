@@ -813,6 +813,9 @@ func dirOverrides(name, group string, files ...string) []envOverride {
 // because one of them relocates whole families of files at once.
 var rootEnvVars = []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME"}
 
+// rootVars names the variable that moves each relocatable path root.
+var rootVars = map[pathRoot]string{rootXDGConfig: "XDG_CONFIG_HOME", rootXDGData: "XDG_DATA_HOME"}
+
 // EnvVars returns every environment variable whose value the catalog needs from
 // the resolved developer's session, deduplicated and in a stable order. It is what
 // the one-shot probe asks for: these live in a shell session rather than a file, so
