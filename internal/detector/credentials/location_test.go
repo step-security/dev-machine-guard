@@ -311,7 +311,8 @@ func TestCandidatesFor(t *testing.T) {
 func TestCandidatesFor_OpenCodeDatabaseOverride(t *testing.T) {
 	home := filepath.Join(string(filepath.Separator), "home", "octocat")
 	data := filepath.Join(home, ".local", "share", "opencode")
-	override := filepath.Join(string(filepath.Separator), "opt", "opencode", "other.db")
+	// A relative value sits below the data directory on every platform.
+	override := filepath.Join(data, "other.db")
 	for _, id := range []string{sourceOpenCode, sourceOpenCodeMCP} {
 		for _, tt := range []struct {
 			env      map[string]string
@@ -319,7 +320,7 @@ func TestCandidatesFor_OpenCodeDatabaseOverride(t *testing.T) {
 			unwanted []string
 		}{
 			{want: []string{filepath.Join(data, "opencode.db"), filepath.Join(data, "opencode-*.db")}, unwanted: []string{override}},
-			{env: map[string]string{"OPENCODE_DB": override}, want: []string{override}, unwanted: []string{filepath.Join(data, "opencode.db"), filepath.Join(data, "opencode-*.db")}},
+			{env: map[string]string{"OPENCODE_DB": "other.db"}, want: []string{override}, unwanted: []string{filepath.Join(data, "opencode.db"), filepath.Join(data, "opencode-*.db")}},
 		} {
 			paths := newUserPaths("octocat", home, model.PlatformLinux)
 			var got []string
