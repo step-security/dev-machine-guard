@@ -1254,22 +1254,24 @@ func TestPluginMCPServerAuth(t *testing.T) {
 	}
 }
 
-// A scan that walks the home finds Pi's and Copilot's project files before it
-// adds them by name, so they keep the discovered label; their servers still
-// answer from their client's store.
+// A scan that walks the home finds Pi's, OpenCode's and Copilot's project files
+// before it adds them by name, so they keep the discovered label; their servers
+// still answer from their client's store.
 func TestMCPAuthWalkedClientFiles(t *testing.T) {
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		".pi/agent/mcp.json":      `{"mcpServers":{"lab-oauth":{"url":"https://a.example.com/mcp"}}}`,
-		".pi/agent/mcp-auth.json": `{"https://a.example.com/mcp":{"tokens":{"access_token":"a"}}}`,
-		"proj/.pi/mcp.json":       `{"mcpServers":{"lab-project":{"url":"https://a.example.com/mcp"}}}`,
-		"proj/.github/mcp.json":   `{"mcpServers":{"lab-copilot":{"url":"https://b.example.com/mcp"},"lab-copilot-hdr":{"url":"https://b.example.com/mcp","headers":{"Authorization":"Bearer x"}}}}`,
-		"proj/.mcp.json":          `{"mcpServers":{"lab-shared":{"url":"https://b.example.com/mcp"}}}`,
-		"p2/.github/mcp.json":     `{"mcpServers":{"lab-odd-type":{"type":"weird","url":"https://b.example.com/mcp"}}}`,
-		"p3/.github/mcp.json":     `{"servers":{"lab-vs-shape":{"type":"http","url":"https://b.example.com/mcp"}}}`,
+		".pi/agent/mcp.json":                  `{"mcpServers":{"lab-oauth":{"url":"https://a.example.com/mcp"}}}`,
+		".pi/agent/mcp-auth.json":             `{"https://a.example.com/mcp":{"tokens":{"access_token":"a"}}}`,
+		"proj/.pi/mcp.json":                   `{"mcpServers":{"lab-project":{"url":"https://a.example.com/mcp"}}}`,
+		"proj/.github/mcp.json":               `{"mcpServers":{"lab-copilot":{"url":"https://b.example.com/mcp"},"lab-copilot-hdr":{"url":"https://b.example.com/mcp","headers":{"Authorization":"Bearer x"}}}}`,
+		"proj/.mcp.json":                      `{"mcpServers":{"lab-shared":{"url":"https://b.example.com/mcp"}}}`,
+		"proj/opencode.json":                  `{"mcp":{"lab-opencode":{"type":"remote","url":"https://c.example.com/mcp"},"lab-opencode-other":{"type":"remote","url":"https://c.example.com/mcp"}}}`,
+		".local/share/opencode/mcp-auth.json": `{"lab-opencode":{"serverUrl":"https://c.example.com/mcp","tokens":{"accessToken":"a"}}}`,
+		"p2/.github/mcp.json":                 `{"mcpServers":{"lab-odd-type":{"type":"weird","url":"https://b.example.com/mcp"}}}`,
+		"p3/.github/mcp.json":                 `{"servers":{"lab-vs-shape":{"type":"http","url":"https://b.example.com/mcp"}}}`,
 		".copilot/mcp-oauth-config/" + strings.Repeat("c", 64) + ".json":     `{"serverUrl":"https://b.example.com/mcp"}`,
 		".copilot/mcp-oauth-config/" + strings.Repeat("c", 64) + ".verifier": `v`,
 	}
@@ -1300,6 +1302,9 @@ func TestMCPAuthWalkedClientFiles(t *testing.T) {
 		// The header in the file decides, not the store for its URL.
 		"lab-copilot-hdr": {model.MCPAuthStaticCredential, "config_header"},
 		"lab-shared":      {model.MCPAuthUnknown, "client_not_supported"},
+		// OpenCode's store is global, so a project config answers from it too.
+		"lab-opencode":       {model.MCPAuthCredentialSaved, "opencode_token_file"},
+		"lab-opencode-other": {model.MCPAuthUnknown, "no_record"},
 		// Copilot does not load these entries, so its store does not answer.
 		"lab-odd-type": {model.MCPAuthUnknown, "client_not_supported"},
 		"lab-vs-shape": {model.MCPAuthUnknown, "client_not_supported"},

@@ -174,9 +174,9 @@ func (d *MCPDetector) DetectEnterprise(ctx context.Context, searchDirs []string)
 }
 
 // authSource is the source whose client stores answer for a config file. A
-// walked Pi file or Copilot .github/mcp.json keeps its discovered label in the
-// inventory, but its servers still sign in through that client. A walked
-// .mcp.json stays unresolved: Claude and Copilot both read it.
+// walked Pi file, OpenCode project config or Copilot .github/mcp.json keeps its
+// discovered label in the inventory, but its servers still sign in through that
+// client. A walked .mcp.json stays unresolved: Claude and Copilot both read it.
 func (d *MCPDetector) authSource(source, configPath string) string {
 	if source != "discovered_mcp" {
 		return source
@@ -184,6 +184,8 @@ func (d *MCPDetector) authSource(source, configPath string) string {
 	switch {
 	case isPiMCPPath(configPath, d.piDir):
 		return "pi"
+	case isOpenCodeConfigPath(configPath):
+		return "opencode"
 	case filepath.Base(configPath) == "mcp.json" && filepath.Base(filepath.Dir(configPath)) == ".github":
 		return "copilot_project"
 	}
