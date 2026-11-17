@@ -1254,6 +1254,41 @@ func TestPluginMCPServerAuth(t *testing.T) {
 	}
 }
 
+// A Copilot CLI sign-in answers for a Copilot CLI plugin's server. VS Code runs
+// its own agent plugins, so the same sign-in does not answer for them.
+func TestCopilotPluginMCPServerAuth(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		editor bool
+		want   model.MCPServerAuth
+	}{
+		{"Copilot CLI plugin", false, model.MCPServerAuth{ServerName: "lab-oauth", Status: model.MCPAuthCredentialSaved, Evidence: "copilot_signin_complete"}},
+		{"VS Code agent plugin", true, model.MCPServerAuth{ServerName: "lab-oauth", Status: model.MCPAuthUnknown, Evidence: "client_not_supported"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, fs := newPluginMock()
+			m.SetHomeDir(testHome)
+			root := filepath.Join(testHome, "plugin")
+			file := filepath.Join(root, ".mcp.json")
+			fs.addFile(file, `{"mcpServers":{"lab-oauth":{"type":"http","url":"https://a.example.com/mcp"}}}`)
+			fs.addFile(filepath.Join(testHome, ".copilot", "mcp-oauth-config", strings.Repeat("a", 64)+".json"), `{"serverUrl":"https://a.example.com/mcp"}`)
+			fs.commit()
+			r, _ := newAuthResolver(m.Mock)
+			d := NewSkillsDetector(m).WithMCPAuth(r)
+			s := &pluginScan{d: d, ctx: context.Background(), evidence: newPluginEvidence()}
+			p := newPlugin("lab-plugin@company", "lab-plugin", model.PluginInstallMarketplace, model.PluginScopeUser)
+			scan := pluginRootScan{s: s, gd: d, p: p, root: root, attr: nestedAttr{agent: model.AgentCopilot, source: "copilot_plugin", editor: tc.editor}}
+			scan.mcpFileComponents(file, ".mcp.json", false)
+			if len(p.Components) != 1 || p.Components[0].MCPConfig == nil {
+				t.Fatalf("components = %+v", p.Components)
+			}
+			if got := p.Components[0].MCPConfig.ServerAuth; !equalAuth(got, []model.MCPServerAuth{tc.want}) {
+				t.Errorf("got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
 // A scan that walks the home finds Pi's, OpenCode's and Copilot's project files
 // before it adds them by name, so they keep the discovered label; their servers
 // still answer from their client's store.
