@@ -214,9 +214,9 @@ func ResolveRunVersion(l Layout, st *State) (Version, string) {
 	return chain[0].Version, chain[0].Reason
 }
 
-// RunLockFile is the lock beside runs\<v>.json that every read-modify-write
-// of that file takes (R-B-2): the bootstrap's AppendRun/FinalizeRun and the
-// agent's MarkRunStarted, so overlapping scan tasks never lose a record.
+// RunLockFile is the lock beside the shared runs\<v>.json (R-B-2); every
+// run file's lock is RunLockPath beside it, so overlapping scan tasks never
+// lose a record.
 func (l Layout) RunLockFile(v Version) string { return RunLockPath(l.RunFile(v)) }
 
 // ErrNotRecordable means SaveUpdaterRecord found no state it may patch: the

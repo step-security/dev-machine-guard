@@ -99,6 +99,9 @@ type Bootstrap struct {
 	Environ  func() []string
 	Out      io.Writer
 	NewRunID func() string
+	// RunOwner names the user whose run file a scan writes
+	// (runs\<v>.<owner>.json); nil writes the shared runs\<v>.json.
+	RunOwner func() string
 	// SetRunningVersion records the version adopt-seed made current
 	// (HKLM RunningVersion on Windows); nil skips it.
 	SetRunningVersion func(string) error
@@ -131,6 +134,7 @@ func NewBootstrap(exePath string, isSystem func() bool) *Bootstrap {
 		Environ:           os.Environ,
 		Out:               os.Stdout,
 		NewRunID:          uuid.NewString,
+		RunOwner:          updatestate.RunOwner,
 		SetRunningVersion: SetRunningVersion,
 		VerifySeed:        func(p string) error { return authenticode.SameSeedPublisher(p, exePath) },
 		SelfExe:           exePath,
@@ -309,8 +313,11 @@ func (b *Bootstrap) Run(args []string) int {
 			reason = startReason
 		}
 		runFile := layout.RunFile(c.Version)
+		if b.RunOwner != nil {
+			runFile = layout.RunFileFor(c.Version, b.RunOwner())
+		}
 		runID := b.NewRunID()
-		runLock := layout.RunLockFile(c.Version)
+		runLock := updatestate.RunLockPath(runFile)
 		if err := b.withRunLock(runLock, func() error {
 			return updatestate.AppendRun(runFile, updatestate.RunRecord{RunID: runID, Version: c.Version.String()})
 		}); err != nil {

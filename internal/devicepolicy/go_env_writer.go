@@ -426,6 +426,7 @@ func scanGoEnv(data []byte) (goEnvAnalysis, error) {
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	inside := false
 	managedValues := 0
+	commentedValues := 0
 	reservedOwners := map[string]bool{}
 	for i, line := range lines {
 		switch line {
@@ -487,6 +488,8 @@ func scanGoEnv(data []byte) (goEnvAnalysis, error) {
 				analysis.activeAfter = analysis.activeAfter || analysis.end >= 0
 				analysis.lastActiveURL = strings.TrimPrefix(line, "GOPROXY=")
 			}
+		} else if comment, ok := strings.CutPrefix(line, "#"); inside && analysis.owner == "dmg" && ok && strings.HasPrefix(strings.TrimSpace(comment), "GOPROXY=") {
+			commentedValues++
 		} else if inside && line != "" {
 			return analysis, fmt.Errorf("go env: unexpected managed-block content: %w", ErrTargetUnusable)
 		}
@@ -494,7 +497,7 @@ func scanGoEnv(data []byte) (goEnvAnalysis, error) {
 	if inside || analysis.owner != "" && analysis.end < 0 {
 		return analysis, fmt.Errorf("go env: incomplete managed markers: %w", ErrTargetUnusable)
 	}
-	if analysis.owner != "" && managedValues != 1 {
+	if analysis.owner != "" && (managedValues+commentedValues > 1 || analysis.owner == "mdm" && managedValues != 1) {
 		return analysis, fmt.Errorf("go env: managed block must contain one GOPROXY setting: %w", ErrTargetUnusable)
 	}
 	for owner := range reservedOwners {

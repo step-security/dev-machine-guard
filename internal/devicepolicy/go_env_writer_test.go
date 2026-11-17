@@ -255,16 +255,20 @@ func TestGoEnvWriter_RepairsDriftAndPreservesPrivateSettings(t *testing.T) {
 
 func TestGoEnvWriter_RejectsAmbiguousInput(t *testing.T) {
 	cases := map[string][]byte{
-		"invalid UTF-8":   {0xff},
-		"NUL":             []byte("GOPROXY=x\x00"),
-		"lone CR":         []byte("GOPROXY=x\rnext"),
-		"mixed newline":   []byte("one\r\ntwo\n"),
-		"orphan prefix":   []byte(dmgGoEnvDisabledPrefix + "GOPROXY=direct\n"),
-		"incomplete":      []byte(dmgGoEnvBegin + "\n" + goEnvExpected + "\n"),
-		"duplicate":       []byte(dmgGoEnvBegin + "\n" + goEnvExpected + "\n" + goEnvEnd + "\n" + dmgGoEnvBegin + "\n" + goEnvExpected + "\n" + goEnvEnd),
-		"mixed owner":     []byte(mdmGoEnvBegin + "\n" + goEnvExpected + "\n" + goEnvEnd + "\n" + dmgGoEnvDisabledPrefix + "GOPROXY=direct"),
-		"old CRLF marker": []byte(dmgGoEnvBegin + "\n# [stepsecurity-go-env-dmg] newline=crlf\n" + goEnvExpected + "\n" + goEnvEnd),
-		"oversized":       bytes.Repeat([]byte("x"), (1<<20)+1),
+		"invalid UTF-8":           {0xff},
+		"NUL":                     []byte("GOPROXY=x\x00"),
+		"lone CR":                 []byte("GOPROXY=x\rnext"),
+		"mixed newline":           []byte("one\r\ntwo\n"),
+		"orphan prefix":           []byte(dmgGoEnvDisabledPrefix + "GOPROXY=direct\n"),
+		"incomplete":              []byte(dmgGoEnvBegin + "\n" + goEnvExpected + "\n"),
+		"duplicate":               []byte(dmgGoEnvBegin + "\n" + goEnvExpected + "\n" + goEnvEnd + "\n" + dmgGoEnvBegin + "\n" + goEnvExpected + "\n" + goEnvEnd),
+		"mixed owner":             []byte(mdmGoEnvBegin + "\n" + goEnvExpected + "\n" + goEnvEnd + "\n" + dmgGoEnvDisabledPrefix + "GOPROXY=direct"),
+		"old CRLF marker":         []byte(dmgGoEnvBegin + "\n# [stepsecurity-go-env-dmg] newline=crlf\n" + goEnvExpected + "\n" + goEnvEnd),
+		"duplicate values":        []byte(dmgGoEnvBegin + "\nGOPROXY=direct\n# GOPROXY=direct\n" + goEnvEnd),
+		"unrelated managed value": []byte(dmgGoEnvBegin + "\nGOPRIVATE=example.test\n" + goEnvEnd),
+		"empty MDM block":         []byte(mdmGoEnvBegin + "\n" + goEnvEnd),
+		"commented MDM value":     []byte(mdmGoEnvBegin + "\n# GOPROXY=direct\n" + goEnvEnd),
+		"oversized":               bytes.Repeat([]byte("x"), (1<<20)+1),
 	}
 	for name, initial := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -665,5 +669,26 @@ func TestGoEnvWriter_RejectsEscapingSymlink(t *testing.T) {
 	got, _ := os.ReadFile(outside)
 	if !bytes.Equal(got, initial) {
 		t.Fatal("escaping symlink target was mutated")
+	}
+}
+
+func TestGoEnvWriter_RepairsMissingAssignment(t *testing.T) {
+	for _, body := range []string{"", "#GOPROXY=direct", "# GOPROXY=direct"} {
+		t.Run(body, func(t *testing.T) {
+			w, _, path := newGoEnvTestWriter(t, []byte(dmgGoEnvBegin+"\n"+body+"\n"+goEnvEnd+"\nGOPRIVATE=example.test/*\n"))
+			if _, err := w.Write(goEnvExpected); err != nil {
+				t.Fatal(err)
+			}
+			if ok, err := w.Converged(goEnvExpected); err != nil || !ok {
+				t.Fatalf("converged=%v err=%v", ok, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(data, []byte("GOPRIVATE=example.test/*")) {
+				t.Fatal("unrelated setting lost")
+			}
+		})
 	}
 }
