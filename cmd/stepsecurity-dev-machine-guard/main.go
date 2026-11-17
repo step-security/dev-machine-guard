@@ -335,6 +335,11 @@ func main() {
 			return
 		}
 		reportBootstrapFallback()
+		// Binary-scheduled macOS/Linux installs keep themselves current here,
+		// ahead of the run gate and the scan: a release that breaks scans
+		// still reaches the updater on its next tick, so a backend pin to
+		// the previous version heals it. No-op on Windows (MSI updater).
+		scheduledSelfUpdate(exec, log)
 		// Server-driven run gate: exit 0 quietly when the backend says this
 		// invocation isn't due (or another instance is mid-scan). Sits before
 		// the watchdog and telemetry.Run so a skipped wakeup posts no beacon,
