@@ -19,6 +19,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
 	"github.com/step-security/dev-machine-guard/internal/cli"
 	"github.com/step-security/dev-machine-guard/internal/config"
+	"github.com/step-security/dev-machine-guard/internal/containerlife"
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/devicepolicy"
@@ -58,6 +59,14 @@ func auditSkipper(exec executor.Executor, cfg *cli.Config) *tcc.Skipper {
 const hookReconcileTimeout = 30 * time.Second
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "container" {
+		if err := containerlife.Run(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// Hook hot path. Agents invoke `_hook` on every event and any non-zero
 	// exit is treated as a hook failure / block — so we MUST exit 0 even on
 	// malformed args. Skip every line below this branch (CLI parsing,

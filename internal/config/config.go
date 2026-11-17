@@ -415,14 +415,15 @@ func Load() {
 	if mode := strings.TrimSpace(cfg.MultiUserDetection); mode != "" && MultiUserDetection == "" && ValidMultiUserDetection(mode) {
 		MultiUserDetection = strings.ToLower(mode)
 	}
-	if cfg.CustomerID != "" && isPlaceholder(CustomerID) {
-		CustomerID = cfg.CustomerID
+	credentials := EffectiveCredentials(cfg)
+	if cfg.CustomerID != "" && (CustomerID == "" || isPlaceholder(CustomerID)) {
+		CustomerID = credentials.CustomerID
 	}
-	if cfg.APIEndpoint != "" && isPlaceholder(APIEndpoint) {
-		APIEndpoint = NormalizeAPIEndpoint(cfg.APIEndpoint)
+	if cfg.APIEndpoint != "" && (APIEndpoint == "" || isPlaceholder(APIEndpoint)) {
+		APIEndpoint = credentials.APIEndpoint
 	}
-	if cfg.APIKey != "" && isPlaceholder(APIKey) {
-		APIKey = cfg.APIKey
+	if cfg.APIKey != "" && (APIKey == "" || isPlaceholder(APIKey)) {
+		APIKey = credentials.APIKey
 	}
 	if cfg.ScanFrequencyHours != "" && isPlaceholder(ScanFrequencyHours) {
 		ScanFrequencyHours = cfg.ScanFrequencyHours

@@ -158,3 +158,20 @@ func TestRunAsUser_RecoversStrippedPATH(t *testing.T) {
 	}
 	t.Logf("RESOLVE: RunAsUser (login shell + rc source) → output=%q (binary found via the rc-file PATH)", strings.TrimSpace(out))
 }
+
+func TestRunWithTimeoutEnvIsScoped(t *testing.T) {
+	t.Setenv("STEPSEC_DEVICE_ID", "parent")
+	stdout, stderr, code, err := NewReal().RunWithTimeoutEnv(context.Background(), time.Second, map[string]string{"STEPSEC_DEVICE_ID": "container-123"}, "/bin/sh", "-c", "printf '%s' \"$STEPSEC_DEVICE_ID\"; echo diagnostic >&2; exit 7")
+	if err != nil || code != 7 || stdout != "container-123" || !strings.Contains(stderr, "diagnostic") {
+		t.Fatalf("result: %q %q %d %v", stdout, stderr, code, err)
+	}
+	if os.Getenv("STEPSEC_DEVICE_ID") != "parent" {
+		t.Fatal("parent changed")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, _, err = NewReal().RunWithTimeoutEnv(ctx, time.Second, map[string]string{"STEPSEC_DEVICE_ID": "container-123"}, "/bin/sh", "-c", "sleep 30")
+	if err == nil {
+		t.Fatal("cancellation ignored")
+	}
+}
