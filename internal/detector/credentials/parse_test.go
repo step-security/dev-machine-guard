@@ -1,6 +1,7 @@
 package credentials
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -661,4 +662,91 @@ func TestParseVaultToken(t *testing.T) {
 		{name: "empty file", body: "", want: obsNone},
 		{name: "environment reference is not material", body: "${VAULT_TOKEN}\n", want: obsNone},
 	})
+}
+
+func TestCredentialFragmentFamiliesAndBounds(t *testing.T) {
+	modern := strings.Repeat("A", 58) + "T3BlbkFJ" + strings.Repeat("B", 58)
+	cases := []struct {
+		name, prefix, body string
+	}{
+		{"openai_legacy_api_key", "sk-", strings.Repeat("A", 20) + "T3BlbkFJ" + strings.Repeat("B", 20)},
+		{"openai_project_api_key", "sk-proj-", modern},
+		{"openai_service_account_api_key", "sk-svcacct-", modern},
+		{"openai_admin_api_key", "sk-admin-", modern},
+		{"anthropic_api_key", "sk-ant-api03-", strings.Repeat("A", 93) + "AA"},
+		{"anthropic_admin_api_key", "sk-ant-admin01-", strings.Repeat("A", 93) + "AA"},
+		{"openrouter_api_key", "sk-or-v1-", strings.Repeat("a", 64)},
+		{"github_classic_pat", "ghp_", strings.Repeat("A", 36)},
+		{"github_fine_grained_pat", "github_pat_", strings.Repeat("A", 82)},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			value := tt.prefix + tt.body
+			hint, ok := keyHint(value)
+			if !ok || hint.CredentialType != tt.name || hint.Prefix != tt.prefix+tt.body[:3] || hint.Suffix != tt.body[len(tt.body)-4:] {
+				t.Fatal("family or fixed fragment offsets differ")
+			}
+			for _, invalid := range []string{value + " ", " " + value, value + "\n", value[:len(value)-1], value + "é"} {
+				if _, ok := keyHint(invalid); ok {
+					t.Fatal("malformed whole value was accepted")
+				}
+			}
+		})
+	}
+	t.Run("specific family cannot fall back", func(t *testing.T) {
+		if _, ok := keyHint("sk-proj-" + strings.Repeat("A", 36)); ok {
+			t.Fatal("short project key accepted by another family")
+		}
+	})
+	t.Run("bounded grouping preserves base count", func(t *testing.T) {
+		var plain fold
+		hinted := fold{fragments: true}
+		for i := range 102 {
+			value := "sk-or-v1-" + strings.Repeat("a", 61) + fmt.Sprintf("%03x", i)
+			plain.key(value)
+			hinted.key(value)
+		}
+		var got parsed
+		hinted.into(&got)
+		if plain.result() != got.observation || got.Count != 102 || len(got.Hints) != 100 || !got.HintsDropped {
+			t.Fatalf("count=%d hints=%d dropped=%v", got.Count, len(got.Hints), got.HintsDropped)
+		}
+	})
+	t.Run("duplicate full values share a hint", func(t *testing.T) {
+		f := fold{fragments: true}
+		value := "ghp_" + strings.Repeat("A", 36)
+		f.key(value)
+		f.key(value)
+		var got parsed
+		f.into(&got)
+		if got.Count != 2 || len(got.Hints) != 1 || got.Hints[0].Occurrences != 2 {
+			t.Fatal("duplicate slots lost their occurrence count")
+		}
+	})
+}
+
+func TestCredentialKindsRespectCountCap(t *testing.T) {
+	var f fold
+	for range maxAICount - 1 {
+		f.entryKind(kindToolAccount)
+	}
+	var next fold
+	next.entryKind(kindAPIKey)
+	next.entryKind(kindOther)
+	f.absorb(&next)
+	if f.count != maxAICount || !f.capped || f.kinds != (model.CredentialKinds{APIKey: 1, ToolAccount: maxAICount - 1}) {
+		t.Fatalf("count=%d capped=%v kinds=%+v", f.count, f.capped, f.kinds)
+	}
+	before := f.kinds
+	if f.entryKind(kindOther) || f.kinds != before {
+		t.Fatal("refused entry changed kind counts")
+	}
+	// A raw file may be shared by differently typed consumers. Its purpose is
+	// not inferred from whichever consumer happened to discover it first.
+	for _, fragments := range []bool{false, true} {
+		got := rawSecret([]byte("sk-or-v1-"+strings.Repeat("a", 64)), fragments)
+		if got.Count != 1 || got.Kinds != (model.CredentialKinds{Other: 1}) {
+			t.Fatalf("raw reference kinds=%+v count=%d", got.Kinds, got.Count)
+		}
+	}
 }
