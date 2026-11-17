@@ -696,11 +696,12 @@ var openCodeConfigOverrides = slices.Concat(
 // openCodeDatabases names the default database and the per-channel databases
 // beside it. Channel names are sanitised to the listing's own name alphabet, so
 // one bounded listing of the data directory finds them without guessing which
-// channels were installed.
+// channels were installed. They are the group OPENCODE_DB relocates, so setting
+// it replaces them.
 func openCodeDatabases() []location {
 	return []location{
-		{Root: rootXDGData, Rel: "opencode/opencode.db", SQLite: true},
-		{Root: rootXDGData, Rel: "opencode/opencode-*.db", SQLite: true},
+		{Root: rootXDGData, Rel: "opencode/opencode.db", SQLite: true, Group: "db"},
+		{Root: rootXDGData, Rel: "opencode/opencode-*.db", SQLite: true, Group: "db"},
 	}
 }
 

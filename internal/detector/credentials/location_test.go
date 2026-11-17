@@ -306,6 +306,44 @@ func TestCandidatesFor(t *testing.T) {
 	}
 }
 
+// OPENCODE_DB moves the database, and with it the per-channel databases beside
+// the default, but leaves the auth and configuration files where they are.
+func TestCandidatesFor_OpenCodeDatabaseOverride(t *testing.T) {
+	home := filepath.Join(string(filepath.Separator), "home", "octocat")
+	data := filepath.Join(home, ".local", "share", "opencode")
+	// A relative value sits below the data directory on every platform.
+	override := filepath.Join(data, "other.db")
+	for _, id := range []string{sourceOpenCode, sourceOpenCodeMCP} {
+		for _, tt := range []struct {
+			env      map[string]string
+			want     []string
+			unwanted []string
+		}{
+			{want: []string{filepath.Join(data, "opencode.db"), filepath.Join(data, "opencode-*.db")}, unwanted: []string{override}},
+			{env: map[string]string{"OPENCODE_DB": "other.db"}, want: []string{override}, unwanted: []string{filepath.Join(data, "opencode.db"), filepath.Join(data, "opencode-*.db")}},
+		} {
+			paths := newUserPaths("octocat", home, model.PlatformLinux)
+			var got []string
+			for _, c := range candidatesFor(sourceByID(t, id), paths, tt.env, model.PlatformLinux) {
+				got = append(got, c.path())
+			}
+			for _, w := range tt.want {
+				if !slices.Contains(got, w) {
+					t.Errorf("%s env=%v: candidates %v lack %s", id, tt.env, got, w)
+				}
+			}
+			for _, u := range tt.unwanted {
+				if slices.Contains(got, u) {
+					t.Errorf("%s env=%v: candidates %v include %s", id, tt.env, got, u)
+				}
+			}
+			if id == sourceOpenCode && !slices.Contains(got, filepath.Join(data, "auth.json")) {
+				t.Errorf("%s env=%v: candidates %v lack auth.json", id, tt.env, got)
+			}
+		}
+	}
+}
+
 func sourceByID(t *testing.T, id string) source {
 	t.Helper()
 	for _, s := range sources {

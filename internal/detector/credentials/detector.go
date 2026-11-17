@@ -592,6 +592,10 @@ func (d *Detector) collectRetained(ctx context.Context, scan *scanState, s sourc
 	result := fileParsers[s.ID](in)
 	d.record(ctx, scan, s, path, resolved, info, truncated, result)
 	for _, ref := range result.Refs {
+		if ctx.Err() != nil {
+			scan.addErrorOnce(s.ID, model.CredentialReasonTimedOut)
+			return
+		}
 		d.collectRef(ctx, scan, s, ref, resolver)
 	}
 }
