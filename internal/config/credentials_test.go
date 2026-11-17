@@ -8,9 +8,11 @@ import (
 )
 
 func TestEffectiveCredentialsMatchesLoad(t *testing.T) {
+	oldMode := MultiUserDetection
+	t.Cleanup(func() { MultiUserDetection = oldMode })
 	oldCustomer, oldEndpoint, oldKey, oldOverride := CustomerID, APIEndpoint, APIKey, fileOverride
 	t.Cleanup(func() { CustomerID, APIEndpoint, APIKey, fileOverride = oldCustomer, oldEndpoint, oldKey, oldOverride })
-	cfg := ConfigFile{CustomerID: "file-org", APIEndpoint: " https://file.example/ ", APIKey: "file-key"}
+	cfg := ConfigFile{MultiUserDetection: "off", CustomerID: "file-org", APIEndpoint: " https://file.example/ ", APIKey: "file-key"}
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -30,10 +32,14 @@ func TestEffectiveCredentialsMatchesLoad(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			CustomerID, APIEndpoint, APIKey = tc.customer, tc.endpoint, tc.key
+			MultiUserDetection = ""
 			if got := EffectiveCredentials(cfg); got != tc.want {
 				t.Fatalf("resolved=%+v want=%+v", got, tc.want)
 			}
 			Load()
+			if MultiUserDetection != "off" {
+				t.Fatal("credential loading lost the multi-user detection setting")
+			}
 			if got := (Credentials{CustomerID, APIEndpoint, APIKey}); got != tc.want {
 				t.Fatalf("Load differs: %+v", got)
 			}

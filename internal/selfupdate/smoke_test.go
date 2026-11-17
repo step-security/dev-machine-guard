@@ -43,12 +43,11 @@ func TestRunSmoke(t *testing.T) {
 func TestCheckSelfCheck(t *testing.T) {
 	v := mustV("1.20.0")
 	for out, ok := range map[string]bool{
-		`{"version":"1.20.0","device_id":"d","config_ok":true}`:                                 true,
-		`{"version":"1.20.0","device_id":"","config_ok":true}`:                                  false,
-		`{"version":"1.20.0","device_id":"","device_id_per_user":true,"config_ok":true}`:        true,
-		`{"version":"1.20.0","device_id":"unknown","device_id_per_user":true,"config_ok":true}`: false,
-		`{"version":"1.20.0","device_id":"unknown","config_ok":true}`:                           false,
-		`{"version":"1.20.0","device_id":"d","config_ok":false}`:                                false,
+		`{"version":"1.20.0","device_id":"d","config_ok":true}`:                          true,
+		`{"version":"1.20.0","device_id":"","config_ok":true}`:                           false,
+		`{"version":"1.20.0","device_id":"","device_id_per_user":true,"config_ok":true}`: false, // the per-user escape of an unreleased build is gone
+		`{"version":"1.20.0","device_id":"unknown","config_ok":true}`:                    false,
+		`{"version":"1.20.0","device_id":"d","config_ok":false}`:                         false,
 		`not json`: false,
 	} {
 		if err := checkSelfCheck([]byte(out), v); (err == nil) != ok {

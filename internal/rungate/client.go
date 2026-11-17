@@ -38,7 +38,7 @@ const maxErrorSnippetBytes = 64 << 10
 // Checkin asks the backend whether this device is due for a full run. The
 // gating decision rides the existing run-config response (its scan_directive
 // block), so there is no dedicated endpoint:
-// GET /v1/{customer}/developer-mdm-agent/run-config?device_id=…[&last_run_at=…]
+// GET /v1/{customer}/developer-mdm-agent/run-config?device_id=…[&user_token=…][&last_run_at=…]
 // lastRunAt (unix seconds, 0 = unknown) is the agent's own last successful
 // upload stamp, sent as insurance against lost or laggy ingest on the backend
 // side. Only scan_directive, wsl_directive and scanners.credentials are read
@@ -53,7 +53,7 @@ const maxErrorSnippetBytes = 64 << 10
 // nil unless the response carried an explicit boolean; missing, null or a
 // non-boolean never reads as false. Delta requires an explicit true in the
 // independently decoded package_scan block. Any error means no answer is usable.
-func Checkin(ctx context.Context, endpoint, apiKey, customerID, deviceID string, lastRunAt int64) (Directive, WSLDirective, *bool, bool, error) {
+func Checkin(ctx context.Context, endpoint, apiKey, customerID, deviceID, userToken string, lastRunAt int64) (Directive, WSLDirective, *bool, bool, error) {
 	endpoint = strings.TrimSpace(endpoint)
 	apiKey = strings.TrimSpace(apiKey)
 	if endpoint == "" || apiKey == "" {
@@ -69,6 +69,12 @@ func Checkin(ctx context.Context, endpoint, apiKey, customerID, deviceID string,
 	target := strings.TrimRight(endpoint, "/") +
 		"/v1/" + url.PathEscape(customerID) +
 		"/developer-mdm-agent/run-config?device_id=" + url.QueryEscape(deviceID)
+	// The cadence is kept per device and user: on a host that scans every
+	// signed-in session, one user's recent scan must not answer "not due"
+	// to another user's session.
+	if userToken = strings.TrimSpace(userToken); userToken != "" {
+		target += "&user_token=" + url.QueryEscape(userToken)
+	}
 	if lastRunAt > 0 {
 		target += "&last_run_at=" + strconv.FormatInt(lastRunAt, 10)
 	}
@@ -148,6 +154,7 @@ const skipBeaconTimeout = 5 * time.Second
 type skipBeaconBody struct {
 	ExecutionID    string `json:"execution_id"`
 	DeviceID       string `json:"device_id"`
+	UserToken      string `json:"user_token,omitempty"`
 	Status         string `json:"status"`
 	AgentVersion   string `json:"agent_version"`
 	Platform       string `json:"platform"`
@@ -161,7 +168,7 @@ type skipBeaconBody struct {
 // contract: any error (offline, non-200) is returned for a debug log only and
 // never affects the run — the gate has already decided to skip. A fresh UUID
 // per skip makes each a standalone row; the backend gives them a short TTL.
-func PostSkipBeacon(ctx context.Context, endpoint, apiKey, customerID, deviceID, reason string, nextEligibleAt int64) error {
+func PostSkipBeacon(ctx context.Context, endpoint, apiKey, customerID, deviceID, userToken, reason string, nextEligibleAt int64) error {
 	endpoint = strings.TrimSpace(endpoint)
 	apiKey = strings.TrimSpace(apiKey)
 	if endpoint == "" || apiKey == "" || strings.TrimSpace(customerID) == "" || strings.TrimSpace(deviceID) == "" {
@@ -175,6 +182,7 @@ func PostSkipBeacon(ctx context.Context, endpoint, apiKey, customerID, deviceID,
 	payload, err := json.Marshal(skipBeaconBody{
 		ExecutionID:    execID.String(),
 		DeviceID:       deviceID,
+		UserToken:      strings.TrimSpace(userToken),
 		Status:         "skipped", // backend runStatusSkipped; distinct from the directive Mode "skip"
 		AgentVersion:   buildinfo.Version,
 		Platform:       runtime.GOOS,

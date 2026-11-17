@@ -2,6 +2,7 @@ package systemd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -166,11 +167,18 @@ func Uninstall(exec executor.Executor, log *progress.Logger) error {
 
 func doUninstall(ctx context.Context, exec executor.Executor, log *progress.Logger) error {
 	// Disable and stop the timer
-	_, _, _, _ = exec.Run(ctx, "systemctl", "--user", "disable", "--now", unitName+".timer")
+	if _, stderr, code, err := exec.Run(ctx, "systemctl", "--user", "disable", "--now", unitName+".timer"); err != nil || code != 0 {
+		log.Debug("systemctl disable --now %s.timer: exit_code=%d err=%v stderr=%q (ignored)", unitName, code, err, strings.TrimSpace(stderr))
+	}
 	log.Progress("Disabled systemd timer")
 
-	// Stop the service if running
-	_, _, _, _ = exec.Run(ctx, "systemctl", "--user", "stop", unitName+".service")
+	// Stop the service if running. A stop that fails is reported below: a
+	// scan that keeps running would report after the retire and restore
+	// the device.
+	if _, stderr, code, err := exec.Run(ctx, "systemctl", "--user", "stop", unitName+".service"); err != nil || code != 0 {
+		log.Warn("systemctl stop %s.service failed (exit code %d, %v): %s — a running scan may still report", unitName, code, err, strings.TrimSpace(stderr))
+	}
+	stillActive := serviceActive(ctx, exec)
 
 	// Remove unit files
 	homeDir, _ := os.UserHomeDir()
@@ -186,7 +194,22 @@ func doUninstall(ctx context.Context, exec executor.Executor, log *progress.Logg
 	_, _, _, _ = exec.Run(ctx, "systemctl", "--user", "daemon-reload")
 
 	log.Progress("systemd configuration removed successfully")
+	if stillActive {
+		return fmt.Errorf("%w: %s.service is still active after systemctl stop; the device stays registered until the agent has stopped", errStillRunning, unitName)
+	}
 	return nil
+}
+
+// errStillRunning is returned by Uninstall when the agent service survived the
+// teardown; the unit files are removed all the same.
+var errStillRunning = errors.New("systemd: the agent service is still running")
+
+// serviceActive reports whether the service unit is still active:
+// `systemctl is-active` exits 0 only then (3 for inactive, failures when
+// there is no user manager to ask, which also means nothing is running).
+func serviceActive(ctx context.Context, exec executor.Executor) bool {
+	_, _, exitCode, err := exec.Run(ctx, "systemctl", "--user", "is-active", unitName+".service")
+	return err == nil && exitCode == 0
 }
 
 func isConfigured(ctx context.Context, exec executor.Executor) bool {

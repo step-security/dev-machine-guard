@@ -3,7 +3,6 @@ package detector
 import (
 	"encoding/xml"
 	"errors"
-	"io"
 	"regexp"
 	"slices"
 	"strings"
@@ -156,6 +155,9 @@ func decodeMavenPOM(data []byte) (mavenPOMXML, error) {
 	if err == nil {
 		err = dec.Decode(&doc)
 	}
+	if err == nil {
+		err = configaudit.MavenXMLEnd(dec)
+	}
 	return doc, err
 }
 
@@ -178,7 +180,9 @@ func parseMavenPOM(data []byte) (*mavenPOM, error) {
 	for _, p := range doc.Profiles {
 		id := mavenDeref(p.ID)
 		if !configaudit.MavenLabel(id) {
+			// The label cannot be reported, but the repositories still apply.
 			note("parse_error")
+			m.repositories = append(m.repositories, configaudit.MavenKinds(p.Repositories, p.PluginRepositories, &id)...)
 			continue
 		}
 		m.model(note, p.mavenPOMModel, id)
@@ -298,7 +302,7 @@ func mavenIvyMatches(data []byte, group, module, version string) bool {
 		} `xml:"info"`
 	}
 	dec, err := configaudit.MavenXML(data)
-	if err != nil || dec.Decode(&doc) != nil {
+	if err != nil || dec.Decode(&doc) != nil || configaudit.MavenXMLEnd(dec) != nil {
 		return false
 	}
 	return doc.Version == "2.0" && doc.Info.Organisation == group && doc.Info.Module == module && doc.Info.Revision == version
@@ -603,7 +607,7 @@ func parseGradleVerification(data []byte) ([]mavenReference, configaudit.GradleV
 	}
 	if err == nil {
 		// Gradle rejects the whole file when anything after the root is malformed.
-		err = mavenXMLEnd(dec)
+		err = configaudit.MavenXMLEnd(dec)
 	}
 	if err != nil {
 		return nil, configaudit.GradleVerification{}, nil, err
@@ -662,28 +666,6 @@ func parseGradleVerification(data []byte) ([]mavenReference, configaudit.GradleV
 		}
 	}
 	return refs, policy, reasons, nil
-}
-
-// mavenXMLEnd reads the rest of a document after its root element, which
-// may hold only comments, processing instructions and whitespace.
-func mavenXMLEnd(dec *xml.Decoder) error {
-	for {
-		tok, err := dec.Token()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			return errors.New("second root element")
-		case xml.CharData:
-			if strings.TrimSpace(string(t)) != "" {
-				return errors.New("text after the root element")
-			}
-		}
-	}
 }
 
 // checksum keeps one expected lowercase hex value; anything else is invalid.

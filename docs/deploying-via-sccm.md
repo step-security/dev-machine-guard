@@ -61,7 +61,7 @@ msiexec /i "stepsecurity-dev-machine-guard-<version>-x64.msi" /qn /norestart ^
 | `APIENDPOINT` | yes | StepSecurity backend URL (typically `https://agent.api.stepsecurity.io`) |
 | `APIKEY` | yes | Tenant API key from your StepSecurity dashboard |
 | `SCANFREQUENCY` | no | Scheduled scan frequency in hours (default `4`) |
-| `DEVICEID` | no | Device identity template: a literal id, or `{serial}` `{hostname}` `{user}` tokens (e.g. `{hostname}-{user}` for pooled virtual desktops). Empty keeps the hardware serial. See [deploying-on-virtual-desktops.md](deploying-on-virtual-desktops.md) |
+| `DEVICEID` | no | Device identity template: a literal id, or `{serial}` `{hostname}` tokens (e.g. `{hostname}` for pooled virtual desktops rebuilt under stable names). Empty keeps the hardware serial. See [deploying-on-virtual-desktops.md](deploying-on-virtual-desktops.md) |
 | `RETIREONUNINSTALL` | no | `1` makes `msiexec /x` retire the device in the dashboard before removing the scheduled task (a major upgrade never retires) |
 | `DEVICETAG` | no | Label shown in the dashboard (for example the host pool). The dashboard's retirement scope can limit retirement to chosen tags, so set it on every pooled virtual desktop. Letters, digits, `.` `_` `:` `/` `-`, up to 64 characters |
 
@@ -83,7 +83,7 @@ Contents:
   "api_endpoint": "https://agent.api.stepsecurity.io",
   "api_key": "sk_live_xxxxxxxxxxxxxxxx",
   "scan_frequency_hours": "4",
-  "device_id": "{hostname}-{user}",
+  "device_id": "{hostname}",
   "retire_on_uninstall": true
 }
 ```
@@ -287,6 +287,8 @@ rmdir /s /q "C:\ProgramData\StepSecurity"
 | Device not updating / update errors in the console | Network, proxy, opt-out | [Windows self-update guide](windows-self-update-admin.md#troubleshooting-by-console-event) |
 | Scheduled task missing | `install` custom action skipped or failed | Same log; search for `RunInstallScheduledTask` |
 | Endpoint not reporting to dashboard | Wrong API key / endpoint | `type C:\ProgramData\StepSecurity\config.json` |
+| Install succeeded but `RunningVersion` is empty | The MSI's `adopt-seed` step couldn't place the version (often an antivirus or EDR holding the new files) | Search the MSI log for `adopt-seed:`; add the [antivirus and EDR exclusions](windows-self-update-admin.md#antivirus-and-edr) |
+| `update_stage_failed` "Access is denied" on a later self-update | An antivirus or EDR held the new files during the update | `C:\Program Files\StepSecurity\state\update.log`; add the [antivirus and EDR exclusions](windows-self-update-admin.md#antivirus-and-edr) |
 | Endpoint config still under `%USERPROFILE%\.stepsecurity\` | MSI ran without elevation (shouldn't happen via SCCM) | Verify SCCM Application is set to "Install for system" |
 
 When opening a support case, attach:

@@ -75,14 +75,25 @@ type Device struct {
 	SerialNumber   string `json:"serial_number"`
 	DeviceID       string `json:"device_id,omitempty"`
 	DeviceIDSource string `json:"device_id_source,omitempty"`
+	// DeviceIDTemplate is the identity template in force when it carries a
+	// token ("{hostname}"), so the dashboard can tell a host-name identity
+	// from a hardware one. Empty for the hardware serial and for a literal id.
+	DeviceIDTemplate string `json:"device_id_template,omitempty"`
+	// UserToken names the signed-in user this run scanned for: the account's
+	// short name plus a fingerprint of the full principal (device.UserToken),
+	// the same value that scopes per-session state on a shared host. Empty
+	// for a service account. The backend files the upload under this user of
+	// the device.
+	UserToken string `json:"user_token,omitempty"`
 	// DeviceTag is the admin-set label from the agent configuration
 	// (config.json device_tag); empty when none is configured.
 	DeviceTag string `json:"device_tag,omitempty"`
-	// IdentityPerUser: the template contained {user}, so this machine's users
-	// are separate devices. IdentityIncomplete: a token expanded empty (e.g.
-	// {user} under SYSTEM); DeviceID is "" and the run must not upload.
-	IdentityPerUser    bool             `json:"-"`
+	// IdentityIncomplete: a token expanded empty ({serial} with no usable
+	// serial); DeviceID is "" and the run must not upload.
+	// PerSessionScanning: this host scans every signed-in session separately
+	// (device/multiuser.go); a run with no signed-in user is skipped there.
 	IdentityIncomplete bool             `json:"-"`
+	PerSessionScanning bool             `json:"-"`
 	OSVersion          string           `json:"os_version"`
 	Platform           string           `json:"platform"`
 	UserIdentity       string           `json:"user_identity"`
@@ -2207,4 +2218,103 @@ type MavenArtifact struct {
 	FileVersion               string  `json:"file_version,omitempty"` // timestamped snapshot file
 	ContentKey                string  `json:"content_key,omitempty"`  // Gradle cache directory, not a computed digest
 	LocalInstallMarkerPresent bool    `json:"local_install_marker_present,omitempty"`
+}
+
+// SwiftInventorySchemaVersion versions swift_inventory and swift_config_audit.
+const SwiftInventorySchemaVersion = 1
+
+// SwiftSource has the Cargo source shape. Kinds: project_search_root |
+// project | manifest | lockfile | workspace_state | cache_root |
+// cached_repository | cached_registry_package.
+type SwiftSource struct {
+	SourceID string   `json:"source_id"`
+	Kind     string   `json:"kind"`
+	Path     string   `json:"path"`
+	Status   string   `json:"status"`   // complete | partial
+	Presence string   `json:"presence"` // present | absent | unknown
+	Reasons  []string `json:"reasons"`
+	// ParentSourceID names the discovery source.
+	ParentSourceID string `json:"parent_source_id,omitempty"`
+	// DiscoveredSources is omitted unless every listing of this source
+	// completed; an empty list is a completed listing with no children.
+	DiscoveredSources []string `json:"discovered_sources,omitzero"`
+}
+
+// SwiftOrigin reuses the Ruby origin shape with kind git | registry | path |
+// unknown. A path origin has no URL and a network origin has no path.
+type SwiftOrigin = RubyOrigin
+
+// SwiftInstallation is a managed or artifact path and its presence:
+// path_status resolved | unresolved, presence present | absent | unknown.
+type SwiftInstallation = NuGetInstallation
+
+// SwiftRecordedChecksum is an artifact's recorded sha256, never verified.
+type SwiftRecordedChecksum = ComposerRecordedChecksum
+
+// SwiftConfigAudit reuses the Ruby observed-source model with manager
+// swiftpm and scope user | project | process.
+type SwiftConfigAudit = RubyConfigAudit
+
+// SwiftCredentialFile reports existence only; contents are never read.
+type SwiftCredentialFile = CargoCredentialFile
+
+// SwiftInventory covers SwiftPM and Xcode package metadata from passive
+// reads; no Swift, Git or Xcode runs and no manifest is evaluated.
+type SwiftInventory struct {
+	SchemaVersion int            `json:"schema_version"`
+	Status        string         `json:"status"` // complete | partial
+	Reasons       []string       `json:"reasons"`
+	Sources       []SwiftSource  `json:"sources"`
+	Projects      []SwiftProject `json:"projects"`
+	Packages      []SwiftPackage `json:"packages"`
+}
+
+// SwiftProject is a Swift package directory, an .xcodeproj bundle or a
+// standalone .xcworkspace bundle.
+type SwiftProject struct {
+	SourceID    string `json:"source_id"`
+	ProjectPath string `json:"project_path"`
+	Tool        string `json:"tool"` // swiftpm | xcode
+}
+
+// SwiftPackage is one observation of a lowercased SwiftPM identity. Lock,
+// workspace, cache and artifact evidence stay independent.
+type SwiftPackage struct {
+	SourceID      string `json:"source_id"`
+	SourcePath    string `json:"source_path"`
+	ProjectPath   string `json:"project_path,omitempty"`
+	PackageName   string `json:"package_name"`
+	Evidence      string `json:"evidence"`       // locked_package | managed_dependency | cached_repository | cached_registry_package | artifact_reference
+	Tool          string `json:"tool"`           // swiftpm | xcode | unknown
+	Scope         string `json:"scope"`          // project | user | system | custom | unknown
+	VersionStatus string `json:"version_status"` // known | unknown
+	Version       string `json:"version,omitempty"`
+	Revision      string `json:"revision,omitempty"`
+	Branch        string `json:"branch,omitempty"`
+	// ManagedState is checkout | registry | filesystem | edited | custom, on
+	// managed_dependency only.
+	ManagedState string `json:"managed_state,omitempty"`
+	// OriginalLocation is the recorded SCM location a registry mapping replaced.
+	OriginalLocation string `json:"original_location,omitempty"`
+	// BasedOn is an edited dependency's historical state; it never sets Version.
+	BasedOn           *SwiftBasedOn           `json:"based_on,omitempty"`
+	Origin            SwiftOrigin             `json:"origin"`
+	Installation      *SwiftInstallation      `json:"installation,omitempty"`
+	Artifact          *SwiftArtifact          `json:"artifact,omitempty"`
+	RecordedChecksums []SwiftRecordedChecksum `json:"recorded_checksums"`
+	Reasons           []string                `json:"reasons"`
+}
+
+type SwiftBasedOn struct {
+	Version  string `json:"version,omitempty"`
+	Revision string `json:"revision,omitempty"`
+	Branch   string `json:"branch,omitempty"`
+}
+
+// SwiftArtifact is a package-owned binary target. URL is the recorded
+// download URL, not the package origin.
+type SwiftArtifact struct {
+	TargetName string `json:"target_name"`
+	Kind       string `json:"kind"` // xcframework | artifact_archive | unknown
+	URL        string `json:"url,omitempty"`
 }

@@ -29,7 +29,11 @@ const mutexAccess = windows.SYNCHRONIZE | windows.MUTEX_MODIFY_STATE
 // acquire owns the mutex on a dedicated OS thread: mutex ownership is
 // per-thread, and goroutines migrate, so the wait and ReleaseMutex must both
 // run on the same locked thread.
-func acquire() (func(), error) {
+func acquire() (func(), error) { return acquireTarget(mutexName) }
+
+// acquireTarget takes the named mutex; it never reads or writes the
+// package-level target, so callers may lock other targets concurrently.
+func acquireTarget(name string) (func(), error) {
 	res := make(chan error, 1)
 	release := make(chan struct{})
 	done := make(chan struct{})
@@ -37,7 +41,7 @@ func acquire() (func(), error) {
 		// Never unlocked: the thread exits with this goroutine.
 		runtime.LockOSThread()
 		defer close(done)
-		h, err := openMutex()
+		h, err := openMutex(name)
 		if err != nil {
 			res <- err
 			return
@@ -48,10 +52,10 @@ func acquire() (func(), error) {
 		case ev == windows.WAIT_OBJECT_0, ev == windows.WAIT_ABANDONED:
 			// Abandoned = previous holder died; we own it now.
 		case ev == uint32(windows.WAIT_TIMEOUT):
-			res <- fmt.Errorf("%w (mutex %s)", ErrHeld, mutexName)
+			res <- fmt.Errorf("%w (mutex %s)", ErrHeld, name)
 			return
 		default:
-			res <- fmt.Errorf("waiting on mutex %s: %w", mutexName, err)
+			res <- fmt.Errorf("waiting on mutex %s: %w", name, err)
 			return
 		}
 		res <- nil
@@ -69,7 +73,7 @@ func acquire() (func(), error) {
 
 // openMutex creates or opens the machine-wide mutex, falling back to the
 // session-local namespace when Global\ is unavailable.
-func openMutex() (windows.Handle, error) {
+func openMutex(name string) (windows.Handle, error) {
 	sd, err := windows.SecurityDescriptorFromString(mutexSDDL)
 	if err != nil {
 		return 0, fmt.Errorf("building mutex security descriptor: %w", err)
@@ -77,11 +81,11 @@ func openMutex() (windows.Handle, error) {
 	sa := &windows.SecurityAttributes{SecurityDescriptor: sd}
 	sa.Length = uint32(unsafe.Sizeof(*sa))
 
-	h, gErr := createMutex(sa, `Global\`+mutexName)
+	h, gErr := createMutex(sa, `Global\`+name)
 	if gErr == nil {
 		return h, nil
 	}
-	h, lErr := createMutex(sa, `Local\`+mutexName)
+	h, lErr := createMutex(sa, `Local\`+name)
 	if lErr != nil {
 		return 0, fmt.Errorf("creating mutex (Global: %v): %w", gErr, lErr)
 	}

@@ -33,6 +33,7 @@ type env struct {
 	busy     int // AcquireInstance fails this many more times
 	sendErr  error
 	drift    []string
+	running  string // last SetRunningVersion
 
 	mu   sync.Mutex
 	sent []updatestate.OutboxEvent // since the last events() call
@@ -133,8 +134,9 @@ func (e *env) deps() *Deps {
 			e.mu.Unlock()
 			return nil
 		},
-		Now:  func() time.Time { return e.now },
-		Logf: func(f string, a ...any) { e.t.Logf("[updater] "+f, a...) },
+		SetRunningVersion: func(v string) { e.running = v },
+		Now:               func() time.Time { return e.now },
+		Logf:              func(f string, a ...any) { e.t.Logf("[updater] "+f, a...) },
 	}
 }
 
@@ -256,13 +258,41 @@ func TestMissingStateRebuildsOnSeed(t *testing.T) {
 	e := newEnv(t)
 	e.api.setTarget("1.19.0")
 	e.tick()
-	wantEvents(t, e.events(), EventStateCorrupt)
+	wantEvents(t, e.events(), EventStateCorrupt, EventOK)
+	if ok := e.lastSent(EventOK); ok.From != "1.19.0" || ok.To != "1.19.0" || ok.Error != "restaged" {
+		t.Fatalf("update_ok = %+v, want 1.19.0 -> 1.19.0 restaged", ok)
+	}
 	if st := e.state(); st.Current != "1.19.0" {
 		t.Fatalf("current = %s", st.Current)
 	}
-	// versions\1.19.0 was absent, so it is staged from the release.
+	// versions\1.19.0 was absent (the MSI's adopt-seed never placed it), so
+	// it is copied from the seed, not downloaded, and RunningVersion is set.
 	if err := updatestate.VerifyVersionDir(e.L.VersionDir(mustV("1.19.0")), mustV("1.19.0")); err != nil {
 		t.Fatalf("seed version not staged: %v", err)
+	}
+	if n := e.api.githubHits["stepsecurity-dev-machine-guard-1.19.0-windows_amd64.exe"]; n != 0 {
+		t.Fatalf("downloaded 1.19.0 %d times; want a copy of the seed", n)
+	}
+	if e.running != "1.19.0" {
+		t.Fatalf("RunningVersion = %q, want 1.19.0", e.running)
+	}
+}
+
+// A seed that fails verification is not copied: the restage downloads.
+func TestRestageDownloadsWhenSeedUnverifiable(t *testing.T) {
+	e := newEnv(t)
+	e.api.setTarget("1.19.0")
+	d := e.deps()
+	d.VerifySeed = func(string) error { return errors.New("bad signature") }
+	Run(context.Background(), d)
+	if err := updatestate.VerifyVersionDir(e.L.VersionDir(mustV("1.19.0")), mustV("1.19.0")); err != nil {
+		t.Fatalf("not restaged: %v", err)
+	}
+	if n := e.api.githubHits["stepsecurity-dev-machine-guard-1.19.0-windows_amd64.exe"]; n != 1 {
+		t.Fatalf("downloads = %d, want 1", n)
+	}
+	if e.running != "1.19.0" {
+		t.Fatalf("RunningVersion = %q, want 1.19.0", e.running)
 	}
 }
 
@@ -274,7 +304,7 @@ func TestCorruptStateIsReported(t *testing.T) {
 	if code := e.tick(); code != ExitOK {
 		t.Fatalf("tick = %d", code)
 	}
-	wantEvents(t, e.events(), EventStateCorrupt)
+	wantEvents(t, e.events(), EventStateCorrupt, EventOK)
 	if ev := e.lastSentOrNil(EventStateCorrupt); ev == nil || ev.Error == "" {
 		t.Fatal("no reason on update_state_corrupt")
 	}
@@ -1376,5 +1406,105 @@ func TestRestageBackoffAfterRepeatedDeletion(t *testing.T) {
 	e.tick()
 	if r, ok := e.state().Restages["1.20.0"]; ok && r.Count != 0 {
 		t.Fatalf("restage counter not reset: %+v", r)
+	}
+}
+
+// Each update check says why the tick checked.
+func TestUpdateCheckReason(t *testing.T) {
+	e := newEnv(t)
+	e.api.setTarget("1.19.0")
+	e.tick() // no state, versions\1.19.0 missing
+	if q := e.api.latestRequests[len(e.api.latestRequests)-1]; !strings.Contains(q, "reason="+CheckInvalidCurrent) || !strings.Contains(q, "current=1.19.0") {
+		t.Fatalf("first check query = %s", q)
+	}
+	e.now = e.now.Add(7 * time.Hour) // current valid now; past the 6 h check interval
+	e.tick()
+	if q := e.api.latestRequests[len(e.api.latestRequests)-1]; !strings.Contains(q, "reason="+CheckInterval) {
+		t.Fatalf("interval check query = %s", q)
+	}
+}
+
+func TestCheckReasonOrder(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	st := func(last time.Time) *updatestate.State { return &updatestate.State{LastCheck: last} }
+	for _, tc := range []struct {
+		name           string
+		st             *updatestate.State
+		probation, cur bool
+		want           string
+	}{
+		{"invalid current wins", st(time.Time{}), true, false, CheckInvalidCurrent},
+		{"first check", st(time.Time{}), false, true, CheckFirst},
+		{"clock ahead", st(now.Add(time.Hour)), false, true, CheckClockSkew},
+		{"probation closed", st(now.Add(-time.Hour)), true, true, CheckProbationClosed},
+		{"interval", st(now.Add(-7 * time.Hour)), false, true, CheckInterval},
+	} {
+		if got := checkReason(tc.st, now, tc.probation, tc.cur); got != tc.want {
+			t.Errorf("%s: %s, want %s", tc.name, got, tc.want)
+		}
+	}
+}
+
+// Each user's scans write their own run file; the probation judges them all.
+// A healthy run in one user's file confirms, and bad runs spread over two
+// users' files roll back.
+func TestProbationReadsEveryUsersRunFile(t *testing.T) {
+	pv := mustV("1.20.0")
+	t.Run("healthy in one user's file confirms", func(t *testing.T) {
+		e := newEnv(t)
+		e.installVersion("1.19.0")
+		e.writeState(baseState("1.19.0", ""))
+		e.tick() // switch to 1.20.0
+		code := 0
+		must(t, updatestate.AppendRun(e.L.RunFileFor(pv, "S-1-5-21-1-2-3-1003"), updatestate.RunRecord{RunID: "a", Version: "1.20.0", Started: true, ExitCode: &code, At: e.now}))
+		e.now = e.now.Add(time.Hour)
+		e.tick()
+		if st := e.state(); st.Probation != nil || st.Current != "1.20.0" {
+			t.Fatalf("probation not confirmed from a per-user run file: %+v", st)
+		}
+	})
+	t.Run("bad runs across users roll back", func(t *testing.T) {
+		e := newEnv(t)
+		e.installVersion("1.19.0")
+		e.writeState(baseState("1.19.0", ""))
+		e.tick()
+		early := e.state().Probation.Since.Add(-time.Hour) // the seq rule counts them anyway
+		for i, owner := range []string{"S-1-5-21-1-2-3-1003", "S-1-5-21-1-2-3-1004"} {
+			if e.state().Current != "1.20.0" {
+				break
+			}
+			f, id := e.L.RunFileFor(pv, owner), fmt.Sprintf("crash-%d", i)
+			must(t, updatestate.AppendRun(f, updatestate.RunRecord{RunID: id, Version: "1.20.0"}))
+			must(t, updatestate.FinalizeRun(f, id, 2, false, early))
+			e.now = e.now.Add(time.Hour)
+			e.tick()
+		}
+		if e.state().Current != "1.19.0" {
+			t.Fatalf("not rolled back on bad runs in two users' files: %+v", e.state())
+		}
+	})
+}
+
+// The switch records each existing per-user file's sequence, so a user's
+// runs from before the switch never count toward the probation.
+func TestSwitchRecordsPerUserSinceSeqs(t *testing.T) {
+	e := newEnv(t)
+	e.installVersion("1.19.0")
+	e.writeState(baseState("1.19.0", ""))
+	pv := mustV("1.20.0")
+	f := e.L.RunFileFor(pv, "S-1-5-21-1-2-3-1003")
+	for _, id := range []string{"a", "b"} {
+		must(t, updatestate.AppendRun(f, updatestate.RunRecord{RunID: id, Version: "1.20.0"}))
+		must(t, updatestate.FinalizeRun(f, id, 2, false, e.now))
+	}
+	e.tick()
+	p := e.state().Probation
+	if p == nil || p.SinceSeqs[filepath.Base(f)] != 2 {
+		t.Fatalf("probation = %+v, want since_seqs[%s] = 2", p, filepath.Base(f))
+	}
+	e.now = e.now.Add(time.Hour)
+	e.tick()
+	if e.state().Current != "1.20.0" {
+		t.Fatalf("pre-switch crashes counted toward the probation: %+v", e.state())
 	}
 }

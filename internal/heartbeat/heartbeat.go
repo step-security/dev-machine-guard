@@ -70,6 +70,10 @@ type RunGate struct {
 	GatingEnabled            bool   `json:"gating_enabled,omitempty"`
 	EffectiveIntervalMinutes int    `json:"effective_interval_minutes,omitempty"`
 	DirectiveFetchedAt       int64  `json:"directive_fetched_at,omitempty"` // unix sec of the last successful check-in
+	// MachineID is the machine identity of the host that checked in. A
+	// record captured into an image names the builder; retire-on-uninstall
+	// skips records that name another machine. Absent in older records.
+	MachineID string `json:"machine_id,omitempty"`
 }
 
 // mu serializes the read-modify-write writers (Write for the breadcrumb,

@@ -247,7 +247,7 @@ func TestHome_DotComponentsCanonicalised(t *testing.T) {
 	}
 }
 
-// withUserScope sets the per-user state scope for a test and restores it.
+// withUserScope sets the per-session state scope for a test and restores it.
 func withUserScope(t *testing.T, s string) {
 	t.Helper()
 	prev := userScope

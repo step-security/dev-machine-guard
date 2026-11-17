@@ -421,3 +421,34 @@ func TestRedirectDowngradeRefused(t *testing.T) {
 		t.Fatalf("https redirect: %v", err)
 	}
 }
+
+// An update check names the device, its current version and why it checked,
+// so the backend can log it per device; the user agent says it's the updater.
+func TestLatestForSendsCheckDetails(t *testing.T) {
+	api := newFakeAPI(t)
+	api.addRelease("1.20.0", testArch, payload("agent", "1.20.0"), payload("task", "1.20.0"), payload("linux", "1.20.0"))
+	api.setTarget("1.20.0")
+	c := api.client(testArch)
+	c.DeviceID = func() string { return "dev-1" }
+	if _, err := c.LatestFor(context.Background(), CheckInfo{Current: "1.19.0", Reason: CheckInvalidCurrent}); err != nil {
+		t.Fatal(err)
+	}
+	r := api.requests[len(api.requests)-1]
+	q := r.URL.Query()
+	if q.Get("reason") != CheckInvalidCurrent || q.Get("current") != "1.19.0" || q.Get("device_id") != "dev-1" {
+		t.Fatalf("query = %s", r.URL.RawQuery)
+	}
+	if ua := r.Header.Get("User-Agent"); ua != "dmg/1.19.0 (updater)" {
+		t.Fatalf("User-Agent = %q", ua)
+	}
+	// Without check details nothing extra is sent.
+	if _, err := c.Latest(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	q = api.requests[len(api.requests)-1].URL.Query()
+	for _, k := range []string{"reason", "current", "device_id"} {
+		if q.Has(k) {
+			t.Fatalf("%s sent without check details: %s", k, api.requests[len(api.requests)-1].URL.RawQuery)
+		}
+	}
+}

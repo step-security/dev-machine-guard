@@ -1,0 +1,50 @@
+name: Windows provisioning contracts
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/windows/**'
+      - '.github/workflows/windows-provisioning-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/windows/**'
+      - '.github/workflows/windows-provisioning-tests.yml'
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        with:
+          egress-policy: audit
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Policy tests on Windows PowerShell 5.1
+        shell: powershell
+        run: ./scripts/windows/tests/Test-DmgProvisioningPolicy.ps1
+      - name: XML and diagnostic tests on Windows PowerShell 5.1
+        shell: powershell
+        run: ./scripts/windows/tests/Test-DmgProvisioningWindows.ps1
+      - name: Policy tests on PowerShell 7
+        shell: pwsh
+        run: ./scripts/windows/tests/Test-DmgProvisioningPolicy.ps1
+      - name: XML and diagnostic tests on PowerShell 7
+        shell: pwsh
+        run: ./scripts/windows/tests/Test-DmgProvisioningWindows.ps1
+      - name: Execution and recovery tests on Windows PowerShell 5.1
+        shell: powershell
+        run: ./scripts/windows/tests/Test-DmgProvisioningExecution.ps1
+      - name: Execution and recovery tests on PowerShell 7
+        shell: pwsh
+        run: ./scripts/windows/tests/Test-DmgProvisioningExecution.ps1

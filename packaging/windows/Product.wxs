@@ -86,8 +86,8 @@
     <Property Id="SCANFREQUENCY" Secure="yes" Value="4"/>
     <Property Id="BOOTSTRAPFILE" Secure="yes"/>
     <!-- DEVICEID: device identity template — a literal id or {serial}
-         {hostname} {user} tokens (e.g. "{hostname}-{user}" for pooled
-         virtual desktops). Empty keeps the hardware serial.
+         {hostname} tokens (e.g. "{hostname}" for pooled virtual desktops
+         rebuilt under stable names). Empty keeps the hardware serial.
          RETIREONUNINSTALL=1: `msiexec /x` retires the device in the
          dashboard before removing the scheduled task. DEVICETAG: a label
          shown in the dashboard (e.g. the host pool); the dashboard's
@@ -98,6 +98,10 @@
     <Property Id="DEVICEID"          Secure="yes"/>
     <Property Id="RETIREONUNINSTALL" Secure="yes"/>
     <Property Id="DEVICETAG"         Secure="yes"/>
+    <!-- IMAGEBUILDER=1 marks the master-image builder: scans stay off on
+         that machine (a machine-bound marker, never a bootstrap.json key, so
+         the hosts built from the image are not affected). -->
+    <Property Id="IMAGEBUILDER"      Secure="yes"/>
     <!-- AUTOUPDATE (no default): 0 opts the device out of self-update
          (configure writes auto_update:false into the SYSTEM-owned machine
          config; the update task still runs and reports update_disabled),
@@ -321,13 +325,13 @@
          backslash would escape the closing quote. -->
 
     <SetProperty Id="RunConfigureInline"
-                 Value='"[SEEDFOLDER]stepsecurity-dev-machine-guard.exe" configure --non-interactive --customer-id "[CUSTOMERID]" --api-endpoint "[APIENDPOINT]" --api-key "[APIKEY]" --scan-frequency "[SCANFREQUENCY]" --device-id="[DEVICEID]" --retire-on-uninstall="[RETIREONUNINSTALL]" --device-tag="[DEVICETAG]"'
+                 Value='"[SEEDFOLDER]stepsecurity-dev-machine-guard.exe" configure --non-interactive --customer-id "[CUSTOMERID]" --api-endpoint "[APIENDPOINT]" --api-key "[APIKEY]" --scan-frequency "[SCANFREQUENCY]" --device-id="[DEVICEID]" --retire-on-uninstall="[RETIREONUNINSTALL]" --device-tag="[DEVICETAG]" --image-builder="[IMAGEBUILDER]"'
                  Sequence="execute"
                  Before="RunConfigureInline"
                  Condition="APIKEY AND NOT BOOTSTRAPFILE AND NOT Installed"/>
 
     <SetProperty Id="RunConfigureFromFile"
-                 Value='"[SEEDFOLDER]stepsecurity-dev-machine-guard.exe" configure --non-interactive --from-file "[BOOTSTRAPFILE]"'
+                 Value='"[SEEDFOLDER]stepsecurity-dev-machine-guard.exe" configure --non-interactive --from-file "[BOOTSTRAPFILE]" --image-builder="[IMAGEBUILDER]"'
                  Sequence="execute"
                  Before="RunConfigureFromFile"
                  Condition="BOOTSTRAPFILE AND NOT Installed"/>

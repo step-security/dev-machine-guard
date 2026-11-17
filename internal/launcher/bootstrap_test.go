@@ -938,3 +938,32 @@ func TestUpdaterRootMatchesBootstrapRoot(t *testing.T) {
 		t.Fatalf("updater root = %q (%v), bootstrap root = %q", got, ok, b.Layout.InstallRoot)
 	}
 }
+
+// With RunOwner set the scan writes its user's own run file
+// (runs\<v>.<owner>.json) and the agent marks started there.
+func TestRun_WritesThePerUserRunFile(t *testing.T) {
+	f := newFixture(t)
+	f.state(`{"schema":1,"current":"1.2.0"}`)
+	f.version("1.2.0")
+	f.b.RunOwner = func() string { return "S-1-5-21-1-2-3-1003" }
+	v := updatestate.Version{Major: 1, Minor: 2}
+	want := f.layout.RunFileFor(v, "S-1-5-21-1-2-3-1003")
+	f.sp.during = func(c spawnCall) {
+		path, _ := c.envValue(EnvRunRecord)
+		id, _ := c.envValue(EnvRunID)
+		if path != want {
+			t.Errorf("%s = %q, want %q", EnvRunRecord, path, want)
+		}
+		if err := updatestate.MarkRunStarted(path, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.sp.results = []SpawnResult{{Started: true, ExitCode: 0}}
+	f.b.Run(scanArgs(f.layout.DataRoot))
+	if recs := updatestate.ReadRuns(want); len(recs) != 1 || updatestate.ClassifyRun(recs[0]) != updatestate.RunHealthy {
+		t.Fatalf("per-user records = %+v", recs)
+	}
+	if recs := updatestate.ReadRuns(f.layout.RunFile(v)); len(recs) != 0 {
+		t.Fatalf("the shared run file was written: %+v", recs)
+	}
+}

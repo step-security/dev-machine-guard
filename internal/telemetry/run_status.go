@@ -47,6 +47,7 @@ const (
 type runStatusBody struct {
 	ExecutionID      string         `json:"execution_id"`
 	DeviceID         string         `json:"device_id"`
+	UserToken        string         `json:"user_token,omitempty"` // the session's user (device.UserToken); "" for a service account
 	Status           string         `json:"status"`
 	AgentVersion     string         `json:"agent_version"`
 	Platform         string         `json:"platform"`
@@ -57,6 +58,21 @@ type runStatusBody struct {
 
 // fatalReporter holds the in-flight Run's once-only failure reporter.
 var fatalReporter atomic.Pointer[func(string)]
+
+// runUserTokenValue is the signed-in user's token of the current run, set as
+// soon as the identity is resolved (before the lock) and refined after
+// device_info, so every beacon of the run (started, progress, failed, the
+// fatal reporter) carries the same user_token as the upload.
+var runUserTokenValue atomic.Pointer[string]
+
+func setRunUserToken(token string) { runUserTokenValue.Store(&token) }
+
+func runUserToken() string {
+	if p := runUserTokenValue.Load(); p != nil {
+		return *p
+	}
+	return ""
+}
 
 // ReportFatal posts the in-flight Run's failed run-status (sharing Run's
 // once-only guard) and waits at most timeout. For exit paths that bypass
@@ -105,6 +121,7 @@ func reportRunStatus(ctx context.Context, log *progress.Logger,
 	body := runStatusBody{
 		ExecutionID:      executionID,
 		DeviceID:         deviceID,
+		UserToken:        runUserToken(),
 		Status:           status,
 		AgentVersion:     buildinfo.Version,
 		Platform:         runtime.GOOS,
@@ -147,6 +164,7 @@ func postProgress(ctx context.Context, log *progress.Logger,
 	body := runStatusBody{
 		ExecutionID:      executionID,
 		DeviceID:         deviceID,
+		UserToken:        runUserToken(),
 		Status:           runStatusStarted, // backend distinguishes progress vs terminal by presence of status_info
 		AgentVersion:     buildinfo.Version,
 		Platform:         runtime.GOOS,

@@ -58,7 +58,7 @@ The steps below install the binary directly and are intended for **community use
 
 ### Install from release (community)
 
-Download the latest binary for your platform from [GitHub Releases](https://github.com/step-security/dev-machine-guard/releases). Release asset filenames embed the version (for example, `stepsecurity-dev-machine-guard-1.18.1-darwin`), so the snippets below resolve the latest tag first rather than hardcoding a version.
+Download the latest binary for your platform from [GitHub Releases](https://github.com/step-security/dev-machine-guard/releases). Release asset filenames embed the version (for example, `stepsecurity-dev-machine-guard-1.19.1-darwin`), so the snippets below resolve the latest tag first rather than hardcoding a version.
 
 **macOS** (universal binary — Apple Silicon and Intel)
 
@@ -271,9 +271,9 @@ To label a device for the dashboard, add `"device_tag": "avd-pool-eu"` to the
 config JSON, pass `configure --device-tag avd-pool-eu`, or use the MSI
 `DEVICETAG` property. The tag is set in the agent configuration only (the
 dashboard shows it and never edits it). In the dashboard's Device activity
-settings an admin can limit retirement (on uninstall, on the automatic
-identity switch, by inactivity and from the dashboard) to devices carrying
-chosen tags; the default applies it to all devices.
+settings an admin can limit retirement (on uninstall, by inactivity and from
+the dashboard) to devices carrying chosen tags; the default applies it to all
+devices.
 
 To use a custom device ID, add `"device_id": "my-device-123"` to the existing
 config JSON, set **Device ID** through `configure`, or pass
@@ -289,16 +289,18 @@ separate IDs from the host ID and distro ID.
 Choose an ID unique within your customer and keep it stable: changing the ID
 registers a separate device in the backend; it does not migrate existing history.
 
-The value may also be a template over `{serial}`, `{hostname}` and `{user}`
-(for example `{hostname}-{user}` on pooled virtual desktops, so each person on a
-shared host is their own device), and the `STEPSEC_DEVICE_ID` environment
-variable overrides it at run time. With nothing configured, a shared Windows
-host (a multi-session edition, or one scanned by two or more developers)
-switches to `{hostname}-{user}` automatically and removes its old serial-based
-device once (the dashboard hides it immediately and purges it after the
-standard 30-day retention); configure `{serial}` to opt out. Every scan also
-reports whether
-the machine is virtual or physical and on which hypervisor or cloud. See
+The value may also be a template over `{serial}` and `{hostname}` (for
+example `{hostname}` on pooled virtual desktops rebuilt under stable names, so
+a rebuilt host keeps its device and history), and the `STEPSEC_DEVICE_ID`
+environment variable overrides it at run time. A device is always the machine:
+on a shared Windows host (a multi-session edition or the RD Session Host role;
+with `multi_user_detection: users`, also one where two developers have each
+scanned on two different days) every signed-in session runs its own scan and
+reports under the same device with its own `user_identity` and `user_token`,
+and the dashboard lists the users inside the device; `multi_user_detection:
+off` keeps one scan per tick. `identity --json` prints the identity a machine
+reports under. Every scan also reports whether the machine is virtual or
+physical and on which hypervisor or cloud. See
 [docs/deploying-on-virtual-desktops.md](docs/deploying-on-virtual-desktops.md).
 
 Every setting can also be written without prompts, which is how MDM, MSI and
@@ -318,9 +320,10 @@ preferences (`configure --color=never`) without them:
 | Setting                 | `configure` flag                                     |
 | ----------------------- | ---------------------------------------------------- |
 | User ID (one-time)      | `--user-id ID` (only when no usable identity is detected) |
-| Device ID               | `--device-id VALUE` (a literal, or a template over `{serial}` `{hostname}` `{user}`; `-` clears) |
+| Device ID               | `--device-id VALUE` (a literal, or a template over `{serial}` `{hostname}`; `-` clears) |
 | Device tag              | `--device-tag TAG` (`-` clears)                      |
 | Retire on uninstall     | `--retire-on-uninstall[=BOOL]`                        |
+| Multi-user detection    | `--multi-user-detection MODE` (`edition`, `users`, `off`; `-` clears) |
 | Customer ID             | `--customer-id ID`                                   |
 | API Endpoint            | `--api-endpoint URL`                                 |
 | API Key                 | `--api-key KEY` (or `DMG_API_KEY` env var)           |
@@ -384,6 +387,7 @@ See [SCAN_COVERAGE.md](SCAN_COVERAGE.md) for the full catalog of supported detec
 | .NET Packages        | MSBuild project and `packages.config` references, `packages.lock.json`, `project.assets.json` restores, global package cache, .NET tools, templates and `.deps.json` (enterprise) |
 | Conda Packages       | `environment.yml` declarations, `@EXPLICIT`, conda-lock and pixi locks, `conda-meta` receipts in every environment, extracted package caches and `.condarc` configuration (enterprise) |
 | Java/JVM Packages    | Maven `pom.xml` and Gradle version-catalog declarations, Gradle lockfiles and verification metadata, Maven local repository and Gradle module cache files, with Maven and Gradle configuration (enterprise) |
+| Swift Packages       | SwiftPM and Xcode `Package.resolved` pins, managed dependencies and binary artifacts from `workspace-state.json` (including Xcode DerivedData), and cached repositories and registry downloads in the SwiftPM cache, with SwiftPM mirror and registry configuration (enterprise) |
 | Package Configs      | npm (`.npmrc`), pnpm (`.npmrc`, `config.yaml`, `pnpm-workspace.yaml`), bun (`bunfig.toml`), yarn classic & berry (`.yarnrc`/`.yarnrc.yml`), pip (`pip.conf`) — effective registry, cooldown policy, and auth surface across every scope |
 | Suspicious Files     | Malicious-file IOCs from StepSecurity-maintained rules — e.g. `binding.gyp` that runs during `npm install`, and editor/AI-tool config files that auto-execute on project open |
 
@@ -410,6 +414,8 @@ Ruby auditing reads RubyGems `gemrc` files and Bundler global, project and proce
 Conda auditing reads `.condarc` files from the system, installation root, user and environment search path, `condarc.d` fragments, saved `conda-meta/state` variables and verified `CONDA_*` process settings for the resolved developer. It reports channels, channel aliases, custom channels, environment and package directories, proxy, TLS and safety-check settings with credentials and Anaconda tokens redacted, and records which configuration applied to each environment and project. It never executes `conda`, `mamba`, `micromamba`, `pixi` or Python, and checks `~/.netrc` and the anaconda-client token store for existence only. See [Conda Packages](SCAN_COVERAGE.md#conda-packages) for scope and limits.
 
 Maven auditing reads user and installation `settings.xml`, settings named by `-s`/`-gs`, POM repositories, `.mvn/maven.config`, `.mvn/jvm.config`, Maven wrapper properties and verified `MAVEN_ARGS`/`MAVEN_OPTS` options. Gradle auditing reads user, project and installation `gradle.properties`, Gradle wrapper properties and the policy part of `gradle/verification-metadata.xml`. Both report repositories, mirrors, proxies, checksum, TLS, wrapper and dependency-verification settings with credentials redacted, and record which configuration applied to each project. They never execute Maven, Gradle, a wrapper or a build script, and check `settings-security.xml` for existence only. See [Java / JVM Packages](SCAN_COVERAGE.md#java--jvm-packages) for scope and limits.
+
+SwiftPM auditing reads user, project and legacy `mirrors.json` and `registries.json` files and a mirror file named by `SWIFTPM_MIRROR_CONFIG`. It reports mirrors, registries, authentication types and registry signing policy with credentials redacted, and records which configuration applied to each project. It never executes Swift, Xcode or Git, never reads the Keychain or SwiftPM `security` state, and checks `~/.netrc` for existence only. See [Swift Packages](SCAN_COVERAGE.md#swift-packages) for scope and limits.
 
 Enterprise Device Policy can also set StepSecurity Secure Registry as the sole user-level Python index for pip and uv. It manages only the resolved developer's user configuration and shared StepSecurity `.netrc` entry, keeps pip and uv results independent, and restores owned settings on an explicit policy clear. Project files, virtual environments, system configuration, environment variables, direct URLs, and Poetry are not modified.
 

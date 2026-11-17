@@ -241,7 +241,10 @@ func condaLocalChannel(raw string) (string, bool) {
 	if strings.HasPrefix(strings.ToLower(raw), "file://") {
 		return composerLocalURL(raw, "")
 	}
-	return raw, isCondaAbs(raw)
+	// A drive-letter path never carries a scheme separator: "0://h/t/tok/x"
+	// is a URL with a one-character scheme, and reading it as a path would
+	// skip the token and userinfo cleaning.
+	return raw, isCondaAbs(raw) && !strings.Contains(raw, "://")
 }
 
 // isCondaAbs accepts either OS syntax: explicit files are written on one

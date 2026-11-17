@@ -3,6 +3,7 @@ package launchd
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -223,16 +224,20 @@ func doUninstall(ctx context.Context, exec executor.Executor, log *progress.Logg
 	// Bootout. `bootout` removes a service from its domain regardless of
 	// how it was originally added, so it works on plists previously
 	// `launchctl load`-ed by older agent versions during upgrade.
+	var stillLoaded bool
+	var target string
 	stdout, _, _, _ := exec.Run(ctx, "launchctl", "list")
 	if strings.Contains(stdout, label) {
-		_, target := DomainTarget(exec)
+		_, target = DomainTarget(exec)
 		_, stderr, exitCode, err := exec.Run(ctx, "launchctl", "bootout", target)
 		log.Debug("launchctl bootout %q: exit_code=%d err=%v stderr=%q", target, exitCode, err, stderr)
 		switch {
 		case err != nil:
 			log.Warn("launchctl bootout failed: %v — the running service may persist until reboot; plist will still be removed", err)
+			stillLoaded = serviceLoaded(ctx, exec, target)
 		case exitCode != 0:
 			log.Warn("launchctl bootout failed (exit code %d): %s — the running service may persist until reboot; plist will still be removed", exitCode, strings.TrimSpace(stderr))
+			stillLoaded = serviceLoaded(ctx, exec, target)
 		default:
 			log.Progress("Unloaded launchd agent")
 			waitForBootout(ctx, exec, log, target)
@@ -246,7 +251,23 @@ func doUninstall(ctx context.Context, exec executor.Executor, log *progress.Logg
 	}
 
 	log.Progress("launchd configuration removed successfully")
+	if stillLoaded {
+		// Reported rather than swallowed: the caller must not retire a
+		// device whose scan may still report (a late upload restores it).
+		return fmt.Errorf("%w: launchctl bootout of %s failed and the service is still loaded; the device stays registered until the agent has stopped", errStillRunning, target)
+	}
 	return nil
+}
+
+// errStillRunning is returned by Uninstall when the agent service survived the
+// teardown; the scheduler files are removed all the same.
+var errStillRunning = errors.New("launchd: the agent service is still running")
+
+// serviceLoaded reports whether launchd still knows the service: `launchctl
+// print` succeeds only for a loaded service.
+func serviceLoaded(ctx context.Context, exec executor.Executor, target string) bool {
+	_, _, exitCode, err := exec.Run(ctx, "launchctl", "print", target)
+	return err == nil && exitCode == 0
 }
 
 // sleep is swapped out by tests.

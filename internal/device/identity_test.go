@@ -74,10 +74,6 @@ func TestResolveIdentity_TemplateVectors(t *testing.T) {
 			if id.Source != IdentitySourceConfig {
 				t.Fatalf("source = %q, want config", id.Source)
 			}
-			wantPerUser := strings.Contains(v.Template, "{user}")
-			if id.PerUser != wantPerUser {
-				t.Fatalf("per_user = %v, want %v", id.PerUser, wantPerUser)
-			}
 		})
 	}
 }
@@ -92,33 +88,27 @@ func TestResolveIdentity_DefaultSerialUnsanitized(t *testing.T) {
 	if id.DeviceID != serial || id.Serial != serial {
 		t.Fatalf("default identity altered the serial: %+v", id)
 	}
-	if id.Source != IdentitySourceSerial || id.PerUser || id.Incomplete || id.Template != "" {
+	if id.Source != IdentitySourceSerial || id.Incomplete || id.Template != "" || id.PerSession || id.SessionScope != "" {
 		t.Fatalf("unexpected identity fields: %+v", id)
 	}
-	if IdentityUserScope(mock) != "" {
-		t.Fatal("no template must mean no per-user scope")
+	if id.UserToken != "jdoe-"+UserTokenFingerprint("jdoe") {
+		t.Fatalf("the signed-in user's token must ride along: %+v", id)
+	}
+	if SessionScope(mock) != "" {
+		t.Fatal("a single-user host keeps shared state")
 	}
 }
 
 func TestResolveIdentity_EnvBeatsConfig(t *testing.T) {
 	withConfigDeviceID(t, "{hostname}")
 	mock := executor.NewMock()
-	mock.SetEnv(EnvDeviceID, "from-env-{user}")
+	mock.SetEnv(EnvDeviceID, "{hostname}-env")
 	id := ResolveIdentity(mock, "SER", "Host1", "jdoe")
-	if id.DeviceID != "from-env-jdoe" || id.Source != IdentitySourceEnv {
+	if id.DeviceID != "host1-env" || id.Source != IdentitySourceEnv || id.Template != "{hostname}-env" {
 		t.Fatalf("env override not applied: %+v", id)
 	}
-	if !id.PerUser || id.UserScope != "jdoe" {
-		t.Fatalf("per-user scope not derived from the env template: %+v", id)
-	}
-	// IdentityUserScope reads the env template too (the mock's default user
-	// is "testuser").
-	if got := IdentityUserScope(mock); got != "testuser" {
-		t.Fatalf("scope from the env template = %q, want testuser", got)
-	}
-	mock.SetUsername("CONTOSO\\JDoe")
-	if got := IdentityUserScope(mock); got != "jdoe" {
-		t.Fatalf("IdentityUserScope = %q, want jdoe", got)
+	if got, _ := IdentityTemplate(mock); got != "{hostname}-env" {
+		t.Fatalf("IdentityTemplate = %q, want the env value", got)
 	}
 }
 
@@ -129,11 +119,32 @@ func TestResolveIdentity_UnknownTokenFallsBackToSerial(t *testing.T) {
 	if id.DeviceID != "SER" || id.Source != IdentitySourceSerial {
 		t.Fatalf("unknown token must fall back to the serial: %+v", id)
 	}
-	if id.Issue == "" || !strings.Contains(id.Issue, "{site}") {
-		t.Fatalf("issue must name the unknown token: %q", id.Issue)
+	if id.Issue == "" || !strings.Contains(id.Issue, "{site}") || !strings.Contains(id.Issue, "{serial} {hostname}") {
+		t.Fatalf("issue must name the unknown token and the known ones: %q", id.Issue)
 	}
 	if id.Incomplete {
 		t.Fatal("fallback identity is complete")
+	}
+}
+
+// {user} was an identity token in an unreleased build. A device is the
+// machine, so a template that still carries it is reported with a specific
+// message and resolves to the machine identity, like any unknown token.
+func TestResolveIdentity_UserTokenTemplateIsRejected(t *testing.T) {
+	mock := executor.NewMock()
+	for _, template := range []string{"{hostname}-{user}", "{user}", "{USER}"} {
+		withConfigDeviceID(t, template)
+		id := ResolveIdentity(mock, "SER", "host", "jdoe")
+		if id.DeviceID != "SER" || id.Source != IdentitySourceSerial || id.Incomplete {
+			t.Fatalf("%s must fall back to the machine identity: %+v", template, id)
+		}
+		if !strings.Contains(id.Issue, "{user}") || !strings.Contains(id.Issue, "users are reported inside it") {
+			t.Fatalf("%s: issue must explain the removed token: %q", template, id.Issue)
+		}
+	}
+	// The run still knows which user it scans for.
+	if id := ResolveIdentity(mock, "SER", "host", "jdoe"); id.UserToken != "jdoe-"+UserTokenFingerprint("jdoe") {
+		t.Fatalf("user token missing after the fallback: %+v", id)
 	}
 }
 
@@ -149,20 +160,22 @@ func TestResolveIdentity_EmptyAfterSanitizeFallsBackToSerial(t *testing.T) {
 	}
 }
 
-func TestResolveIdentity_ServiceAccountIsIncompleteOnlyWithUserToken(t *testing.T) {
+// The identity never depends on who runs the scan; only the user token does:
+// a service account has none, a developer's names the account.
+func TestResolveIdentity_UserTokenFollowsTheSession(t *testing.T) {
 	mock := executor.NewMock()
 	mock.SetGOOS("windows")
 	withConfigDeviceID(t, "{hostname}")
-	if id := ResolveIdentity(mock, "SER", "h1", `NT AUTHORITY\SYSTEM`); id.Incomplete || id.DeviceID != "h1" {
-		t.Fatalf("a template without {user} must not care who runs it: %+v", id)
+	system := ResolveIdentity(mock, "SER", "h1", `NT AUTHORITY\SYSTEM`)
+	if system.Incomplete || system.DeviceID != "h1" || system.UserToken != "" {
+		t.Fatalf("SYSTEM resolves the machine identity with no user token: %+v", system)
 	}
-	withConfigDeviceID(t, "{hostname}-{user}")
-	id := ResolveIdentity(mock, "SER", "h1", `NT AUTHORITY\SYSTEM`)
-	if !id.Incomplete || id.DeviceID != "" || !id.PerUser {
-		t.Fatalf("SYSTEM with {user} must be incomplete: %+v", id)
+	user := ResolveIdentity(mock, "SER", "h1", `CONTOSO\JDoe`)
+	if user.DeviceID != "h1" || user.UserToken != "jdoe-"+UserTokenFingerprint(`contoso\jdoe`) {
+		t.Fatalf("a developer's run carries the user token: %+v", user)
 	}
-	if id.Serial != "SER" || id.Template != "{hostname}-{user}" {
-		t.Fatalf("incomplete identity must keep serial and template: %+v", id)
+	if UserToken(mock, `CONTOSO\JDoe`) != user.UserToken || UserToken(mock, `NT AUTHORITY\SYSTEM`) != "" {
+		t.Fatal("UserToken must agree with the resolved identity")
 	}
 }
 
@@ -265,12 +278,15 @@ func TestResolvedDeviceID_ProbesOnlyWhenNeeded(t *testing.T) {
 	// A template without {serial} never resolves one: with the process cache
 	// cleared and every probe failing, the id still resolves.
 	ResetIDCache()
-	withConfigDeviceID(t, "{hostname}-{user}")
+	withConfigDeviceID(t, "{hostname}")
 	mock.SetCommand("", "", 1, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
 	mock.SetCommand("", "", 1, "system_profiler", "SPHardwareDataType")
 	id := ResolvedDeviceID(context.Background(), mock)
-	if id.DeviceID != "mac-jdoe" || id.Serial != "" {
+	if id.DeviceID != "mac" || id.Serial != "" {
 		t.Fatalf("template without {serial} must not need one: %+v", id)
+	}
+	if id.UserToken != "jdoe-"+UserTokenFingerprint("jdoe") {
+		t.Fatalf("the user token is resolved without a probe: %+v", id)
 	}
 
 	// {serial} with no probe source falls through to the generated, persisted
@@ -278,40 +294,53 @@ func TestResolvedDeviceID_ProbesOnlyWhenNeeded(t *testing.T) {
 	old := userIDFile
 	userIDFile = func() string { return "/tmp/dmg-identity-test/device-id" }
 	t.Cleanup(func() { userIDFile = old })
-	withConfigDeviceID(t, "{serial}-{user}")
+	withConfigDeviceID(t, "{serial}-vdi")
 	id = ResolvedDeviceID(context.Background(), mock)
-	if id.Incomplete || !strings.HasSuffix(id.DeviceID, "-jdoe") || id.Serial == "" {
+	if id.Incomplete || id.Serial == "" || id.DeviceID != id.Serial+"-vdi" {
 		t.Fatalf("{serial} must use the generated machine id: %+v", id)
 	}
 }
 
-func TestIdentityUserScope(t *testing.T) {
+// SessionScope is the per-session state directory: the user's token on a
+// host that scans every signed-in session separately, nothing on a
+// single-user host, nothing for a service account.
+func TestSessionScope(t *testing.T) {
 	mock := executor.NewMock()
 	mock.SetGOOS("windows")
 	mock.SetUsername(`CONTOSO\JDoe`)
-	withConfigDeviceID(t, "{hostname}")
-	if got := IdentityUserScope(mock); got != "" {
-		t.Fatalf("no {user} token must yield no scope, got %q", got)
+	withConfigDeviceID(t, "")
+	if got := SessionScope(mock); got != "" {
+		t.Fatalf("a single-user host keeps shared state, got scope %q", got)
 	}
-	withConfigDeviceID(t, "{hostname}-{user}")
-	if got := IdentityUserScope(mock); got != "jdoe" {
-		t.Fatalf("scope = %q, want jdoe", got)
+
+	withMachineStateDir(t, "EnterpriseMultiSession", false)
+	if got, want := SessionScope(mock), "jdoe-"+UserTokenFingerprint(`contoso\jdoe`); got != want {
+		t.Fatalf("scope on a multi-session host = %q, want %q", got, want)
 	}
 	mock.SetEnv("USER_EMAIL", "Jane.Doe@example.com")
-	if got := IdentityUserScope(mock); got != "jane.doe" {
-		t.Fatalf("scope must honour the email override, got %q", got)
+	if got, want := SessionScope(mock), "jane.doe-"+UserTokenFingerprint("jane.doe@example.com"); got != want {
+		t.Fatalf("scope must honour the email override, got %q, want %q", got, want)
 	}
 	mock.SetEnv("USER_EMAIL", "")
 	mock.SetUsername(`NT AUTHORITY\SYSTEM`)
-	if got := IdentityUserScope(mock); got != "" {
+	if got := SessionScope(mock); got != "" {
 		t.Fatalf("a service account has no scope, got %q", got)
+	}
+	// The identity reports the same facts.
+	id := ResolveIdentity(mock, "SER1", "AVD-HOST-07", `NT AUTHORITY\SYSTEM`)
+	if !id.PerSession || id.SessionScope != "" || id.UserToken != "" || id.DeviceID != "SER1" {
+		t.Fatalf("SYSTEM on a per-session host: %+v", id)
+	}
+	id = ResolveIdentity(mock, "SER1", "AVD-HOST-07", `CONTOSO\JDoe`)
+	if !id.PerSession || id.SessionScope != id.UserToken || id.UserToken == "" || id.DeviceID != "SER1" {
+		t.Fatalf("a developer on a per-session host: %+v", id)
 	}
 }
 
 // {hostname} on a host without a usable name falls back to the machine
 // identity, so the serial is probed although the template has no {serial}.
 func TestResolvedDeviceID_NamelessHostProbesSerial(t *testing.T) {
-	withConfigDeviceID(t, "{hostname}-{user}")
+	withConfigDeviceID(t, "{hostname}")
 	ResetIDCache()
 	t.Cleanup(ResetIDCache)
 	mock := executor.NewMock()
@@ -320,19 +349,55 @@ func TestResolvedDeviceID_NamelessHostProbesSerial(t *testing.T) {
 	mock.SetUsername("jdoe")
 	mock.SetCommand(`"IOPlatformSerialNumber" = "PROBED"`, "", 0, "ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
 	id := ResolvedDeviceID(context.Background(), mock)
-	if id.Incomplete || id.DeviceID != "PROBED-jdoe" || id.Source != IdentitySourceConfig {
+	if id.Incomplete || id.DeviceID != "PROBED" || id.Source != IdentitySourceConfig {
 		t.Fatalf("a nameless host must resolve {hostname} through the serial: %+v", id)
 	}
 }
 
-// A template the resolver rejects falls back to the shared machine identity,
-// so it must not select a per-user state scope either.
-func TestIdentityUserScope_UnknownTokenKeepsSharedState(t *testing.T) {
+// Two principals that share a short name never share a user token (and so
+// never a state scope, a lock or a user entry on the device): the token
+// carries a fingerprint of the whole principal. Case differences in the
+// principal do not change it.
+func TestUserToken_DistinctPrincipalsNeverCollide(t *testing.T) {
+	principals := []string{`CORP\alice`, `HOST\alice`, "alice@a.example", "alice@b.example", "alice"}
+	seen := map[string]string{}
+	for _, p := range principals {
+		tok := userToken("windows", false, p)
+		if !strings.HasPrefix(tok, "alice-") || len(tok) != len("alice-")+UserTokenFingerprintLen {
+			t.Errorf("userToken(%q) = %q, want alice-<fingerprint>", p, tok)
+		}
+		if prev, dup := seen[tok]; dup {
+			t.Errorf("%q and %q collide on %q", prev, p, tok)
+		}
+		seen[tok] = p
+	}
+	if userToken("windows", false, `corp\ALICE`) != userToken("windows", false, `CORP\alice`) {
+		t.Error("the principal's case must not change the token")
+	}
 	mock := executor.NewMock()
-	mock.SetGOOS("windows")
-	mock.SetUsername(`CONTOSO\JDoe`)
-	withConfigDeviceID(t, "{hostname}-{user}-{site}")
-	if got := IdentityUserScope(mock); got != "" {
-		t.Fatalf("unknown token: scope = %q, want none", got)
+	if UserToken(mock, `CORP\alice`) == UserToken(mock, `HOST\alice`) {
+		t.Fatal("CORP\\alice and HOST\\alice must have distinct tokens")
+	}
+}
+
+// A name whose readable part sanitizes away (a non-Latin display name) still
+// gets a token, never an empty one that would read as a service account.
+func TestUserToken_NonLatinNameKeepsAToken(t *testing.T) {
+	mock := executor.NewMock()
+	if got, want := UserToken(mock, `AVD\张三`), "user-"+UserTokenFingerprint(`avd\张三`); got != want {
+		t.Fatalf("user token = %q, want %q", got, want)
+	}
+	if UserToken(mock, `AVD\李四`) == UserToken(mock, `AVD\张三`) {
+		t.Fatal("two non-Latin names must not collide")
+	}
+}
+
+// A user token never exceeds MaxUserTokenLen, the bound the state-scope
+// listing trusts, however long the account name.
+func TestUserToken_FitsMaxUserTokenLen(t *testing.T) {
+	for _, user := range []string{strings.Repeat("a", 600), `CONTOSO\` + strings.Repeat("b", 300), strings.Repeat("c", 400) + "@example.com"} {
+		if tok := userToken("windows", false, user); len(tok) > MaxUserTokenLen {
+			t.Errorf("token for a %d-byte name is %d bytes, over %d", len(user), len(tok), MaxUserTokenLen)
+		}
 	}
 }

@@ -146,6 +146,7 @@ func TestParseMavenPOM(t *testing.T) {
     </profile>
     <profile><id>bad id</id>
       <dependencies><dependency><groupId>org.example</groupId><artifactId>skipped</artifactId></dependency></dependencies>
+      <repositories><repository><id>team</id><url>http://team.example.invalid/maven</url></repository></repositories>
     </profile>
   </profiles>
 </project>`
@@ -179,8 +180,9 @@ func TestParseMavenPOM(t *testing.T) {
 			t.Errorf("junit labels %+v", d)
 		}
 	}
-	if len(m.repositories) != 2 || m.repositories[0].Kind != "dependency" || m.repositories[0].ProfileID != nil ||
-		m.repositories[1].Kind != "plugin" || m.repositories[1].ProfileID == nil || *m.repositories[1].ProfileID != "ci" {
+	if len(m.repositories) != 3 || m.repositories[0].Kind != "dependency" || m.repositories[0].ProfileID != nil ||
+		m.repositories[1].Kind != "plugin" || m.repositories[1].ProfileID == nil || *m.repositories[1].ProfileID != "ci" ||
+		m.repositories[2].Kind != "dependency" || m.repositories[2].ProfileID == nil || *m.repositories[2].ProfileID != "bad id" {
 		t.Errorf("repositories %+v", m.repositories)
 	}
 	if g, a, v, err := mavenPOMIdentity([]byte(pom)); err != nil || g != "org.example" || a != "app" || v != "1" {
@@ -196,10 +198,19 @@ func TestParseMavenPOM(t *testing.T) {
 		`<!DOCTYPE project [<!ENTITY x "CANARY">]><project><artifactId>&x;</artifactId></project>`,
 		`<project><artifactId>a</artifactId>`,
 		`<settings/>`,
+		`<project><artifactId>a</artifactId></project><project/>`,
+		`<project><artifactId>a</artifactId></project><!-- unfinished`,
+		`<project><artifactId>a</artifactId></project>text`,
 	} {
 		if _, err := parseMavenPOM([]byte(bad)); err == nil {
 			t.Errorf("parseMavenPOM(%q) accepted", bad)
 		}
+		if _, _, _, err := mavenPOMIdentity([]byte(bad)); err == nil {
+			t.Errorf("mavenPOMIdentity(%q) accepted", bad)
+		}
+	}
+	if _, err := parseMavenPOM([]byte(pom + "\n<!-- done -->\n")); err != nil {
+		t.Errorf("trailing comment rejected: %v", err)
 	}
 }
 
@@ -214,6 +225,9 @@ func TestMavenIvyMatches(t *testing.T) {
 		{"old schema", strings.Replace(ivy, `version="2.0"`, `version="1.0"`, 1), "2.0", false},
 		{"not ivy", `<project/>`, "2.0", false},
 		{"malformed", `<ivy-module`, "2.0", false},
+		{"trailing comment", ivy + "\n<!-- done -->\n", "2.0", true},
+		{"second root", ivy + "<ivy-module/>", "2.0", false},
+		{"unfinished comment", ivy + "<!-- unfinished", "2.0", false},
 	} {
 		if got := mavenIvyMatches([]byte(tc.data), "com.ivy", "thing", tc.version); got != tc.want {
 			t.Errorf("%s: mavenIvyMatches = %v", tc.name, got)

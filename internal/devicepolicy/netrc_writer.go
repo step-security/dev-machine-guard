@@ -209,7 +209,7 @@ func (w *NetrcWriter) Clear() (bool, error) {
 		}
 		candidates = append(candidates, candidate{file: file, analysis: analysis})
 		if analysis.markers.dmg != nil {
-			entries, err := parseNetrc([]byte(analysis.markers.dmg.body))
+			entries, err := parseDMGNetrcBody(analysis.markers.dmg.body)
 			if err != nil || len(exactHostEntries(entries, w.host)) != 1 {
 				return false, fmt.Errorf("netrc: managed credential host conflicts with ownership state: %w", ErrTargetUnusable)
 			}
@@ -285,7 +285,7 @@ func discoverDMGNetrcHost(home *secureuserfile.Home) (string, error) {
 		if markers.dmg == nil {
 			continue
 		}
-		entries, err := parseNetrc([]byte(markers.dmg.body))
+		entries, err := parseDMGNetrcBody(markers.dmg.body)
 		if err != nil || len(entries) != 1 || entries[0].isDefault || !isValidHost(entries[0].host) {
 			return "", fmt.Errorf("netrc: cannot derive a trusted managed host: %w", ErrTargetUnusable)
 		}
@@ -478,6 +478,9 @@ func (w *NetrcWriter) checkAlternateConflict() error {
 	}
 	if managedBlock != nil {
 		managed, err := parseNetrc([]byte(managedBlock.body))
+		if managedBlock == analysis.markers.dmg {
+			managed, err = parseDMGNetrcBody(managedBlock.body)
+		}
 		if err == nil && len(exactHostEntries(managed, w.host)) == 1 && len(exact) == 1 {
 			return nil
 		}
@@ -524,9 +527,10 @@ type netrcDisabledEntry struct {
 }
 
 type netrcManagedBlock struct {
-	start int
-	end   int
-	body  string
+	bodyStart, bodyEnd int
+	start              int
+	end                int
+	body               string
 }
 
 type netrcEntry struct {
@@ -534,6 +538,49 @@ type netrcEntry struct {
 	login, account, pass       string
 	startToken, startLine, end int
 	isDefault                  bool
+}
+
+// dmgNetrcParseBody accepts missing values only in the line-oriented entry we own.
+// The original bytes remain the source for snapshots, readback, and cleanup.
+func dmgNetrcParseBody(body string) ([]byte, error) {
+	data := []byte(body)
+	if entries, err := parseNetrc(data); err == nil && len(entries) == 1 && !entries[0].isDefault {
+		return data, nil
+	}
+	view := bytes.Clone(data)
+	seen := map[string]bool{}
+	incomplete := false
+	for _, line := range splitNetrcLines(data) {
+		text := strings.TrimSpace(string(data[line.start:line.contentEnd]))
+		if text == "" || strings.HasPrefix(text, "#") {
+			continue
+		}
+		fields := strings.Fields(text)
+		key := fields[0]
+		if (key != "machine" && key != "login" && key != "password") || seen[key] || len(fields) > 2 || key == "machine" && len(fields) != 2 {
+			return nil, fmt.Errorf("netrc: malformed managed credential block: %w", ErrTargetUnusable)
+		}
+		seen[key] = true
+		if len(fields) == 1 {
+			incomplete = true
+			for i := line.start; i < line.contentEnd; i++ {
+				view[i] = ' '
+			}
+		}
+	}
+	entries, err := parseNetrc(view)
+	if !incomplete || err != nil || len(entries) != 1 || entries[0].isDefault || !isValidHost(entries[0].host) {
+		return nil, fmt.Errorf("netrc: malformed managed credential block: %w", ErrTargetUnusable)
+	}
+	return view, nil
+}
+
+func parseDMGNetrcBody(body string) ([]netrcEntry, error) {
+	view, err := dmgNetrcParseBody(body)
+	if err != nil {
+		return nil, err
+	}
+	return parseNetrc(view)
 }
 
 func analyzeNetrc(data []byte, host string) (netrcAnalysis, error) {
@@ -549,7 +596,22 @@ func analyzeNetrc(data []byte, host string) (netrcAnalysis, error) {
 		}
 	}
 	rest, _ := stripBOM(data)
-	entries, err := parseNetrc(rest)
+	parseView := rest
+	if block := markers.dmg; block != nil {
+		body, err := dmgNetrcParseBody(string(rest[block.bodyStart:block.bodyEnd]))
+		if err != nil {
+			return netrcAnalysis{}, err
+		}
+		if !bytes.Equal(body, rest[block.bodyStart:block.bodyEnd]) {
+			entries, err := parseNetrc(body)
+			if err != nil || len(entries) != 1 || entries[0].host != host {
+				return netrcAnalysis{}, fmt.Errorf("netrc: managed credential host conflicts with policy: %w", ErrTargetUnusable)
+			}
+			parseView = bytes.Clone(rest)
+			copy(parseView[block.bodyStart:block.bodyEnd], body)
+		}
+	}
+	entries, err := parseNetrc(parseView)
 	if err != nil {
 		return netrcAnalysis{}, err
 	}
@@ -558,6 +620,9 @@ func analyzeNetrc(data []byte, host string) (netrcAnalysis, error) {
 			continue
 		}
 		bodyEntries, err := parseNetrc([]byte(block.body))
+		if block == markers.dmg {
+			bodyEntries, err = parseDMGNetrcBody(block.body)
+		}
 		if err != nil || len(bodyEntries) != 1 || bodyEntries[0].isDefault {
 			return netrcAnalysis{}, fmt.Errorf("netrc: malformed managed credential block: %w", ErrTargetUnusable)
 		}
@@ -846,7 +911,7 @@ func netrcMarkerBlock(data []byte, begin, end netrcLine) (*netrcManagedBlock, er
 			return nil, fmt.Errorf("netrc: managed marker is not line-delimited: %w", ErrTargetUnusable)
 		}
 	}
-	return &netrcManagedBlock{start: blockStart, end: end.end, body: body}, nil
+	return &netrcManagedBlock{start: blockStart, end: end.end, body: body, bodyStart: begin.end, bodyEnd: end.start}, nil
 }
 
 func trimOneNetrcNewline(data []byte) []byte {

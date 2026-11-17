@@ -28,7 +28,7 @@ func ID(dev model.Device) string {
 		return ""
 	}
 	return resolveWith(strings.TrimSpace(config.DeviceID), IdentitySourceConfig,
-		dev.SerialNumber, dev.Hostname, dev.UserIdentity, dev.Platform, false).DeviceID
+		dev.SerialNumber, dev.Hostname).DeviceID
 }
 
 // IDForGuest gives the host/distro identity precedence over an inherited host
@@ -83,8 +83,8 @@ func Gather(ctx context.Context, exec executor.Executor) model.Device {
 	return dev
 }
 
-// developerIdentity is the user the {user} identity token and the per-user
-// state scope derive from: the provisioned user_id when one was configured
+// developerIdentity is the user the user token (and with it the per-session
+// state scope) derives from: the provisioned user_id when one was configured
 // (an ephemeral device with no detectable user, see configure --user-id),
 // else the detected session user (the USER_EMAIL family of overrides, then
 // the logged-in user), "unknown" when there is none. Gather applies the same
@@ -120,11 +120,44 @@ func SerialNumber(ctx context.Context, exec executor.Executor) string {
 	return id
 }
 
-// ResetIDCache drops the process-wide identity. For tests.
+// ResetIDCache drops the process-wide identity and the hardware probe
+// result. For tests.
 func ResetIDCache() {
 	idMu.Lock()
 	defer idMu.Unlock()
 	cachedID = ""
+	hardwareProbe.mu.Lock()
+	hardwareProbe.done, hardwareProbe.id = false, ""
+	hardwareProbe.mu.Unlock()
+}
+
+// hardwareProbe memoizes the hardware probe: whichever of a marker
+// comparison, a visit record or SerialNumber asks first pays for it, and
+// the others reuse the answer (on Windows the WMI fallback is a PowerShell
+// launch). Only a usable hardware result is remembered; a probe that fell
+// back to a per-install id or was cut short is retried by the next caller.
+var hardwareProbe struct {
+	mu   sync.Mutex // its own lock: SerialNumber holds idMu while it resolves
+	done bool
+	id   string
+}
+
+// cachedProbeSerial is probeSerial behind the process-wide memo. The lock is
+// never held across the probe itself.
+func cachedProbeSerial(ctx context.Context, exec executor.Executor) (id string, hardware bool) {
+	hardwareProbe.mu.Lock()
+	done, cached := hardwareProbe.done, hardwareProbe.id
+	hardwareProbe.mu.Unlock()
+	if done {
+		return cached, true
+	}
+	id, hardware = probeSerial(ctx, exec)
+	if hardware && usableSerial(id) {
+		hardwareProbe.mu.Lock()
+		hardwareProbe.done, hardwareProbe.id = true, id
+		hardwareProbe.mu.Unlock()
+	}
+	return id, hardware
 }
 
 // probeSerial reports whether id came from the hardware rather than a

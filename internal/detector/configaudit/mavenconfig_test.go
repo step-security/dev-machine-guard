@@ -382,3 +382,35 @@ func TestMavenConfigBudgetRetainsObservations(t *testing.T) {
 		})
 	}
 }
+
+// Maven rejects a settings file with anything but comments and whitespace
+// after its root, so such a file contributes no settings.
+func TestMavenConfigSettingsDocumentEnd(t *testing.T) {
+	doc := `<settings><mirrors><mirror><id>m</id><url>http://mirror.example.invalid/maven</url><mirrorOf>*</mirrorOf></mirror></mirrors></settings>`
+	for _, tc := range []struct {
+		name, tail string
+		valid      bool
+	}{
+		{"trailing whitespace", "\n\n", true},
+		{"trailing comment", "\n<!-- done -->\n", true},
+		{"second root", "<settings/>", false},
+		{"unfinished comment", "\n<!-- unfinished", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, scope := mavenConfigTest(t)
+			path := filepath.Join(scope.Home, ".m2", "settings.xml")
+			m.SetFile(path, []byte(doc+tc.tail))
+			maven, _ := NewMavenConfigDetector(m).Detect(context.Background(), scope).Finish()
+			f := rubyFile(t, maven, "maven", "user", path)
+			if tc.valid {
+				if f.Status != "present" || len(f.Settings) == 0 || !slices.Contains(mavenFindingKeys(maven), "maven-001 mirrors.0.url") {
+					t.Errorf("file = %+v, findings = %v", f, mavenFindingKeys(maven))
+				}
+				return
+			}
+			if f.Status != "invalid" || !slices.Contains(f.Reasons, "parse_error") || len(f.Settings) != 0 || maven.Status != "partial" {
+				t.Errorf("file = %+v, audit = %s", f, maven.Status)
+			}
+		})
+	}
+}

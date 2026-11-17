@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -44,7 +45,7 @@ func gateServer(t *testing.T, status int, body string) *atomic.Int32 {
 func seedDeviceID(t *testing.T) {
 	t.Helper()
 	d := Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}
-	if err := recordCheckin("SER-CACHED", d, time.Unix(1_753_160_800, 0)); err != nil {
+	if err := recordCheckin("SER-CACHED", "", d, time.Unix(1_753_160_800, 0)); err != nil {
 		t.Fatalf("seed cache: %v", err)
 	}
 }
@@ -319,7 +320,7 @@ func TestEvaluateConfiguredDeviceIDChanges(t *testing.T) {
 	t.Cleanup(srv.Close)
 	config.APIEndpoint = srv.URL
 	seedDeviceID(t)
-	if err := StampLastFullRun("SER-CACHED", time.Now()); err != nil {
+	if err := StampLastFullRun("SER-CACHED", "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	mock := executor.NewMock()
@@ -339,7 +340,7 @@ func TestEvaluateConfiguredDeviceIDChanges(t *testing.T) {
 		if !ok || st.DeviceID != wantID || st.LastFullRunAt != 0 {
 			t.Fatalf("state = %+v, want fresh cadence for %s", st, wantID)
 		}
-		if err := StampLastFullRun(wantID, time.Now()); err != nil {
+		if err := StampLastFullRun(wantID, "", time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -366,10 +367,10 @@ func TestEvaluatePersistsIdentityAcrossBypassesAndOfflineRuns(t *testing.T) {
 				t.Setenv("STEPSEC_DISABLE_RUN_GATE", "1")
 			}
 			now := time.Now()
-			if err := recordCheckin("hardware-A", Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}, now); err != nil {
+			if err := recordCheckin("hardware-A", "", Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}, now); err != nil {
 				t.Fatal(err)
 			}
-			if err := StampLastFullRun("hardware-A", now.Add(-5*time.Hour)); err != nil {
+			if err := StampLastFullRun("hardware-A", "", now.Add(-5*time.Hour)); err != nil {
 				t.Fatal(err)
 			}
 			config.DeviceID = "custom-B"
@@ -383,7 +384,7 @@ func TestEvaluatePersistsIdentityAcrossBypassesAndOfflineRuns(t *testing.T) {
 			if !ok || st.DeviceID != "custom-B" || st.ConfiguredDeviceID != "custom-B" || st.LastFullRunAt != 0 || st.GatingEnabled {
 				t.Fatalf("persisted cadence was not reset before completion: %+v", st)
 			}
-			if err := StampLastFullRun("custom-B", now); err != nil {
+			if err := StampLastFullRun("custom-B", "", now); err != nil {
 				t.Fatal(err)
 			}
 			config.DeviceID = ""
@@ -421,10 +422,10 @@ func TestEvaluateRevalidatesCachedDeviceID(t *testing.T) {
 	t.Cleanup(srv.Close)
 	config.APIEndpoint = srv.URL
 	now := time.Now()
-	if err := recordCheckin("machine-id-old", Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}, now); err != nil {
+	if err := recordCheckin("machine-id-old", "", Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := StampLastFullRun("machine-id-old", now); err != nil {
+	if err := StampLastFullRun("machine-id-old", "", now); err != nil {
 		t.Fatal(err)
 	}
 	mock := executor.NewMock()
@@ -459,13 +460,14 @@ func identityMock(user string) *executor.Mock {
 
 func TestEvaluate_TemplateIdentityKeepsMatchingCache(t *testing.T) {
 	withTempState(t)
-	withTemplate(t, "{hostname}-{user}")
+	withTemplate(t, "{hostname}")
 	t.Cleanup(device.ResetIDCache)
 	d := Directive{Mode: ModeFull, GatingEnabled: true, EffectiveIntervalMinutes: 240}
-	if err := recordCheckin("avd-host-07-jdoe", d, time.Now()); err != nil {
+	const host = "avd-host-07"
+	if err := recordCheckin(host, "", d, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := StampLastFullRun("avd-host-07-jdoe", time.Now()); err != nil {
+	if err := StampLastFullRun(host, "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	gateServer(t, http.StatusServiceUnavailable, "")
@@ -476,28 +478,46 @@ func TestEvaluate_TemplateIdentityKeepsMatchingCache(t *testing.T) {
 	}
 }
 
-func TestEvaluate_IdentityIncompleteSkipsWithoutCheckin(t *testing.T) {
+// A host that scans every signed-in session separately has nothing to scan
+// in a run with no signed-in user: the gate skips it before any check-in or
+// beacon, --force-scan included.
+func TestEvaluate_NoSessionUserSkipsWithoutCheckin(t *testing.T) {
 	withTempState(t)
-	withTemplate(t, "{hostname}-{user}")
+	withTemplate(t, "")
 	t.Cleanup(device.ResetIDCache)
+	dir := t.TempDir()
+	t.Cleanup(device.SetMachineStateDirForTest(dir))
+	if err := os.WriteFile(filepath.Join(dir, "multi-user.json"), []byte(`{"since":1,"reason":"edition"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	hits := gateServer(t, 0, `{`+fullDirective+`}`)
 
 	for _, force := range []bool{false, true} {
-		res := Evaluate(context.Background(), identityMock(`NT AUTHORITY\SYSTEM`), progress.NewNoop(), force, "")
-		if !res.Skip || res.Reason != ReasonIdentityIncomplete {
-			t.Fatalf("force=%v: result = %+v, want identity_incomplete skip", force, res)
+		m := identityMock(`NT AUTHORITY\SYSTEM`)
+		m.SetFile(`C:\ProgramData\StepSecurity\device-id`, []byte("SER-1\n"))
+		res := Evaluate(context.Background(), m, progress.NewNoop(), force, "")
+		if !res.Skip || res.Reason != ReasonNoSessionUser {
+			t.Fatalf("force=%v: result = %+v, want no_session_user skip", force, res)
 		}
 	}
 	if hits.Load() != 0 {
-		t.Fatalf("an incomplete identity must never check in, hits = %d", hits.Load())
+		t.Fatalf("a run without a session user must never check in, hits = %d", hits.Load())
 	}
 }
 
-func TestEvaluate_RecordsTemplateResolvedID(t *testing.T) {
+// The check-in carries the session's user token so the backend keeps the
+// cadence per device and user, and the resolved id is what the state records.
+func TestEvaluate_RecordsTemplateResolvedIDAndSendsUserToken(t *testing.T) {
 	withTempState(t)
-	withTemplate(t, "{serial}-{user}")
+	withTemplate(t, "{serial}-vdi")
 	t.Cleanup(device.ResetIDCache)
-	gateServer(t, 0, `{`+fullDirective+`}`)
+	var query atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query.Store(r.URL.RawQuery)
+		_, _ = w.Write([]byte(`{` + fullDirective + `}`))
+	}))
+	t.Cleanup(srv.Close)
+	config.APIEndpoint, config.APIKey, config.CustomerID = srv.URL, "k", "acme"
 	m := identityMock(`CONTOSO\JDoe`)
 	m.SetGOOS("linux")
 	m.SetFile("/sys/class/dmi/id/product_serial", []byte("LNX-77\n"))
@@ -507,7 +527,11 @@ func TestEvaluate_RecordsTemplateResolvedID(t *testing.T) {
 		t.Fatalf("full directive must proceed: %+v", res)
 	}
 	st, ok := readState()
-	if !ok || st.DeviceID != "LNX-77-jdoe" {
-		t.Fatalf("state = %+v (ok=%v), want device id LNX-77-jdoe", st, ok)
+	if !ok || st.DeviceID != "LNX-77-vdi" {
+		t.Fatalf("state = %+v (ok=%v), want device id LNX-77-vdi", st, ok)
+	}
+	q, _ := query.Load().(string)
+	if want := "user_token=jdoe-" + device.UserTokenFingerprint(`contoso\jdoe`); !strings.Contains(q, want) {
+		t.Fatalf("check-in query = %q, want %s", q, want)
 	}
 }

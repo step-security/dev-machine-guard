@@ -52,6 +52,14 @@ func CondaSanitizeURL(raw string) (string, bool) {
 	if err != nil || condaTokenPattern.MatchString(decoded) {
 		return goRedacted, true
 	}
+	// A value with a scheme separator must parse as a URL with a well-formed
+	// scheme: the shared sanitizer reads "0://host/..." as a drive-letter
+	// path and would pass it through unexamined.
+	if strings.Contains(clean, "://") {
+		if u, err := url.Parse(clean); err != nil || !condaSchemePattern.MatchString(u.Scheme) {
+			return goRedacted, true
+		}
+	}
 	display, r := SanitizeRubyURL(clean)
 	return display, redacted || r
 }
@@ -67,6 +75,9 @@ func CondaChannelDisplay(raw string) (string, bool) {
 	case filepath.IsAbs(raw) || strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, `\\`) || len(raw) > 2 && raw[1] == ':':
 		return SanitizeComposerURL(raw)
 	case len(raw) <= 256 && condaChannelPattern.MatchString(raw):
+		if condaTokenPattern.MatchString("/" + raw) {
+			return goRedacted, true
+		}
 		return raw, false
 	}
 	return goRedacted, true
@@ -76,7 +87,9 @@ func CondaChannelDisplay(raw string) (string, bool) {
 // A $VAR, ${VAR} or %VAR% reference holds no secret, so it is blanked first.
 func condaURLCredential(raw string) bool {
 	if !strings.Contains(raw, "://") {
-		return false
+		label := condaReferencePattern.ReplaceAllString(raw, "reference")
+		literal := condaReferencePattern.ReplaceAllString(raw, "")
+		return condaChannelPattern.MatchString(label) && condaLiteralTokenPattern.MatchString("/"+literal)
 	}
 	raw = condaReferencePattern.ReplaceAllString(raw, "")
 	if condaLiteralTokenPattern.MatchString(raw) {
