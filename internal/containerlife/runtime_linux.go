@@ -41,6 +41,7 @@ type runtime struct {
 	cfg         config.ConfigFile
 	client      *http.Client
 	metadata    *model.ContainerMetadata
+	logMu       sync.Mutex
 }
 
 func Run(args []string) error {
@@ -119,7 +120,7 @@ func Run(args []string) error {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return fmt.Errorf("container agent did not become ready; check configuration and API connectivity")
+	return fmt.Errorf("container agent did not become ready; check %s", filepath.Join(r.dir, "runtime.log"))
 }
 
 func (r *runtime) statePath() string  { return filepath.Join(r.dir, "state.json") }
@@ -148,7 +149,12 @@ func (r *runtime) load() error {
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(b, &r.cfg)
+	if err := json.Unmarshal(b, &r.cfg); err != nil {
+		return err
+	}
+	credentials := config.EffectiveCredentials(r.cfg)
+	r.cfg.CustomerID, r.cfg.APIEndpoint, r.cfg.APIKey = credentials.CustomerID, credentials.APIEndpoint, credentials.APIKey
+	return nil
 }
 func (r *runtime) acquire(name string) (*os.File, error) {
 	root, err := os.OpenRoot(r.dir)
@@ -199,6 +205,8 @@ func (r *runtime) setup() error {
 			*dst = v
 		}
 	}
+	credentials := config.EffectiveCredentials(cfg)
+	cfg.CustomerID, cfg.APIEndpoint, cfg.APIKey = credentials.CustomerID, credentials.APIEndpoint, credentials.APIKey
 	if cfg.CustomerID == "" || cfg.APIEndpoint == "" || cfg.APIKey == "" {
 		return fmt.Errorf("configure DMG or provide DMG_CUSTOMER_ID, DMG_API_ENDPOINT and DMG_API_KEY")
 	}
@@ -285,6 +293,9 @@ func (r *runtime) event(kind string) error {
 		if kind == "stop" && result.Lifecycle.Status == "stopped" && result.Lifecycle.Generation == r.state.Generation && result.Lifecycle.Sequence == r.state.Sequence {
 			return nil
 		}
+		if kind == "stop" && result.Accepted == nil {
+			return fmt.Errorf("lifecycle stop was not acknowledged")
+		}
 		if result.Accepted != nil && !*result.Accepted {
 			return fmt.Errorf("lifecycle event rejected as stale")
 		}
@@ -292,15 +303,21 @@ func (r *runtime) event(kind string) error {
 	}
 	return err
 }
-func (r *runtime) run() error {
+func (r *runtime) run() (runErr error) {
 	f, err := r.acquire("runtime.lock")
 	if err != nil {
 		if errors.Is(err, unix.EWOULDBLOCK) {
 			return nil
 		}
+		r.logError("container runtime failed: %v", err)
 		return err
 	}
 	defer f.Close()
+	defer func() {
+		if runErr != nil {
+			r.logError("container runtime failed: %v", runErr)
+		}
+	}()
 	if err = r.load(); err != nil {
 		return err
 	}
@@ -328,11 +345,13 @@ func (r *runtime) run() error {
 		return err
 	}
 	stop := make(chan net.Conn)
+	listenerClosing := make(chan struct{})
 	listenerDone := make(chan struct{})
 	var connectionMu sync.Mutex
 	var activeConnection net.Conn
 	closing := false
 	defer func() {
+		close(listenerClosing)
 		_ = listener.Close()
 		connectionMu.Lock()
 		closing = true
@@ -359,7 +378,8 @@ func (r *runtime) run() error {
 			}
 			activeConnection = c
 			connectionMu.Unlock()
-			_ = c.SetDeadline(time.Now().Add(35 * time.Second))
+			deadline := time.Now().Add(35 * time.Second)
+			_ = c.SetDeadline(deadline)
 			var cmd string
 			_, e = fmt.Fscanln(c, &cmd)
 			if e != nil {
@@ -367,11 +387,15 @@ func (r *runtime) run() error {
 				continue
 			}
 			if cmd == "stop" {
+				timer := time.NewTimer(time.Until(deadline))
 				select {
 				case stop <- c:
-				case <-time.After(time.Second):
+				case <-timer.C:
+					_ = c.Close()
+				case <-listenerClosing:
 					_ = c.Close()
 				}
+				timer.Stop()
 			} else {
 				_, _ = fmt.Fprintln(c, "ok")
 				_ = c.Close()
@@ -388,9 +412,9 @@ func (r *runtime) run() error {
 			interval = time.Duration(h * float64(time.Hour))
 		}
 		for {
-			_, stderr, _, e := executor.NewReal().RunWithTimeout(ctx, 30*time.Minute, r.binary, "send-telemetry", "--config", r.configPath())
-			if e != nil && ctx.Err() == nil {
-				fmt.Fprintf(os.Stderr, "container scan failed: %v %s\n", e, stderr)
+			_, stderr, code, e := executor.NewReal().RunWithTimeoutEnv(ctx, 30*time.Minute, map[string]string{"STEPSEC_DEVICE_ID": r.state.DeviceID}, r.binary, "send-telemetry", "--config", r.configPath())
+			if (e != nil || code != 0) && ctx.Err() == nil {
+				r.logError("container scan failed (exit code %d): %v %s", code, e, stderr)
 			}
 			select {
 			case <-ctx.Done():
@@ -426,7 +450,7 @@ func (r *runtime) run() error {
 				return err
 			}
 			if err = r.event("heartbeat"); err != nil {
-				fmt.Fprintln(os.Stderr, "container heartbeat:", err)
+				r.logError("container heartbeat: %v", err)
 			}
 		}
 	}

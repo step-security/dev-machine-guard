@@ -14,6 +14,11 @@ func WriteScripts(dir string) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	for name, body := range map[string]string{
 		"start.sh": "#!/bin/sh\nset -eu\nexec stepsecurity-dev-machine-guard container start\n",
 		"stop.sh": `#!/bin/sh
@@ -34,13 +39,17 @@ docker stop "$1"
 `,
 	} {
 		path := filepath.Join(dir, name)
-		if _, err := os.Stat(path); err == nil {
-			return fmt.Errorf("refusing to overwrite %s", path)
-		} else if !os.IsNotExist(err) {
-			return err
+		f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err != nil {
+			return fmt.Errorf("create script %s: %w", path, err)
 		}
-		if err := os.WriteFile(path, []byte(body), 0600); err != nil {
-			return err
+		_, writeErr := f.WriteString(body)
+		closeErr := f.Close()
+		if writeErr != nil {
+			return writeErr
+		}
+		if closeErr != nil {
+			return closeErr
 		}
 	}
 	return nil

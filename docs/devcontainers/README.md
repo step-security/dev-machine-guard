@@ -127,3 +127,17 @@ Keep state outside the shared project directory. Never share it between containe
 instances or include enrolled state in a reusable image. Direct commands support
 `--state-dir DIR`; the generated scripts use the default directory, so use a
 consistent path if you write your own wrappers.
+
+## Troubleshoot the container agent
+
+The container worker records startup, heartbeat, and scan failures in
+`~/.stepsecurity/container/runtime.log` (or your `--state-dir`). Logs rotate during
+execution; `runtime.log` and `runtime.log.prev` each retain at most 1 MiB and are
+readable only by the container user. Check this file if startup times out or the
+console stops receiving heartbeats. Ordinary nonzero scan exits include their
+exit code and diagnostic output.
+
+Enterprise credentials embedded in the DMG binary take precedence over runtime
+credentials. Lifecycle reporting and inventory scans use the same effective
+credentials and the same per-container device ID, even when the host environment
+sets `STEPSEC_DEVICE_ID`.

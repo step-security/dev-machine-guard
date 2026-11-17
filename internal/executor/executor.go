@@ -174,7 +174,28 @@ func (r *Real) StartDetached(name string, args ...string) error {
 }
 
 func (r *Real) Run(ctx context.Context, name string, args ...string) (string, string, int, error) {
+	return r.runWithEnv(ctx, nil, name, args...)
+}
+
+// RunWithTimeoutEnv overrides only this child's environment; the parent is unchanged.
+func (r *Real) RunWithTimeoutEnv(ctx context.Context, timeout time.Duration, env map[string]string, name string, args ...string) (string, string, int, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	stdout, stderr, code, err := r.runWithEnv(ctx, env, name, args...)
+	if ctx.Err() == context.DeadlineExceeded {
+		return stdout, stderr, 124, fmt.Errorf("command timed out after %s", timeout)
+	}
+	return stdout, stderr, code, err
+}
+
+func (r *Real) runWithEnv(ctx context.Context, env map[string]string, name string, args ...string) (string, string, int, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	if len(env) > 0 {
+		cmd.Env = os.Environ()
+		for key, value := range env {
+			cmd.Env = append(cmd.Env, key+"="+value)
+		}
+	}
 	winproc.HideWindow(cmd)
 	setupKillgroupOnCancel(cmd)
 	var stdout, stderr bytes.Buffer

@@ -35,3 +35,21 @@ func TestScriptsContract(t *testing.T) {
 		t.Fatal("must not overwrite custom scripts")
 	}
 }
+
+func TestScriptsRejectDanglingSymlinks(t *testing.T) {
+	for _, name := range []string{"start.sh", "stop.sh", "devcontainer.json"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			target := filepath.Join(t.TempDir(), "outside")
+			if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+				t.Skip(err)
+			}
+			if err := WriteScripts(dir); err == nil {
+				t.Error("accepted dangling symlink")
+			}
+			if _, err := os.Stat(target); !os.IsNotExist(err) {
+				t.Error("wrote outside output directory")
+			}
+		})
+	}
+}

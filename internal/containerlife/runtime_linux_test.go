@@ -209,7 +209,8 @@ func TestRuntimeShutdownClosesIdleClient(t *testing.T) {
 						return
 					}
 				}
-				_ = json.NewEncoder(w).Encode(model.ContainerLifecycleResponse{Lifecycle: model.ContainerLifecycle{Generation: 1}})
+				accepted := true
+				_ = json.NewEncoder(w).Encode(model.ContainerLifecycleResponse{Accepted: &accepted, Lifecycle: model.ContainerLifecycle{Generation: 1}})
 			}))
 			defer server.Close()
 			defer func() {
