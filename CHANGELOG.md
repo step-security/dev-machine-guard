@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [Unreleased]
+
+### Added
+
+- **MCP server sign-in status.** Enterprise uploads add `server_auth` to each MCP config entry and each plugin MCP component. For each declared server it reports whether the client holds a saved sign-in (`credential_saved`), needs one (`needs_auth`), gets a credential from the config itself (`static_credential`), runs locally with no credential input (`not_applicable`) or cannot tell (`unknown`), with a closed evidence code. Claude Code, Codex, GitHub Copilot CLI, Pi, OpenCode, Cursor, the VS Code family and mcp-remote are covered from their own files. Nothing is run, no credential store or server is contacted, and no token or anything derived from one is sent. Community output carries no status. Open Interpreter, Gemini CLI and Devin are covered as well; Antigravity reports its encrypted store.
+- **MCP config coverage.** Gemini CLI (`~/.gemini/settings.json`), Devin (`~/.config/devin/mcp_config.json`, `%APPDATA%\devin\mcp_config.json`), the current Antigravity file (`~/.gemini/config/mcp_config.json`) and Open Interpreter's `~/.openinterpreter/config.toml` (replacing a YAML path that never held MCP servers) are read. Claude Code's legacy `~/.claude/.config.json` is read when Claude Code uses it. OpenCode 2.x `mcp.servers` files, files with a UTF-8 byte order mark and files with one malformed server entry no longer lose their servers, and Gemini `httpUrl` and Cline `transport.url` are sent as `url`.
+
 ## [1.19.1] - 2026-11-13
 
 ### Fixed

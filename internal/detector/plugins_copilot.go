@@ -1063,7 +1063,7 @@ func (a *copilotAdapter) components(p *model.PluginObservation) {
 	p.Description = truncRunes(jsonString(doc["description"]), maxDescriptionRunes)
 	p.Publisher = truncRunes(nameField(doc["author"]), maxNameBytes)
 	p.Homepage = sanitizeHomepage(jsonString(doc["homepage"]))
-	r := &pluginRootScan{s: a.s, gd: a.gd, p: p, root: p.InstallPath, attr: nestedAttr{agent: model.AgentCopilot, source: "copilot_plugin", vendor: "GitHub", scope: nestedScope(p.Scope), projectPath: p.ProjectPath}}
+	r := &pluginRootScan{s: a.s, gd: a.gd, p: p, root: p.InstallPath, attr: nestedAttr{agent: model.AgentCopilot, source: "copilot_plugin", vendor: "GitHub", scope: nestedScope(p.Scope), projectPath: p.ProjectPath, editor: a.editor}}
 	portable := p.ManifestFormat == model.PluginManifestPortable
 	skills, agents := []string{"skills"}, []string{"agents"}
 	if portable {

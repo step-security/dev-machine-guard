@@ -417,7 +417,7 @@ func TestPluginMetadataAndUsageRejectProtectedSymlinks(t *testing.T) {
 	if absent || code != model.AgentScanErrUnsafePath {
 		t.Fatalf("plugin metadata: absent=%v code=%s", absent, code)
 	}
-	state := readClaudeState(rec, d.skipper, home)
+	state := readClaudeState(rec, d.skipper, filepath.Join(home, ".claude.json"))
 	if state.absent || state.code != model.AgentScanErrUnsafePath {
 		t.Fatalf("usage: %+v", state)
 	}

@@ -710,7 +710,8 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// don't trigger system permission prompts when the agent runs without
 	// Full Disk Access. Nil when --include-tcc-protected is set and network
 	// volumes are walked (the default); every method is nil-safe.
-	tccSkipper := tcc.ForRun(executor.ResolveHome(exec), cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes)
+	home := executor.ResolveHome(exec)
+	tccSkipper := tcc.ForRun(home, cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes)
 	if cands := tccSkipper.Candidates(); len(cands) > 0 {
 		log.Debug("tcc skip list (%d): %v", len(cands), cands)
 	}
@@ -802,7 +803,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// MCP configs
 	phaseCtx, phaseCancel = startPhase(ctx, tracker, "mcp_config_scan")
 	log.Progress("Collecting MCP configuration files...")
-	mcpDetector := detector.NewMCPDetector(exec).WithSkipper(tccSkipper).WithPiEnvironment(userExec)
+	// One resolver serves the config scan and the plugin scan, so each sign-in
+	// store is read once per run. The phases run in sequence.
+	mcpAuth := detector.NewMCPAuthResolver(exec, userExec, home).WithSkipper(tccSkipper)
+	mcpDetector := detector.NewMCPDetector(exec).WithSkipper(tccSkipper).WithPiEnvironment(userExec).WithAuth(mcpAuth)
 	mcpConfigs := mcpDetector.DetectEnterprise(phaseCtx, searchDirs)
 	for _, c := range mcpConfigs {
 		log.Progress("  Found: %s config (%s)", c.ConfigSource, c.Vendor)
@@ -1156,7 +1160,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// uploading definition contents. Scan info remains present for empty results.
 	phaseCtx, phaseCancel = startPhase(ctx, tracker, "agent_skills_scan")
 	log.Progress("Collecting AI agent skills...")
-	skillsDetector := detector.NewSkillsDetector(userExec).WithSkipper(tccSkipper).WithAgentVersions(detector.AgentVersions(cliTools))
+	skillsDetector := detector.NewSkillsDetector(userExec).WithSkipper(tccSkipper).WithAgentVersions(detector.AgentVersions(cliTools)).WithMCPAuth(mcpAuth)
 	skillsResult := skillsDetector.DetectSkills(phaseCtx, collectProjectRoots(nodeProjects, pythonProjects), searchDirs)
 	agentSkills, agentSkillScan := skillsResult.Skills, skillsResult.Info
 	log.Progress("  Found %d agent skills across %d roots", len(agentSkills), len(agentSkillScan.RootsScanned))
@@ -1176,11 +1180,14 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	postPhase()
 
 	// Credential-location inventory — where this machine's developer tools keep
-	// credentials, and how well guarded each location is. Exact paths only, never
-	// a walk; every read byte-capped; nothing about the credential itself leaves
-	// the detector. A non-nil section always ships once the phase has run, because
-	// nil is the only "did not run" signal a reader has and a nil payload must
-	// never be readable as "this machine holds no credentials".
+	// credentials, and how well guarded each location is. Exact paths and bounded
+	// one-level listings only; project files come from the skills walk's own
+	// listings, never a walk of its own; every read byte-capped. Full credentials
+	// never leave the detector; tenant opt-in permits bounded key fragments.
+	// A non-nil section always ships once the phase has run, because nil is the
+	// only "did not run" signal a reader has
+	// and a nil payload must never be readable as "this machine holds no
+	// credentials".
 	//
 	// userExec (not exec): the account whose credentials this describes is the
 	// logged-in developer, not the service profile an unattended deploy runs as.
@@ -1188,7 +1195,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// the tenant has turned the phase off.
 	credentialScan := collectCredentials(ctx, tracker, log, cfg.CredentialScanningDisabled,
 		func(phaseCtx context.Context) *model.CredentialScanInfo {
-			return credentials.New(userExec).WithSkipper(tccSkipper).Detect(phaseCtx)
+			return credentials.New(userExec).WithSkipper(tccSkipper).
+				WithProjects(skillsResult.CredentialCandidates).
+				WithKeyFragments(cfg.CredentialKeyFragments).Detect(phaseCtx)
 		}, postPhase)
 
 	// Browser extension inventory — which extensions are installed in this

@@ -265,6 +265,12 @@ func mcpVendorForPath(p string) string {
 		strings.Contains(lp, sep+"code"+sep+"user"+sep),
 		strings.Contains(lp, sep+"code - insiders"+sep+"user"+sep):
 		return "Microsoft"
+	case strings.HasSuffix(lp, sep+".devin"+sep+"mcp_config.json"),
+		strings.HasSuffix(lp, sep+"devin"+sep+"mcp_config.json"):
+		return "Cognition"
+	case strings.Contains(lp, sep+".gemini"+sep), strings.Contains(lp, sep+"antigravity"+sep),
+		strings.HasSuffix(lp, sep+".agents"+sep+"mcp_config.json"):
+		return "Google"
 	default:
 		return "Discovered"
 	}

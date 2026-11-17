@@ -780,8 +780,8 @@ func findLegacyLeftovers(legacy string) []string {
 // due yet, or another instance is already mid-scan. One Progress line is the
 // skip's entire footprint: no beacon, no run-status row, no phases. Every
 // gate failure returns false (fail-open), so this can never suppress a scan
-// on error. The gate also resolves the tenant's credential-scanning setting;
-// it is copied onto cfg so every managed entry point hands the same answer to
+// on error. The gate also resolves the tenant's credential settings; they are
+// copied onto cfg so every managed entry point hands the same answer to
 // telemetry.Run.
 func gateSkipsRun(exec executor.Executor, log *progress.Logger, cfg *cli.Config) bool {
 	// The master-image builder never scans, whichever path led here (the
@@ -798,6 +798,7 @@ func gateSkipsRun(exec executor.Executor, log *progress.Logger, cfg *cli.Config)
 	res := rungate.Evaluate(context.Background(), exec, log, cfg.ForceScan,
 		wslguest.DeviceID(cfg.WSLHostSerial, cfg.WSLDistroID))
 	cfg.CredentialScanningDisabled = res.CredentialScanningDisabled
+	cfg.CredentialKeyFragments = res.CredentialKeyFragments
 	cfg.DeltaScanEnabled = res.DeltaScanEnabled
 	if !res.Skip {
 		log.Progress("Run gate: proceeding with this run (%s)", res.Reason)

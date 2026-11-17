@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/detector/credentials"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/safepath"
 )
@@ -86,6 +87,9 @@ type pluginEvidence struct {
 // payloads.
 type nestedAttr struct {
 	agent, source, vendor, scope, projectPath string
+	// editor marks a VS Code agent plugin: VS Code runs its servers, so the
+	// Copilot CLI's MCP sign-ins do not answer for them.
+	editor bool
 }
 
 // pluginRootScan is one plugin's component enumeration: its guarded executor,
@@ -137,6 +141,10 @@ type SkillsResult struct {
 	usage          *skillUsageObservations
 	evidence       *pluginEvidence
 	pendingPlugins *pluginScan
+
+	// CredentialCandidates are the credential-bearing project files the
+	// project walk saw, for the credential inventory.
+	CredentialCandidates credentials.ProjectCandidates
 }
 
 // DetectPlugins collects plugin metadata using the discovery state in result.
@@ -979,8 +987,29 @@ func (r *pluginRootScan) mcpServerComponents(servers json.RawMessage, rel, point
 			Kind: model.PluginComponentMCP, Name: name, RelativePath: rel, DeclarationPointer: serverPointer, DefinitionPath: configPath, ResolvedDefinitionPath: resolvedPath,
 			MCPConfig: &model.MCPConfigEnterprise{ConfigSource: r.attr.source, ConfigPath: configPath, Vendor: r.attr.vendor, ConfigContentBase64: base64.StdEncoding.EncodeToString(body)},
 		}
+		if auth := r.s.d.mcpAuth; auth != nil {
+			source := r.attr.source
+			if r.attr.editor {
+				source = ""
+			}
+			c.MCPConfig.ServerAuth = []model.MCPServerAuth{auth.resolveServer(r.s.ctx, source, configPath, name, r.mcpRuntimeName(name), declarations[name])}
+		}
 		r.addComponent(c)
 	}
+}
+
+// mcpRuntimeName is the name a plugin's client keys its MCP stores by. Claude
+// Code namespaces a plugin server under the plugin's manifest name, or under
+// the plugin's own name when the manifest gives none.
+func (r *pluginRootScan) mcpRuntimeName(name string) string {
+	if r.attr.source != "claude_plugin" {
+		return name
+	}
+	namespace := r.p.ManifestName
+	if namespace == "" {
+		namespace = r.p.Name
+	}
+	return "plugin:" + namespace + ":" + name
 }
 
 // skillDirs enumerates skill directories under dir: direct children when
