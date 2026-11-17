@@ -8,11 +8,13 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"runtime"
 
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 	"modernc.org/sqlite/vfs"
 
+	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/safepath"
 )
 
@@ -84,9 +86,10 @@ var dbSpecs = map[string]dbSpec{
 // fixed names backed by those handles, so it can neither reach another file nor
 // write a journal or shared-memory file beside the developer's database. A
 // rollback journal beside it means a write is in progress, and a database or
-// log that changes during the read is discarded rather than reported. The
-// journal and log are looked for beside the resolved database, where SQLite
-// writes them when the database's name is a link.
+// log that changes during the read is discarded rather than reported. When
+// the database's name is a link, SQLite on unix writes the journal and log
+// beside the file it resolves to, and on Windows beside the link, so they are
+// looked for where it writes them.
 func readDB(ctx context.Context, r *safepath.Resolver, path string, spec dbSpec) (rows []dbRow, resolved string, info os.FileInfo, capped bool, err error) {
 	main, resolved, info, err := r.OpenReadOnly(path)
 	if err != nil {
@@ -99,10 +102,14 @@ func readDB(ctx context.Context, r *safepath.Resolver, path string, spec dbSpec)
 	if !sqliteHeader(main) {
 		return nil, "", nil, false, errUnrecognizedFormat
 	}
-	if _, _, err := r.Stat(resolved + journalSuffix); !errors.Is(err, fs.ErrNotExist) {
+	sidecar := resolved
+	if runtime.GOOS == model.PlatformWindows {
+		sidecar = path
+	}
+	if _, _, err := r.Stat(sidecar + journalSuffix); !errors.Is(err, fs.ErrNotExist) {
 		return nil, "", nil, false, errUnrecognizedFormat
 	}
-	wal, _, walInfo, err := r.OpenReadOnly(resolved + walSuffix)
+	wal, _, walInfo, err := r.OpenReadOnly(sidecar + walSuffix)
 	switch {
 	case err == nil:
 		defer wal.Close()
@@ -124,7 +131,7 @@ func readDB(ctx context.Context, r *safepath.Resolver, path string, spec dbSpec)
 	if err != nil {
 		return nil, "", nil, false, err
 	}
-	if drifted(r, path, resolved, main, info, wal, walInfo) {
+	if drifted(r, path, sidecar, main, info, wal, walInfo) {
 		return nil, "", nil, false, errUnrecognizedFormat
 	}
 	return rows, resolved, info, capped, nil
@@ -141,17 +148,17 @@ func sqliteHeader(f *os.File) bool {
 // drifted reports whether the database or its log changed while it was read,
 // whether either name now leads to another file, or whether a journal or a log
 // appeared beside it.
-func drifted(r *safepath.Resolver, path, resolved string, main *os.File, info os.FileInfo, wal *os.File, walInfo os.FileInfo) bool {
-	if replaced(r, path, main, info) || (wal != nil && replaced(r, resolved+walSuffix, wal, walInfo)) {
+func drifted(r *safepath.Resolver, path, sidecar string, main *os.File, info os.FileInfo, wal *os.File, walInfo os.FileInfo) bool {
+	if replaced(r, path, main, info) || (wal != nil && replaced(r, sidecar+walSuffix, wal, walInfo)) {
 		return true
 	}
-	if _, _, err := r.Stat(resolved + journalSuffix); !errors.Is(err, fs.ErrNotExist) {
+	if _, _, err := r.Stat(sidecar + journalSuffix); !errors.Is(err, fs.ErrNotExist) {
 		return true
 	}
 	if wal != nil {
 		return false
 	}
-	_, _, err := r.Stat(resolved + walSuffix)
+	_, _, err := r.Stat(sidecar + walSuffix)
 	return !errors.Is(err, fs.ErrNotExist)
 }
 
