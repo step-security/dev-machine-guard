@@ -142,8 +142,8 @@ func nixSystemPaths(platform string) (system, perUser string, roots []string) {
 }
 
 // scan reads the machine sources and, for a real user, that user's sources.
-// A service identity or a nil target reads the machine sources only; on
-// macOS a nil target is a failed console lookup, so that read is incomplete.
+// A service identity or a nil target reads the machine sources only. A nil
+// target is a failed user lookup, so that read is incomplete.
 func (s *NixScanner) scan(ctx context.Context, target *user.User, includeNetworkVolumes *bool) nixInventory {
 	platform := s.exec.GOOS()
 	system, perUser, roots := nixSystemPaths(platform)
@@ -172,10 +172,11 @@ func (s *NixScanner) scan(ctx context.Context, target *user.User, includeNetwork
 	if err != nil {
 		n.fail("nix root unresolved")
 	}
-	// A macOS root daemon at the login window has no console user. The run
-	// still uploads, so the user's profiles were not read, not proven gone.
-	if target == nil && platform == model.PlatformDarwin {
-		n.fail("no console user")
+	// A nil target is a failed user lookup: a macOS root daemon at the login
+	// window, or a Linux lookup that failed or timed out. The run still
+	// uploads, so the user's profiles were not read, not proven gone.
+	if target == nil {
+		n.fail("no user")
 	}
 
 	var dirs []string

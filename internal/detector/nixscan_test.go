@@ -370,7 +370,7 @@ func TestNixScanner_ScanResult(t *testing.T) {
 		wantNil  bool
 		wantErr  string
 		present  bool
-		noUser   bool // the console lookup returned no user
+		noUser   bool // the user lookup returned no user
 	}{
 		{name: "host without /nix sends no scan, despite a leftover ~/.nix-profile", host: noNix, wantNil: true},
 		{name: "removal after a reported upload sends a complete empty scan", host: noNix, reported: true},
@@ -388,8 +388,8 @@ func TestNixScanner_ScanResult(t *testing.T) {
 			want: "hello 2.12.1 " + nixHello, wantErr: nixIncompleteError, present: true},
 		{name: "macOS without /nix or a console user sends no scan", noUser: true, wantNil: true,
 			host: func() *nixFS { f := noNix(); f.SetGOOS(model.PlatformDarwin); return f }},
-		{name: "Linux with no user reads machine sources completely", host: func() *nixFS { return nixHost(model.PlatformLinux) },
-			noUser: true, want: "hello 2.12.1 " + nixHello, present: true},
+		{name: "Linux with no user keeps machine rows and is incomplete", host: func() *nixFS { return nixHost(model.PlatformLinux) },
+			noUser: true, want: "hello 2.12.1 " + nixHello, wantErr: nixIncompleteError, present: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
