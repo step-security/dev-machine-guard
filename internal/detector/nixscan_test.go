@@ -21,9 +21,10 @@ import (
 // nixFS is a symlink tree: links resolve component by component like the
 // guarded reader, and anything not registered is absent. Like the reader, a
 // missing path is a path error naming what was missing: the path itself, or
-// the rewritten path once a link was followed. Every directory entry is a
-// symlink. Starting a process panics, so every test also proves the scanner
-// never runs one.
+// the rewritten path once a link was followed. The scanner's guard refuses
+// like the reader's, but Readlink is unguarded and recorded, as it is outside
+// the reader. Every directory entry is a symlink. Starting a process panics,
+// so every test also proves the scanner never runs one.
 type nixFS struct {
 	*executor.Mock
 	links    map[string]string
@@ -33,6 +34,8 @@ type nixFS struct {
 	denied   map[string]bool
 	resolved map[string]int
 	after    func(path string, n int) // runs after path's n-th resolution
+	guard    func(string) string
+	readlink []string
 }
 
 func newNixFS(goos string) *nixFS {
@@ -50,7 +53,12 @@ func noNix() *nixFS {
 	return f
 }
 
-func (f *nixFS) GuardedFiles([]string, func(string) string, int64) executor.Executor { return f }
+func (f *nixFS) GuardedFiles(_ []string, guard func(string) string, _ int64) executor.Executor {
+	f.guard = guard
+	return f
+}
+
+func (f *nixFS) refused(p string) bool { return f.guard != nil && f.guard(p) != "" }
 
 func (f *nixFS) Run(context.Context, string, ...string) (string, string, int, error) {
 	panic("nix scanner started a process")
@@ -83,6 +91,9 @@ func (f *nixFS) EvalSymlinks(p string) (string, error) {
 		}
 	}()
 	for hop := 0; hop <= 16; hop++ {
+		if f.refused(p) {
+			return "", fs.ErrPermission
+		}
 		changed := false
 		for link, target := range f.links {
 			if p == link || strings.HasPrefix(p, link+"/") {
@@ -104,6 +115,7 @@ func (f *nixFS) EvalSymlinks(p string) (string, error) {
 }
 
 func (f *nixFS) Readlink(p string) (string, error) {
+	f.readlink = append(f.readlink, p)
 	if t, ok := f.links[p]; ok {
 		return t, nil
 	}
@@ -125,7 +137,7 @@ func (f *nixFS) ReadFile(p string) ([]byte, error) {
 }
 
 func (f *nixFS) ReadDirLimit(dir string, _ int) ([]os.DirEntry, bool, error) {
-	if f.denied[dir] {
+	if f.denied[dir] || f.refused(dir) {
 		return nil, false, fs.ErrPermission
 	}
 	names, ok := f.dirs[dir]
@@ -184,6 +196,7 @@ const (
 // ~/.nix-profile aliasing the XDG profile.
 func nixHost(goos string) *nixFS {
 	f := newNixFS(goos)
+	f.exists[nixHome] = true
 	f.dirs[nixXDG] = []string{"home-manager", "home-manager-5-link", "profile", "profile-1-link"}
 	f.profile(nixXDG+"/profile", nixEnvA, "multi-manifest.json")
 	f.profile(nixXDG+"/home-manager", nixHMGen, "")
@@ -254,6 +267,15 @@ func TestNixScanner_Scan(t *testing.T) {
 			},
 			want:    nixHostRecords + "\nnix 2.28.5 " + nixNixStore,
 			present: true,
+		},
+		{
+			name: "~/.nix-profile pinned to a generation is a profile",
+			setup: func(f *nixFS) {
+				f.dirs[nixXDG] = []string{"home-manager", "home-manager-5-link", "profile-1-link"}
+				delete(f.links, nixXDG+"/profile")
+				f.links[nixHome+"/.nix-profile"] = nixXDG + "/profile-1-link"
+			},
+			want: nixHostRecords, present: true,
 		},
 		{
 			name: "dangling default profile is incomplete",
@@ -391,6 +413,42 @@ func TestNixScanner_ScanResult(t *testing.T) {
 			}
 			if got := nixRecords(scan.Packages); got != tc.want {
 				t.Errorf("records = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A network /nix or home is refused with or without a user, and Readlink never
+// runs below a refused path.
+func TestNixScanner_GuardRefusal(t *testing.T) {
+	tests := []struct {
+		name, refused string
+		target        *user.User
+		want          string
+	}{
+		{"network /nix without a user", "/nix", nil, ""},
+		{"network home", nixHome, nixAlice, "hello 2.12.1 " + nixHello},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := nixHost(model.PlatformLinux)
+			s := NewNixScanner(f, nil)
+			s.protection = func(string, *bool) (func(string) string, func(string) bool) {
+				return func(p string) string {
+					if p == tc.refused || strings.HasPrefix(p, tc.refused+"/") {
+						return "refused_network_volume"
+					}
+					return ""
+				}, nil
+			}
+			inv := s.scan(context.Background(), tc.target, nil)
+			if got := sortedNixRecords(inv); got != tc.want || !inv.present || !inv.incomplete {
+				t.Errorf("records %q present %v incomplete %v", got, inv.present, inv.incomplete)
+			}
+			for _, p := range f.readlink {
+				if p == tc.refused || strings.HasPrefix(p, tc.refused+"/") {
+					t.Errorf("Readlink(%q) below a refused path", p)
+				}
 			}
 		})
 	}

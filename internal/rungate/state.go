@@ -45,7 +45,7 @@ func StampLastFullRun(deviceID, machineID string, now time.Time) error {
 	})
 }
 
-// RecordNix records whether Nix is installed, as of an upload that confirmed it.
+// RecordNix records whether Nix is installed, as of an upload.
 func RecordNix(deviceID, machineID string, present bool) error {
 	return heartbeat.UpdateRunGate(statePath(), func(rg *heartbeat.RunGate) {
 		bindIdentity(rg, deviceID)

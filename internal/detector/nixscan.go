@@ -55,13 +55,16 @@ const nixIncompleteError = "incomplete nix inventory"
 type NixScanner struct {
 	exec executor.Executor
 	log  *progress.Logger
+	// protection builds the path guards; a seam so tests can place protected
+	// paths.
+	protection func(home string, includeNetworkVolumes *bool) (protected func(string) string, volume func(string) bool)
 }
 
 func NewNixScanner(exec executor.Executor, log *progress.Logger) *NixScanner {
 	if log == nil {
 		log = progress.NewNoop()
 	}
-	return &NixScanner{exec: exec, log: log}
+	return &NixScanner{exec: exec, log: log, protection: configaudit.GoProtection}
 }
 
 // Scan returns the "nix" system package scan, or nil when it is omitted.
@@ -150,13 +153,12 @@ func (s *NixScanner) scan(ctx context.Context, target *user.User, includeNetwork
 	n := &nixScan{log: s.log, ctx: ctx, walked: map[string]bool{}}
 
 	hasUser := target != nil && !isGoServiceIdentity(platform, target) && filepath.IsAbs(target.HomeDir)
-	var guard func(string) string
 	home := ""
 	if hasUser {
 		home = filepath.Clean(target.HomeDir)
-		guard, _ = configaudit.GoProtection(home, includeNetworkVolumes)
 		roots = append(roots, home)
 	}
+	guard, _ := s.protection(home, includeNetworkVolumes)
 	n.files = s.exec.GuardedFiles(roots, guard, maxNixManifestBytes)
 
 	// Only a missing /nix is a definitive absence; leftover links such as
@@ -255,10 +257,18 @@ func nixAbsent(path string, err error) bool {
 
 // homeProfile handles ~/.nix-profile: a link to a profile in a profiles
 // directory or to the default profile is an alias with no source of its own.
-// Any other link, such as one into a custom XDG_STATE_HOME, is a profile.
+// Any other link, such as one into a custom XDG_STATE_HOME or to a pinned
+// generation, is a profile. The parent is resolved through the guard first,
+// because Readlink is not guarded; a refused parent is a source that fails.
 func (n *nixScan) homeProfile(path string, dirs []string) {
-	target, err := n.files.Readlink(path)
-	if nixAbsent(path, err) {
+	link := path
+	dir, err := n.files.EvalSymlinks(filepath.Dir(path))
+	var target string
+	if err == nil {
+		link = filepath.Join(dir, filepath.Base(path))
+		target, err = n.files.Readlink(link)
+	}
+	if nixAbsent(link, err) {
 		return
 	}
 	if err == nil {
@@ -266,7 +276,8 @@ func (n *nixScan) homeProfile(path string, dirs []string) {
 			target = filepath.Join(filepath.Dir(path), target)
 		}
 		target = filepath.Clean(target)
-		if target == nixDefaultProfile || slices.Contains(dirs, filepath.Dir(target)) {
+		alias := target == nixDefaultProfile || slices.Contains(dirs, filepath.Dir(target))
+		if alias && !isNixGenerationLink(filepath.Base(target)) {
 			return
 		}
 	}

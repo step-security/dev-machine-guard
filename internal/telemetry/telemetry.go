@@ -1584,6 +1584,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	phaseCtx, phaseCancel = startPhase(runCtx, tracker, "telemetry_upload")
 	log.Progress("Requesting upload URL from backend...")
 	ingest, uploadErr := uploadToS3(phaseCtx, log, payload, executionID, tracker, capture)
+	// A failed upload is ingestUnknown: the payload may have landed before
+	// the notify failed.
+	recordNix(log, deviceID, dev.SerialNumber, nixReported, nixPresent, ingest)
 	if uploadErr != nil {
 		endPhase(phaseCtx, phaseCancel, tracker, log, "telemetry_upload")
 		// Force-attach a final tail capturing the upload-failure output before
@@ -1613,7 +1616,6 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	if err := rungate.StampLastFullRun(deviceID, dev.SerialNumber, time.Now()); err != nil {
 		log.Debug("run-gate: could not stamp last full run: %v", err)
 	}
-	recordNix(log, deviceID, dev.SerialNumber, nixReported, nixPresent, ingest)
 
 	fmt.Fprintln(os.Stderr)
 	log.Progress("Telemetry collection completed successfully")
@@ -1630,9 +1632,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 
 // recordNix remembers whether this upload found Nix, in delta and
 // full-snapshot runs alike, when that changed. Only a processed upload
-// confirms a removal: a queued one may still fail, and a failed or rejected
-// one never landed, so the empty nix scan is sent again next run. Any upload
-// not rejected records Nix as found, which at worst repeats one empty scan.
+// confirms a removal: a queued or failed one may not land, and a rejected one
+// never did, so the empty nix scan is sent again next run. Any upload not
+// rejected, failed ones included, records Nix as found, which at worst
+// repeats one empty scan.
 func recordNix(log *progress.Logger, deviceID, machineID string, reported, present bool, ingest ingestStatus) {
 	if present == reported || ingest == ingestRejected || !present && ingest != ingestProcessed {
 		return

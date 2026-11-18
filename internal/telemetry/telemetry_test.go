@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -15,7 +16,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/cli"
 	"github.com/step-security/dev-machine-guard/internal/config"
+	"github.com/step-security/dev-machine-guard/internal/device"
+	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/lock"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 	"github.com/step-security/dev-machine-guard/internal/rungate"
@@ -751,13 +756,84 @@ func TestRecordNix_UninstallConfirmedUntilAccepted(t *testing.T) {
 				if (err != nil) != (st.notify == "") {
 					t.Fatalf("step %d: upload error %v", i, err)
 				}
-				if err == nil {
-					recordNix(log, "dev-1", "", reported, st.present, ingest)
-				}
+				recordNix(log, "dev-1", "", reported, st.present, ingest)
 				if got := rungate.NixReported("dev-1"); got != st.want {
 					t.Errorf("step %d: NixReported = %v, want %v", i, got, st.want)
 				}
 			}
 		})
 	}
+}
+
+// A first upload that found Nix and lost its notify may still have landed,
+// so the run after an uninstall must send the empty nix scan.
+func TestRun_NixRemovalAfterLostNotify(t *testing.T) {
+	withFastBackoff(t)
+	var notify atomic.Value // "" = HTTP 500
+	var put atomic.Value
+	s3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		put.Store(body)
+		w.Header().Set("x-amz-request-id", "TESTREQID000000")
+		w.Header().Set("x-amz-id-2", "test-id-2")
+	}))
+	defer s3.Close()
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/telemetry/upload-url"):
+			_ = json.NewEncoder(w).Encode(map[string]string{"upload_url": s3.URL + "/put", "s3_key": "k"})
+		case strings.HasSuffix(r.URL.Path, "/telemetry/process-uploaded"):
+			if notify.Load().(string) == "" {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": notify.Load().(string)})
+		}
+	}))
+	defer backend.Close()
+	withTestConfig(t, backend.URL)
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("STEPSECURITY_HOME", dir)
+	t.Setenv("STEPSEC_MAX_SCAN_DURATION", "5s")
+	t.Cleanup(rungate.SetStatePathForTest(filepath.Join(dir, "last-run.json")))
+	device.ResetIDCache()
+	t.Cleanup(device.ResetIDCache)
+	defer lock.SetTargetForTest(filepath.Join(dir, "scanner.lock"))()
+	off := false
+	run := func(nix bool, status string) error {
+		m := executor.NewMock()
+		m.SetGOOS(model.PlatformLinux)
+		m.SetUsername("alice")
+		m.SetHomeDir(dir)
+		m.SetFile("/sys/class/dmi/id/product_serial", []byte("HW-123"))
+		if !nix {
+			m.SetSymlinkError("/nix", &fs.PathError{Op: "lstat", Path: "/nix", Err: fs.ErrNotExist})
+		}
+		notify.Store(status)
+		return Run(m, progress.NewNoop(), &cli.Config{SearchDirs: []string{dir}, EnableNPMScan: &off, EnableBrewScan: &off, EnablePythonScan: &off})
+	}
+	if err := run(true, ""); err == nil {
+		t.Fatal("lost notify: want an upload error")
+	}
+	put.Store([]byte(nil))
+	if err := run(false, "processed"); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(put.Load().([]byte)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p struct {
+		Scans []model.SystemPackageScanResult `json:"system_package_scans"`
+	}
+	if err := json.NewDecoder(zr).Decode(&p); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range p.Scans {
+		if s.ScanType == "nix" && len(s.Packages) == 0 && s.Error == "" {
+			return
+		}
+	}
+	t.Fatalf("uninstall run sent no empty nix scan: %+v", p.Scans)
 }
