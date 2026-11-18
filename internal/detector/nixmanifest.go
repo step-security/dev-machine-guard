@@ -141,12 +141,7 @@ func (el nixElement) record() (model.SystemPackage, bool) {
 	case el.drvName != "":
 		base = el.drvName
 	case !named:
-		base = nixStoreBase(paths[0])
-		for _, p := range paths[1:] {
-			if nixStoreBase(p) != base {
-				base = ""
-			}
-		}
+		base = nixSharedBase(paths, len(el.outputNames) == 0)
 	}
 	if base == "" {
 		base = nixStoreBase(install)
@@ -171,6 +166,38 @@ func nixOutputBase(paths, names []string) (base, out string, ok bool) {
 		}
 	}
 	return base, out, ok
+}
+
+// nixSharedBase returns the first path's name when every path has it, else
+// "". When the manifest names no outputs (outputs: null installs the
+// defaults, such as jq-1.7.1-bin and jq-1.7.1-man), a path may also be
+// base-<output>, and the base may be the first name without its last
+// -<output>. An output name here is lowercase letters only.
+func nixSharedBase(paths []string, undeclared bool) string {
+	first := nixStoreBase(paths[0])
+	if nixPathsShare(paths, first, undeclared) {
+		return first
+	}
+	if i := strings.LastIndexByte(first, '-'); undeclared && i > 0 && isNixOutputName(first[i+1:]) &&
+		nixPathsShare(paths, first[:i], true) {
+		return first[:i]
+	}
+	return ""
+}
+
+func nixPathsShare(paths []string, base string, outputs bool) bool {
+	prefix := base + "-"
+	for _, p := range paths {
+		b := nixStoreBase(p)
+		if rest, ok := strings.CutPrefix(b, prefix); b != base && !(outputs && ok && isNixOutputName(rest)) {
+			return false
+		}
+	}
+	return true
+}
+
+func isNixOutputName(s string) bool {
+	return s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyz") == ""
 }
 
 func nixBaseCandidates(paths, names []string) []string {

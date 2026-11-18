@@ -15,6 +15,11 @@ const (
 	nixZlib     = "/nix/store/mrmm3hc3s1f6wnszxnwqfxvxhbchqbbi-zlib-1.3.1"
 	nixZlibDev  = "/nix/store/kkgnjmnpshqw9xbw8x39g1pl1a3h15xx-zlib-1.3.1-dev"
 	nixNixStore = "/nix/store/3351s56n7qxjdvpckhbkyg9ihyspfv8k-nix-2.28.5"
+
+	nixFooBetaDev = "/nix/store/0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-foo-1.0-beta-dev"
+	nixFooBeta    = "/nix/store/1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-foo-1.0-beta"
+	nixPy3        = "/nix/store/0bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-py-3.1-py3"
+	nixPyBin      = "/nix/store/1bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-py-3.1-bin"
 )
 
 func nixRecords(pkgs []model.SystemPackage) string {
@@ -34,6 +39,10 @@ func TestParseNixManifest_NativeFixtures(t *testing.T) {
 	}{
 		{"modern-installed-manifest.json", "hello 2.12.1 " + nixHello},
 		{"multi-manifest.json", "zlib 1.3.1 " + nixZlib},
+		{"modern-default-outputs-manifest.json", "hello 2.12.1 /nix/store/swxfvpa96x0qc9v2g7jvil2301dflvhg-hello-2.12.1\n" +
+			"jq 1.7.1 /nix/store/4nv7jriz8f3f8yl1z3dai5kv3aiq1s5z-jq-1.7.1-man\n" +
+			"ripgrep 14.1.1 /nix/store/5hfbn4a2k26wzw6q1lkbgplvlm03kxdn-ripgrep-14.1.1\n" +
+			"zlib 1.3.1 /nix/store/i3v45gy9pzjdpmzigmip11j70kgdgf8p-zlib-1.3.1"},
 		{"direct-manifest.json", "nix 2.28.5 " + nixNixStore},
 		{"hm-profile-manifest.json", "home-manager-path unknown /nix/store/h1crmzbbn7mv1j6x3ki2kc72l1qwvwjs-home-manager-path"},
 		{"modern-removed-manifest.json", ""},
@@ -78,6 +87,14 @@ func TestParseNixManifest_Cases(t *testing.T) {
 			want: "zlib 1.3.1 " + nixZlib},
 		{name: "outputs that do not name the paths fall back to the first path", json: `{"version":3,"elements":{"z":{"outputs":["bin","lib"],"storePaths":["` + nixZlibDev + `","` + nixZlib + `"]}}}`,
 			want: "zlib 1.3.1-dev " + nixZlibDev},
+		{name: "undeclared outputs share the base without the output name", json: `{"version":3,"elements":{"z":{"outputs":null,"storePaths":["` + nixZlibDev + `","` + nixZlib + `"]}}}`,
+			want: "zlib 1.3.1 " + nixZlibDev},
+		{name: "undeclared outputs keep a prerelease word in the version", json: `{"version":3,"elements":{"f":{"storePaths":["` + nixFooBetaDev + `","` + nixFooBeta + `"]}}}`,
+			want: "foo 1.0-beta " + nixFooBetaDev},
+		{name: "undeclared paths with no shared base fall back to the first path", json: `{"version":3,"elements":{"m":{"outputs":null,"storePaths":["` + nixZlib + `","` + nixHello + `"]}}}`,
+			want: "hello 2.12.1 " + nixHello},
+		{name: "a suffix that is not an output name falls back to the first path", json: `{"version":3,"elements":{"p":{"outputs":null,"storePaths":["` + nixPyBin + `","` + nixPy3 + `"]}}}`,
+			want: "py 3.1-py3 " + nixPy3},
 		{name: "element without store paths is incomplete", json: `{"version":3,"elements":{"a":{"active":true},"b":{"storePaths":["` + nixHello + `"]}}}`,
 			want: "hello 2.12.1 " + nixHello, incomplete: true},
 		{name: "empty elements are an empty profile", json: `{"version":3,"elements":{}}`},
