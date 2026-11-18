@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,6 +18,8 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/progress"
+	"github.com/step-security/dev-machine-guard/internal/rungate"
+	"github.com/step-security/dev-machine-guard/internal/state"
 )
 
 func TestGzipBytes_RoundTrip(t *testing.T) {
@@ -682,5 +685,79 @@ func TestUploadToS3_StalledPutIsRetried(t *testing.T) {
 	}
 	if n := putAttempt.Load(); n != 2 {
 		t.Errorf("PUT attempts = %d, want 2", n)
+	}
+}
+
+// After a Nix uninstall, each run sends an empty nix scan until the backend
+// reports one processed, in delta and full-snapshot runs alike. A failed
+// notify, a rejected payload or a queued one keeps the flag. Each step
+// mirrors the tail of Run: a failed upload returns before recordNix.
+func TestRecordNix_UninstallConfirmedUntilAccepted(t *testing.T) {
+	withFastBackoff(t)
+	for _, fullSnapshot := range []bool{false, true} {
+		t.Run(map[bool]string{false: "delta", true: "full snapshot"}[fullSnapshot], func(t *testing.T) {
+			dir := t.TempDir()
+			t.Cleanup(rungate.SetStatePathForTest(filepath.Join(dir, "last-run.json")))
+			scanStatePath := filepath.Join(dir, "scan-state.json")
+
+			s3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("x-amz-request-id", "TESTREQID000000")
+				w.Header().Set("x-amz-id-2", "test-id-2")
+			}))
+			defer s3.Close()
+			var notify atomic.Value // response status, or "" for HTTP 500
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/telemetry/upload-url"):
+					_ = json.NewEncoder(w).Encode(map[string]string{"upload_url": s3.URL + "/put", "s3_key": "k"})
+				case strings.HasSuffix(r.URL.Path, "/telemetry/process-uploaded"):
+					status := notify.Load().(string)
+					if status == "" {
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+					_ = json.NewEncoder(w).Encode(map[string]string{"status": status})
+				}
+			}))
+			defer backend.Close()
+			withTestConfig(t, backend.URL)
+
+			log := progress.NewNoop()
+			steps := []struct {
+				notify  string
+				present bool
+				want    bool
+			}{
+				{"queued", true, true},    // Nix found; queued is enough to record it
+				{"", false, true},         // uninstalled; notify fails
+				{"rejected", false, true}, // backend rejects the payload
+				{"queued", false, true},   // queued may still fail: retry
+				{"processed", false, false},
+			}
+			for i, st := range steps {
+				reported := rungate.NixReported("dev-1")
+				if fullSnapshot {
+					if err := state.Invalidate(scanStatePath); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := state.New("v").Save(scanStatePath); err != nil {
+					t.Fatal(err)
+				}
+				if i > 0 && !reported {
+					t.Fatalf("step %d: removal not pending before the upload", i)
+				}
+				notify.Store(st.notify)
+				ingest, err := uploadToS3(context.Background(), log, &Payload{CustomerID: "test-customer", DeviceID: "dev-1"}, "11111111-2222-4333-8444-555555555555", nil, nil)
+				if (err != nil) != (st.notify == "") {
+					t.Fatalf("step %d: upload error %v", i, err)
+				}
+				if err == nil {
+					recordNix(log, "dev-1", "", reported, st.present, ingest)
+				}
+				if got := rungate.NixReported("dev-1"); got != st.want {
+					t.Errorf("step %d: NixReported = %v, want %v", i, got, st.want)
+				}
+			}
+		})
 	}
 }

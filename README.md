@@ -380,7 +380,7 @@ See [SCAN_COVERAGE.md](SCAN_COVERAGE.md) for the full catalog of supported detec
 | Node.js Packages     | npm, yarn, pnpm, bun (opt-in)                                                            |
 | Homebrew Packages    | Formulae and casks with rich metadata (opt-in)                                            |
 | Python Packages      | pip, poetry, pipenv, uv, conda, rye (opt-in)                                             |
-| System Packages      | rpm, dpkg, pacman, apk, snap, flatpak (Linux)                                            |
+| System Packages      | rpm, dpkg, pacman, apk, snap, flatpak (Linux); Nix profiles and environments (Linux and macOS, enterprise) |
 | Go Modules           | `go.mod`/`go.work` declarations, vendored modules, module cache, `GOBIN` tools, recorded checksums (enterprise) |
 | Rust Packages        | `Cargo.toml` declarations, `Cargo.lock`, registry cache, Git checkouts, vendored sources, `cargo install` receipts (enterprise) |
 | PHP Packages         | `composer.json` requirements, `composer.lock` snapshots and Composer 1/2 installed receipts, with separate directory presence (enterprise) |
@@ -581,7 +581,7 @@ Dev Machine Guard fills the gap by inventorying what is actually running in your
 
 - **Package scanning** (Node.js, Homebrew, Python) is opt-in in community mode and results are basic (package manager detection and package/project lists). Full dependency tree analysis is available in enterprise mode.
 - **MCP config auditing** shows which tools have MCP configs (source, vendor, and config path) but does not display config file contents in community mode. Enterprise mode sends filtered config data (server names and commands only, no secrets) to the dashboard.
-- **System package scanning** (rpm, dpkg, pacman, apk, snap, flatpak) is Linux-only.
+- **System package scanning** (rpm, dpkg, pacman, apk, snap, flatpak) is Linux-only. Nix inventory (Linux and macOS) is enterprise-only and reads profiles and environments from disk without running Nix.
 - **Package-manager config auditing** reports the effective registry, cooldown status, and authentication surface from configuration files; it reflects configuration as written and does not intercept package installs at runtime.
 - **Suspicious file detection** flags files that match StepSecurity-maintained rules and records the path and matched rule. It does not collect or transmit file contents. Confidence levels and attack-campaign attribution surface in the enterprise dashboard.
 

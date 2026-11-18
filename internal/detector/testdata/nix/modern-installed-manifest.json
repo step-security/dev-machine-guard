@@ -1,0 +1,1 @@
+{"elements":{"hello":{"active":true,"attrPath":"legacyPackages.aarch64-linux.hello","originalUrl":"github:NixOS/nixpkgs/nixos-25.05","outputs":null,"priority":5,"storePaths":["/nix/store/jppkr0h8aap5z7m4xy4vg5yrwlly9h2v-hello-2.12.1"],"url":"github:NixOS/nixpkgs/ac62194c3917d5f474c1a844b6fd6da2db95077d?narHash=sha256-16KkgfdYqjaeRGBaYsNrhPRRENs0qzkQVUooNHtoy2w%3D"}},"version":3}
