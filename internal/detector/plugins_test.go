@@ -3779,6 +3779,8 @@ func TestClaudePluginDirs(t *testing.T) {
 			want: []string{"hooky@inline=OUT/hooky"}},
 		{name: "folder of plugins", dirs: "OUT/pack", files: map[string]string{"OUT/pack/fb/.claude-plugin/plugin.json": manifest("fb"), "OUT/pack/fa/.claude-plugin/plugin.json": manifest("fa"), "OUT/pack/notes/readme.md": "x", "OUT/pack/noman/hooks/hooks.json": `{"modules":["./mod.mjs"]}`},
 			want: []string{"fa@inline=OUT/pack/fa", "fb@inline=OUT/pack/fb"}},
+		{name: "plugin listed directly and through its folder", dirs: "OUT/pack:OUT/pack/fa", files: map[string]string{"OUT/pack/fa/.claude-plugin/plugin.json": manifest("fa")},
+			want: []string{"fa@inline=OUT/pack/fa"}},
 		{name: "relative", dirs: "mods/alpha", errors: []string{"unsafe_path=mods/alpha"}},
 		{name: "missing", dirs: "OUT/missing", errors: []string{"read_failed=OUT/missing"}},
 		{name: "not a plugin", dirs: "OUT/notes", files: map[string]string{"OUT/notes/readme.md": "x"}, errors: []string{"read_failed=OUT/notes"}},
@@ -3918,6 +3920,20 @@ func TestClaudeSessionMods(t *testing.T) {
 		}
 		if len(got.Errors) != 0 || got.InstallationStatus != model.AgentScanStatusComplete {
 			t.Fatalf("context = %s %+v", got.InstallationStatus, got.Errors)
+		}
+	})
+	t.Run("session folder also listed in plugin dirs", func(t *testing.T) {
+		home := mustTempDir(t)
+		session := filepath.Join(home, ".claude", claudeSessionModsDir, "session-000")
+		a := newClaudeDirAdapter(t, home, `{"env":{"CLAUDE_CODE_PLUGIN_DIRS":`+strconv.Quote(session)+`}}`)
+		writeSessions(t, a.configRoot, [][]string{{"git-branch"}})
+		a.pluginDirPlugins()
+		a.sessionModPlugins()
+		if len(a.c.Plugins) != 1 || a.c.Plugins[0].Installed == nil || !*a.c.Plugins[0].Installed {
+			t.Fatalf("plugins = %+v, want one installed git-branch@inline", a.c.Plugins)
+		}
+		if len(a.c.Errors) != 0 || a.c.InstallationStatus != model.AgentScanStatusComplete {
+			t.Fatalf("context = %s %+v", a.c.InstallationStatus, a.c.Errors)
 		}
 	})
 	caps := []struct {

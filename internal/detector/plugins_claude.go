@@ -967,6 +967,14 @@ func (a *claudeAdapter) hasManifest(gd *SkillsDetector, dir string) bool {
 // directoryPlugin emits one user-scope plugin directory Claude Code loads in
 // place as <name>@inline, named by its manifest, else by the directory.
 func (a *claudeAdapter) directoryPlugin(gd *SkillsDetector, dir string, installed *bool) {
+	// A directory reached twice, through two entries or an entry and a session
+	// folder, is one plugin; the first reach decides installed.
+	key := a.s.hashPath(dir)
+	for i := range a.c.Plugins {
+		if a.s.hashPath(a.c.Plugins[i].InstallPath) == key {
+			return
+		}
+	}
 	name := filepath.Base(dir)
 	// The same guard components() uses, so both reads of the manifest agree.
 	if obj, _, code := a.s.readJSONObject(gd.componentReader(dir), filepath.Join(dir, filepath.FromSlash(claudeManifestRel))); code == "" {
