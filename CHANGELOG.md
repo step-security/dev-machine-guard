@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See [VERSIONING.md](VERSIONING.md) for why the version starts at 1.8.1.
 
+## [Unreleased]
+
+### Added
+
+- **macOS and Linux self-update.** On installs where launchd or systemd runs the binary directly (`auto_update: true`, written by the current loader), every scheduled run first checks `latest-binary` for the tenant's target, verifies the SSHSIG over its checksum before downloading, stages the release next to the binary, runs its `self-check`, and swaps it in with one rename; the new version takes effect on the next scheduled run and confirms itself then. Targets below the macOS/Linux floor are refused, a version that fails its smoke test is quarantined for a week, and every outcome is reported as an update event (`install_channel` `loader`). Kill switch: `STEPSEC_DISABLE_SELF_UPDATE=1` or `auto_update: false`. See [docs/macos-linux-self-update.md](docs/macos-linux-self-update.md).
+
 ## [1.19.1] - 2026-11-13
 
 ### Fixed
