@@ -100,6 +100,12 @@ func TestAgentPluginsGolden_CoversTheWholeVocabulary(t *testing.T) {
 				if comp.Skill != nil {
 					mark("nested source", comp.Skill.Source)
 				}
+				for _, m := range comp.Modules {
+					mark("module status", m.Status)
+					if m.ErrorCode != "" {
+						mark("error", m.ErrorCode)
+					}
+				}
 			}
 		}
 	}
@@ -125,6 +131,7 @@ func TestAgentPluginsGolden_CoversTheWholeVocabulary(t *testing.T) {
 		{"component", []string{PluginComponentSkill, PluginComponentCommand, PluginComponentMCP, PluginComponentAgent, PluginComponentHook, PluginComponentLSP, PluginComponentApp, PluginComponentRule,
 			PluginComponentExtension, PluginComponentPrompt, PluginComponentTheme}},
 		{"nested source", []string{"claude_plugin", "codex_plugin", "copilot_plugin", "pi_plugin"}},
+		{"module status", []string{AgentScanStatusComplete, AgentScanStatusError}},
 		// An empty kind denotes SKILL.md and remains valid beside explicit kinds.
 		{"definition", []string{"", AgentDefinitionSkill, AgentDefinitionCommand}},
 	} {
@@ -213,6 +220,18 @@ func TestAgentPluginsGolden_Invariants(t *testing.T) {
 				if comp.CallableNames == nil {
 					t.Errorf("%s: callable_names must be [] not omitted", comp.ComponentID)
 				}
+				if comp.Modules != nil && (c.Agent != AgentClaudeCode || comp.Kind != PluginComponentHook || len(comp.Modules) == 0 || len(comp.Modules) > 8) {
+					t.Errorf("%s: modules belong only to a Claude hook, with 1 to 8 entries", comp.ComponentID)
+				}
+				for _, m := range comp.Modules {
+					hashed := len(m.DefinitionHash) == 64 && strings.Trim(m.DefinitionHash, "0123456789abcdef") == ""
+					if hashed != (m.Status == AgentScanStatusComplete) || (m.ErrorCode != "") != (m.Status == AgentScanStatusError) {
+						t.Errorf("%s: module %q needs a hash exactly when complete and a code exactly when error", comp.ComponentID, m.DeclaredPath)
+					}
+					if strings.Contains(m.RelativePath, "..") || strings.HasPrefix(m.RelativePath, "/") {
+						t.Errorf("%s: module relative_path %q must be root-relative without traversal", comp.ComponentID, m.RelativePath)
+					}
+				}
 			}
 			if p.Enablement == nil || p.Components == nil || p.Errors == nil {
 				t.Errorf("%s: enablement/components/errors must be [] not omitted", p.InstanceID)
@@ -227,7 +246,7 @@ func TestAgentPluginsGolden_Invariants(t *testing.T) {
 	if !bytes.Contains(raw, []byte(`"marketplaces": []`)) {
 		t.Error("an empty required array must be serialized as []")
 	}
-	for _, key := range []string{`"sparse_paths": []`, `"auto_update_preferences": []`, `"allowed_tools": []`, `"symlink_sources": []`} {
+	for _, key := range []string{`"modules": []`, `"sparse_paths": []`, `"auto_update_preferences": []`, `"allowed_tools": []`, `"symlink_sources": []`} {
 		if bytes.Contains(raw, []byte(key)) {
 			t.Errorf("optional array %s must be omitted when empty, not rendered", key)
 		}

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
@@ -24,6 +25,8 @@ const (
 	claudeManifestRel        = ".claude-plugin/plugin.json"
 	claudeCatalogRel         = ".claude-plugin/marketplace.json"
 	claudeSkillsDirMarket    = "skills-dir"
+	claudeInlineMarket       = "inline"
+	claudeSessionModsDir     = "dev-mods"
 	claudeSyncedMarket       = "synced"
 	claudeMCPFile            = ".mcp.json"
 	claudeLSPFile            = ".lsp.json"
@@ -134,6 +137,7 @@ type claudeSettingsLayer struct {
 	ok                       bool
 	enabled                  map[string]bool
 	marketplaces             map[string]claudeSettingsMarketplace
+	pluginDirs               string // env.CLAUDE_CODE_PLUGIN_DIRS, user layer only
 }
 
 type claudeAdapter struct {
@@ -170,11 +174,7 @@ func (s *pluginScan) detectClaude() *model.AgentPluginContext {
 	}
 
 	roots := []string{configRoot, pluginRoot, filepath.Dir(s.managedSettingsPath())}
-	separator := ":"
-	if s.goos == model.PlatformWindows {
-		separator = ";"
-	}
-	for _, seed := range strings.Split(s.d.exec.Getenv("CLAUDE_CODE_PLUGIN_SEED_DIR"), separator) {
+	for _, seed := range strings.Split(s.d.exec.Getenv("CLAUDE_CODE_PLUGIN_SEED_DIR"), s.pathListSeparator()) {
 		if seed = strings.TrimSpace(seed); seed != "" {
 			roots = append(roots, filepath.Clean(seed))
 		}
@@ -210,6 +210,14 @@ func (s *pluginScan) detectClaude() *model.AgentPluginContext {
 	return a.c
 }
 
+// pathListSeparator splits Claude Code's path-list variables.
+func (s *pluginScan) pathListSeparator() string {
+	if s.goos == model.PlatformWindows {
+		return ";"
+	}
+	return ":"
+}
+
 func (s *pluginScan) managedSettingsPath() string {
 	switch s.goos {
 	case model.PlatformDarwin:
@@ -229,6 +237,9 @@ func (a *claudeAdapter) run() {
 	a.registryPlugins(registry)
 	a.skillsDirPlugins()
 	a.syncedPlugins()
+	a.pluginDirPlugins()
+	// Last, so session folders never spend the budgets ahead of installed plugins.
+	a.sessionModPlugins()
 	a.emitMarketplaces()
 }
 
@@ -307,6 +318,14 @@ func (a *claudeAdapter) readSettings(p, scope, projectPath string) claudeSetting
 	if len(raw) > 0 {
 		if json.Unmarshal(raw, &layer.marketplaces) != nil || layer.marketplaces == nil {
 			invalid()
+		}
+	}
+	if scope == model.PluginScopeUser {
+		// Claude Code takes plugin directories from the user layer's env block
+		// only. The block is not otherwise read, so its shape is not judged here.
+		var env map[string]json.RawMessage
+		if json.Unmarshal(obj["env"], &env) == nil {
+			layer.pluginDirs = jsonString(env["CLAUDE_CODE_PLUGIN_DIRS"])
 		}
 	}
 	return layer
@@ -791,6 +810,170 @@ func (a *claudeAdapter) skillsDirPlugins() {
 	}
 }
 
+// pluginDirPlugins emits the directories env.CLAUDE_CODE_PLUGIN_DIRS in user
+// settings lists, which Claude Code loads in place as <name>@inline. The same
+// variable in the process environment is not observable here. An entry that is
+// relative, missing or not a plugin is the user's configuration, not a coverage
+// gap, so only a refused read makes the context partial.
+func (a *claudeAdapter) pluginDirPlugins() {
+	var list string
+	for _, layer := range a.layers {
+		if layer.scope == model.PluginScopeUser {
+			list = layer.pluginDirs
+		}
+	}
+	seen := map[string]bool{}
+	for _, entry := range strings.Split(list, a.s.pathListSeparator()) {
+		entry = strings.TrimSpace(entry)
+		if entry == "~" || strings.HasPrefix(entry, "~/") || strings.HasPrefix(entry, `~\`) {
+			entry = filepath.Join(a.s.home, entry[1:])
+		}
+		if entry == "" {
+			continue
+		}
+		if !filepath.IsAbs(entry) {
+			scanError(&a.c.Errors, model.AgentScanError{Code: model.AgentScanErrUnsafePath, SourcePath: entry})
+			continue
+		}
+		dir := filepath.Clean(entry)
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		gd := a.s.guarded(dir)
+		if st, _, err := a.s.stat(gd, dir); st != fileDir {
+			code := model.AgentScanErrReadFailed
+			if st == fileRefused {
+				code = readCode(err)
+				degrade(&a.c.InstallationStatus, model.AgentScanStatusPartial)
+			}
+			scanError(&a.c.Errors, model.AgentScanError{Code: code, SourcePath: dir})
+			continue
+		}
+		if a.pluginDir(gd, dir) {
+			a.directoryPlugin(gd, dir, claudeInlineMarket, model.PluginEvidenceLocalConfig, boolPtr(true))
+			continue
+		}
+		// A folder with no plugin of its own loads each child plugin directory.
+		entries, code := a.s.listDir(gd, dir)
+		if code != "" {
+			degrade(&a.c.InstallationStatus, model.AgentScanStatusPartial)
+			scanError(&a.c.Errors, model.AgentScanError{Code: code, SourcePath: dir})
+			continue
+		}
+		found := 0
+		for _, name := range sortedEntryNames(entries) {
+			child := filepath.Join(dir, name)
+			if st, _, _ := a.s.stat(gd, filepath.Join(child, filepath.FromSlash(claudeManifestRel))); st != fileRegular {
+				continue
+			}
+			if found == maxComponentDirs {
+				degrade(&a.c.InstallationStatus, model.AgentScanStatusPartial)
+				scanError(&a.c.Errors, model.AgentScanError{Code: model.AgentScanErrLimitExceeded, SourcePath: dir})
+				break
+			}
+			found++
+			a.directoryPlugin(gd, child, claudeInlineMarket, model.PluginEvidenceLocalConfig, boolPtr(true))
+		}
+		if found == 0 {
+			scanError(&a.c.Errors, model.AgentScanError{Code: model.AgentScanErrReadFailed, SourcePath: dir})
+		}
+	}
+}
+
+// sessionModPlugins emits the mods Claude writes during a session under
+// dev-mods/<session>/<mod>. Claude Code loads them through the skills-dir source
+// while that session runs or resumes, so presence says nothing about whether
+// one will load again: installed stays unknown. Newest sessions come first, and
+// a truncated walk makes the context partial so unobserved mods are retained.
+func (a *claudeAdapter) sessionModPlugins() {
+	root := filepath.Join(a.configRoot, claudeSessionModsDir)
+	entries, code := a.s.listDir(a.gd, root)
+	if code != "" {
+		degrade(&a.c.InstallationStatus, model.AgentScanStatusPartial)
+		scanError(&a.c.Errors, model.AgentScanError{Code: code, SourcePath: root})
+		return
+	}
+	type session struct {
+		dir      string
+		modified time.Time
+	}
+	var sessions []session
+	for _, e := range entries {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		dir := filepath.Join(root, e.Name())
+		if st, fi, _ := a.s.stat(a.gd, dir); st == fileDir {
+			sessions = append(sessions, session{dir, fi.ModTime()})
+		}
+	}
+	sort.Slice(sessions, func(i, j int) bool {
+		if !sessions[i].modified.Equal(sessions[j].modified) {
+			return sessions[i].modified.After(sessions[j].modified)
+		}
+		return sessions[i].dir < sessions[j].dir
+	})
+	truncated := len(sessions) > maxSessionModDirs
+	sessions = sessions[:min(len(sessions), maxSessionModDirs)]
+	emitted := 0
+	for _, sess := range sessions {
+		mods, code := a.s.listDir(a.gd, sess.dir)
+		if code != "" {
+			degrade(&a.c.InstallationStatus, model.AgentScanStatusPartial)
+			scanError(&a.c.Errors, model.AgentScanError{Code: code, SourcePath: sess.dir})
+			continue
+		}
+		for _, name := range sortedEntryNames(mods) {
+			dir := filepath.Join(sess.dir, name)
+			if !a.pluginDir(a.gd, dir) {
+				continue
+			}
+			if emitted == maxSessionMods {
+				truncated = true
+				break
+			}
+			emitted++
+			a.directoryPlugin(a.gd, dir, claudeSkillsDirMarket, model.PluginEvidenceSkillDirectory, nil)
+		}
+	}
+	if truncated {
+		degrade(&a.c.InstallationStatus, model.AgentScanStatusPartial)
+		scanError(&a.c.Errors, model.AgentScanError{Code: model.AgentScanErrLimitExceeded, SourcePath: root})
+	}
+}
+
+// pluginDir reports whether dir loads as one plugin: it has a manifest or,
+// without one, a default hooks file.
+func (a *claudeAdapter) pluginDir(gd *SkillsDetector, dir string) bool {
+	for _, rel := range []string{claudeManifestRel, claudeHooksFile} {
+		if st, _, _ := a.s.stat(gd, filepath.Join(dir, filepath.FromSlash(rel))); st == fileRegular {
+			return true
+		}
+	}
+	return false
+}
+
+// directoryPlugin emits one user-scope plugin directory Claude Code loads in
+// place, named by its manifest, else by the directory.
+func (a *claudeAdapter) directoryPlugin(gd *SkillsDetector, dir, market, evidence string, installed *bool) {
+	name := filepath.Base(dir)
+	if obj, _, code := a.s.readJSONObject(gd, filepath.Join(dir, filepath.FromSlash(claudeManifestRel))); code == "" {
+		if manifestName := jsonString(obj["name"]); manifestName != "" {
+			name = manifestName
+		}
+	}
+	p := newPlugin(name+"@"+market, name, model.PluginInstallDirectory, model.PluginScopeUser)
+	p.InstallationEvidence = evidence
+	p.Installed, p.FilesPresent = installed, boolPtr(true)
+	p.InstallPath, p.SourcePath = dir, dir
+	p.Source = &model.SourceLocator{Kind: model.PluginSourceLocal, NativeKind: "directory", Location: dir}
+	a.enablement(p)
+	if a.s.addPlugin(a.c, p) {
+		a.components(&a.c.Plugins[len(a.c.Plugins)-1], nil, nil)
+	}
+}
+
 // syncedPlugins emits account-synced packages materialized under the synced
 // root. Local materialization says nothing about current account enablement.
 func (a *claudeAdapter) syncedPlugins() {
@@ -1099,16 +1282,22 @@ func (a *claudeAdapter) components(p *model.PluginObservation, entry *claudeCata
 
 	for _, d := range origins(mf.Hooks, ed.Hooks, "hooks") {
 		if files := stringList(d.raw); len(files) > 0 {
-			for _, file := range files {
-				a.declaredFile(r, model.PluginComponentHook, "hooks", file)
+			for _, declared := range files {
+				file, ok := insideRoot(root, declared)
+				if !ok {
+					scanError(&p.Errors, model.AgentScanError{Code: model.AgentScanErrUnsafePath, SourcePath: declared, InstanceID: p.InstanceID})
+					degrade(&p.ComponentStatus, model.AgentScanStatusPartial)
+					continue
+				}
+				a.hooksFile(r, file, true)
 			}
 		} else {
+			// An inline object is the event map itself; Claude Code reads no
+			// modules from it.
 			r.declared(model.PluginComponentHook, "hooks", d.rel, d.pointer, d.file, model.AgentScanStatusComplete)
 		}
 	}
-	if st, _, _ := a.s.stat(a.gd, filepath.Join(root, filepath.FromSlash(claudeHooksFile))); st == fileRegular {
-		r.declared(model.PluginComponentHook, "hooks", claudeHooksFile, "", filepath.Join(root, filepath.FromSlash(claudeHooksFile)), model.AgentScanStatusComplete)
-	}
+	a.hooksFile(r, filepath.Join(root, filepath.FromSlash(claudeHooksFile)), false)
 
 	for _, d := range origins(mf.MCPServers, ed.MCPServers, "mcpServers") {
 		if files := stringList(d.raw); len(files) > 0 {
@@ -1198,6 +1387,44 @@ func (a *claudeAdapter) declaredFile(r *pluginRootScan, kind, name, declared str
 		status = model.AgentScanStatusError
 	}
 	r.declared(kind, name, rel, "", file, status)
+}
+
+// hooksFile emits the hook component for one hooks file, with the code modules
+// its modules array names. A declared file that is missing still emits its
+// identity with failed status; the default file is reported only when present.
+func (a *claudeAdapter) hooksFile(r *pluginRootScan, file string, required bool) {
+	rel, _ := relSlash(r.root, file)
+	c := model.PluginComponent{Kind: model.PluginComponentHook, Name: "hooks", RelativePath: rel, DefinitionPath: file}
+	// A manifest may name the default file again; it is one component.
+	id := componentID(r.p.InstanceID, c)
+	for _, existing := range r.p.Components {
+		if existing.ComponentID == id {
+			return
+		}
+	}
+	if st, _, _ := a.s.stat(a.gd, file); st != fileRegular {
+		if required {
+			c.Status = model.AgentScanStatusError
+			r.addComponent(c)
+		}
+		return
+	}
+	meta := a.s.hookFileMetadata(a.gd, file)
+	if meta.code != "" {
+		r.componentError(&c, meta.code)
+		r.addComponent(c)
+		return
+	}
+	modules := meta.modules
+	if len(modules) > maxHookModules {
+		modules = modules[:maxHookModules]
+		c.Status = model.AgentScanStatusPartial
+		scanError(&r.p.Errors, model.AgentScanError{Code: model.AgentScanErrLimitExceeded, SourcePath: file, InstanceID: r.p.InstanceID, ComponentID: id})
+	}
+	for _, declared := range modules {
+		c.Modules = append(c.Modules, r.hookModule(rel, declared))
+	}
+	r.addComponent(c)
 }
 
 // lspFile emits one lsp component per server named in a declared LSP file.
