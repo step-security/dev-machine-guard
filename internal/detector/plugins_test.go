@@ -3504,6 +3504,7 @@ func TestClaudeHookModules(t *testing.T) {
 		links    map[string]string // plugin-relative link to a target; HOME/ is the scan home
 		catalog  string            // marketplace entry hooks declaration
 		hooksRel string
+		goos     string
 		want     []wantHookModule
 		status   string
 		errors   []string
@@ -3533,8 +3534,10 @@ func TestClaudeHookModules(t *testing.T) {
 			status: model.AgentScanStatusError, errors: []string{model.AgentScanErrParseFailed}},
 		{name: "absolute", files: map[string]string{"hooks/hooks.json": `{"modules":["/abs.mjs","C:/abs.mjs"]}`},
 			want: []wantHookModule{{"/abs.mjs", "", model.AgentScanErrUnsafePath}, {"C:/abs.mjs", "", model.AgentScanErrUnsafePath}}},
-		{name: "backslash", files: map[string]string{"hooks/hooks.json": `{"modules":["..\\x.mjs"]}`},
+		{name: "backslash", files: map[string]string{"hooks/hooks.json": `{"modules":["..\\x.mjs"]}`, "x.mjs": module},
 			want: []wantHookModule{{`..\x.mjs`, "", model.AgentScanErrUnsafePath}}},
+		{name: "backslash on windows", files: map[string]string{"hooks/hooks.json": `{"modules":["..\\x.mjs","..\\..\\outside.mjs"]}`, "x.mjs": module},
+			goos: model.PlatformWindows, want: []wantHookModule{{`..\x.mjs`, "x.mjs", ""}, {`..\..\outside.mjs`, "", model.AgentScanErrUnsafePath}}},
 		{name: "padded entry", files: map[string]string{"hooks/hooks.json": `{"modules":["./mod.mjs "]}`, "hooks/mod.mjs": module},
 			want: []wantHookModule{{"./mod.mjs ", "", model.AgentScanErrUnsafePath}}},
 		{name: "escapes plugin root", files: map[string]string{"hooks/hooks.json": `{"modules":["../../outside.mjs"]}`},
@@ -3578,7 +3581,7 @@ func TestClaudeHookModules(t *testing.T) {
 					t.Skip("symlinks unavailable:", err)
 				}
 			}
-			p, _ := scanClaudeHooks(t, home, root, tc.catalog, nil)
+			p, _ := scanClaudeHooks(t, home, root, tc.catalog, nil, tc.goos)
 			hooksRel := tc.hooksRel
 			if hooksRel == "" {
 				hooksRel = claudeHooksFile
@@ -3637,7 +3640,7 @@ func TestClaudeHookModuleBudget(t *testing.T) {
 	}
 	t.Run("one read per physical module", func(t *testing.T) {
 		definitions := 0
-		p, _ := scanClaudeHooks(t, home, root, "", &definitions)
+		p, _ := scanClaudeHooks(t, home, root, "", &definitions, "")
 		if definitions != 1 || len(p.Components) != 2 {
 			t.Fatalf("definitions = %d, components = %d; want 1 read for 2 hook files", definitions, len(p.Components))
 		}
@@ -3647,7 +3650,7 @@ func TestClaudeHookModuleBudget(t *testing.T) {
 	})
 	t.Run("spent budget", func(t *testing.T) {
 		definitions := maxNewDefinitions
-		p, _ := scanClaudeHooks(t, home, root, "", &definitions)
+		p, _ := scanClaudeHooks(t, home, root, "", &definitions, "")
 		if p.ComponentStatus != model.AgentScanStatusComplete || len(p.Errors) != 0 {
 			t.Fatalf("spent budget degraded the plugin: %s %+v", p.ComponentStatus, p.Errors)
 		}
@@ -3683,12 +3686,12 @@ func TestClaudeHookModuleProtected(t *testing.T) {
 // wantHookModule is an expected modules entry; an empty code means hashed.
 type wantHookModule struct{ declared, rel, code string }
 
-func scanClaudeHooks(t *testing.T, home, root, catalog string, definitions *int) (*model.PluginObservation, *pluginScan) {
+func scanClaudeHooks(t *testing.T, home, root, catalog string, definitions *int, goos string) (*model.PluginObservation, *pluginScan) {
 	t.Helper()
 	if definitions == nil {
 		definitions = new(int)
 	}
-	s := &pluginScan{d: NewSkillsDetector(executor.NewReal()), ctx: context.Background(), home: home, definitions: definitions, memo: map[string]*skillScan{}, evidence: newPluginEvidence()}
+	s := &pluginScan{d: NewSkillsDetector(executor.NewReal()), ctx: context.Background(), home: home, goos: goos, definitions: definitions, memo: map[string]*skillScan{}, evidence: newPluginEvidence()}
 	a := &claudeAdapter{s: s, gd: s.guarded(root)}
 	p := newPlugin("inventory-proof@example-mods", "inventory-proof", model.PluginInstallMarketplace, model.PluginScopeUser)
 	p.InstanceID, p.InstallPath = "inst_test", root

@@ -971,7 +971,12 @@ func (r *pluginRootScan) hookModule(hooksRel, declared string) model.HookModule 
 	if declared == "" || strings.TrimSpace(declared) != declared || isAbsPath(declared) {
 		return m
 	}
-	file, ok := insideRoot(r.root, path.Join(path.Dir(hooksRel), declared))
+	// Claude Code on Windows resolves a backslash in the entry as a separator.
+	entry := declared
+	if r.s.goos == model.PlatformWindows {
+		entry = strings.ReplaceAll(declared, `\`, "/")
+	}
+	file, ok := insideRoot(r.root, path.Join(path.Dir(hooksRel), entry))
 	if !ok {
 		return m
 	}
