@@ -3,6 +3,9 @@
 package tcc
 
 import (
+	"path/filepath"
+	"strings"
+
 	"golang.org/x/sys/windows"
 )
 
@@ -31,16 +34,30 @@ func networkVolumeMounts() []string {
 	return mounts
 }
 
-// cloudPlaceholder reports whether path is a cloud-sync placeholder whose
-// listing would hydrate it from the network. Reading attributes does not.
-func cloudPlaceholder(path string) bool {
+// CloudPlaceholder checks the directory entry without opening the target.
+// RECALL_ON_OPEN is available only in directory enumeration data.
+func CloudPlaceholder(path string) bool {
+	// FindFirstFile uses Win32 search syntax and does not automatically extend
+	// long paths the way the Go os package does.
+	path = filepath.Clean(path)
+	if len(path) >= 248 && !strings.HasPrefix(path, `\\?\`) {
+		if abs, err := filepath.Abs(path); err == nil {
+			if unc, ok := strings.CutPrefix(abs, `\\`); ok {
+				path = `\\?\UNC\` + unc
+			} else {
+				path = `\\?\` + abs
+			}
+		}
+	}
 	p, err := windows.UTF16PtrFromString(path)
 	if err != nil {
 		return false
 	}
-	attrs, err := windows.GetFileAttributes(p)
+	var data windows.Win32finddata
+	h, err := windows.FindFirstFile(p, &data)
 	if err != nil {
 		return false
 	}
-	return isCloudPlaceholderAttrs(attrs)
+	_ = windows.FindClose(h)
+	return isCloudPlaceholderAttrs(data.FileAttributes)
 }

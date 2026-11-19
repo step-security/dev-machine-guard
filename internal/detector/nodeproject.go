@@ -79,7 +79,7 @@ func (d *NodeProjectDetector) listInDir(dir string) []model.ProjectInfo {
 			}
 			return nil
 		}
-		if entry.Name() == "package.json" {
+		if entry.Name() == "package.json" && !d.skipper.SkipCloudPath(path) {
 			projectDir := filepath.Dir(path)
 			pm := DetectProjectPM(d.exec, projectDir)
 			// Only include projects with node_modules installed.

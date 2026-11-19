@@ -34,7 +34,7 @@ func (d *NodeDistDetector) walkNodeModules(ctx context.Context, projectDir strin
 // symlink farm is read via the real .pnpm store dirs, not by chasing links out
 // of the tree.
 func (d *NodeDistDetector) scanModulesTree(ctx context.Context, root string, isDirect func(name, path string) bool) []model.NodePackage {
-	if !d.exec.DirExists(root) {
+	if d.skipper.SkipCloudPath(root) || !d.exec.DirExists(root) {
 		return nil
 	}
 	var pkgs []model.NodePackage

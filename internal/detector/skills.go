@@ -1050,6 +1050,9 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 				if !charge() {
 					return
 				}
+				if d.skipper.ShouldSkip(childDir, root) {
+					continue
+				}
 				mEntries, err := d.exec.ReadDir(childDir)
 				if err != nil {
 					d.addError(info, fmt.Sprintf("home walk read marker %s: %v", childDir, err))

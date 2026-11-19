@@ -18,4 +18,4 @@ func networkVolumeMounts() []string {
 	return parseRemoteMounts(string(data))
 }
 
-func cloudPlaceholder(string) bool { return false }
+func CloudPlaceholder(string) bool { return false }

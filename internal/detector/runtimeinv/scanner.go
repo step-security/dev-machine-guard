@@ -222,16 +222,19 @@ func hasEntry(ents []fs.DirEntry, name string) bool {
 func (s *Scanner) consider(ctx context.Context, sig *signature, path string) {
 	// Don't resolve into excluded trees: following a link into ~/Documents
 	// or a network mount would touch it.
+	if s.skipper.SkipCloudPath(path) {
+		return
+	}
 	if target, err := s.exec.Readlink(path); err == nil && target != "" {
 		if !filepath.IsAbs(target) {
 			target = filepath.Join(filepath.Dir(path), target)
 		}
-		if s.skipper.WithinProtected(target) {
+		if s.skipper.WithinProtected(target) || s.skipper.SkipCloudPath(target) {
 			return
 		}
 	}
 	real, err := s.exec.EvalSymlinks(path)
-	if err != nil || real == "" || s.skipper.WithinProtected(real) {
+	if err != nil || real == "" || s.skipper.WithinProtected(real) || s.skipper.SkipCloudPath(real) {
 		return
 	}
 	info, err := s.exec.Stat(real)

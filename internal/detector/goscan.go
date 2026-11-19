@@ -45,7 +45,7 @@ type GoScanner struct {
 	log  *progress.Logger
 	// protection builds the Go path guards; a seam so tests can place protected
 	// directories and network volumes under a temp home.
-	protection func(home string, includeNetworkVolumes *bool) (protected func(string) string, volume func(string) bool)
+	protection func(home string, includeNetworkVolumes *bool, searchDirs []string) (protected func(string) string, volume func(string) bool)
 }
 
 // NewGoScanner must be given the raw executor, never a UserAwareExecutor,
@@ -103,7 +103,7 @@ func (s *GoScanner) Scan(ctx context.Context, target *user.User, searchDirs []st
 	}
 
 	home := filepath.Clean(target.HomeDir)
-	guard, volume := s.protection(home, includeNetworkVolumes)
+	guard, volume := s.protection(home, includeNetworkVolumes, searchDirs)
 	g := &goScan{
 		ctx: ctx, exec: s.exec, goos: s.exec.GOOS(), identity: target.Username, home: home, guard: guard, volume: volume,
 		roots: []string{home}, byID: map[string]*model.GoSource{}, budget: maxGoRecords, manifests: map[string]*goProjectState{},

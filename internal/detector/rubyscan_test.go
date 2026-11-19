@@ -71,7 +71,7 @@ func rubyTestScanner(t *testing.T, home string) (*RubyScanner, *rubyTrap) {
 	x := &rubyTrap{composerTrap: &composerTrap{goTrap: &goTrap{Executor: executor.NewReal(), t: t, current: goTestTarget(home)}, env: map[string]string{}, denied: map[string]error{}, reads: map[string]int{}, readErrors: map[string]error{}},
 		sandbox: filepath.Dir(home), calls: new(int)}
 	s := NewRubyScanner(x, progress.NewNoop())
-	s.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	s.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(string) string { return "" }, func(string) bool { return false }
 	}
 	return s, x
@@ -613,7 +613,7 @@ func TestRubyScanLimitsDeadlineAndGuards(t *testing.T) {
 	}
 	delete(x.readErrors, filepath.Join(app, "gems.locked"))
 
-	scanner.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	scanner.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(p string) string {
 			if strings.HasPrefix(p, filepath.Join(root, "legacy")) {
 				return "skipped_protected"
@@ -631,7 +631,7 @@ func TestRubyScanLimitsDeadlineAndGuards(t *testing.T) {
 	// A blocked interpreter may hide its etc/gemrc: the audit is partial so
 	// earlier history is kept, and files that were read keep their settings.
 	prefix := filepath.Join(home, ".rbenv", "versions", "3.3.0")
-	scanner.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	scanner.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(p string) string {
 			if p == prefix || strings.HasPrefix(p, prefix+string(filepath.Separator)) {
 				return "skipped_protected"
@@ -805,7 +805,7 @@ func TestRubyScanSharedManifestCoverage(t *testing.T) {
 				x.readErrors[filepath.Join(consumer, "Gemfile")] = os.ErrPermission
 			}
 			if tc.protect {
-				scanner.protection = func(string, *bool) (func(string) string, func(string) bool) {
+				scanner.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 					return func(p string) string {
 						if p == consumer || strings.HasPrefix(p, consumer+string(filepath.Separator)) {
 							return "skipped_protected"

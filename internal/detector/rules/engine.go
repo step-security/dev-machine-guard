@@ -150,7 +150,7 @@ func (e *Engine) Scan(ctx context.Context, rs RuleSet, searchDirs []string) mode
 // when a GLOBAL file budget was exhausted, signalling the caller to stop the
 // whole scan (and mark ScanComplete=false).
 func (e *Engine) evaluate(st *scanState, rstate *ruleState, path, matchedGlob string) (globalStop bool) {
-	if rstate.truncated || rstate.seen[path] {
+	if rstate.truncated || rstate.seen[path] || e.skipper.SkipCloudPath(path) {
 		return false
 	}
 

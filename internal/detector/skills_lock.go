@@ -97,7 +97,7 @@ func (d *SkillsDetector) loadLock(lockPath, installBase string, info *model.Agen
 	// a no-op off macOS and on a nil skipper (--include-tcc-protected), so this
 	// only suppresses the prompt on the default macOS scan; the skip is surfaced
 	// via the shared TCC log line (WithinProtected records a hit).
-	if d.skipper.WithinProtected(lockPath) {
+	if d.skipper.WithinProtected(lockPath) || d.skipper.SkipCloudPath(lockPath) {
 		return nil
 	}
 	// Bound the read: a project lock lives in any of up to 200 repos the dev has
