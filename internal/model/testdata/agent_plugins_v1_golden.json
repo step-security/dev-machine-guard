@@ -672,26 +672,28 @@
             "errors": []
           },
           {
-            "instance_id": "inst_90b1029e15c472b045c21e91140f91a07216ad525fc8ac0ff0ec7dd499d5fb3c",
-            "native_id": "git-branch@skills-dir",
+            "instance_id": "inst_665a24223c6b599416ae96d091b0481a6c60705135bce07f9d50ba30583ece49",
+            "native_id": "git-branch@inline",
             "name": "git-branch",
+            "manifest_name": "git-branch",
             "installation_kind": "directory",
             "scope": "user",
             "install_path": "/Users/example-user/.claude/dev-mods/3f2b8c1e-5d4a-4e6f-9a7b-2c1d0e9f8a6b/git-branch",
             "source_path": "/Users/example-user/.claude/dev-mods/3f2b8c1e-5d4a-4e6f-9a7b-2c1d0e9f8a6b/git-branch",
+            "manifest_path": "/Users/example-user/.claude/dev-mods/3f2b8c1e-5d4a-4e6f-9a7b-2c1d0e9f8a6b/git-branch/.claude-plugin/plugin.json",
             "source": {
               "kind": "local",
               "native_kind": "directory",
               "location": "/Users/example-user/.claude/dev-mods/3f2b8c1e-5d4a-4e6f-9a7b-2c1d0e9f8a6b/git-branch"
             },
-            "manifest_format": "none",
+            "manifest_format": "claude",
             "files_present": true,
-            "installation_evidence": "skill_directory",
+            "installation_evidence": "local_config",
             "enablement": [],
             "component_status": "complete",
             "components": [
               {
-                "component_id": "comp_11cc11c1ee42556bee27335d9e09dcc14c8d9bd3380df15a217ee505f0e95360",
+                "component_id": "comp_956754115198dc7cb61c464050566c19d11d1c6c83f8771175dc5683fc66e128",
                 "kind": "hook",
                 "name": "hooks",
                 "relative_path": "hooks/hooks.json",

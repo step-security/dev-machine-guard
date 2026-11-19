@@ -967,11 +967,11 @@ func (r *pluginRootScan) hookModule(hooksRel, declared string) model.HookModule 
 		return m
 	}
 	// Joining under the hooks directory would hide an absolute declaration.
-	trimmed := strings.TrimSpace(declared)
-	if trimmed == "" || isAbsPath(trimmed) {
+	// Claude Code does not trim the entry, so a padded one names another file.
+	if declared == "" || strings.TrimSpace(declared) != declared || isAbsPath(declared) {
 		return m
 	}
-	file, ok := insideRoot(r.root, path.Join(path.Dir(hooksRel), trimmed))
+	file, ok := insideRoot(r.root, path.Join(path.Dir(hooksRel), declared))
 	if !ok {
 		return m
 	}

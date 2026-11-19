@@ -836,10 +836,12 @@ func (a *claudeAdapter) pluginDirPlugins() {
 			continue
 		}
 		dir := filepath.Clean(entry)
-		if seen[dir] {
+		// hashPath folds case on Windows, where the instance ID does too.
+		key := a.s.hashPath(dir)
+		if seen[key] {
 			continue
 		}
-		seen[dir] = true
+		seen[key] = true
 		gd := a.s.guarded(dir)
 		if st, _, err := a.s.stat(gd, dir); st != fileDir {
 			code := model.AgentScanErrReadFailed
@@ -851,7 +853,7 @@ func (a *claudeAdapter) pluginDirPlugins() {
 			continue
 		}
 		if a.pluginDir(gd, dir) {
-			a.directoryPlugin(gd, dir, claudeInlineMarket, model.PluginEvidenceLocalConfig, boolPtr(true))
+			a.directoryPlugin(gd, dir, boolPtr(true))
 			continue
 		}
 		// A folder with no plugin of its own loads each child plugin directory.
@@ -864,7 +866,7 @@ func (a *claudeAdapter) pluginDirPlugins() {
 		found := 0
 		for _, name := range sortedEntryNames(entries) {
 			child := filepath.Join(dir, name)
-			if st, _, _ := a.s.stat(gd, filepath.Join(child, filepath.FromSlash(claudeManifestRel))); st != fileRegular {
+			if !a.hasManifest(gd, child) {
 				continue
 			}
 			if found == maxComponentDirs {
@@ -873,7 +875,7 @@ func (a *claudeAdapter) pluginDirPlugins() {
 				break
 			}
 			found++
-			a.directoryPlugin(gd, child, claudeInlineMarket, model.PluginEvidenceLocalConfig, boolPtr(true))
+			a.directoryPlugin(gd, child, boolPtr(true))
 		}
 		if found == 0 {
 			scanError(&a.c.Errors, model.AgentScanError{Code: model.AgentScanErrReadFailed, SourcePath: dir})
@@ -882,8 +884,8 @@ func (a *claudeAdapter) pluginDirPlugins() {
 }
 
 // sessionModPlugins emits the mods Claude writes during a session under
-// dev-mods/<session>/<mod>. Claude Code loads them through the skills-dir source
-// while that session runs or resumes, so presence says nothing about whether
+// dev-mods/<session>/<mod>. Claude Code loads each session folder as a folder of
+// plugins while that session runs or resumes, so presence says nothing about whether
 // one will load again: installed stays unknown. Newest sessions come first, and
 // a truncated walk makes the context partial so unobserved mods are retained.
 func (a *claudeAdapter) sessionModPlugins() {
@@ -917,6 +919,7 @@ func (a *claudeAdapter) sessionModPlugins() {
 	truncated := len(sessions) > maxSessionModDirs
 	sessions = sessions[:min(len(sessions), maxSessionModDirs)]
 	emitted := 0
+sessionLoop:
 	for _, sess := range sessions {
 		mods, code := a.s.listDir(a.gd, sess.dir)
 		if code != "" {
@@ -926,15 +929,15 @@ func (a *claudeAdapter) sessionModPlugins() {
 		}
 		for _, name := range sortedEntryNames(mods) {
 			dir := filepath.Join(sess.dir, name)
-			if !a.pluginDir(a.gd, dir) {
+			if !a.hasManifest(a.gd, dir) {
 				continue
 			}
 			if emitted == maxSessionMods {
 				truncated = true
-				break
+				break sessionLoop
 			}
 			emitted++
-			a.directoryPlugin(a.gd, dir, claudeSkillsDirMarket, model.PluginEvidenceSkillDirectory, nil)
+			a.directoryPlugin(a.gd, dir, nil)
 		}
 	}
 	if truncated {
@@ -954,17 +957,25 @@ func (a *claudeAdapter) pluginDir(gd *SkillsDetector, dir string) bool {
 	return false
 }
 
+// hasManifest reports whether dir is a child Claude Code loads from a folder of
+// plugins: only children with a manifest qualify.
+func (a *claudeAdapter) hasManifest(gd *SkillsDetector, dir string) bool {
+	st, _, _ := a.s.stat(gd, filepath.Join(dir, filepath.FromSlash(claudeManifestRel)))
+	return st == fileRegular
+}
+
 // directoryPlugin emits one user-scope plugin directory Claude Code loads in
-// place, named by its manifest, else by the directory.
-func (a *claudeAdapter) directoryPlugin(gd *SkillsDetector, dir, market, evidence string, installed *bool) {
+// place as <name>@inline, named by its manifest, else by the directory.
+func (a *claudeAdapter) directoryPlugin(gd *SkillsDetector, dir string, installed *bool) {
 	name := filepath.Base(dir)
-	if obj, _, code := a.s.readJSONObject(gd, filepath.Join(dir, filepath.FromSlash(claudeManifestRel))); code == "" {
+	// The same guard components() uses, so both reads of the manifest agree.
+	if obj, _, code := a.s.readJSONObject(gd.componentReader(dir), filepath.Join(dir, filepath.FromSlash(claudeManifestRel))); code == "" {
 		if manifestName := jsonString(obj["name"]); manifestName != "" {
 			name = manifestName
 		}
 	}
-	p := newPlugin(name+"@"+market, name, model.PluginInstallDirectory, model.PluginScopeUser)
-	p.InstallationEvidence = evidence
+	p := newPlugin(name+"@"+claudeInlineMarket, name, model.PluginInstallDirectory, model.PluginScopeUser)
+	p.InstallationEvidence = model.PluginEvidenceLocalConfig
 	p.Installed, p.FilesPresent = installed, boolPtr(true)
 	p.InstallPath, p.SourcePath = dir, dir
 	p.Source = &model.SourceLocator{Kind: model.PluginSourceLocal, NativeKind: "directory", Location: dir}

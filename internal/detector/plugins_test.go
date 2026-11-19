@@ -3535,6 +3535,8 @@ func TestClaudeHookModules(t *testing.T) {
 			want: []wantHookModule{{"/abs.mjs", "", model.AgentScanErrUnsafePath}, {"C:/abs.mjs", "", model.AgentScanErrUnsafePath}}},
 		{name: "backslash", files: map[string]string{"hooks/hooks.json": `{"modules":["..\\x.mjs"]}`},
 			want: []wantHookModule{{`..\x.mjs`, "", model.AgentScanErrUnsafePath}}},
+		{name: "padded entry", files: map[string]string{"hooks/hooks.json": `{"modules":["./mod.mjs "]}`, "hooks/mod.mjs": module},
+			want: []wantHookModule{{"./mod.mjs ", "", model.AgentScanErrUnsafePath}}},
 		{name: "escapes plugin root", files: map[string]string{"hooks/hooks.json": `{"modules":["../../outside.mjs"]}`},
 			want: []wantHookModule{{"../../outside.mjs", "", model.AgentScanErrUnsafePath}}},
 		{name: "missing", files: map[string]string{"hooks/hooks.json": `{"modules":["./missing.mjs"]}`},
@@ -3775,7 +3777,7 @@ func TestClaudePluginDirs(t *testing.T) {
 			want: []string{"alpha@inline=HOME/mods/alpha"}},
 		{name: "manifest-less hooks directory", dirs: "OUT/hooky", files: map[string]string{"OUT/hooky/hooks/hooks.json": `{"modules":["./mod.mjs"]}`, "OUT/hooky/hooks/mod.mjs": "export {}"},
 			want: []string{"hooky@inline=OUT/hooky"}},
-		{name: "folder of plugins", dirs: "OUT/pack", files: map[string]string{"OUT/pack/fb/.claude-plugin/plugin.json": manifest("fb"), "OUT/pack/fa/.claude-plugin/plugin.json": manifest("fa"), "OUT/pack/notes/readme.md": "x"},
+		{name: "folder of plugins", dirs: "OUT/pack", files: map[string]string{"OUT/pack/fb/.claude-plugin/plugin.json": manifest("fb"), "OUT/pack/fa/.claude-plugin/plugin.json": manifest("fa"), "OUT/pack/notes/readme.md": "x", "OUT/pack/noman/hooks/hooks.json": `{"modules":["./mod.mjs"]}`},
 			want: []string{"fa@inline=OUT/pack/fa", "fb@inline=OUT/pack/fb"}},
 		{name: "relative", dirs: "mods/alpha", errors: []string{"unsafe_path=mods/alpha"}},
 		{name: "missing", dirs: "OUT/missing", errors: []string{"read_failed=OUT/missing"}},
@@ -3883,10 +3885,12 @@ func TestClaudeSessionMods(t *testing.T) {
 	}
 	t.Run("identity and order", func(t *testing.T) {
 		home := mustTempDir(t)
-		a := newClaudeDirAdapter(t, home, `{"enabledPlugins":{"stale-mod@skills-dir":false}}`)
+		a := newClaudeDirAdapter(t, home, `{"enabledPlugins":{"stale-mod@inline":false}}`)
 		dirs := writeSessions(t, a.configRoot, [][]string{{"git-branch", "stale-mod"}, {"git-branch"}})
 		mustWrite(t, filepath.Join(a.configRoot, claudeSessionModsDir, ".hidden", "x", "hooks", "hooks.json"), "{}")
 		mustWrite(t, filepath.Join(dirs[1], "notes", "readme.md"), "x")
+		// Claude Code loads only children with a manifest from a session folder.
+		mustWrite(t, filepath.Join(dirs[1], "noman", "hooks", "hooks.json"), `{"modules":["./mod.mjs"]}`)
 		a.sessionModPlugins()
 		got := a.s.finalizePluginScan([]*model.AgentPluginContext{a.c}).Contexts[0]
 		var ids []string
@@ -3894,10 +3898,10 @@ func TestClaudeSessionMods(t *testing.T) {
 		for _, p := range got.Plugins {
 			ids = append(ids, p.NativeID+"="+p.InstallPath)
 			instances[p.InstanceID] = true
-			if p.InstallationEvidence != model.PluginEvidenceSkillDirectory || p.Installed != nil || p.Scope != model.PluginScopeUser || p.ComponentStatus != model.AgentScanStatusComplete {
+			if p.InstallationEvidence != model.PluginEvidenceLocalConfig || p.Installed != nil || p.Scope != model.PluginScopeUser || p.ComponentStatus != model.AgentScanStatusComplete {
 				t.Errorf("session mod %s = %+v", p.NativeID, p)
 			}
-			if (p.NativeID == "stale-mod@skills-dir") != (p.ConfiguredEnabled != nil && !*p.ConfiguredEnabled) {
+			if (p.NativeID == "stale-mod@inline") != (p.ConfiguredEnabled != nil && !*p.ConfiguredEnabled) {
 				t.Errorf("session mod %s configured_enabled = %v", p.NativeID, p.ConfiguredEnabled)
 			}
 			if len(p.Components) != 1 || len(p.Components[0].Modules) != 1 || p.Components[0].Modules[0].Status != model.AgentScanStatusComplete {
@@ -3905,9 +3909,9 @@ func TestClaudeSessionMods(t *testing.T) {
 			}
 		}
 		want := []string{
-			"git-branch@skills-dir=" + filepath.Join(dirs[0], "git-branch"),
-			"git-branch@skills-dir=" + filepath.Join(dirs[1], "git-branch"),
-			"stale-mod@skills-dir=" + filepath.Join(dirs[0], "stale-mod"),
+			"git-branch@inline=" + filepath.Join(dirs[0], "git-branch"),
+			"git-branch@inline=" + filepath.Join(dirs[1], "git-branch"),
+			"stale-mod@inline=" + filepath.Join(dirs[0], "stale-mod"),
 		}
 		if !slices.Equal(ids, want) || len(instances) != 3 {
 			t.Fatalf("plugins = %v (%d instances), want %v", ids, len(instances), want)
@@ -3971,6 +3975,7 @@ func TestClaudeDirectoryPluginsDeterministic(t *testing.T) {
 	home := mustTempDir(t)
 	cfg := filepath.Join(home, ".claude")
 	for _, session := range []string{"session-a", "session-b"} {
+		mustWrite(t, filepath.Join(cfg, claudeSessionModsDir, session, "git-branch", ".claude-plugin", "plugin.json"), `{"name":"git-branch"}`)
 		mustWrite(t, filepath.Join(cfg, claudeSessionModsDir, session, "git-branch", "hooks", "hooks.json"), `{"modules":["./mod.mjs"]}`)
 		mustWrite(t, filepath.Join(cfg, claudeSessionModsDir, session, "git-branch", "hooks", "mod.mjs"), "export {}")
 	}
