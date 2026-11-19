@@ -58,10 +58,11 @@ and at once after the running version changed.
    `update_mirror_url`) is downloaded into a temporary directory next to the
    binary, on the same file system, and its sha256 checked against the signed
    checksum. A download needs about 180 MiB free on that volume.
-6. **Smoke test.** The staged binary runs `self-check` with a 60 s limit and
-   must report the target version, a loadable enterprise configuration and a
-   device id. A failure quarantines the version for 7 days; a timeout is
-   retried at the next check.
+6. **Smoke test.** The staged binary runs `self-check` with a 60 s limit,
+   with this install's own `--config` and `--install-dir`, and must report
+   the target version, a loadable enterprise configuration and a device id.
+   A failure quarantines the version for 7 days; a timeout is retried at the
+   next check.
 7. **Switch.** The running binary is kept as `<binary>.prev` (a hard link),
    then the staged file replaces the binary with one atomic rename. A crash
    at any point leaves either the old or the new binary, never a partial

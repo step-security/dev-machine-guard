@@ -245,6 +245,7 @@ func (t *unixTick) confirm(ctx context.Context, self string) bool {
 		st.CurrentSHA256 = t.hashSelf()
 		t.removePrev()
 		t.save()
+		t.writeVersionMarker(self)
 	}
 	return true
 }

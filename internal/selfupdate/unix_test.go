@@ -479,6 +479,9 @@ func TestUnixRestoredBinaryRestartsFromTheRunningVersion(t *testing.T) {
 	if st := e.state(); st.Current != "1.20.0" || st.Previous != "" || !st.Confirmed {
 		t.Fatalf("state = %+v", st)
 	}
+	if marker, _ := os.ReadFile(filepath.Join(e.root, VersionMarkerFile)); string(marker) != "1.20.0\n" {
+		t.Fatalf(".current_version after the restore = %q, want the running version", marker)
+	}
 }
 
 // A run that started on the old version (or waited on the update lock) while
@@ -523,6 +526,24 @@ func TestUnixStaleProcessLeavesThePendingSwitch(t *testing.T) {
 	}
 	if st := e.state(); !st.Confirmed || st.Current != "1.20.1" || st.Previous != "1.20.0" {
 		t.Fatalf("state after confirmation = %+v", st)
+	}
+}
+
+// RunSmokeArgs hands the extra arguments to the staged binary's self-check.
+func TestRunSmokeArgsReachTheSelfCheck(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "agent")
+	// Reports the --install-dir argument as the device id, so a missing
+	// argument fails the check ("resolved no device id").
+	script := "#!/bin/sh\n[ \"$1\" = self-check ] || exit 9\nid=\"\"\nfor a in \"$@\"; do case \"$a\" in --install-dir=*) id=${a#--install-dir=} ;; esac; done\nprintf '{\"version\":\"1.20.0\",\"device_id\":\"%s\",\"config_ok\":true}\\n' \"$id\"\n"
+	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil { // #nosec G306 -- test executable
+		t.Fatal(err)
+	}
+	if err := RunSmokeArgs(context.Background(), exe, mustV("1.20.0"), "--config=/x/config.json", "--install-dir=/x"); err != nil {
+		t.Fatalf("smoke with args: %v", err)
+	}
+	if err := RunSmoke(context.Background(), exe, mustV("1.20.0")); err == nil || !strings.Contains(err.Error(), "no device id") {
+		t.Fatalf("smoke without args = %v, want the device id failure", err)
 	}
 }
 

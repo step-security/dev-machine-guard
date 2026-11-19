@@ -88,7 +88,14 @@ func scheduledSelfUpdate(exec executor.Executor, log *progress.Logger, cfg *cli.
 			LagBehind: config.UpdateLagBehind, CooldownHours: config.UpdateCooldownHours,
 			MirrorURL: config.UpdateMirrorURL, DeviceID: deviceID,
 		},
-		Smoke: selfupdate.RunSmoke,
+		// The staged binary is checked with this install's own config and
+		// state directory: a --config override or, later, a config that lives
+		// only in the install tree would otherwise be invisible to a binary
+		// running from the staging directory, and every target would fail
+		// its smoke test.
+		Smoke: func(ctx context.Context, exe string, want updatestate.Version) error {
+			return selfupdate.RunSmokeArgs(ctx, exe, want, "--config="+config.ConfigFilePath(), "--install-dir="+paths.Home())
+		},
 		Send: func(ctx context.Context, ev updatestate.OutboxEvent) error {
 			id := deviceID()
 			if id == "" {

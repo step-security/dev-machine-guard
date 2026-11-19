@@ -30,3 +30,27 @@ func TestWSLGuestRunSkipsSelfUpdate(t *testing.T) {
 		})
 	}
 }
+
+// The smoke's self-check receives the running install's --config and
+// --install-dir; both spellings are read, nothing else is.
+func TestSelfCheckOverrides(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		wantConfig  string
+		wantInstall string
+	}{
+		{"none", nil, "", ""},
+		{"equals forms", []string{"--config=/a/config.json", "--install-dir=/a"}, "/a/config.json", "/a"},
+		{"space forms", []string{"--config", "/b/config.json", "--install-dir", "/b"}, "/b/config.json", "/b"},
+		{"unrelated flags ignored", []string{"--verbose", "--force-scan"}, "", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotConfig, gotInstall := selfCheckOverrides(tc.args)
+			if gotConfig != tc.wantConfig || gotInstall != tc.wantInstall {
+				t.Errorf("selfCheckOverrides(%v) = %q, %q; want %q, %q", tc.args, gotConfig, gotInstall, tc.wantConfig, tc.wantInstall)
+			}
+		})
+	}
+}
