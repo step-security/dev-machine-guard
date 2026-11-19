@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
+	"github.com/step-security/dev-machine-guard/internal/cli"
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/lock"
@@ -33,8 +34,17 @@ const installChannelLoader = "loader"
 // installs and script-scheduled installs, whose loader converges the binary
 // on every tick, never carry the key. STEPSEC_DISABLE_SELF_UPDATE=1 turns it
 // off on a device. Best-effort by contract: the tick never fails the run.
-func scheduledSelfUpdate(exec executor.Executor, log *progress.Logger) {
+func scheduledSelfUpdate(exec executor.Executor, log *progress.Logger, cfg *cli.Config) {
 	if config.AutoUpdate == nil || !*config.AutoUpdate {
+		return
+	}
+	if wslGuestRun(cfg) {
+		// The Windows host launched this scan with its own config (the MSI
+		// writes auto_update: true) against the dmg-linux binary it installed
+		// and keeps current through its SYSTEM update task. Updating that
+		// file from inside the distro would race the host's updater, and the
+		// staged binary's smoke test would not inherit --config either.
+		log.Debug("self-update: WSL guest scan; the Windows host's updater owns this binary")
 		return
 	}
 	if exec.Getenv(selfupdate.EnvDisable) == "1" {
@@ -94,4 +104,12 @@ func scheduledSelfUpdate(exec executor.Executor, log *progress.Logger) {
 		Log:       log,
 	}
 	selfupdate.RunUnix(context.Background(), deps)
+}
+
+// wslGuestRun reports a scan the Windows agent launched inside a WSL distro
+// (both --wsl-host-serial and --wsl-distro-id set, see
+// internal/telemetry/wsl_scan.go). Such a run scans as a guest of the
+// Windows device and never manages its own binary.
+func wslGuestRun(cfg *cli.Config) bool {
+	return cfg != nil && cfg.WSLHostSerial != "" && cfg.WSLDistroID != ""
 }

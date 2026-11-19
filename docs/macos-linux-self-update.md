@@ -30,6 +30,9 @@ the scan, when all of the following hold:
 - The directory holding the binary is writable by the account the scan runs
   as. A system-wide install owned by another account logs a debug line and
   does nothing.
+- The run is not a WSL guest scan started by the Windows agent (the host
+  passes `--wsl-host-serial` and `--wsl-distro-id`). The `dmg-linux` binary
+  under the Windows install is updated by the Windows MSI updater.
 
 The check runs at most every 6 hours (`last_check_at` in the state file),
 and at once after the running version changed.
@@ -64,7 +67,11 @@ and at once after the running version changed.
    at any point leaves either the old or the new binary, never a partial
    one. `.current_version` in the install directory is refreshed.
 8. **Confirm.** The next scheduled run executes the new version. Its own
-   tick posts `update_confirmed` and removes `<binary>.prev`.
+   tick posts `update_confirmed` and removes `<binary>.prev`. A run that was
+   already executing the old image when the switch happened (or that waited
+   on the update lock behind the switching run) recognises the installed file
+   by its recorded sha256 and leaves the pending switch, its backup and its
+   confirmation to the new version.
 
 Every failure is logged on stderr (`agent.error.log` under launchd, the
 journal under systemd) with a `self-update:` prefix, reported as an update
@@ -80,7 +87,7 @@ version in the dashboard moves such devices back without touching them.
 <install dir>/                        ~/.stepsecurity, or install_dir from config.json
   bin/stepsecurity-dev-machine-guard         the binary launchd/systemd runs
   bin/stepsecurity-dev-machine-guard.prev    replaced binary, until the new one confirms
-  self-update.json                           last check, current/previous version, quarantine
+  self-update.json                           last check, current/previous version and the installed file's sha256, quarantine
   .current_version                           installed version (loader-compatible marker)
 ```
 

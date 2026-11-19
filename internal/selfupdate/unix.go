@@ -77,6 +77,13 @@ type UnixState struct {
 	Previous   string `json:"previous,omitempty"`
 	SwitchedAt int64  `json:"switched_at,omitempty"`
 	Confirmed  bool   `json:"confirmed"`
+	// CurrentSHA256 is the sha256 of the binary file Current names: the
+	// signed checksum at a switch, else the file's hash when the state was
+	// started. It tells a process still running an older image (started, or
+	// queued on the update lock, before another run switched the file) from
+	// a binary restored by hand: the former must leave the pending switch
+	// alone, the latter restarts the state from the running version.
+	CurrentSHA256 string `json:"current_sha256,omitempty"`
 	// LastCheckAt and LastCheckVersion space latest-binary calls: a tick
 	// checks again after the check interval, or at once when the running
 	// version changed since the last check.
@@ -134,7 +141,9 @@ func RunUnix(ctx context.Context, d *UnixDeps) (updated bool) {
 	}
 	t.st = loadUnixState(t.path)
 	self := d.Self.String()
-	t.confirm(ctx, self)
+	if !t.confirm(ctx, self) {
+		return false
+	}
 	if !t.checkDue(self) {
 		return false
 	}
@@ -207,25 +216,49 @@ func (t *unixTick) prune() {
 
 // confirm closes the previous switch once the version it installed runs a
 // tick: the kept copy of the replaced binary goes and update_confirmed is
-// posted. A tick by any other version than the one installed last (the file
-// was restored by hand, or the state belongs to another binary) restarts
-// from the running version.
-func (t *unixTick) confirm(ctx context.Context, self string) {
+// posted. A tick by any other version than the one installed last is one of
+// two things. While the file on disk is still the installed version, this
+// process runs an older image (it started, or waited on the update lock,
+// before another run switched the file): it reports false so the tick ends
+// here and the pending switch, its backup and its confirmation stay for the
+// installed version's first run. Otherwise the file was restored by hand, or
+// the state belongs to another binary, and the state restarts from the
+// running version.
+func (t *unixTick) confirm(ctx context.Context, self string) bool {
 	st := t.st
 	switch {
 	case st.Current == "":
 		st.Current = self
+		st.CurrentSHA256 = t.hashSelf()
 	case st.Current == self && !st.Confirmed && st.Previous != "":
 		st.Confirmed = true
 		t.removePrev()
 		t.send(ctx, EventConfirmed, st.Previous, self, "first_run", "")
 		t.save()
 	case st.Current != self:
+		if onDisk := t.hashSelf(); onDisk != "" && onDisk == st.CurrentSHA256 {
+			t.log.Debug("self-update: running %s while %s is installed; this tick is left to the installed version", self, st.Current)
+			return false
+		}
 		t.log.Debug("self-update: running %s while the state names %s; continuing from the running version", self, st.Current)
 		st.Current, st.Previous, st.SwitchedAt, st.Confirmed = self, "", 0, true
+		st.CurrentSHA256 = t.hashSelf()
 		t.removePrev()
 		t.save()
 	}
+	return true
+}
+
+// hashSelf is the sha256 of the binary file as it is on disk now (the file
+// the scheduler runs next, which is not always this process's image); ""
+// when it cannot be read.
+func (t *unixTick) hashSelf() string {
+	sum, err := updatestate.FileSHA256(t.d.SelfExe)
+	if err != nil {
+		t.log.Debug("self-update: cannot hash %s: %v", t.d.SelfExe, err)
+		return ""
+	}
+	return sum
 }
 
 func (t *unixTick) removePrev() {
@@ -370,6 +403,7 @@ func (t *unixTick) update(ctx context.Context, self string) bool {
 		return false
 	}
 	st.Previous, st.Current, st.SwitchedAt, st.Confirmed = self, target, t.now.Unix(), false
+	st.CurrentSHA256 = asset.Checksum
 	delete(st.Quarantine, target)
 	t.save()
 	t.writeVersionMarker(target)

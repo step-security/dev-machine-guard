@@ -196,6 +196,9 @@ func TestUnixFreshInstallUpdatesThenConfirms(t *testing.T) {
 	if st.Current != "1.20.1" || st.Previous != "1.20.0" || st.Confirmed || st.SwitchedAt != e.now.Unix() {
 		t.Fatalf("state after switch = %+v", st)
 	}
+	if sum, _ := updatestate.FileSHA256(e.exe); st.CurrentSHA256 != sum || sum == "" {
+		t.Fatalf("state current_sha256 = %q, installed file = %q", st.CurrentSHA256, sum)
+	}
 	if marker, _ := os.ReadFile(filepath.Join(e.root, VersionMarkerFile)); string(marker) != "1.20.1\n" {
 		t.Fatalf(".current_version = %q", marker)
 	}
@@ -475,6 +478,51 @@ func TestUnixRestoredBinaryRestartsFromTheRunningVersion(t *testing.T) {
 	wantEvents(t, e.events())
 	if st := e.state(); st.Current != "1.20.0" || st.Previous != "" || !st.Confirmed {
 		t.Fatalf("state = %+v", st)
+	}
+}
+
+// A run that started on the old version (or waited on the update lock) while
+// another run switched the file must not treat the newer file as a restore:
+// the pending switch, its .prev and its confirmation belong to the installed
+// version's first run.
+func TestUnixStaleProcessLeavesThePendingSwitch(t *testing.T) {
+	e := newUnixEnv(t, "1.20.0")
+	e.release("1.20.1")
+	if !e.tick() {
+		t.Fatal("tick reported no update")
+	}
+	e.events()
+	checks := e.latestCalls()
+	before := e.state()
+
+	// Still 1.20.0 in memory, 1.20.1 on disk.
+	e.now = e.now.Add(time.Minute)
+	if e.tick() {
+		t.Fatal("a stale process reported an update")
+	}
+	wantEvents(t, e.events())
+	if e.latestCalls() != checks {
+		t.Fatal("a stale process checked for a target")
+	}
+	if !exists(e.exe + unixPrevSuffix) {
+		t.Fatal(".prev removed by a stale process")
+	}
+	if st := e.state(); st.Current != before.Current || st.Previous != before.Previous || st.Confirmed != before.Confirmed ||
+		st.SwitchedAt != before.SwitchedAt || st.CurrentSHA256 != before.CurrentSHA256 || st.LastCheckAt != before.LastCheckAt {
+		t.Fatalf("state touched by a stale process: %+v", st)
+	}
+	e.exeIs("1.20.1")
+
+	// The installed version's first run still confirms the switch.
+	e.self = "1.20.1"
+	e.now = e.now.Add(time.Minute)
+	e.tick()
+	wantEvents(t, e.events(), EventConfirmed)
+	if exists(e.exe + unixPrevSuffix) {
+		t.Fatal(".prev kept after the confirmation")
+	}
+	if st := e.state(); !st.Confirmed || st.Current != "1.20.1" || st.Previous != "1.20.0" {
+		t.Fatalf("state after confirmation = %+v", st)
 	}
 }
 
