@@ -201,10 +201,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		log.StepStart("Detecting system packages")
 		start = time.Now()
 		sysPkgDetector := detector.NewSystemPkgDetector(exec)
-		systemPkgManager = sysPkgDetector.Detect(ctx)
-		if systemPkgManager != nil {
-			systemPackages = sysPkgDetector.ListPackages(ctx)
-		}
+		systemPkgManager, systemPackages = sysPkgDetector.Detect(ctx)
 
 		// Snap and flatpak coexist with the system PM
 		for _, mgr := range sysPkgDetector.DetectAdditionalManagers(ctx) {

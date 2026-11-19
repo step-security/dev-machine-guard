@@ -988,11 +988,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		sysPkgDetector := detector.NewSystemPkgDetector(userExec)
 
 		// Primary system PM (rpm, dpkg, pacman, or apk)
-		if pm := sysPkgDetector.Detect(phaseCtx); pm != nil {
+		primaryStart := time.Now()
+		if pm, packages := sysPkgDetector.Detect(phaseCtx); pm != nil {
 			log.Progress("  Found: %s v%s at %s", pm.Name, pm.Version, pm.Path)
-			start := time.Now()
-			packages := sysPkgDetector.ListPackages(phaseCtx)
-			duration := time.Since(start).Milliseconds()
+			duration := time.Since(primaryStart).Milliseconds()
 			if packages == nil {
 				packages = []model.SystemPackage{}
 			}
