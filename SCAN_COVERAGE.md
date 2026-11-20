@@ -459,4 +459,4 @@ Presence is tri-state (`yes` / `no` / `unknown`): a probe that cannot read the r
 
 ## Adding New Detections
 
-Want to add detection for a new tool, IDE, or framework? See [docs/adding-detections.md](docs/adding-detections.md) or open a [New Detection issue](.github/ISSUE_TEMPLATE/new_detection.yml).
+Want to add detection for a new tool, IDE, or framework? See [docs/adding-detections.md](docs/adding-detections.md) or open a [Feature Request issue](.github/ISSUE_TEMPLATE/feature_request.yml).

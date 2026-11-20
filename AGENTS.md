@@ -16,8 +16,8 @@ additive improvement ideas surfaced during analysis are quarantined in
 [§17](#17-additive-improvement-backlog-future--not-part-of-these-guidelines) and are explicitly
 *not* things to apply as part of adopting this doc.
 
-> See also: [CONTRIBUTING.md](../CONTRIBUTING.md) · [adding-detections.md](adding-detections.md) ·
-> [SCAN_COVERAGE.md](../SCAN_COVERAGE.md)
+> See also: [CONTRIBUTING.md](CONTRIBUTING.md) · [adding-detections.md](docs/adding-detections.md) ·
+> [SCAN_COVERAGE.md](SCAN_COVERAGE.md)
 
 ---
 
