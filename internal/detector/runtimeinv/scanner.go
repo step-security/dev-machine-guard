@@ -282,8 +282,9 @@ func (s *Scanner) consider(ctx context.Context, sig *signature, path string) {
 		base.InstallTimeUnix = info.ModTime().Unix()
 	}
 
+	metadata := versionMetadata{Executor: s.exec, skipper: s.skipper}
 	if sig.runtime == "dotnet" {
-		for _, v := range dotnetRuntimeVersions(s.exec, filepath.Dir(real)) {
+		for _, v := range dotnetRuntimeVersions(metadata, filepath.Dir(real)) {
 			r := base
 			r.InstallRoot = filepath.Dir(real)
 			r.Version, r.VersionSource = v, versionFromPath
@@ -292,7 +293,7 @@ func (s *Scanner) consider(ctx context.Context, sig *signature, path string) {
 		return
 	}
 
-	vr := detectVersion(ctx, s.exec, sig, real, root)
+	vr := detectVersion(ctx, metadata, sig, real, root)
 	base.Version, base.VersionSource = vr.version, vr.source
 	if vr.vendor != "" {
 		base.Vendor = vr.vendor

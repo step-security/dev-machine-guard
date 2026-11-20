@@ -1,11 +1,14 @@
 package tcc
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
+	"syscall"
 	"testing"
 )
 
@@ -63,5 +66,56 @@ func TestOneDriveProjectWalk(t *testing.T) {
 				t.Error("direct access to an unselected sync subtree was allowed")
 			}
 		})
+	}
+}
+
+func TestCloudPathChecksLinkTargets(t *testing.T) {
+	home := t.TempDir()
+	syncDir := filepath.Join(home, "OneDrive")
+	for _, dir := range []string{syncDir, filepath.Join(home, "local")} {
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, link := range []struct{ name, target string }{
+		{"cloud-dir", syncDir},
+		{"cloud-file", filepath.Join("cloud-dir", "package.json")},
+		{"local-file", filepath.Join("local", "package.json")},
+		{"loop", "loop"},
+	} {
+		makeCloudTestLink(t, link.target, filepath.Join(home, link.name))
+	}
+	for _, tc := range []struct {
+		path                string
+		allowSync, wantSkip bool
+	}{
+		{"cloud-file", false, true},
+		{filepath.Join("cloud-dir", "package.json"), false, true},
+		{"local-file", false, false},
+		{"cloud-file", true, false},
+		{"loop", true, true},
+	} {
+		var roots []string
+		if tc.allowSync {
+			roots = []string{syncDir}
+		}
+		s := &Skipper{cloud: newCloudRoots(home, roots)}
+		if got := s.SkipCloudPath(filepath.Join(home, tc.path)); got != tc.wantSkip {
+			t.Errorf("SkipCloudPath(%q) with explicit sync root %t = %t, want %t", tc.path, tc.allowSync, got, tc.wantSkip)
+		}
+	}
+}
+
+func makeCloudTestLink(t *testing.T, target, alias string) {
+	t.Helper()
+	if err := os.Symlink(target, alias); err != nil {
+		const privilegeNotHeld = syscall.Errno(1314) // Windows ERROR_PRIVILEGE_NOT_HELD
+		if runtime.GOOS == "windows" && (os.IsPermission(err) || errors.Is(err, privilegeNotHeld)) {
+			t.Skipf("symlink creation requires permission: %v", err)
+		}
+		t.Fatal(err)
 	}
 }

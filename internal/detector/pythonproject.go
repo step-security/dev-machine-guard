@@ -164,11 +164,30 @@ func orderVenvs(candidates []venvCandidate, knownLastVerified map[string]time.Ti
 // venvFile checks the Scripts/bin directory before looking up a child there.
 func (d *PythonProjectDetector) venvFile(root, subdir, name string) bool {
 	dir := filepath.Join(root, subdir)
-	if subdir != "" && d.skipper.SkipCloudPath(dir) {
+	if d.skipper.SkipCloudPath(dir) {
 		return false
 	}
 	path := filepath.Join(dir, name)
 	return !d.skipper.SkipCloudPath(path) && d.exec.FileExists(path)
+}
+
+// hasVenvMarker checks only the presence of pyvenv.cfg. If the marker is
+// offline, its directory entry still identifies a venv without opening it.
+func (d *PythonProjectDetector) hasVenvMarker(root string) bool {
+	marker := filepath.Join(root, "pyvenv.cfg")
+	if !d.skipper.SkipCloudPath(marker) {
+		return d.exec.FileExists(marker)
+	}
+	if d.skipper.SkipCloudPath(root) {
+		return false
+	}
+	entries, _ := d.exec.ReadDir(root)
+	for _, entry := range entries {
+		if strings.EqualFold(entry.Name(), "pyvenv.cfg") {
+			return !entry.IsDir() && entry.Type()&os.ModeSymlink == 0
+		}
+	}
+	return false
 }
 
 // findPipInVenv returns the path to pip inside a venv-shaped dir, or "".
@@ -197,7 +216,7 @@ func (d *PythonProjectDetector) findPipInVenv(venvPath string) string {
 // Returning isVenv=true even when pip is missing lets callers SkipDir the
 // venv tree (which can hold thousands of files in site-packages).
 func (d *PythonProjectDetector) isVenvDir(path string) (pipPath string, isVenv bool) {
-	if d.venvFile(path, "", "pyvenv.cfg") {
+	if d.hasVenvMarker(path) {
 		return d.findPipInVenv(path), true
 	}
 	pip := d.findPipInVenv(path)

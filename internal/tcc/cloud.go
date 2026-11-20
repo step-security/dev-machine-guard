@@ -60,7 +60,50 @@ func (s *Skipper) SkipCloudPath(path string) bool {
 	if s == nil || s.cloud == nil {
 		return false
 	}
-	return s.cloud.excludes(path) || CloudPlaceholder(path)
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return true
+	}
+	// Inspect each entry from its already-checked parent. Looking up a deep
+	// path directly would let Windows follow an intermediate link or recall
+	// a placeholder directory before we had checked it.
+	const maxLinks = 32
+resolve:
+	for hops := 0; hops <= maxLinks; hops++ {
+		if s.cloud.excludes(path) {
+			return true
+		}
+		volume := filepath.VolumeName(path)
+		prefix := volume + string(filepath.Separator)
+		remaining := strings.TrimPrefix(path[len(volume):], string(filepath.Separator))
+		for remaining != "" {
+			part, rest, _ := strings.Cut(remaining, string(filepath.Separator))
+			prefix = filepath.Join(prefix, part)
+			placeholder, link, err := cloudEntry(prefix)
+			if err != nil {
+				// A missing entry cannot be hydrated. For other failures we
+				// could not establish that the caller can safely follow it.
+				return !os.IsNotExist(err)
+			}
+			if placeholder {
+				return true
+			}
+			remaining = rest
+			if link {
+				target, err := os.Readlink(prefix)
+				if err != nil || target == "" {
+					return true
+				}
+				if !filepath.IsAbs(target) {
+					target = filepath.Join(filepath.Dir(prefix), target)
+				}
+				path = filepath.Join(target, rest)
+				continue resolve
+			}
+		}
+		return false
+	}
+	return true // Too many redirects or a link cycle.
 }
 
 func (c *cloudRoots) excludes(path string) bool {

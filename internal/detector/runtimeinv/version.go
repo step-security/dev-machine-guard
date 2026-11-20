@@ -2,13 +2,37 @@ package runtimeinv
 
 import (
 	"context"
+	"io/fs"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
+
+// Runtime metadata can be offline even when its executable is available.
+// Keep file reads and directory listings behind the same cloud check so
+// strategies can fall back to another version source.
+type versionMetadata struct {
+	executor.Executor
+	skipper *tcc.Skipper
+}
+
+func (m versionMetadata) ReadFile(path string) ([]byte, error) {
+	if m.skipper.SkipCloudPath(path) {
+		return nil, fs.ErrPermission
+	}
+	return m.Executor.ReadFile(path)
+}
+
+func (m versionMetadata) ReadDir(path string) ([]fs.DirEntry, error) {
+	if m.skipper.SkipCloudPath(path) {
+		return nil, fs.ErrPermission
+	}
+	return m.Executor.ReadDir(path)
+}
 
 // Version sources reported in RuntimeInstall.VersionSource.
 const (

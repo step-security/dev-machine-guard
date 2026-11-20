@@ -47,3 +47,34 @@ func TestNodeProjects_OneDriveAndOfflineFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestPythonProjects_OfflineVenvMarker(t *testing.T) {
+	root := t.TempDir()
+	venv := filepath.Join(root, ".venv")
+	dist := filepath.Join(venv, "Lib", "site-packages", "local-1.0.dist-info")
+	if err := os.MkdirAll(dist, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dist, "METADATA"), []byte("Name: local\nVersion: 1.0\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(venv, "pyvenv.cfg")
+	if err := os.WriteFile(marker, []byte("version = 3.12\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := windows.UTF16PtrFromString(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
+		t.Fatal(err)
+	}
+
+	ex := executor.NewReal()
+	skipper := tcc.ForRun(root, nil, nil, root)
+	d := NewPythonProjectDetector(ex).WithSkipper(skipper).WithDiskScan(NewPythonDistDetector(ex).WithSkipper(skipper))
+	projects, _ := d.ListProjects(t.Context(), []string{root}, nil)
+	if len(projects) != 1 || projects[0].Path != venv || len(projects[0].Packages) != 1 || projects[0].Packages[0].Name != "local" {
+		t.Fatalf("offline pyvenv.cfg with local site-packages: got %+v, want venv with local package", projects)
+	}
+}
