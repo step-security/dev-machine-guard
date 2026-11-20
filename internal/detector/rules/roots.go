@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -14,9 +15,13 @@ import (
 var errWalkStop = errors.New("rules: walk stopped")
 
 // resolveAbsolute handles rules' absolute globs by resolving each to concrete
-// paths via the executor's Glob (filepath.Glob semantics — no "**"), then
+// paths with filepath.Glob semantics (no recursive "**"), then
 // evaluating each. Sets st.globalStop if a global file budget is exhausted.
 func (e *Engine) resolveAbsolute(ctx context.Context, st *scanState) {
+	var skip func(string) bool
+	if runtime.GOOS == "windows" && e.skipper != nil {
+		skip = e.skipper.SkipCloudPath
+	}
 	for _, rstate := range st.states {
 		for _, cg := range rstate.rule.globs {
 			if !cg.absolute || rstate.truncated {
@@ -26,7 +31,11 @@ func (e *Engine) resolveAbsolute(ctx context.Context, st *scanState) {
 				st.globalStop = true
 				return
 			}
-			paths, err := e.exec.Glob(filepath.FromSlash(cg.raw))
+			paths, err := e.absoluteMatches(ctx, filepath.FromSlash(cg.raw), skip)
+			if ctx.Err() != nil {
+				st.globalStop = true
+				return
+			}
 			if err != nil {
 				continue
 			}
@@ -45,6 +54,59 @@ func (e *Engine) resolveAbsolute(ctx context.Context, st *scanState) {
 			}
 		}
 	}
+}
+
+// absoluteMatches expands one component at a time on cloud-guarded scans.
+// A full filepath.Glob can enumerate a protected directory before returning
+// the matches to the engine. Matching names from ReadDir also keeps brackets
+// in expanded directory names literal during subsequent steps.
+func (e *Engine) absoluteMatches(ctx context.Context, pattern string, skip func(string) bool) ([]string, error) {
+	if skip == nil {
+		return e.exec.Glob(pattern)
+	}
+	if _, err := filepath.Match(pattern, ""); err != nil {
+		return nil, err
+	}
+	const sep = string(filepath.Separator)
+	if strings.HasSuffix(pattern, sep) {
+		return nil, nil // Only files are evaluated.
+	}
+	volume := filepath.VolumeName(pattern)
+	paths := []string{volume + sep}
+	expanded := false
+	for _, part := range strings.Split(pattern[len(volume):], sep) {
+		if part == "" {
+			continue
+		}
+		expanded = expanded || strings.ContainsAny(part, "*?[")
+		var next []string
+		for _, dir := range paths {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			if skip(dir) {
+				continue
+			}
+			if !expanded {
+				next = append(next, filepath.Join(dir, part))
+				continue
+			}
+			entries, _ := e.exec.ReadDir(dir)
+			for _, entry := range entries {
+				if matched, _ := filepath.Match(part, entry.Name()); matched {
+					next = append(next, filepath.Join(dir, entry.Name()))
+				}
+			}
+		}
+		paths = next
+	}
+	if !expanded && len(paths) > 0 {
+		if skip(paths[0]) {
+			return nil, nil
+		}
+		return e.exec.Glob(pattern)
+	}
+	return paths, nil
 }
 
 // relMatcher binds one relative glob to its rule's accumulator. Order preserves

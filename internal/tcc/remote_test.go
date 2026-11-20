@@ -31,6 +31,7 @@ func TestIsCloudPlaceholderAttrs(t *testing.T) {
 		attrs uint32
 		want  bool
 	}{
+		{0x1000, true},                    // offline file
 		{0x10, false},                     // plain directory
 		{0x10 | 0x400, false},             // reparse point alone
 		{0x10 | 0x00400000, true},         // RECALL_ON_DATA_ACCESS

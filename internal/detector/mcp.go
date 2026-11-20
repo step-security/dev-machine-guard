@@ -131,6 +131,9 @@ func (d *MCPDetector) DetectEnterprise(ctx context.Context, searchDirs []string)
 				return ""
 			}, maxJSONConfigBytes)
 		}
+		if d.skipper.SkipCloudPath(loc.ConfigPath) {
+			continue
+		}
 		content, err := reader.ReadFile(loc.ConfigPath)
 		if err != nil || len(content) == 0 {
 			continue

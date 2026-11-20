@@ -716,7 +716,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// don't trigger system permission prompts when the agent runs without
 	// Full Disk Access. Nil when --include-tcc-protected is set and network
 	// volumes are walked (the default); every method is nil-safe.
-	tccSkipper := tcc.ForRun(executor.ResolveHome(exec), cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes)
+	tccSkipper := tcc.ForRun(executor.ResolveHome(exec), cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes, searchDirs...)
 	if cands := tccSkipper.Candidates(); len(cands) > 0 {
 		log.Debug("tcc skip list (%d): %v", len(cands), cands)
 	}

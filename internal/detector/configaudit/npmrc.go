@@ -127,7 +127,7 @@ func (d *NPMRCDetector) Detect(ctx context.Context, searchDirs []string, loggedI
 		if err == nil {
 			path = abs
 		}
-		if key := pathKey(d.exec, path); !seen[key] {
+		if key := pathKey(d.exec, path); !seen[key] && !d.skipper.SkipCloudPath(path) {
 			seen[key] = true
 			f := d.collectFile(ctx, path, scope)
 			f.RuntimeApplicability = applies

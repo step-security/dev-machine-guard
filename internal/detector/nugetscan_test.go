@@ -29,7 +29,7 @@ func nugetTestScanner(t *testing.T, home string) (*NuGetScanner, *composerTrap) 
 	t.Helper()
 	x := &composerTrap{goTrap: &goTrap{Executor: executor.NewReal(), t: t, current: goTestTarget(home)}, env: map[string]string{}, denied: map[string]error{}, reads: map[string]int{}, readErrors: map[string]error{}}
 	s := NewNuGetScanner(x, progress.NewNoop())
-	s.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	s.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(string) string { return "" }, func(string) bool { return false }
 	}
 	return s, x
@@ -659,7 +659,7 @@ func TestNuGetScanLimitsDeadlineAndGuards(t *testing.T) {
 		t.Fatalf("cancelled scan read a script: reasons %v reads %d", inv.Reasons, x.reads[script])
 	}
 
-	scanner.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	scanner.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(p string) string {
 			if strings.HasPrefix(p, filepath.Join(root, "legacy")) {
 				return "skipped_protected"
@@ -1007,7 +1007,7 @@ func TestNuGetScanIncompleteEvidence(t *testing.T) {
 			root := filepath.Join(home, "code")
 			goWrite(t, filepath.Join(root, "App.csproj"), `<Project/>`, 0o600)
 			scanner, _ := nugetTestScanner(t, home)
-			scanner.protection = func(string, *bool) (func(string) string, func(string) bool) {
+			scanner.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 				return func(path string) string {
 					if path == filepath.Join(home, filepath.FromSlash(blocked)) {
 						return "skipped_protected"

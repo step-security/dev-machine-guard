@@ -39,20 +39,23 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	// Resolve search directories
 	searchDirs := resolveSearchDirs(exec, cfg.SearchDirs)
 	log.Debug("search directories resolved: %v", searchDirs)
-	for _, d := range searchDirs {
-		if info, err := os.Stat(d); err != nil {
-			log.Warn("search directory %q is not accessible: %v — it will be skipped", d, err)
-		} else if !info.IsDir() {
-			log.Warn("search directory %q is not a directory — it will be skipped", d)
-		}
-	}
 
 	// Build the TCC skipper so directory walks avoid macOS-protected dirs
 	// (Documents, Downloads, ~/Library/Mail, ...) and don't trigger system
 	// permission prompts. Nil when --include-tcc-protected is set and
 	// network volumes are walked (the default); every Skipper method is
 	// nil-safe so downstream callers don't branch.
-	tccSkipper := tcc.ForRun(executor.ResolveHome(exec), cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes)
+	tccSkipper := tcc.ForRun(executor.ResolveHome(exec), cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes, searchDirs...)
+	for _, d := range searchDirs {
+		if tccSkipper.SkipCloudPath(d) {
+			continue
+		}
+		if info, err := os.Stat(d); err != nil {
+			log.Warn("search directory %q is not accessible: %v — it will be skipped", d, err)
+		} else if !info.IsDir() {
+			log.Warn("search directory %q is not a directory — it will be skipped", d)
+		}
+	}
 	if cands := tccSkipper.Candidates(); len(cands) > 0 {
 		log.Warn("macOS TCC: skipping %d protected dirs (Documents, Downloads, ~/Library/Mail, ...) to avoid permission prompts. Pass --include-tcc-protected to scan them.", len(cands))
 		log.Debug("tcc skip list: %v", cands)

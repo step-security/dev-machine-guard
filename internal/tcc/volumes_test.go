@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -241,7 +242,7 @@ func TestForRun_TogglePolarity(t *testing.T) {
 		t.Error("default run must walk network volumes")
 	}
 	// Both classes opted in → nothing to skip at all.
-	if s := ForRun("/Users/alice", &trueVal, &trueVal); s != nil {
+	if s := ForRun("/Users/alice", &trueVal, &trueVal); runtime.GOOS != "windows" && s != nil {
 		t.Error("include-everything run must produce a nil Skipper")
 	}
 	// Opting out of network volumes must not disturb the protected-dirs

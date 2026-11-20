@@ -55,16 +55,16 @@ func swiftTestScanner(t *testing.T, home, goos string) (*SwiftScanner, *swiftTra
 	_, inner := rubyTestScanner(t, home)
 	x := &swiftTrap{rubyTrap: inner, goos: goos, lists: map[string]int{}, listErrors: map[string]error{}}
 	s := NewSwiftScanner(x, progress.NewNoop())
-	s.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	s.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(string) string { return "" }, func(string) bool { return false }
 	}
 	return s, x
 }
 
 // swiftTCC refuses all of ~/Library, as macOS privacy protection does for walks.
-func swiftTCC(home string) func(string, *bool) (func(string) string, func(string) bool) {
+func swiftTCC(home string) func(string, *bool, []string) (func(string) string, func(string) bool) {
 	lib := strings.ToLower(filepath.Join(home, "Library"))
-	return func(string, *bool) (func(string) string, func(string) bool) {
+	return func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(p string) string {
 			if k := strings.ToLower(filepath.Clean(p)); k == lib || strings.HasPrefix(k, lib+"/") {
 				return "skipped_protected"
@@ -708,7 +708,7 @@ func TestSwiftScanLibraryBoundary(t *testing.T) {
 
 	t.Run("network volume", func(t *testing.T) {
 		scanner, _ := swiftTestScanner(t, home, model.PlatformDarwin)
-		scanner.protection = func(string, *bool) (func(string) string, func(string) bool) {
+		scanner.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 			return func(string) string { return "" }, func(p string) bool { return strings.HasPrefix(p, cache) }
 		}
 		inv, _ := scanner.Scan(context.Background(), goTestTarget(home), nil, nil)

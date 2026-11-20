@@ -36,7 +36,7 @@ func openVerified(resolved string, wantDir, noFollow bool) (*os.File, os.FileInf
 	}
 	// BACKUP_SEMANTICS is what allows a directory handle at all; it is required
 	// for the directory listing and harmless for a file.
-	flags := uint32(windows.FILE_FLAG_BACKUP_SEMANTICS | windows.FILE_FLAG_OPEN_REPARSE_POINT)
+	flags := uint32(windows.FILE_FLAG_BACKUP_SEMANTICS | windows.FILE_FLAG_OPEN_REPARSE_POINT | windows.FILE_FLAG_OPEN_NO_RECALL)
 	h, err := windows.CreateFile(
 		name,
 		windows.GENERIC_READ,

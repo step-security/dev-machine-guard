@@ -31,7 +31,7 @@ var (
 type ComposerScanner struct {
 	exec       executor.Executor
 	log        *progress.Logger
-	protection func(string, *bool) (func(string) string, func(string) bool)
+	protection func(string, *bool, []string) (func(string) string, func(string) bool)
 }
 
 func NewComposerScanner(exec executor.Executor, log *progress.Logger) *ComposerScanner {
@@ -81,7 +81,7 @@ func (s *ComposerScanner) Scan(ctx context.Context, target *user.User, searchDir
 		audit := configDetector.Detect(ctx, configaudit.ComposerConfigScope{}).Finish()
 		return &inv, &audit
 	}
-	guard, volume := s.protection(target.HomeDir, includeNetworkVolumes)
+	guard, volume := s.protection(target.HomeDir, includeNetworkVolumes, searchDirs)
 	// Reserve the audit's separate 256 KiB allowance before collecting inventory.
 	c := &composerScan{ctx: ctx, exec: s.exec, home: filepath.Clean(target.HomeDir), identity: target.Username, goos: s.exec.GOOS(), guard: guard, volume: volume, inv: inv,
 		byID: map[string]*model.ComposerSource{}, manifests: map[string]*composerProjectState{}, receipts: map[string]string{}, vendors: map[string]bool{}, caches: map[string]bool{}, remaining: maxComposerRecords, bytes: goJSONSize(&inv) + (256 << 10)}

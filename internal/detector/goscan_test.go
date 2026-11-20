@@ -710,7 +710,7 @@ func TestGoScanner_Roots(t *testing.T) {
 	goWrite(t, filepath.Join(code, "p", "go.mod"), "module example.com/p\n", 0o644)
 	private := filepath.Join(home, "private")
 	s := goTestScanner(t, nil)
-	s.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	s.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(p string) string {
 				if p == private || goPathWithin(p, private) {
 					return model.GoReasonSkippedProtected
@@ -862,7 +862,7 @@ func TestGoScanner_WalkBoundaries(t *testing.T) {
 	goWrite(t, filepath.Join(mount, "go.mod"), "module example.com/mnt\n", 0o644)
 
 	s := goTestScanner(t, nil)
-	s.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	s.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		volume := func(p string) bool { return p == mount || goPathWithin(p, mount) }
 		return func(p string) string {
 			if volume(p) {

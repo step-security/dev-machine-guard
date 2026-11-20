@@ -455,7 +455,7 @@ func (s *NodeScanner) ScanProjects(ctx context.Context, searchDirs []string, kno
 				}
 				return nil
 			}
-			if entry.Name() != "package.json" {
+			if entry.Name() != "package.json" || s.skipper.SkipCloudPath(path) {
 				return nil
 			}
 			projectDir := filepath.Dir(path)

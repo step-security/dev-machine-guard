@@ -41,7 +41,7 @@ var (
 type CondaScanner struct {
 	exec       executor.Executor
 	log        *progress.Logger
-	protection func(string, *bool) (func(string) string, func(string) bool)
+	protection func(string, *bool, []string) (func(string) string, func(string) bool)
 }
 
 func NewCondaScanner(exec executor.Executor, log *progress.Logger) *CondaScanner {
@@ -96,7 +96,7 @@ func (s *CondaScanner) Scan(ctx context.Context, target *user.User, searchDirs [
 		audit := configDetector.Detect(ctx, configaudit.CondaConfigScope{}).Finish()
 		return &inv, &audit
 	}
-	guard, volume := s.protection(target.HomeDir, includeNetworkVolumes)
+	guard, volume := s.protection(target.HomeDir, includeNetworkVolumes, searchDirs)
 	// Reserve the audit's separate 256 KiB allowance before collecting inventory.
 	c := &condaScan{ctx: ctx, exec: s.exec, home: filepath.Clean(target.HomeDir), identity: target.Username, goos: s.exec.GOOS(), guard: guard, volume: volume, inv: inv,
 		byID: map[string]*model.CondaSource{}, projects: map[string]*condaProjectState{}, projectDirs: map[string]string{}, locks: map[string]bool{}, diskLocks: map[string]condaDiskLock{},

@@ -15,9 +15,9 @@
 // ForRun resolves both toggles and builds the one Skipper the scan uses.
 //
 // On non-darwin builds there are no protected directories. Linux and Windows
-// instead skip remote mounts (and Windows cloud placeholders) by default,
+// instead skip remote mounts by default,
 // since walking them can block on an unreachable server; an explicit
-// include_network_volumes: true walks them.
+// include_network_volumes: true walks them. Windows also avoids hydrating cloud files.
 package tcc
 
 import (
@@ -76,8 +76,7 @@ type Skipper struct {
 	paths    map[string]struct{}
 	prefixes []string
 	volumes  []string
-	// placeholders skips cloud-sync placeholder dirs (Windows only).
-	placeholders bool
+	cloud    *cloudRoots // Windows only
 
 	mu   sync.Mutex
 	hits map[string]int
@@ -95,13 +94,14 @@ func New(home string) *Skipper {
 }
 
 // ForRun builds the Skipper for one scan from both tri-state toggles. It
-// returns nil when neither class is active — every Skipper method is
+// returns nil when no skip class is active. Windows cloud protection stays
+// active for all toggle combinations. Every Skipper method is
 // nil-safe, so callers hand the result straight to detectors without
 // branching.
 //
 // Enumerating the mount table is a metadata read, not a volume access, so
 // it never fires the prompt it exists to avoid.
-func ForRun(home string, includeTCCProtected, includeNetworkVolumes *bool) *Skipper {
+func ForRun(home string, includeTCCProtected, includeNetworkVolumes *bool, searchDirs ...string) *Skipper {
 	skipRemote := SkipNetworkVolumes(includeNetworkVolumes) ||
 		(includeNetworkVolumes == nil && skipRemoteByDefault)
 	var mounts []string
@@ -109,11 +109,11 @@ func ForRun(home string, includeTCCProtected, includeNetworkVolumes *bool) *Skip
 		mounts = networkVolumeMounts()
 	}
 	s := build(home, Enabled(includeTCCProtected), mounts)
-	if skipRemote && runtime.GOOS == "windows" {
+	if runtime.GOOS == "windows" {
 		if s == nil {
 			s = &Skipper{}
 		}
-		s.placeholders = true
+		s.cloud = newCloudRoots(home, searchDirs)
 	}
 	return s
 }
@@ -134,7 +134,7 @@ func build(home string, protected bool, mounts []string) *Skipper {
 
 // ShouldSkip reports whether path is a TCC-protected directory — or a
 // skipped network-volume mount point — whose walk should be
-// short-circuited. When path equals walkRoot the result is always false:
+// short-circuited. For macOS paths and network mounts, the walk root is exempt:
 // passing --search-dirs ~/Documents (or --search-dirs ~/OrbStack) is an
 // explicit opt-in, and the walk root must be entered for anything to
 // happen. That opt-in holds for the whole walk, not just the root itself:
@@ -153,8 +153,11 @@ func (s *Skipper) ShouldSkip(path, walkRoot string) bool {
 	}
 	cleaned := filepath.Clean(path)
 	cleanRoot := filepath.Clean(walkRoot)
+	if s.cloud.excludes(cleaned) {
+		return true
+	}
 	if cleanRoot == cleaned {
-		return false
+		return s.skipPlaceholder(cleaned)
 	}
 	if _, ok := s.paths[cleaned]; ok {
 		s.recordHit(cleaned)
@@ -166,14 +169,16 @@ func (s *Skipper) ShouldSkip(path, walkRoot string) bool {
 			return true
 		}
 	}
-	if s.rootWithinVolume(cleanRoot) {
-		return false
-	}
-	if s.withinNetworkVolume(cleaned) {
+	if !s.rootWithinVolume(cleanRoot) && s.withinNetworkVolume(cleaned) {
 		return true
 	}
-	if s.placeholders && cloudPlaceholder(cleaned) {
-		s.recordHit(cleaned)
+	return s.skipPlaceholder(cleaned)
+}
+
+// Keep the existing per-run diagnostics for placeholder directories.
+func (s *Skipper) skipPlaceholder(path string) bool {
+	if s.cloud != nil && CloudPlaceholder(path) {
+		s.recordHit(path)
 		return true
 	}
 	return false
@@ -194,6 +199,9 @@ func (s *Skipper) WithinProtected(path string) bool {
 		return false
 	}
 	cleaned := filepath.Clean(path)
+	if s.cloud.excludes(cleaned) {
+		return true
+	}
 	for p := range s.paths {
 		// Home-anchored protected dirs match on equality or a "/" boundary only.
 		// hasPathPrefix (used for the prefixes below) also treats "." as a
