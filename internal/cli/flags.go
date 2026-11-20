@@ -249,8 +249,9 @@ var flagTable = []flagSpec{
                          <DIR>/agent.error.log, rotated at 5 MiB to .prev.
                          Equivalent to STEPSECURITY_HOME env var. Pass
                          --install-dir= (empty) to disable file logging for
-                         this run. Note: config.json itself always lives at
-                         ~/.stepsecurity/config.json for bootstrap.`,
+                         this run. Note: config.json is read from
+                         ~/.stepsecurity/config.json, or from the install
+                         tree next to the binary when that file is absent.`,
 		set: func(c *Config, v string) error {
 			c.InstallDir = v
 			c.InstallDirSet = true
