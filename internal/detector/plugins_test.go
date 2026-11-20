@@ -3795,16 +3795,18 @@ func TestClaudePluginDirs(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			home, out := mustTempDir(t), mustTempDir(t)
+			// Paths are compared in slash form, which Windows also accepts as
+			// input and which needs no escaping inside the JSON fixtures.
 			expand := func(s string) string {
-				s = strings.ReplaceAll(s, "OUT/", out+"/")
-				return strings.ReplaceAll(s, "HOME/", home+"/")
+				s = strings.ReplaceAll(s, "OUT/", filepath.ToSlash(out)+"/")
+				return strings.ReplaceAll(s, "HOME/", filepath.ToSlash(home)+"/")
 			}
 			for rel, body := range tc.files {
 				mustWrite(t, filepath.FromSlash(expand(rel)), body)
 			}
 			env := tc.env
 			if env == "" {
-				env = `{"CLAUDE_CODE_PLUGIN_DIRS":` + strconv.Quote(expand(tc.dirs)) + `}`
+				env = `{"CLAUDE_CODE_PLUGIN_DIRS":` + strconv.Quote(expand(strings.ReplaceAll(tc.dirs, ":", string(os.PathListSeparator)))) + `}`
 			}
 			settings := `{"env":` + expand(env)
 			if tc.enabled != "" {
@@ -3819,7 +3821,7 @@ func TestClaudePluginDirs(t *testing.T) {
 			a.pluginDirPlugins()
 			var got []string
 			for _, p := range a.c.Plugins {
-				got = append(got, p.NativeID+"="+p.InstallPath)
+				got = append(got, p.NativeID+"="+filepath.ToSlash(p.InstallPath))
 				if p.InstallationEvidence != model.PluginEvidenceLocalConfig || p.Installed == nil || !*p.Installed || p.SourcePath != p.InstallPath || p.Scope != model.PluginScopeUser {
 					t.Errorf("plugin %s = %+v", p.NativeID, p)
 				}
@@ -3836,7 +3838,7 @@ func TestClaudePluginDirs(t *testing.T) {
 			}
 			var codes []string
 			for _, e := range a.c.Errors {
-				codes = append(codes, e.Code+"="+e.SourcePath)
+				codes = append(codes, e.Code+"="+filepath.ToSlash(e.SourcePath))
 			}
 			var wantErrors []string
 			for _, w := range tc.errors {
@@ -3846,6 +3848,14 @@ func TestClaudePluginDirs(t *testing.T) {
 				t.Fatalf("context errors = %v (%s), want %v complete", codes, a.c.InstallationStatus, wantErrors)
 			}
 		})
+	}
+
+	// Unparsable user settings hide the directory list, so earlier inline
+	// plugins must not read as removed.
+	a := newClaudeDirAdapter(t, mustTempDir(t), `{"env":`)
+	a.pluginDirPlugins()
+	if len(a.c.Plugins) != 0 || a.c.InstallationStatus != model.AgentScanStatusPartial {
+		t.Fatalf("unparsable user settings: plugins %d, installation %s, want none and partial", len(a.c.Plugins), a.c.InstallationStatus)
 	}
 }
 

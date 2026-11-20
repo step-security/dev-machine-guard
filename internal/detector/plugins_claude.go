@@ -288,6 +288,10 @@ func (a *claudeAdapter) readSettings(p, scope, projectPath string) claudeSetting
 	if code != "" {
 		scanError(&a.c.Errors, model.AgentScanError{Code: code, SourcePath: p})
 		degrade(&a.c.MarketplaceStatus, model.AgentScanStatusPartial)
+		if scope == model.PluginScopeUser {
+			// The user layer also lists the plugin directories Claude Code loads.
+			degrade(&a.c.InstallationStatus, model.AgentScanStatusPartial)
+		}
 		return layer
 	}
 	layer.ok = true
