@@ -1,0 +1,1 @@
+[ { meta = { }; name = "nix-2.28.5"; out = { outPath = "/nix/store/3351s56n7qxjdvpckhbkyg9ihyspfv8k-nix-2.28.5"; }; outPath = "/nix/store/3351s56n7qxjdvpckhbkyg9ihyspfv8k-nix-2.28.5"; outputs = [ "out" ]; type = "derivation"; } ]

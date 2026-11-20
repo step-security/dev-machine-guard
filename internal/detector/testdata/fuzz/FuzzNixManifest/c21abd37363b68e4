@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"elements\":{\"\":{\"storePAths\":[\"/nix/store/00000000000000000000000000000000--0\"]}},\"version\":3}")
