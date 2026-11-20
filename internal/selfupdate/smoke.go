@@ -57,10 +57,18 @@ func (b *limitedBuffer) String() string { return b.buf.String() }
 // RunSmoke runs `<exe> self-check` with the smoke time limit and checks
 // that it exits 0 reporting version want, a loaded config and a device id.
 func RunSmoke(ctx context.Context, exe string, want updatestate.Version) error {
+	return RunSmokeArgs(ctx, exe, want)
+}
+
+// RunSmokeArgs is RunSmoke with extra arguments for the self-check: the
+// macOS/Linux tick passes the running process's --config and --install-dir
+// so the staged binary is checked against the configuration this install
+// actually uses, not against whatever its default lookup finds.
+func RunSmokeArgs(ctx context.Context, exe string, want updatestate.Version, args ...string) error {
 	ctx, cancel := context.WithTimeout(ctx, duration(knobSmokeTimeout))
 	defer cancel()
-	// #nosec G204 -- exe is a verified, manifest-checked version dir binary.
-	cmd := exec.CommandContext(ctx, exe, "self-check")
+	// #nosec G204 -- exe is a verified, manifest-checked version dir binary; args are this process's own paths.
+	cmd := exec.CommandContext(ctx, exe, append([]string{"self-check"}, args...)...)
 	stdout := &limitedBuffer{max: 64 << 10}
 	stderr := &limitedBuffer{max: 4 << 10}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
