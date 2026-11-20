@@ -2,7 +2,9 @@ package detector
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -13,6 +15,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -936,7 +939,8 @@ func TestCodexPortableDescriptiveComponents(t *testing.T) {
 	root := filepath.Join(home, "plugins/cache/company/test-plugin/local")
 	fs.addFile(filepath.Join(root, "plugin.json"), `{"$schema":"`+codexPortableSchema+`","name":"test-plugin","interface":42,"skills":"ignored","extensions":{"com.openai":{"apps":"./.app.json","hooks":"./hooks.json"}}}`)
 	fs.addFile(filepath.Join(root, ".app.json"), `{"apps":{"test-app":{"id":"connector_example"}}}`)
-	fs.addFile(filepath.Join(root, "hooks.json"), `{"hooks":{}}`)
+	fs.addFile(filepath.Join(root, "hooks.json"), `{"hooks":{},"modules":["./mod.mjs"]}`)
+	fs.addFile(filepath.Join(root, "mod.mjs"), "export {}")
 	fs.addSkill(filepath.Join(root, "skills/fixed"), "SKILL.md", validFrontmatter("fixed", "test"), nil)
 	fs.addSkill(filepath.Join(root, "ignored/ignored"), "SKILL.md", validFrontmatter("ignored", "test"), nil)
 	fs.commit()
@@ -948,8 +952,8 @@ func TestCodexPortableDescriptiveComponents(t *testing.T) {
 	var names []string
 	for _, c := range p.Components {
 		names = append(names, c.Name)
-		if c.Status != model.AgentScanStatusComplete {
-			t.Errorf("descriptive component coverage = %s", c.Status)
+		if c.Status != model.AgentScanStatusComplete || c.Modules != nil {
+			t.Errorf("descriptive component = %s %+v", c.Status, c.Modules)
 		}
 	}
 	slices.Sort(names)
@@ -3478,4 +3482,567 @@ func TestPiGlobBounds(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClaudeHookModules(t *testing.T) {
+	const module = "export function register(on) { /* MODULE_SOURCE_MARKER */ }"
+	settingsHooks := `"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo EVENT_MARKER"},{"type":"http","url":"https://hooks.example.test/MARKER"}]}]}`
+	nine := map[string]string{}
+	var nineDeclared []string
+	for i := range 9 {
+		nine[fmt.Sprintf("hooks/m%d.mjs", i)] = module
+		nineDeclared = append(nineDeclared, fmt.Sprintf(`"./m%d.mjs"`, i))
+	}
+	nine["hooks/hooks.json"] = `{"modules":[` + strings.Join(nineDeclared, ",") + `]}`
+	var nineWant []wantHookModule
+	for i := range maxHookModules {
+		nineWant = append(nineWant, wantHookModule{fmt.Sprintf("./m%d.mjs", i), fmt.Sprintf("hooks/m%d.mjs", i), ""})
+	}
+	tests := []struct {
+		name     string
+		files    map[string]string // plugin-relative
+		links    map[string]string // plugin-relative link to a target; HOME/ is the scan home
+		catalog  string            // marketplace entry hooks declaration
+		hooksRel string
+		goos     string
+		want     []wantHookModule
+		status   string
+		errors   []string
+	}{
+		{name: "module beside hooks file", files: map[string]string{"hooks/hooks.json": `{"modules":["./mod.mjs"]}`, "hooks/mod.mjs": module},
+			want: []wantHookModule{{"./mod.mjs", "hooks/mod.mjs", ""}}},
+		{name: "module at plugin root", files: map[string]string{"hooks/hooks.json": `{"modules":["../register.mjs"]}`, "register.mjs": module},
+			want: []wantHookModule{{"../register.mjs", "register.mjs", ""}}},
+		{name: "typescript under src with settings hooks", files: map[string]string{"hooks/hooks.json": `{` + settingsHooks + `,"modules":["../src/register.ts"]}`, "src/register.ts": module},
+			want: []wantHookModule{{"../src/register.ts", "src/register.ts", ""}}},
+		{name: "no prefix", files: map[string]string{"hooks/hooks.json": `{"modules":["register.tsx"]}`, "hooks/register.tsx": module},
+			want: []wantHookModule{{"register.tsx", "hooks/register.tsx", ""}}},
+		{name: "two entries", files: map[string]string{"hooks/hooks.json": `{"modules":["./a.mjs","./b.ts"]}`, "hooks/a.mjs": module, "hooks/b.ts": module + "\n"},
+			want: []wantHookModule{{"./a.mjs", "hooks/a.mjs", ""}, {"./b.ts", "hooks/b.ts", ""}}},
+		{name: "settings hooks only", files: map[string]string{"hooks/hooks.json": `{` + settingsHooks + `}`}},
+		{name: "empty modules", files: map[string]string{"hooks/hooks.json": `{"modules":[]}`}},
+		{name: "utf-8 bom", files: map[string]string{"hooks/hooks.json": "\xef\xbb\xbf" + `{"modules":["./mod.mjs"]}`, "hooks/mod.mjs": module},
+			want: []wantHookModule{{"./mod.mjs", "hooks/mod.mjs", ""}}},
+		{name: "nine entries keep eight", files: nine, want: nineWant, status: model.AgentScanStatusPartial, errors: []string{model.AgentScanErrLimitExceeded}},
+		{name: "modules not an array", files: map[string]string{"hooks/hooks.json": `{"modules":"./x.mjs"}`},
+			status: model.AgentScanStatusError, errors: []string{model.AgentScanErrParseFailed}},
+		{name: "modules null", files: map[string]string{"hooks/hooks.json": `{"modules":null}`},
+			status: model.AgentScanStatusError, errors: []string{model.AgentScanErrParseFailed}},
+		{name: "modules not strings", files: map[string]string{"hooks/hooks.json": `{"modules":[1]}`},
+			status: model.AgentScanStatusError, errors: []string{model.AgentScanErrParseFailed}},
+		{name: "malformed hooks file", files: map[string]string{"hooks/hooks.json": `{"modules":[`},
+			status: model.AgentScanStatusError, errors: []string{model.AgentScanErrParseFailed}},
+		{name: "absolute", files: map[string]string{"hooks/hooks.json": `{"modules":["/abs.mjs","C:/abs.mjs"]}`},
+			want: []wantHookModule{{"/abs.mjs", "", model.AgentScanErrUnsafePath}, {"C:/abs.mjs", "", model.AgentScanErrUnsafePath}}},
+		{name: "backslash", files: map[string]string{"hooks/hooks.json": `{"modules":["..\\x.mjs"]}`, "x.mjs": module},
+			want: []wantHookModule{{`..\x.mjs`, "", model.AgentScanErrUnsafePath}}},
+		{name: "backslash on windows", files: map[string]string{"hooks/hooks.json": `{"modules":["..\\x.mjs","..\\..\\outside.mjs"]}`, "x.mjs": module},
+			goos: model.PlatformWindows, want: []wantHookModule{{`..\x.mjs`, "x.mjs", ""}, {`..\..\outside.mjs`, "", model.AgentScanErrUnsafePath}}},
+		{name: "padded entry", files: map[string]string{"hooks/hooks.json": `{"modules":["./mod.mjs "]}`, "hooks/mod.mjs": module},
+			want: []wantHookModule{{"./mod.mjs ", "", model.AgentScanErrUnsafePath}}},
+		{name: "escapes plugin root", files: map[string]string{"hooks/hooks.json": `{"modules":["../../outside.mjs"]}`},
+			want: []wantHookModule{{"../../outside.mjs", "", model.AgentScanErrUnsafePath}}},
+		{name: "missing", files: map[string]string{"hooks/hooks.json": `{"modules":["./missing.mjs"]}`},
+			want: []wantHookModule{{"./missing.mjs", "hooks/missing.mjs", model.AgentScanErrReadFailed}}},
+		{name: "directory", files: map[string]string{"hooks/hooks.json": `{"modules":["./dir"]}`, "hooks/dir/index.mjs": module},
+			want: []wantHookModule{{"./dir", "hooks/dir", model.AgentScanErrReadFailed}}},
+		{name: "declared path too long", files: map[string]string{"hooks/hooks.json": `{"modules":["` + strings.Repeat("a", maxPathBytes+1) + `"]}`},
+			want: []wantHookModule{{"", "", model.AgentScanErrLimitExceeded}}},
+		{name: "over read limit", files: map[string]string{"hooks/hooks.json": `{"modules":["./big.mjs"]}`, "hooks/big.mjs": strings.Repeat("x", maxJSONConfigBytes+1)},
+			want: []wantHookModule{{"./big.mjs", "hooks/big.mjs", model.AgentScanErrLimitExceeded}}},
+		{name: "symlink inside root", files: map[string]string{"hooks/hooks.json": `{"modules":["./link.mjs"]}`, "src/real.mjs": module},
+			links: map[string]string{"hooks/link.mjs": "../src/real.mjs"},
+			want:  []wantHookModule{{"./link.mjs", "hooks/link.mjs", ""}}},
+		{name: "symlink outside root", files: map[string]string{"hooks/hooks.json": `{"modules":["./link.mjs"]}`},
+			links: map[string]string{"hooks/link.mjs": "HOME/outside.mjs"},
+			want:  []wantHookModule{{"./link.mjs", "", model.AgentScanErrUnsafePath}}},
+		{name: "manifest hooks file", files: map[string]string{claudeManifestRel: `{"name":"inventory-proof","hooks":"./config/hooks.json"}`, "config/hooks.json": `{"modules":["./mod.mjs"]}`, "config/mod.mjs": module},
+			hooksRel: "config/hooks.json", want: []wantHookModule{{"./mod.mjs", "config/mod.mjs", ""}}},
+		{name: "catalog hooks file", catalog: `"./config/hooks.json"`, files: map[string]string{"config/hooks.json": `{"modules":["./mod.mjs"]}`, "config/mod.mjs": module},
+			hooksRel: "config/hooks.json", want: []wantHookModule{{"./mod.mjs", "config/mod.mjs", ""}}},
+		{name: "manifest names default file", files: map[string]string{claudeManifestRel: `{"name":"inventory-proof","hooks":"./hooks/hooks.json"}`, "hooks/hooks.json": `{`},
+			status: model.AgentScanStatusError, errors: []string{model.AgentScanErrParseFailed}},
+		{name: "inline manifest hooks", files: map[string]string{claudeManifestRel: `{"name":"inventory-proof","hooks":{"modules":["./mod.mjs"]}}`, "mod.mjs": module},
+			hooksRel: claudeManifestRel},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			home, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			root := filepath.Join(home, "plugin")
+			mustWrite(t, filepath.Join(home, "outside.mjs"), module)
+			for rel, body := range tc.files {
+				mustWrite(t, filepath.Join(root, filepath.FromSlash(rel)), body)
+			}
+			for rel, target := range tc.links {
+				if err := os.Symlink(strings.Replace(target, "HOME/", home+"/", 1), filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+					t.Skip("symlinks unavailable:", err)
+				}
+			}
+			p, _ := scanClaudeHooks(t, home, root, tc.catalog, nil, tc.goos)
+			hooksRel := tc.hooksRel
+			if hooksRel == "" {
+				hooksRel = claudeHooksFile
+			}
+			hook := onlyHookComponent(t, p)
+			status := tc.status
+			if status == "" {
+				status = model.AgentScanStatusComplete
+			}
+			if hook.RelativePath != hooksRel || hook.Status != status {
+				t.Fatalf("hook component = %s %s, want %s %s", hook.RelativePath, hook.Status, hooksRel, status)
+			}
+			var codes []string
+			for _, e := range p.Errors {
+				codes = append(codes, e.Code)
+				if e.ComponentID != hook.ComponentID {
+					t.Errorf("error %s not tied to the hook component", e.Code)
+				}
+			}
+			if !slices.Equal(codes, tc.errors) {
+				t.Fatalf("errors = %v, want %v", codes, tc.errors)
+			}
+			if len(tc.errors) == 0 && p.ComponentStatus != model.AgentScanStatusComplete {
+				t.Fatalf("module verdicts degraded the plugin: %s", p.ComponentStatus)
+			}
+			checkHookModules(t, root, hook.Modules, tc.want)
+			out, err := json.Marshal(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, marker := range []string{"MODULE_SOURCE_MARKER", "EVENT_MARKER", "SessionStart", "hooks.example.test"} {
+				if strings.Contains(string(out), marker) {
+					t.Errorf("hooks content %q left the device", marker)
+				}
+			}
+			if len(tc.want) == 0 && strings.Contains(string(out), `"modules"`) {
+				t.Errorf("component without modules serialized a modules key: %s", out)
+			}
+		})
+	}
+}
+
+func TestClaudeHookModuleBudget(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(home, "plugin")
+	for rel, body := range map[string]string{
+		claudeManifestRel:   `{"name":"inventory-proof","hooks":"./config/hooks.json"}`,
+		"config/hooks.json": `{"modules":["../hooks/mod.mjs"]}`,
+		"hooks/hooks.json":  `{"modules":["./mod.mjs"]}`,
+		"hooks/mod.mjs":     "export function register() {}",
+	} {
+		mustWrite(t, filepath.Join(root, filepath.FromSlash(rel)), body)
+	}
+	t.Run("one read per physical module", func(t *testing.T) {
+		definitions := 0
+		p, _ := scanClaudeHooks(t, home, root, "", &definitions, "")
+		if definitions != 1 || len(p.Components) != 2 {
+			t.Fatalf("definitions = %d, components = %d; want 1 read for 2 hook files", definitions, len(p.Components))
+		}
+		for _, c := range p.Components {
+			checkHookModules(t, root, c.Modules, []wantHookModule{{c.Modules[0].DeclaredPath, "hooks/mod.mjs", ""}})
+		}
+	})
+	t.Run("spent budget", func(t *testing.T) {
+		definitions := maxNewDefinitions
+		p, _ := scanClaudeHooks(t, home, root, "", &definitions, "")
+		if p.ComponentStatus != model.AgentScanStatusComplete || len(p.Errors) != 0 {
+			t.Fatalf("spent budget degraded the plugin: %s %+v", p.ComponentStatus, p.Errors)
+		}
+		for _, c := range p.Components {
+			checkHookModules(t, root, c.Modules, []wantHookModule{{c.Modules[0].DeclaredPath, "hooks/mod.mjs", model.AgentScanErrLimitExceeded}})
+		}
+	})
+}
+
+func TestClaudeHookModuleProtected(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS TCC protection")
+	}
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(home, "hooks/hooks.json"), `{"modules":["../Documents/mod.mjs"]}`)
+	mustWrite(t, filepath.Join(home, "Documents/mod.mjs"), "export function register() {}")
+	d := NewSkillsDetector(executor.NewReal()).WithSkipper(tcc.New(home))
+	definitions := 0
+	s := &pluginScan{d: d, ctx: context.Background(), home: home, definitions: &definitions, memo: map[string]*skillScan{}, evidence: newPluginEvidence()}
+	a := &claudeAdapter{s: s, gd: s.guarded(home)}
+	p := newPlugin("inventory-proof@inline", "inventory-proof", model.PluginInstallDirectory, model.PluginScopeUser)
+	p.InstallPath = home
+	a.components(p, nil, nil)
+	checkHookModules(t, home, onlyHookComponent(t, p).Modules, []wantHookModule{{"../Documents/mod.mjs", "", model.AgentScanErrUnsafePath}})
+	if definitions != 0 {
+		t.Fatal("protected module was read")
+	}
+}
+
+// wantHookModule is an expected modules entry; an empty code means hashed.
+type wantHookModule struct{ declared, rel, code string }
+
+func scanClaudeHooks(t *testing.T, home, root, catalog string, definitions *int, goos string) (*model.PluginObservation, *pluginScan) {
+	t.Helper()
+	if definitions == nil {
+		definitions = new(int)
+	}
+	s := &pluginScan{d: NewSkillsDetector(executor.NewReal()), ctx: context.Background(), home: home, goos: goos, definitions: definitions, memo: map[string]*skillScan{}, evidence: newPluginEvidence()}
+	a := &claudeAdapter{s: s, gd: s.guarded(root)}
+	p := newPlugin("inventory-proof@example-mods", "inventory-proof", model.PluginInstallMarketplace, model.PluginScopeUser)
+	p.InstanceID, p.InstallPath = "inst_test", root
+	var entry *claudeCatalogEntry
+	var market *claudeMarket
+	if catalog != "" {
+		entry = &claudeCatalogEntry{claudeDecls: claudeDecls{Hooks: json.RawMessage(catalog)}}
+		market = &claudeMarket{catalogFile: filepath.Join(home, claudeCatalogRel), catalogPointer: "/plugins"}
+	}
+	a.components(p, entry, market)
+	return p, s
+}
+
+func onlyHookComponent(t *testing.T, p *model.PluginObservation) model.PluginComponent {
+	t.Helper()
+	var hooks []model.PluginComponent
+	for _, c := range p.Components {
+		if c.Kind == model.PluginComponentHook {
+			hooks = append(hooks, c)
+		}
+	}
+	if len(hooks) != 1 {
+		t.Fatalf("hook components = %+v, want one", hooks)
+	}
+	return hooks[0]
+}
+
+func checkHookModules(t *testing.T, root string, got []model.HookModule, want []wantHookModule) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("modules = %+v, want %d", got, len(want))
+	}
+	for i, w := range want {
+		m := got[i]
+		if m.DeclaredPath != w.declared || m.RelativePath != w.rel || m.ErrorCode != w.code {
+			t.Errorf("module %d = %+v, want %+v", i, m, w)
+			continue
+		}
+		if w.rel == "" {
+			if m.DefinitionPath != "" || m.DefinitionHash != "" || m.Status != model.AgentScanStatusError {
+				t.Errorf("unsafe module %d reported a location: %+v", i, m)
+			}
+			continue
+		}
+		file := filepath.Join(root, filepath.FromSlash(w.rel))
+		if m.DefinitionPath != file {
+			t.Errorf("module %d definition_path = %s, want %s", i, m.DefinitionPath, file)
+		}
+		if w.code != "" {
+			if m.Status != model.AgentScanStatusError || m.DefinitionHash != "" {
+				t.Errorf("failed module %d = %+v", i, m)
+			}
+			continue
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(data)
+		if m.Status != model.AgentScanStatusComplete || m.DefinitionHash != hex.EncodeToString(sum[:]) || m.SizeBytes != int64(len(data)) {
+			t.Errorf("module %d = %+v, want hash of %s", i, m, w.rel)
+		}
+	}
+}
+
+func TestClaudePluginDirs(t *testing.T) {
+	manifest := func(name string) string { return `{"name":"` + name + `"}` }
+	tests := []struct {
+		name     string
+		dirs     string            // CLAUDE_CODE_PLUGIN_DIRS; OUT/ is a directory outside home
+		env      string            // user settings env value, when not built from dirs
+		project  string            // project settings content
+		enabled  string            // user settings enabledPlugins
+		files    map[string]string // OUT/ or HOME/ relative
+		want     []string          // native_id=install path
+		errors   []string          // code=source path
+		disabled bool
+	}{
+		{name: "one entry outside home", dirs: "OUT/alpha", files: map[string]string{"OUT/alpha/.claude-plugin/plugin.json": manifest("alpha")},
+			want: []string{"alpha@inline=OUT/alpha"}},
+		{name: "manifest name wins", dirs: "OUT/tilde-one", files: map[string]string{"OUT/tilde-one/.claude-plugin/plugin.json": manifest("fa")},
+			want: []string{"fa@inline=OUT/tilde-one"}},
+		{name: "two entries, duplicate and empty segment", dirs: "OUT/a::OUT/b: OUT/a/ ", files: map[string]string{"OUT/a/.claude-plugin/plugin.json": manifest("a"), "OUT/b/.claude-plugin/plugin.json": manifest("b")},
+			want: []string{"a@inline=OUT/a", "b@inline=OUT/b"}},
+		{name: "tilde", dirs: "~/mods/alpha", files: map[string]string{"HOME/mods/alpha/.claude-plugin/plugin.json": manifest("alpha")},
+			want: []string{"alpha@inline=HOME/mods/alpha"}},
+		{name: "manifest-less hooks directory", dirs: "OUT/hooky", files: map[string]string{"OUT/hooky/hooks/hooks.json": `{"modules":["./mod.mjs"]}`, "OUT/hooky/hooks/mod.mjs": "export {}"},
+			want: []string{"hooky@inline=OUT/hooky"}},
+		{name: "folder of plugins", dirs: "OUT/pack", files: map[string]string{"OUT/pack/fb/.claude-plugin/plugin.json": manifest("fb"), "OUT/pack/fa/.claude-plugin/plugin.json": manifest("fa"), "OUT/pack/notes/readme.md": "x", "OUT/pack/noman/hooks/hooks.json": `{"modules":["./mod.mjs"]}`},
+			want: []string{"fa@inline=OUT/pack/fa", "fb@inline=OUT/pack/fb"}},
+		{name: "plugin listed directly and through its folder", dirs: "OUT/pack:OUT/pack/fa", files: map[string]string{"OUT/pack/fa/.claude-plugin/plugin.json": manifest("fa")},
+			want: []string{"fa@inline=OUT/pack/fa"}},
+		{name: "relative", dirs: "mods/alpha", errors: []string{"unsafe_path=mods/alpha"}},
+		{name: "missing", dirs: "OUT/missing", errors: []string{"read_failed=OUT/missing"}},
+		{name: "not a plugin", dirs: "OUT/notes", files: map[string]string{"OUT/notes/readme.md": "x"}, errors: []string{"read_failed=OUT/notes"}},
+		{name: "disabled", dirs: "OUT/alpha", enabled: `{"alpha@inline":false}`, files: map[string]string{"OUT/alpha/.claude-plugin/plugin.json": manifest("alpha")},
+			want: []string{"alpha@inline=OUT/alpha"}, disabled: true},
+		{name: "malformed env", env: `"OUT/alpha"`, files: map[string]string{"OUT/alpha/.claude-plugin/plugin.json": manifest("alpha")}},
+		{name: "project env ignored", project: `{"env":{"CLAUDE_CODE_PLUGIN_DIRS":"OUT/alpha"}}`, files: map[string]string{"OUT/alpha/.claude-plugin/plugin.json": manifest("alpha")}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			home, out := mustTempDir(t), mustTempDir(t)
+			// Paths are compared in slash form, which Windows also accepts as
+			// input and which needs no escaping inside the JSON fixtures.
+			expand := func(s string) string {
+				s = strings.ReplaceAll(s, "OUT/", filepath.ToSlash(out)+"/")
+				return strings.ReplaceAll(s, "HOME/", filepath.ToSlash(home)+"/")
+			}
+			for rel, body := range tc.files {
+				mustWrite(t, filepath.FromSlash(expand(rel)), body)
+			}
+			env := tc.env
+			if env == "" {
+				env = `{"CLAUDE_CODE_PLUGIN_DIRS":` + strconv.Quote(expand(strings.ReplaceAll(tc.dirs, ":", string(os.PathListSeparator)))) + `}`
+			}
+			settings := `{"env":` + expand(env)
+			if tc.enabled != "" {
+				settings += `,"enabledPlugins":` + tc.enabled
+			}
+			a := newClaudeDirAdapter(t, home, settings+"}")
+			if tc.project != "" {
+				projectSettings := filepath.Join(home, "project", ".claude", "settings.json")
+				mustWrite(t, projectSettings, expand(tc.project))
+				a.layers = append(a.layers, a.readSettings(projectSettings, model.PluginScopeProject, filepath.Join(home, "project")))
+			}
+			a.pluginDirPlugins()
+			var got []string
+			for _, p := range a.c.Plugins {
+				got = append(got, p.NativeID+"="+filepath.ToSlash(p.InstallPath))
+				if p.InstallationEvidence != model.PluginEvidenceLocalConfig || p.Installed == nil || !*p.Installed || p.SourcePath != p.InstallPath || p.Scope != model.PluginScopeUser {
+					t.Errorf("plugin %s = %+v", p.NativeID, p)
+				}
+				if tc.disabled != (p.ConfiguredEnabled != nil && !*p.ConfiguredEnabled) {
+					t.Errorf("plugin %s configured_enabled = %v", p.NativeID, p.ConfiguredEnabled)
+				}
+			}
+			var want []string
+			for _, w := range tc.want {
+				want = append(want, expand(w))
+			}
+			if !slices.Equal(got, want) {
+				t.Fatalf("plugins = %v, want %v", got, want)
+			}
+			var codes []string
+			for _, e := range a.c.Errors {
+				codes = append(codes, e.Code+"="+filepath.ToSlash(e.SourcePath))
+			}
+			var wantErrors []string
+			for _, w := range tc.errors {
+				wantErrors = append(wantErrors, expand(w))
+			}
+			if !slices.Equal(codes, wantErrors) || a.c.InstallationStatus != model.AgentScanStatusComplete {
+				t.Fatalf("context errors = %v (%s), want %v complete", codes, a.c.InstallationStatus, wantErrors)
+			}
+		})
+	}
+
+	// Unparsable user settings hide the directory list, so earlier inline
+	// plugins must not read as removed.
+	a := newClaudeDirAdapter(t, mustTempDir(t), `{"env":`)
+	a.pluginDirPlugins()
+	if len(a.c.Plugins) != 0 || a.c.InstallationStatus != model.AgentScanStatusPartial {
+		t.Fatalf("unparsable user settings: plugins %d, installation %s, want none and partial", len(a.c.Plugins), a.c.InstallationStatus)
+	}
+}
+
+func TestClaudePluginDirsSeparator(t *testing.T) {
+	for goos, want := range map[string]string{model.PlatformWindows: ";", model.PlatformDarwin: ":", model.PlatformLinux: ":"} {
+		if got := (&pluginScan{goos: goos}).pathListSeparator(); got != want {
+			t.Errorf("pathListSeparator(%s) = %q, want %q", goos, got, want)
+		}
+	}
+}
+
+func TestClaudeSessionMods(t *testing.T) {
+	mod := func(name string) map[string]string {
+		return map[string]string{
+			".claude-plugin/plugin.json": `{"name":"` + name + `"}`,
+			"hooks/hooks.json":           `{"modules":["./mod.mjs"]}`,
+			"hooks/mod.mjs":              "export function register() {}",
+		}
+	}
+	// writeSessions creates sessions oldest first, each holding the named mods.
+	writeSessions := func(t *testing.T, cfg string, sessions [][]string) []string {
+		t.Helper()
+		base := time.Now().Add(-time.Hour)
+		var dirs []string
+		for i, mods := range sessions {
+			dir := filepath.Join(cfg, claudeSessionModsDir, fmt.Sprintf("session-%03d", i))
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range mods {
+				for rel, body := range mod(name) {
+					mustWrite(t, filepath.Join(dir, name, filepath.FromSlash(rel)), body)
+				}
+			}
+			stamp := base.Add(time.Duration(i) * time.Second)
+			if err := os.Chtimes(dir, stamp, stamp); err != nil {
+				t.Fatal(err)
+			}
+			dirs = append(dirs, dir)
+		}
+		return dirs
+	}
+	t.Run("identity and order", func(t *testing.T) {
+		home := mustTempDir(t)
+		a := newClaudeDirAdapter(t, home, `{"enabledPlugins":{"stale-mod@inline":false}}`)
+		dirs := writeSessions(t, a.configRoot, [][]string{{"git-branch", "stale-mod"}, {"git-branch"}})
+		mustWrite(t, filepath.Join(a.configRoot, claudeSessionModsDir, ".hidden", "x", "hooks", "hooks.json"), "{}")
+		mustWrite(t, filepath.Join(dirs[1], "notes", "readme.md"), "x")
+		// Claude Code loads only children with a manifest from a session folder.
+		mustWrite(t, filepath.Join(dirs[1], "noman", "hooks", "hooks.json"), `{"modules":["./mod.mjs"]}`)
+		a.sessionModPlugins()
+		got := a.s.finalizePluginScan([]*model.AgentPluginContext{a.c}).Contexts[0]
+		var ids []string
+		instances := map[string]bool{}
+		for _, p := range got.Plugins {
+			ids = append(ids, p.NativeID+"="+p.InstallPath)
+			instances[p.InstanceID] = true
+			if p.InstallationEvidence != model.PluginEvidenceLocalConfig || p.Installed != nil || p.Scope != model.PluginScopeUser || p.ComponentStatus != model.AgentScanStatusComplete {
+				t.Errorf("session mod %s = %+v", p.NativeID, p)
+			}
+			if (p.NativeID == "stale-mod@inline") != (p.ConfiguredEnabled != nil && !*p.ConfiguredEnabled) {
+				t.Errorf("session mod %s configured_enabled = %v", p.NativeID, p.ConfiguredEnabled)
+			}
+			if len(p.Components) != 1 || len(p.Components[0].Modules) != 1 || p.Components[0].Modules[0].Status != model.AgentScanStatusComplete {
+				t.Errorf("session mod %s components = %+v", p.NativeID, p.Components)
+			}
+		}
+		want := []string{
+			"git-branch@inline=" + filepath.Join(dirs[0], "git-branch"),
+			"git-branch@inline=" + filepath.Join(dirs[1], "git-branch"),
+			"stale-mod@inline=" + filepath.Join(dirs[0], "stale-mod"),
+		}
+		if !slices.Equal(ids, want) || len(instances) != 3 {
+			t.Fatalf("plugins = %v (%d instances), want %v", ids, len(instances), want)
+		}
+		if len(got.Errors) != 0 || got.InstallationStatus != model.AgentScanStatusComplete {
+			t.Fatalf("context = %s %+v", got.InstallationStatus, got.Errors)
+		}
+	})
+	t.Run("session folder also listed in plugin dirs", func(t *testing.T) {
+		home := mustTempDir(t)
+		session := filepath.Join(home, ".claude", claudeSessionModsDir, "session-000")
+		a := newClaudeDirAdapter(t, home, `{"env":{"CLAUDE_CODE_PLUGIN_DIRS":`+strconv.Quote(session)+`}}`)
+		writeSessions(t, a.configRoot, [][]string{{"git-branch"}})
+		a.pluginDirPlugins()
+		a.sessionModPlugins()
+		if len(a.c.Plugins) != 1 || a.c.Plugins[0].Installed == nil || !*a.c.Plugins[0].Installed {
+			t.Fatalf("plugins = %+v, want one installed git-branch@inline", a.c.Plugins)
+		}
+		if len(a.c.Errors) != 0 || a.c.InstallationStatus != model.AgentScanStatusComplete {
+			t.Fatalf("context = %s %+v", a.c.InstallationStatus, a.c.Errors)
+		}
+	})
+	caps := []struct {
+		name     string
+		sessions func() [][]string
+		want     int
+		oldest   int // mods kept from the oldest session
+	}{
+		{name: "mods capped from the newest sessions", want: maxSessionMods, oldest: maxSessionMods - 4*11, sessions: func() [][]string {
+			var out [][]string
+			for i := range 5 {
+				var mods []string
+				for j := range 11 {
+					mods = append(mods, fmt.Sprintf("mod-%d-%02d", i, j))
+				}
+				out = append(out, mods)
+			}
+			return out
+		}},
+		{name: "only the newest session folders", want: 0, sessions: func() [][]string {
+			out := make([][]string, maxSessionModDirs+5)
+			for i := range 5 {
+				out[i] = []string{fmt.Sprintf("old-%d", i)}
+			}
+			return out
+		}},
+	}
+	for _, tc := range caps {
+		t.Run(tc.name, func(t *testing.T) {
+			home := mustTempDir(t)
+			a := newClaudeDirAdapter(t, home, `{}`)
+			writeSessions(t, a.configRoot, tc.sessions())
+			a.sessionModPlugins()
+			if len(a.c.Plugins) != tc.want {
+				t.Fatalf("plugins = %d, want %d", len(a.c.Plugins), tc.want)
+			}
+			oldest := 0
+			for _, p := range a.c.Plugins {
+				if strings.Contains(p.InstallPath, "session-000") {
+					oldest++
+				}
+			}
+			if oldest != tc.oldest {
+				t.Fatalf("oldest session kept %d mods, want %d", oldest, tc.oldest)
+			}
+			root := filepath.Join(a.configRoot, claudeSessionModsDir)
+			if len(a.c.Errors) != 1 || a.c.Errors[0].Code != model.AgentScanErrLimitExceeded || a.c.Errors[0].SourcePath != root || a.c.InstallationStatus != model.AgentScanStatusPartial {
+				t.Fatalf("context = %s %+v", a.c.InstallationStatus, a.c.Errors)
+			}
+		})
+	}
+}
+
+func TestClaudeDirectoryPluginsDeterministic(t *testing.T) {
+	home := mustTempDir(t)
+	cfg := filepath.Join(home, ".claude")
+	for _, session := range []string{"session-a", "session-b"} {
+		mustWrite(t, filepath.Join(cfg, claudeSessionModsDir, session, "git-branch", ".claude-plugin", "plugin.json"), `{"name":"git-branch"}`)
+		mustWrite(t, filepath.Join(cfg, claudeSessionModsDir, session, "git-branch", "hooks", "hooks.json"), `{"modules":["./mod.mjs"]}`)
+		mustWrite(t, filepath.Join(cfg, claudeSessionModsDir, session, "git-branch", "hooks", "mod.mjs"), "export {}")
+	}
+	mustWrite(t, filepath.Join(home, "mods", "alpha", ".claude-plugin", "plugin.json"), `{"name":"alpha"}`)
+	var runs []string
+	for range 2 {
+		a := newClaudeDirAdapter(t, home, `{"env":{"CLAUDE_CODE_PLUGIN_DIRS":"~/mods/alpha"}}`)
+		a.pluginDirPlugins()
+		a.sessionModPlugins()
+		out, err := json.Marshal(a.s.finalizePluginScan([]*model.AgentPluginContext{a.c}).Contexts[0].Plugins)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runs = append(runs, string(out))
+	}
+	if runs[0] != runs[1] || strings.Count(runs[0], `"native_id"`) != 3 {
+		t.Fatalf("runs differ or miss plugins:\n%s\n%s", runs[0], runs[1])
+	}
+}
+
+func mustTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// newClaudeDirAdapter is a Claude adapter over the real filesystem with only
+// the user settings layer read.
+func newClaudeDirAdapter(t *testing.T, home, settings string) *claudeAdapter {
+	t.Helper()
+	cfg := filepath.Join(home, ".claude")
+	mustWrite(t, filepath.Join(cfg, "settings.json"), settings)
+	definitions := 0
+	s := &pluginScan{d: NewSkillsDetector(executor.NewReal()), ctx: context.Background(), home: home, goos: runtime.GOOS, now: time.UnixMilli(1700000000000), definitions: &definitions, memo: map[string]*skillScan{}, evidence: newPluginEvidence()}
+	a := &claudeAdapter{s: s, gd: s.guarded(cfg), configRoot: cfg, c: s.newContext(model.AgentClaudeCode, cfg, filepath.Join(cfg, "plugins"))}
+	a.layers = []claudeSettingsLayer{a.readSettings(filepath.Join(cfg, "settings.json"), model.PluginScopeUser, "")}
+	return a
 }

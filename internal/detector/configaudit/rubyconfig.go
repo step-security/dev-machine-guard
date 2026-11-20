@@ -763,7 +763,15 @@ func rubyBundlerLine(line string) (key, value string, ok bool) {
 	if end < 0 {
 		end = len(rest)
 	}
-	colon := -1
+	key, colon := "", -1
+	// Bundler 4.1 and later write a key holding ":" in double quotes and load
+	// it without them; an older Bundler keeps the quotes and ignores the
+	// setting. Read it as the Bundler that wrote it. A key with an escape
+	// falls through to the scan below and stays unsupported.
+	if inner, after, found := strings.Cut(strings.TrimPrefix(rest, `"`), `"`); strings.HasPrefix(rest, `"`) && found && inner != "" &&
+		!strings.Contains(inner, `\`) && strings.HasPrefix(after, ":") && (len(after) == 1 || after[1] == ' ' || after[1] == '\t') {
+		key, colon = inner, len(inner)+2
+	}
 	for i := end - 1; i > 0 && colon < 0; i-- {
 		if rest[i] == ':' && (i+1 == len(rest) || strings.IndexByte(" \t\r\n\f\v", rest[i+1]) >= 0) {
 			colon = i
@@ -783,7 +791,10 @@ func rubyBundlerLine(line string) (key, value string, ok bool) {
 	if !quoted && value == "" {
 		return "", "", false
 	}
-	return rest[:colon], value, true
+	if key == "" {
+		key = rest[:colon]
+	}
+	return key, value, true
 }
 
 // rubyBundleDecode applies Bundler's key unescaping in upstream order.
