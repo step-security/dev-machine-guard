@@ -50,6 +50,10 @@ The ten rules that matter most. The rest of the doc expands on these.
 
 ---
 
+### Developer-facing data commands
+
+Register each new developer data command through `internal/devcli.Command`. Declare its sections and effects in the descriptor. Return a typed result with explicit JSON fields and a terminal renderer. The shared dispatcher must serve every section and command discovery with `--json`, without prompts, a pager, or diagnostics on stdout. Keep unavailable sources distinguishable from a successful query with zero results. Treat machine-local and relayed strings as untrusted terminal text.
+
 ## 1. Project shape & where code goes
 
 - **Module:** `github.com/step-security/dev-machine-guard`, **Go 1.26** (pinned in `go.mod` and

@@ -20,6 +20,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/cli"
 	"github.com/step-security/dev-machine-guard/internal/config"
 	"github.com/step-security/dev-machine-guard/internal/detector/configaudit"
+	"github.com/step-security/dev-machine-guard/internal/devcli"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/devicepolicy"
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -43,62 +44,7 @@ import (
 	"github.com/step-security/dev-machine-guard/internal/wslguest"
 )
 
-// auditSkipper builds the TCC skipper for the focused *Only audits from the
-// same two toggles the full scan uses (protected dirs, network volumes), so
-// they don't accidentally prompt the user on macOS. Mirrors scan.Run /
-// telemetry.Run; nil when neither class has anything to skip.
-func auditSkipper(exec executor.Executor, cfg *cli.Config) *tcc.Skipper {
-	return tcc.ForRun(executor.ResolveHome(exec), cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes)
-}
-
-// hookReconcileTimeout caps the entire reconcile step (fetch + cache
-// write + install/uninstall). Generous because install can chown a
-// handful of files under root; the actual GET cost is bounded by
-// state.DefaultFetchTimeout.
-const hookReconcileTimeout = 30 * time.Second
-
-func main() {
-	// Hook hot path. Agents invoke `_hook` on every event and any non-zero
-	// exit is treated as a hook failure / block — so we MUST exit 0 even on
-	// malformed args. Skip every line below this branch (CLI parsing,
-	// executor construction, logger setup) to keep the runtime budget
-	// realistic; the 15s hook cap has to absorb identity probes and a 5s
-	// upload, every millisecond here is dead weight. RunHook owns its own
-	// minimal config.Load (just enough for the upload gate) so this branch
-	// stays free of the rest of main's setup work.
-	if len(os.Args) >= 2 && os.Args[1] == "_hook" {
-		// Gated: silently no-op so any pre-existing hook entry that points
-		// at this binary stays harmless until the feature ships. Override
-		// flows in via STEPSECURITY_OVERRIDE_GATE since Parse hasn't run.
-		if !featuregate.IsEnabled(featuregate.FeatureAIAgentHooks) {
-			os.Exit(0)
-		}
-		os.Exit(aiagentscli.RunHook(os.Stdin, os.Stdout, os.Stderr, os.Args[2:]))
-	}
-
-	// agent.prestart fault checkpoint and the Windows self-update verbs
-	// (self-update --system, self-check); they exit here.
-	runEarlyVerbs(os.Args[1:])
-
-	// Load persisted config (config.json; config.readConfigDir documents where
-	// it is looked up) before parsing CLI
-	// --config must be honoured before Load(), which runs ahead of flag
-	// parsing and keeps the first values it reads.
-	if p := cli.ConfigPathFromArgs(os.Args[1:]); p != "" {
-		config.SetFileOverride(p)
-	}
-	config.Load()
-
-	cfg, err := cli.Parse(os.Args[1:])
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-		os.Exit(1)
-	}
-
-	if cfg.OverrideGate {
-		featuregate.EnableOverride()
-	}
-
+func applyScanConfig(cfg *cli.Config) {
 	// Apply saved config values if CLI didn't explicitly override them.
 	// CLI flags always win over config file values (same as the shell script).
 	if !cfg.SearchDirsSet && len(config.SearchDirs) > 0 && len(cfg.SearchDirs) == 1 && cfg.SearchDirs[0] == "$HOME" {
@@ -132,6 +78,105 @@ func main() {
 	if cfg.IncludeNetworkVolumes == nil && config.IncludeNetworkVolumes != nil {
 		cfg.IncludeNetworkVolumes = config.IncludeNetworkVolumes
 	}
+}
+
+func runDeveloperCommand(command devcli.Command, args []string) error {
+	opts, err := devcli.Parse(command.Describe(), args)
+	if err != nil {
+		return err
+	}
+	settings := func() (*cli.Config, error) {
+		cfg, err := cli.Parse(nil)
+		if err != nil {
+			return nil, err
+		}
+		config.Load()
+		if err := config.LoadError(); err != nil {
+			return cfg, err
+		}
+		applyScanConfig(cfg)
+		return cfg, nil
+	}
+	view := devcli.TerminalView()
+	render := func(w io.Writer) error {
+		return devcli.Run(context.Background(), command, opts, executor.NewReal(), settings, w, view)
+	}
+	if opts.JSON || opts.NoPager || opts.Help || opts.Overview() {
+		return render(os.Stdout)
+	}
+	return devcli.Page(render)
+}
+
+// auditSkipper builds the TCC skipper for the focused *Only audits from the
+// same two toggles the full scan uses (protected dirs, network volumes), so
+// they don't accidentally prompt the user on macOS. Mirrors scan.Run /
+// telemetry.Run; nil when neither class has anything to skip.
+func auditSkipper(exec executor.Executor, cfg *cli.Config) *tcc.Skipper {
+	return tcc.ForRun(executor.ResolveHome(exec), cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes)
+}
+
+// hookReconcileTimeout caps the entire reconcile step (fetch + cache
+// write + install/uninstall). Generous because install can chown a
+// handful of files under root; the actual GET cost is bounded by
+// state.DefaultFetchTimeout.
+const hookReconcileTimeout = 30 * time.Second
+
+func main() {
+	handleAlias()
+
+	// Hook hot path. Agents invoke `_hook` on every event and any non-zero
+	// exit is treated as a hook failure / block — so we MUST exit 0 even on
+	// malformed args. Skip every line below this branch (CLI parsing,
+	// executor construction, logger setup) to keep the runtime budget
+	// realistic; the 15s hook cap has to absorb identity probes and a 5s
+	// upload, every millisecond here is dead weight. RunHook owns its own
+	// minimal config.Load (just enough for the upload gate) so this branch
+	// stays free of the rest of main's setup work.
+	if len(os.Args) >= 2 && os.Args[1] == "_hook" {
+		// Gated: silently no-op so any pre-existing hook entry that points
+		// at this binary stays harmless until the feature ships. Override
+		// flows in via STEPSECURITY_OVERRIDE_GATE since Parse hasn't run.
+		if !featuregate.IsEnabled(featuregate.FeatureAIAgentHooks) {
+			os.Exit(0)
+		}
+		os.Exit(aiagentscli.RunHook(os.Stdin, os.Stdout, os.Stderr, os.Args[2:]))
+	}
+
+	// Developer data commands bypass scheduled-run setup, log rotation and telemetry.
+	if len(os.Args) > 1 {
+		if command := devcli.Lookup(os.Args[1]); command != nil {
+			if err := runDeveloperCommand(command, os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
+		}
+	}
+
+	// agent.prestart fault checkpoint and the Windows self-update verbs
+	// (self-update --system, self-check); they exit here.
+	runEarlyVerbs(os.Args[1:])
+
+	// Load persisted config (config.json; config.readConfigDir documents where
+	// it is looked up) before parsing CLI
+	// --config must be honoured before Load(), which runs ahead of flag
+	// parsing and keeps the first values it reads.
+	if p := cli.ConfigPathFromArgs(os.Args[1:]); p != "" {
+		config.SetFileOverride(p)
+	}
+	config.Load()
+
+	cfg, err := cli.Parse(os.Args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		os.Exit(1)
+	}
+
+	if cfg.OverrideGate {
+		featuregate.EnableOverride()
+	}
+
+	applyScanConfig(cfg)
 	if cfg.ColorMode == "auto" && config.ColorMode != "" {
 		cfg.ColorMode = config.ColorMode
 	}

@@ -264,6 +264,13 @@ jobs:
 
           # 1. Layout: bootstrap + seed; the legacy top-level agent/launcher are gone.
           Check (Test-Path $boot) "bootstrap present"
+          $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          $env:Path = "$machinePath;$([Environment]::GetEnvironmentVariable('Path', 'User'))"
+          Check ((Get-Command dmg.exe).Source -eq "$root\dmg.exe") "dmg resolves from a fresh PATH"
+          $capabilities = & dmg.exe findings --help --json | ConvertFrom-Json
+          Check ($LASTEXITCODE -eq 0 -and $capabilities.sections -contains 'inventory') "foreground CLI describes its data sections"
+          $feed = & dmg.exe findings alerts --json | ConvertFrom-Json
+          Check ($LASTEXITCODE -eq 0 -and $feed.alerts.status -eq 'unavailable') "foreground CLI streams alert coverage as JSON"
           Check (UsableDir $seed) "seed\$ver has the agent, launcher and dmg-linux"
           Check (-not (Test-Path "$root\stepsecurity-dev-machine-guard.exe")) "no top-level agent"
           Check (-not (Test-Path "$root\stepsecurity-dev-machine-guard-task.exe")) "no top-level launcher"

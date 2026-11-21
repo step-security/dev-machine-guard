@@ -66,6 +66,7 @@ func (l Level) String() string {
 //	✓ label (Xms)                            — step done (info+)
 //	○ label (skipped)                        — step skipped (info+)
 type Logger struct {
+	stages  Stages
 	level   Level
 	spinner *spinner
 }
@@ -78,6 +79,17 @@ func NewLogger(level Level) *Logger {
 // NewNoop returns a Logger that suppresses all output, including errors.
 func NewNoop() *Logger {
 	return &Logger{level: levelOff}
+}
+
+// Stages observes public collector milestones without receiving diagnostic logs.
+type Stages interface {
+	StepStart(string)
+	StepDone(time.Duration)
+	StepSkip(string)
+}
+
+func NewStageLogger(stages Stages) *Logger {
+	return &Logger{level: levelOff, stages: stages}
 }
 
 // Level returns the logger's current level.
@@ -126,6 +138,10 @@ func (l *Logger) Debug(format string, args ...any) {
 
 // StepStart begins a labeled progress step with a spinner.
 func (l *Logger) StepStart(label string) {
+	if l.stages != nil {
+		l.stages.StepStart(label)
+		return
+	}
 	if l.level < LevelInfo {
 		return
 	}
@@ -135,6 +151,10 @@ func (l *Logger) StepStart(label string) {
 
 // StepDone completes the current step, showing elapsed time.
 func (l *Logger) StepDone(elapsed time.Duration) {
+	if l.stages != nil {
+		l.stages.StepDone(elapsed)
+		return
+	}
 	if l.level < LevelInfo || l.spinner == nil {
 		return
 	}
@@ -144,6 +164,10 @@ func (l *Logger) StepDone(elapsed time.Duration) {
 
 // StepSkip marks the current step as skipped.
 func (l *Logger) StepSkip(reason string) {
+	if l.stages != nil {
+		l.stages.StepSkip(reason)
+		return
+	}
 	if l.level < LevelInfo || l.spinner == nil {
 		return
 	}

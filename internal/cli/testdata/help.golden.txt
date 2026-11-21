@@ -8,6 +8,7 @@ Commands:
   install              Install scheduled scanning (enterprise)
   uninstall            Remove scheduled scanning (enterprise)
   send-telemetry       Upload scan results to the StepSecurity dashboard (enterprise)
+  findings             See what is on this machine and what needs attention (--json for agents)
   identity             Show the device identity this machine reports under (--json for one object)
   hooks                Install/uninstall AI coding agent hooks (run 'BINARY hooks --help')
 

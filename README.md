@@ -113,6 +113,35 @@ Requires Go 1.26+. The binary has zero external dependencies.
 stepsecurity-dev-machine-guard [COMMAND] [OPTIONS]
 ```
 
+### Developer findings
+
+From any directory on a machine with the CLI installed:
+
+```sh
+dmg findings                        # one-screen overview
+dmg findings mcp                    # everything in one area
+dmg findings search lodash@4.17     # where a package, extension or server is installed
+dmg findings --json                 # the same data for scripts and agents
+```
+
+The overview opens with **Needs attention**, then one line per area with a count. Attention items are the same signals the StepSecurity dashboard shows an admin for the device:
+
+- plaintext credential files that are tracked in git or readable by other accounts (locations and counts, never values)
+- enabled browser extensions that their store delisted or flagged, or that were installed outside a store
+- agent skills that run shell commands when they load
+- deprecated Homebrew packages
+- a browser-extension or credential check that did not finish
+
+Areas: `agents`, `mcp`, `skills`, `plugins`, `extensions`, `browser`, `credentials`, `projects`, `packages`, `runtimes`, `alerts`. Packages are listed once per name and version with every place they are installed, and projects with an identical package set (git worktrees, for example) share one row. An area that is turned off, unsupported or incomplete says so instead of showing zero. `alerts` reports `unavailable` until StepSecurity provides an authenticated feed for the device.
+
+A scan can take a minute on a large home directory, so the overview, areas and searches reuse one scan for 15 minutes. Every view shows the scan's age; `--refresh` scans again. The scan is kept in a file only you can read in your cache directory, and it is the only thing the command writes. Nothing is uploaded, including on enterprise-configured machines.
+
+On macOS the scan leaves privacy-protected folders such as Documents, Downloads and browser profiles alone. `--include-protected` reads them too, and macOS may ask you to allow it.
+
+Long tables open in `less` when it is available (`q` quits, `/` searches); `--no-pager` prints them directly. Pipes and `--json` get plain output with no colour. `NO_COLOR` is honoured.
+
+Linux packages and the Windows MSI provision the short name. Updated managed loaders provision it on installation. On Unix they link the installed agent into `~/.local/bin` and add that directory to the user's shell startup if needed. Open a fresh terminal after installation. For a standalone download, save the binary as `dmg` (Windows: `dmg.exe`) in a directory already on your PATH. If the short name is taken, use `stepsecurity-dev-machine-guard findings`.
+
 ### Commands
 
 | Command          | Description                                                     |

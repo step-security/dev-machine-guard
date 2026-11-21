@@ -89,6 +89,9 @@ nfpms:
     ids:
       - stepsecurity-dev-machine-guard
     bindir: /usr/local/bin
+    scripts:
+      postinstall: packaging/linux/postinstall.sh
+      postremove: packaging/linux/postremove.sh
     file_name_template: "stepsecurity-dev-machine-guard-{{ .Version }}-{{ .Arch }}"
 
 release:

@@ -85,6 +85,12 @@ HELP_OUTPUT=$("$BINARY" --help 2>&1) || HELP_RC=$?
 assert_eq "--help exits 0" "0" "$HELP_RC"
 assert_contains "--help shows usage" "$HELP_OUTPUT" "Usage:"
 
+if python3 tests/test_findings_terminal.py "$BINARY"; then
+    pass "Interactive findings shows progress before reading scan settings"
+else
+    fail "Interactive findings shows progress before reading scan settings"
+fi
+
 VERSION_RC=0
 VERSION_OUTPUT=$("$BINARY" --version 2>&1) || VERSION_RC=$?
 assert_eq "--version exits 0" "0" "$VERSION_RC"
