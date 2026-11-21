@@ -113,6 +113,18 @@
          Customers manage via SCCM, not via the user-facing ARP. -->
     <Property Id="ARPNOMODIFY" Value="1"/>
 
+    <!-- Leave an unrelated dmg.exe in the install folder alone. The marker
+         lets a major upgrade replace the component it previously installed. -->
+    <Property Id="DMG_CLI_PRESENT" Secure="yes">
+      <DirectorySearch Id="SearchDeveloperCLIDirectory" Path="[ProgramFiles64Folder]StepSecurity" Depth="0">
+        <FileSearch Id="SearchDeveloperCLIFile" Name="dmg.exe"/>
+      </DirectorySearch>
+    </Property>
+    <Property Id="DMG_CLI_OWNED" Secure="yes">
+      <RegistrySearch Id="SearchDeveloperCLIOwner" Root="HKLM" Key="Software\StepSecurity"
+                      Name="DeveloperCLIInstalled" Type="raw" Bitness="always64"/>
+    </Property>
+
     <!-- File payload. The bootstrap is a second copy of the GUI-subsystem
          launcher; under its file name it runs in bootstrap mode, resolving
          state.json to versions\<v>\ (falling back to the seed). The seed is
@@ -123,6 +135,12 @@
          internal/telemetry/wsl_scan.go). -->
     <StandardDirectory Id="$(var.ProgramFiles)">
       <Directory Id="INSTALLFOLDER" Name="StepSecurity">
+        <Component Id="DeveloperCLI" Bitness="always64" Condition="NOT DMG_CLI_PRESENT OR DMG_CLI_OWNED">
+          <File Id="DMGDeveloperCLI" Source="$(var.BinaryPath)" Name="dmg.exe" KeyPath="yes"/>
+          <RegistryValue Root="HKLM" Key="Software\StepSecurity" Name="DeveloperCLIInstalled" Type="integer" Value="1"/>
+          <Environment Id="DeveloperCLIPath" Name="PATH" Value="[INSTALLFOLDER]"
+                       Action="set" Part="last" System="yes"/>
+        </Component>
         <Component Id="BootstrapBinary" Bitness="always64">
           <File Id="DMGBootstrap"
                 Source="$(var.LauncherPath)"
@@ -178,6 +196,7 @@
     <Property Id="REBOOT" Value="ReallySuppress"/>
 
     <Feature Id="Main" Title="Dev Machine Guard" Level="1">
+      <ComponentRef Id="DeveloperCLI"/>
       <ComponentRef Id="BootstrapBinary"/>
       <ComponentRef Id="SeedAgent"/>
       <ComponentRef Id="SeedLauncher"/>

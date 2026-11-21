@@ -60,15 +60,7 @@ func Gather(ctx context.Context, exec executor.Executor) model.Device {
 		userIdentity = config.UserID
 	}
 
-	var osVersion string
-	switch platform {
-	case model.PlatformWindows:
-		osVersion = getOSVersionWindows(ctx, exec)
-	case model.PlatformDarwin:
-		osVersion = getOSVersion(ctx, exec)
-	default: // linux and other unix
-		osVersion = getOSVersionLinux(ctx, exec)
-	}
+	osVersion := OSVersion(ctx, exec)
 
 	dev := model.Device{
 		Hostname:       hostname,
@@ -257,6 +249,18 @@ func getSerialNumber(ctx context.Context, exec executor.Executor) string {
 	}
 
 	return "unknown"
+}
+
+// OSVersion reports the operating system version without gathering identity.
+func OSVersion(ctx context.Context, exec executor.Executor) string {
+	switch exec.GOOS() {
+	case model.PlatformWindows:
+		return getOSVersionWindows(ctx, exec)
+	case model.PlatformDarwin:
+		return getOSVersion(ctx, exec)
+	default: // linux and other unix
+		return getOSVersionLinux(ctx, exec)
+	}
 }
 
 func getOSVersion(ctx context.Context, exec executor.Executor) string {
