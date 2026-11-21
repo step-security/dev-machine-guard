@@ -85,8 +85,7 @@ func developerView(r *model.ScanResult, servers []model.MCPConfigEnterprise, cfg
 			agentsArea(r), mcpArea(r, servers), skillsArea(r), pluginsArea(r),
 			extensionsArea(r), browserArea(r), credentialsArea(r),
 			projectsArea(r, cfg), packagesArea(r, cfg, platform), runtimesArea(r, cfg),
-			{ID: "alerts", Title: "Threat alerts", Status: model.AreaUnavailable, Items: []model.ReportItem{},
-				StatusNote: "alerts go to your organization's channels; this device has no local feed yet"},
+			AlertsArea(),
 		},
 	}
 	for i := range rep.Areas {
@@ -94,6 +93,13 @@ func developerView(r *model.ScanResult, servers []model.MCPConfigEnterprise, cfg
 	}
 	rep.Attention = attention(rep.Areas)
 	return rep
+}
+
+// AlertsArea reports the relayed threat-alert feed, which no device has yet.
+// It needs no scan.
+func AlertsArea() model.ReportArea {
+	return model.ReportArea{ID: "alerts", Title: "Threat alerts", Status: model.AreaUnavailable, Items: []model.ReportItem{},
+		StatusNote: "alerts go to your organization's channels; this device has no local feed yet"}
 }
 
 func newArea(id, title string) model.ReportArea {

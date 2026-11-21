@@ -194,3 +194,26 @@ func TestCacheReuse(t *testing.T) {
 		t.Error("changed settings reused the scan")
 	}
 }
+
+// The alert feed needs no scan, so it must answer without settings or collectors.
+func TestAlertsWithoutScan(t *testing.T) {
+	for _, args := range [][]string{{"alerts", "--json"}, {"--json", "alerts"}} {
+		cmd := Lookup("findings")
+		opts, err := Parse(cmd.Describe(), args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var b bytes.Buffer
+		if err := Run(context.Background(), cmd, opts, nil, nil, &b, View{}); err != nil {
+			t.Fatal(err)
+		}
+		var r model.DeveloperReport
+		if err := json.Unmarshal(b.Bytes(), &r); err != nil || len(r.Areas) != 1 || r.Areas[0].ID != "alerts" || r.Areas[0].Status != model.AreaUnavailable {
+			t.Fatalf("unexpected report: %s, %v", b.String(), err)
+		}
+	}
+	out := render(t, findingsResult{section: "alerts", report: &model.DeveloperReport{Areas: []model.ReportArea{{ID: "alerts", Title: "Threat alerts", Status: model.AreaUnavailable, StatusNote: "no local feed", Items: []model.ReportItem{}}}}}, View{})
+	if !strings.Contains(out, "Not checked: no local feed") {
+		t.Fatalf("alerts view:\n%s", out)
+	}
+}

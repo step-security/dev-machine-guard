@@ -117,7 +117,7 @@ func appendPath(root *os.Root, profile, line string) error {
 	if !info.Mode().IsRegular() {
 		return errors.New("shell profile is not a regular file")
 	}
-	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX); err != nil {
+	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX); err != nil { // #nosec G115 -- a file descriptor fits in int
 		return err
 	}
 	const maxProfileBytes = 4 << 20

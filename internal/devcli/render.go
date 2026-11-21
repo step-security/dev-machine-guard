@@ -269,7 +269,9 @@ func (p *printer) area(rep model.DeveloperReport) {
 		head += " · " + p.tidy(a.Summary)
 	}
 	p.line(head)
-	p.line(p.paint(dim, p.age(rep)))
+	if age := p.age(rep); age != "" {
+		p.line(p.paint(dim, age))
+	}
 	switch {
 	case a.Status == model.AreaPartial:
 		p.line(p.paint(yellow, "Incomplete: "+p.tidy(a.StatusNote)))

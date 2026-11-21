@@ -23,7 +23,7 @@ func pageBuffer(path string, b *bytes.Buffer) error {
 }
 
 func terminalRows(f *os.File) int {
-	size, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ)
+	size, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ) // #nosec G115 -- a file descriptor fits in int
 	if err != nil {
 		return 0
 	}
@@ -34,7 +34,7 @@ func terminalRows(f *os.File) int {
 func enableVT(*os.File) bool { return true }
 
 func terminalWidth(f *os.File) (int, bool) {
-	size, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ)
+	size, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ) // #nosec G115 -- a file descriptor fits in int
 	if err != nil {
 		return 0, false
 	}

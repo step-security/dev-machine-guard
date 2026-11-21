@@ -21,6 +21,10 @@ func (Findings) Describe() Descriptor {
 }
 
 func (Findings) Query(ctx context.Context, exec executor.Executor, settings ScanConfig, opts Options, log *progress.Logger) (Result, error) {
+	if opts.Section == "alerts" {
+		return findingsResult{section: opts.Section, report: &model.DeveloperReport{SchemaVersion: model.DeveloperReportSchemaVersion,
+			Attention: []model.AttentionItem{}, Areas: []model.ReportArea{scan.AlertsArea()}}}, nil
+	}
 	start := time.Now()
 	log.StepStart("Reading scan settings")
 	cfg, err := settings()
