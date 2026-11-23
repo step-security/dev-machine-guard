@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/bgpriority"
 	"github.com/step-security/dev-machine-guard/internal/buildinfo"
 	"github.com/step-security/dev-machine-guard/internal/cli"
 	"github.com/step-security/dev-machine-guard/internal/config"
@@ -428,6 +429,11 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// Defer Finalize immediately to ensure stderr is always restored,
 	// even on early returns (e.g., lock failure).
 	capture := StartCapture()
+	// Drop to background CPU/IO priority before the lock and the first phase
+	// so the whole scan, and every child process it spawns, stays out of the
+	// interactive user's way. After StartCapture so the line lands in the
+	// downloadable execution log. Community scan.Run stays foreground.
+	bgpriority.Apply(exec, log)
 	defer capture.Finalize()
 
 	// Fold THIS run's loader-script lines into the capture so the run-status log

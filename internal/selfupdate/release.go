@@ -1,10 +1,13 @@
-// Package selfupdate is the Windows MSI self-updater (`agent self-update
-// --system`, run by the SYSTEM update task through the bootstrap). It asks
+// Package selfupdate keeps an installed agent on the release its tenant
+// selects. On Windows it is the MSI self-updater (`agent self-update
+// --system`, run by the SYSTEM update task through the bootstrap): it asks
 // agent-api latest-binary for the tenant's target, verifies every artefact
 // (SSHSIG over the checksum before download, sha256 after, Authenticode
 // publisher), stages it as an immutable versions\<v> directory and switches
-// the state.json pointer the bootstrap reads. See internal/updatestate for
-// the on-disk contract.
+// the state.json pointer the bootstrap reads (see internal/updatestate for
+// the on-disk contract). On macOS and Linux, where the scheduler runs the
+// binary directly, the binary replaces itself at the start of a scheduled
+// run (unix.go).
 package selfupdate
 
 import (
@@ -194,6 +197,34 @@ func (c *Client) LatestFor(ctx context.Context, info CheckInfo) (*Release, error
 		{File: updatestate.LinuxFile, Remote: fmt.Sprintf("%s-%s-linux_%s", agentAssetBase, vs, c.Arch),
 			Checksum: strings.ToLower(win.LinuxChecksum), Signed: win.SignedLinuxChecksum},
 	}}, nil
+}
+
+// LatestForOS resolves the single-asset target of a macOS or Linux
+// latest-binary response: darwin ships one universal binary, linux one build
+// per arch. A missing checksum or signature is left empty for
+// VerifySignatures to reject before anything is downloaded.
+func (c *Client) LatestForOS(ctx context.Context, goos string, info CheckInfo) (*Release, error) {
+	var remote func(vs string) string
+	switch goos {
+	case "darwin":
+		remote = func(vs string) string { return agentAssetBase + "-" + vs + "-darwin" }
+	case "linux":
+		remote = func(vs string) string { return agentAssetBase + "-" + vs + "-linux_" + c.Arch }
+	default:
+		return nil, fmt.Errorf("%w: no self-update release asset for %s", ErrCheck, goos)
+	}
+	meta, err := c.fetch(ctx, goos, info)
+	if err != nil {
+		return nil, err
+	}
+	v, err := updatestate.ParseVersion(meta.Version)
+	if err != nil {
+		return nil, fmt.Errorf("%w: target %q is not a strict x.y.z release", ErrCheck, meta.Version)
+	}
+	return &Release{Version: v, Assets: []Asset{{
+		File: agentAssetBase, Remote: remote(v.String()),
+		Checksum: strings.ToLower(meta.Checksum), Signed: meta.SignedChecksum,
+	}}}, nil
 }
 
 func (c *Client) fetch(ctx context.Context, goos string, info CheckInfo) (*latestBinaryResponse, error) {

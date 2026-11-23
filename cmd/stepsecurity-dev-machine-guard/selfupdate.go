@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/step-security/dev-machine-guard/internal/cli"
+	"github.com/step-security/dev-machine-guard/internal/paths"
 	"io"
 	"os"
 	"path/filepath"
@@ -53,7 +55,7 @@ func runEarlyVerbs(args []string) {
 	case "self-update":
 		os.Exit(runSelfUpdate(args[1:]))
 	case "self-check":
-		os.Exit(runSelfCheck())
+		os.Exit(runSelfCheck(args[1:]))
 	}
 }
 
@@ -80,9 +82,34 @@ func selfCheckDeviceID(ctx context.Context, exec executor.Executor, system bool,
 	return device.ResolvedDeviceID(ctx, exec).DeviceID
 }
 
+// selfCheckOverrides reads the --config and --install-dir the updater's
+// smoke passes to a staged binary (the running install's own paths), so the
+// check loads the same configuration and state the scheduled run uses.
+// Nothing else is parsed: the self-check runs before the CLI parser.
+func selfCheckOverrides(args []string) (configPath, installDir string) {
+	configPath = cli.ConfigPathFromArgs(args)
+	for i, arg := range args {
+		switch {
+		case strings.HasPrefix(arg, "--install-dir="):
+			installDir = strings.TrimPrefix(arg, "--install-dir=")
+		case arg == "--install-dir" && i+1 < len(args):
+			installDir = args[i+1]
+		}
+	}
+	return configPath, installDir
+}
+
 // runSelfCheck is `agent self-check`: the S5 smoke test run by the updater
 // against a staged version. It always exits 0 once it can print.
-func runSelfCheck() int {
+func runSelfCheck(args []string) int {
+	if configPath, installDir := selfCheckOverrides(args); configPath != "" || installDir != "" {
+		if configPath != "" {
+			config.SetFileOverride(configPath)
+		}
+		if installDir != "" {
+			paths.SetOverride(installDir)
+		}
+	}
 	config.Load()
 	sc := selfupdate.SelfCheck{
 		Version:  buildinfo.Version,
