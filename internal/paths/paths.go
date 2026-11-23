@@ -18,10 +18,10 @@
 // the operator to re-run `install`. The env var stays as a defensive
 // fallback for the rare case where config.json is unreadable.
 //
-// config.json itself stays at the legacy location regardless — see
-// internal/config.LegacyDir — so the agent can always bootstrap. All
-// other files (logs, hook errors, the binary placed by the loader) live
-// under Home().
+// config.json is looked up by internal/config (the legacy per-user file
+// first, then the binary's install tree) rather than under Home(), so the
+// agent can always bootstrap. All other files (logs, hook errors, the
+// binary placed by the loader) live under Home().
 package paths
 
 import (

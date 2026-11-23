@@ -79,6 +79,21 @@ func (f *fakeAPI) addRelease(v, arch string, agent, launcher, linux []byte) {
 	}
 }
 
+// addUnixRelease registers the single macOS (universal) or Linux (per arch)
+// agent asset of version v.
+func (f *fakeAPI) addUnixRelease(v, goos, arch string, agent []byte) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	remote := fmt.Sprintf("stepsecurity-dev-machine-guard-%s-darwin", v)
+	if goos == "linux" {
+		remote = fmt.Sprintf("stepsecurity-dev-machine-guard-%s-linux_%s", v, arch)
+	}
+	if f.releases[v] == nil {
+		f.releases[v] = map[string][]byte{}
+	}
+	f.releases[v][remote] = agent
+}
+
 func (f *fakeAPI) setTarget(v string) { f.mu.Lock(); f.target = v; f.mu.Unlock() }
 
 func sum(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
@@ -122,6 +137,10 @@ func (f *fakeAPI) latest(w http.ResponseWriter, r *http.Request) {
 		if !f.noLinuxFields {
 			resp["linux_checksum"], resp["signed_linux_checksum"] = f.assetFields(v, fmt.Sprintf("stepsecurity-dev-machine-guard-%s-linux_%s", v, arch))
 		}
+	case "darwin":
+		resp["checksum"], resp["signed_checksum"] = f.assetFields(v, fmt.Sprintf("stepsecurity-dev-machine-guard-%s-darwin", v))
+	case "linux":
+		resp["checksum"], resp["signed_checksum"] = f.assetFields(v, fmt.Sprintf("stepsecurity-dev-machine-guard-%s-linux_%s", v, arch))
 	default:
 		w.WriteHeader(http.StatusBadRequest)
 		return
