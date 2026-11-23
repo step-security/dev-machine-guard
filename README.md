@@ -265,7 +265,7 @@ Configuration (~/.stepsecurity/config.json):
   Log Level:               error
 ```
 
-Configuration is saved to `~/.stepsecurity/config.json` with `0600` permissions (owner read/write only).
+Configuration is saved to `~/.stepsecurity/config.json` with `0600` permissions (owner read/write only). When that file is absent, the agent also looks for a `config.json` beside its binary, or one level up when the binary sits in a `bin` directory, so a system-wide install under a custom directory carries its configuration with it.
 
 To label a device for the dashboard, add `"device_tag": "avd-pool-eu"` to the
 config JSON, pass `configure --device-tag avd-pool-eu`, or use the MSI
@@ -610,6 +610,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 - [Changelog](CHANGELOG.md)
 - [Scan Coverage](SCAN_COVERAGE.md) — full catalog of detections
 - [Release Process](docs/release-process.md) — how releases are signed and verified
+- [macOS and Linux self-update](docs/macos-linux-self-update.md) — how binary-scheduled installs keep themselves on the tenant's release
 - [Deploying via SCCM](docs/deploying-via-sccm.md) — Windows fleet rollout via Microsoft Configuration Manager (signed MSI, no PowerShell)
 - [macOS TCC Permissions](docs/macos-tcc-permissions.md) — how the agent handles Documents/Downloads/Mail TCC dirs and network volumes (container-runtime mounts), PPPC profile for MDM-pushed Full Disk Access and network-volume pre-approval, and the `include_tcc_protected` / `include_network_volumes` config fields
 - [macOS MDM packaging](packaging/macos/README.md) — ready-made PPPC `.mobileconfig` for fleet deployment
