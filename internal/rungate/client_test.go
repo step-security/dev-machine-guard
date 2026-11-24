@@ -28,8 +28,8 @@ func TestCheckinParsesDirectiveAndSendsParams(t *testing.T) {
 	if !d.ShouldSkip() || d.Reason != "not_due" || d.EffectiveIntervalMinutes != 240 || d.NextEligibleAt != 1753164400 {
 		t.Fatalf("directive = %+v", d)
 	}
-	if cred != nil {
-		t.Fatalf("credential setting = %v, want nil when the response omits it", *cred)
+	if cred.Scanning != nil {
+		t.Fatalf("credential setting = %v, want nil when the response omits it", *cred.Scanning)
 	}
 	if gotPath != "/v1/acme%20corp/developer-mdm-agent/run-config" && gotPath != "/v1/acme corp/developer-mdm-agent/run-config" {
 		t.Errorf("path = %q (customer id must be path-escaped)", gotPath)
@@ -131,8 +131,8 @@ func TestCheckinErrorPaths(t *testing.T) {
 			if err == nil {
 				t.Fatal("Checkin must error so the gate fails open")
 			}
-			if cred != nil {
-				t.Fatalf("credential setting = %v on error, want nil so the cache is kept", *cred)
+			if cred.Scanning != nil {
+				t.Fatalf("credential setting = %v on error, want nil so the cache is kept", *cred.Scanning)
 			}
 		})
 	}
@@ -166,8 +166,8 @@ func TestCheckinWithoutDirectiveIsNotAnError(t *testing.T) {
 			if d.Mode != "" {
 				t.Fatalf("directive = %+v, want zero", d)
 			}
-			if (cred == nil) != (tt.want == nil) || (cred != nil && *cred != *tt.want) {
-				t.Fatalf("credential setting = %v, want %v", deref(cred), deref(tt.want))
+			if (cred.Scanning == nil) != (tt.want == nil) || (cred.Scanning != nil && *cred.Scanning != *tt.want) {
+				t.Fatalf("credential setting = %v, want %v", deref(cred.Scanning), deref(tt.want))
 			}
 		})
 	}
@@ -205,8 +205,8 @@ func TestCheckinCredentialScanning(t *testing.T) {
 			if d.Mode != ModeFull {
 				t.Fatalf("directive = %+v, want the full directive alongside the setting", d)
 			}
-			if (cred == nil) != (tt.want == nil) || (cred != nil && *cred != *tt.want) {
-				t.Fatalf("credential setting = %v, want %v", deref(cred), deref(tt.want))
+			if (cred.Scanning == nil) != (tt.want == nil) || (cred.Scanning != nil && *cred.Scanning != *tt.want) {
+				t.Fatalf("credential setting = %v, want %v", deref(cred.Scanning), deref(tt.want))
 			}
 		})
 	}
@@ -279,8 +279,8 @@ func TestCheckinWSLNeedsDirective(t *testing.T) {
 			if d.Mode != "" || wsl.Enabled || wsl.Reason != "" {
 				t.Errorf("directive = %+v wsl = %+v, want both zero", d, wsl)
 			}
-			if cred == nil || *cred {
-				t.Errorf("cred = %v, want false", deref(cred))
+			if cred.Scanning == nil || *cred.Scanning {
+				t.Errorf("cred = %v, want false", deref(cred.Scanning))
 			}
 		})
 	}
@@ -326,5 +326,35 @@ func TestCheckin_SendsTheUserToken(t *testing.T) {
 	}
 	if len(got) != 2 || !strings.Contains(got[0], "user_token=jdoe-0123456789ab") || strings.Contains(got[1], "user_token") {
 		t.Fatalf("queries = %q, want the token on the first call only", got)
+	}
+}
+
+func TestCredentialSettingsLeavesAreIndependent(t *testing.T) {
+	for _, tt := range []struct {
+		name, body string
+		scanning   *bool
+		fragments  bool
+	}{
+		{"both enabled", `{"enabled":true,"collect_key_fragments":true}`, new(true), true},
+		{"scan disabled", `{"enabled":false,"collect_key_fragments":true}`, new(false), false},
+		{"malformed fragments", `{"enabled":false,"collect_key_fragments":"yes"}`, new(false), false},
+		{"missing scan permission", `{"collect_key_fragments":true}`, nil, false},
+		{"malformed scan permission", `{"enabled":"yes","collect_key_fragments":true}`, nil, false},
+		{"fragments omitted", `{"enabled":true}`, new(true), false},
+		{"fragments null", `{"enabled":true,"collect_key_fragments":null}`, new(true), false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`{"scanners":{"credentials":` + tt.body + `}}`))
+			}))
+			defer srv.Close()
+			_, _, got, _, err := Checkin(t.Context(), srv.URL, "synthetic-key", "test-org", "device", "", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (got.Scanning == nil) != (tt.scanning == nil) || (got.Scanning != nil && tt.scanning != nil && *got.Scanning != *tt.scanning) || got.KeyFragments != tt.fragments {
+				t.Fatalf("credential settings=%+v; expected scanning=%v fragments=%v", got, tt.scanning, tt.fragments)
+			}
+		})
 	}
 }

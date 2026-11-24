@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/detector/credentials"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/safepath"
 )
@@ -137,6 +138,10 @@ type SkillsResult struct {
 	usage          *skillUsageObservations
 	evidence       *pluginEvidence
 	pendingPlugins *pluginScan
+
+	// CredentialCandidates are the credential-bearing project files the
+	// project walk saw, for the credential inventory.
+	CredentialCandidates credentials.ProjectCandidates
 }
 
 // DetectPlugins collects plugin metadata using the discovery state in result.

@@ -367,6 +367,22 @@ func (r *Resolver) Read(path string, max int64) (data []byte, resolved string, i
 	return data, resolved, info, truncated, nil
 }
 
+// OpenReadOnly resolves path and returns the verified read-only handle with the
+// metadata taken from it, for a reader that needs random access rather than one
+// bounded read. The caller owns the handle and must close it. Nothing reopens the
+// path by name afterwards, so the bytes read are the bytes resolution approved.
+func (r *Resolver) OpenReadOnly(path string) (f *os.File, resolved string, info os.FileInfo, err error) {
+	resolved, err = r.Resolve(path)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	f, info, err = openVerified(resolved, false, r.noFollow)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	return f, resolved, info, nil
+}
+
 // ReadDirNames resolves path and returns at most max of its immediate entries,
 // reporting whether the directory held more. Non-recursive by construction: it
 // returns names, not paths, so a caller cannot accidentally descend. The bound is
