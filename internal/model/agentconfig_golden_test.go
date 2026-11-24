@@ -62,6 +62,11 @@ func TestAgentConfigGolden_CoversTheVocabulary(t *testing.T) {
 		}
 		for _, s := range a.Sources {
 			seen["scope:"+s.Scope], seen["channel:"+s.Channel], seen["state:"+s.State] = true, true, true
+			for _, set := range s.Settings {
+				if set.Value == "" && len(set.Values) == 0 {
+					seen["key only"] = true
+				}
+			}
 			for _, h := range s.Hooks {
 				seen["handler:"+h.HandlerType] = true
 			}
@@ -72,7 +77,7 @@ func TestAgentConfigGolden_CoversTheVocabulary(t *testing.T) {
 		"scope:" + AgentConfigScopeManaged, "scope:" + AgentConfigScopeUser, "scope:" + AgentConfigScopeProject,
 		"channel:" + AgentConfigChannelFile, "channel:" + AgentConfigChannelMacOSProfile, "channel:" + AgentConfigChannelWindowsRegistry,
 		"state:" + AgentConfigStateRead, "state:" + AgentConfigStateUnreadable,
-		"handler:command", "handler:http", "handler:prompt", "truncated", "no sources",
+		"handler:command", "handler:http", "handler:prompt", "truncated", "no sources", "key only",
 	} {
 		if !seen[want] {
 			t.Errorf("golden does not cover %s", want)

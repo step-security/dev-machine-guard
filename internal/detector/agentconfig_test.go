@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"howett.net/plist"
 
@@ -117,7 +118,7 @@ func wantSources(t *testing.T, a model.AgentConfig, want ...string) {
 	}
 }
 
-func TestAgentConfigClaudeSources(t *testing.T) {
+func TestAgentConfig_ClaudeSources(t *testing.T) {
 	f := newConfigFixture(model.PlatformDarwin)
 	project := filepath.Join(testHome, "repos", "widgets")
 	f.projects = []string{project}
@@ -177,7 +178,7 @@ func TestAgentConfigClaudeSources(t *testing.T) {
 	}
 }
 
-func TestAgentConfigCodexSources(t *testing.T) {
+func TestAgentConfig_CodexSources(t *testing.T) {
 	f := newConfigFixture(model.PlatformLinux)
 	project := filepath.Join(testHome, "repos", "widgets")
 	f.projects = []string{project}
@@ -235,7 +236,7 @@ command = "audit"
 	}
 }
 
-func TestAgentConfigCodexProfile(t *testing.T) {
+func TestAgentConfig_CodexProfile(t *testing.T) {
 	f := newConfigFixture(model.PlatformDarwin)
 	toml := "approval_policy = \"never\"\n[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ncommand = \"audit\"\n"
 	f.plist(t, prefsMac+"/com.openai.codex.plist", map[string]any{"requirements_toml_base64": base64.StdEncoding.EncodeToString([]byte(toml))})
@@ -268,7 +269,7 @@ func TestAgentConfigCodexProfile(t *testing.T) {
 	}
 }
 
-func TestAgentConfigCopilotSources(t *testing.T) {
+func TestAgentConfig_CopilotSources(t *testing.T) {
 	f := newConfigFixture(model.PlatformLinux)
 	project := filepath.Join(testHome, "repos", "widgets")
 	f.projects = []string{project}
@@ -313,7 +314,7 @@ func TestAgentConfigCopilotSources(t *testing.T) {
 	}
 }
 
-func TestAgentConfigCursorAndGemini(t *testing.T) {
+func TestAgentConfig_CursorAndGemini(t *testing.T) {
 	f := newConfigFixture(model.PlatformDarwin)
 	project := filepath.Join(testHome, "repos", "widgets")
 	f.projects = []string{project}
@@ -355,7 +356,7 @@ func TestAgentConfigCursorAndGemini(t *testing.T) {
 	}
 }
 
-func TestAgentConfigWindowsRegistry(t *testing.T) {
+func TestAgentConfig_WindowsRegistry(t *testing.T) {
 	f := newConfigFixture(model.PlatformWindows)
 	f.m.SetEnv("ProgramData", `C:\ProgramData`)
 	regQuery := func(key, name, typ, data string) {
@@ -393,9 +394,17 @@ func TestAgentConfigWindowsRegistry(t *testing.T) {
 	if a, b := copilot.Sources[1].Settings, copilot.Sources[2].Settings; len(a) != 1 || a[0].Value != "true" || len(b) != 1 || b[0].Value != "false" {
 		t.Errorf("vscode dword mapping = %+v %+v", a, b)
 	}
+
+	f = newConfigFixture(model.PlatformWindows)
+	f.detected = map[string]bool{"github-copilot": true}
+	regQuery = func(key, name, typ, data string) {
+		f.m.SetCommand(fmt.Sprintf("\n%s\n    %s    %s    %s\n", key, name, typ, data), "", 0, "reg", "query", key, "/v", name)
+	}
+	regQuery(`HKLM\Software\Policies\Microsoft\VSCode`, "ChatHooks", "REG_BINARY", "01")
+	wantSources(t, agentOf(t, f.run(t), "github-copilot"))
 }
 
-func TestAgentConfigCodexRequirementsPath(t *testing.T) {
+func TestAgentConfig_CodexRequirementsPath(t *testing.T) {
 	const key = `HKLM\SOFTWARE\Policies\OpenAI\Codex`
 	tests := []struct {
 		name, value, file, want string
@@ -425,7 +434,7 @@ func TestAgentConfigCodexRequirementsPath(t *testing.T) {
 	}
 }
 
-func TestAgentConfigHookText(t *testing.T) {
+func TestAgentConfig_HookText(t *testing.T) {
 	tests := []struct {
 		name, handler, wantType, wantText string
 	}{
@@ -456,9 +465,74 @@ func TestAgentConfigHookText(t *testing.T) {
 	if got, cut := normalizeHandlerType(long); len(got) != 32 || !cut {
 		t.Errorf("40-byte type = %q cut=%v", got, cut)
 	}
+
+	f := newConfigFixture(model.PlatformLinux)
+	f.fs.addFile(testHome+"/.cursor/hooks.json", `{"hooks": {"E": [{"matcher": "Read"}, {}, {"matcher": "Edit(/Users/testuser/src/**)", "command": "c"}]}}`)
+	f.fs.addFile(testHome+"/.claude/settings.json", `{"hooks": {"E": [{"matcher": "x", "hooks": [{}, {"command": "c"}]}]}}`)
+	scan := f.run(t)
+	if got := agentOf(t, scan, "cursor").Sources[0].Hooks; len(got) != 1 || got[0] != hookOf("E", "Edit(~/src/**)", "command", "c") {
+		t.Errorf("flat hooks = %+v", got)
+	}
+	if got := agentOf(t, scan, "claude-code").Sources[0].Hooks; len(got) != 1 || got[0] != hookOf("E", "x", "command", "c") {
+		t.Errorf("group hooks = %+v", got)
+	}
 }
 
-func TestAgentConfigValues(t *testing.T) {
+// Every source path not covered by a per-agent test, one row each.
+func TestAgentConfig_SourcePaths(t *testing.T) {
+	const (
+		progData  = `C:\ProgramData`
+		progFiles = `C:\Program Files`
+	)
+	project := filepath.Join(testHome, "repos", "widgets")
+	tests := []struct {
+		goos, agent, path, scope string
+	}{
+		{model.PlatformLinux, "codex", "/etc/codex/config.toml", model.AgentConfigScopeManaged},
+		{model.PlatformLinux, "codex", "/etc/codex/hooks.json", model.AgentConfigScopeManaged},
+		{model.PlatformLinux, "github-copilot", "/etc/github-copilot/managed-settings.json", model.AgentConfigScopeManaged},
+		{model.PlatformDarwin, "github-copilot", "/Library/Application Support/GitHubCopilot/managed-settings.json", model.AgentConfigScopeManaged},
+		{model.PlatformLinux, "cursor", "/etc/cursor/hooks.json", model.AgentConfigScopeManaged},
+		{model.PlatformLinux, "gemini-cli", "/etc/gemini-cli/settings.json", model.AgentConfigScopeManaged},
+		{model.PlatformWindows, "claude-code", progFiles + `\ClaudeCode\managed-settings.json`, model.AgentConfigScopeManaged},
+		{model.PlatformWindows, "codex", filepath.Join(progData, "OpenAI", "Codex", "config.toml"), model.AgentConfigScopeManaged},
+		{model.PlatformWindows, "codex", filepath.Join(progData, "OpenAI", "Codex", "requirements.toml"), model.AgentConfigScopeManaged},
+		{model.PlatformWindows, "codex", filepath.Join(progData, "OpenAI", "Codex", "hooks.json"), model.AgentConfigScopeManaged},
+		{model.PlatformWindows, "github-copilot", progFiles + `\GitHubCopilot\managed-settings.json`, model.AgentConfigScopeManaged},
+		{model.PlatformWindows, "github-copilot", filepath.Join(progData, "GitHub", "Copilot", "policy.d", "a.json"), model.AgentConfigScopeManaged},
+		{model.PlatformWindows, "cursor", filepath.Join(progData, "Cursor", "hooks.json"), model.AgentConfigScopeManaged},
+		{model.PlatformWindows, "gemini-cli", filepath.Join(progData, "gemini-cli", "settings.json"), model.AgentConfigScopeManaged},
+		{model.PlatformLinux, "cursor", testHome + "/.cursor/hooks.json", model.AgentConfigScopeUser},
+		{model.PlatformLinux, "cursor", testHome + "/.cursor/sandbox.json", model.AgentConfigScopeUser},
+		{model.PlatformLinux, "cursor", project + "/.cursor/hooks.json", model.AgentConfigScopeProject},
+		{model.PlatformLinux, "cursor", project + "/.cursor/cli.json", model.AgentConfigScopeProject},
+		{model.PlatformLinux, "cursor", project + "/.cursor/permissions.json", model.AgentConfigScopeProject},
+		{model.PlatformLinux, "github-copilot", project + "/.github/copilot/settings.local.json", model.AgentConfigScopeProject},
+	}
+	for _, tc := range tests {
+		t.Run(tc.goos+" "+tc.path, func(t *testing.T) {
+			f := newConfigFixture(tc.goos)
+			f.m.SetEnv("ProgramData", progData)
+			f.m.SetEnv("ProgramFiles", progFiles)
+			f.projects = []string{project}
+			content := `{"hooks": {"E": [{"command": "c"}]}}`
+			if strings.HasSuffix(tc.path, ".toml") {
+				content = `approval_policy = "never"`
+			}
+			f.fs.addFile(tc.path, content)
+			want := tc.path
+			if strings.HasPrefix(want, testHome+"/") {
+				want = "~" + strings.TrimPrefix(want, testHome)
+			}
+			src := sourceAt(t, agentOf(t, f.run(t), tc.agent), want)
+			if src.Scope != tc.scope || src.Channel != model.AgentConfigChannelFile || src.State != model.AgentConfigStateRead || len(src.Settings)+len(src.Hooks) != 1 {
+				t.Errorf("source = %+v", src)
+			}
+		})
+	}
+}
+
+func TestAgentConfig_Values(t *testing.T) {
 	f := newConfigFixture(model.PlatformLinux)
 	project := filepath.Join(testHome, "repos", "widgets")
 	f.projects = []string{project}
@@ -494,7 +568,7 @@ func TestAgentConfigValues(t *testing.T) {
 	}
 }
 
-func TestAgentConfigCaps(t *testing.T) {
+func TestAgentConfig_Caps(t *testing.T) {
 	t.Run("hooks and values", func(t *testing.T) {
 		f := newConfigFixture(model.PlatformLinux)
 		var handlers, rules []string
@@ -592,7 +666,7 @@ func TestAgentConfigCaps(t *testing.T) {
 	})
 }
 
-func TestAgentConfigUnreadableAndListings(t *testing.T) {
+func TestAgentConfig_UnreadableAndListings(t *testing.T) {
 	f := newConfigFixture(model.PlatformLinux)
 	project := filepath.Join(testHome, "repos", "widgets")
 	f.projects = []string{project}
@@ -635,7 +709,7 @@ func (m *listFailMock) ReadDir(dir string) ([]os.DirEntry, error) {
 	return m.pluginMock.ReadDir(dir)
 }
 
-func TestAgentConfigDetection(t *testing.T) {
+func TestAgentConfig_Detection(t *testing.T) {
 	tools := []model.AITool{{Name: "claude-code"}, {Name: "codex"}, {Name: "gemini-cli"}, {Name: "github-copilot-cli"}, {Name: "cursor-agent"}, {Name: "aider"}}
 	want := map[string]bool{"claude-code": true, "codex": true, "gemini-cli": true, "github-copilot": true, "cursor": true}
 	if got := ConfigAgents(tools, nil); !reflect.DeepEqual(got, want) {
@@ -667,9 +741,15 @@ func TestAgentConfigDetection(t *testing.T) {
 	if got := f.run(t); len(got.Agents) != 0 || got.Agents == nil {
 		t.Errorf("VS Code alone: agents = %#v", got.Agents)
 	}
+
+	f = newConfigFixture(model.PlatformLinux)
+	f.fs.mkdir(testHome + "/.copilot")
+	if got := f.run(t); len(got.Agents) != 1 || got.Agents[0].Agent != "github-copilot" {
+		t.Errorf("default ~/.copilot: agents = %#v", got.Agents)
+	}
 }
 
-func TestAgentConfigSectionPresence(t *testing.T) {
+func TestAgentConfig_SectionPresence(t *testing.T) {
 	run := func(s *pluginScan, ctx context.Context) *model.AgentConfigScan {
 		r := &SkillsResult{pendingPlugins: s}
 		if s != nil {
@@ -696,10 +776,6 @@ func TestAgentConfigSectionPresence(t *testing.T) {
 	if run(&pluginScan{d: panicking, home: testHome, goos: model.PlatformLinux}, t.Context()) != nil {
 		t.Error("panic reported a section")
 	}
-	got := run(&pluginScan{d: d, home: testHome, goos: model.PlatformLinux, projects: []string{"/r/a", "/r/b"}, projectsIncomplete: true}, t.Context())
-	if got == nil || got.RepositoriesScanned != 2 || got.Agents == nil {
-		t.Errorf("capped project list = %+v", got)
-	}
 }
 
 type panicMock struct{ *pluginMock }
@@ -710,7 +786,7 @@ func (m *panicMock) GuardedFiles(_ []string, _ func(string) string, _ int64) exe
 
 func (m *panicMock) Stat(string) (os.FileInfo, error) { panic("stat") }
 
-func TestAgentConfigFromSkillsPhase(t *testing.T) {
+func TestAgentConfig_FromSkillsPhase(t *testing.T) {
 	m, fs := newPluginMock()
 	m.SetHomeDir(testHome)
 	m.SetGOOS(model.PlatformLinux)
@@ -732,19 +808,199 @@ func TestAgentConfigFromSkillsPhase(t *testing.T) {
 		t.Errorf("plugins after agent config: %v %+v", err, result.Plugins)
 	}
 
+	done, cancel := context.WithCancel(t.Context())
+	cancel()
+	for _, tc := range []struct {
+		name, state string
+		ctx         context.Context
+	}{
+		{"malformed file", `{"projects": `, t.Context()},
+		{"malformed projects", `{"projects": 5}`, t.Context()},
+		{"skills context done", `{}`, done},
+	} {
+		m, fs := newPluginMock()
+		m.SetHomeDir(testHome)
+		fs.addFile(testHome+"/.claude.json", tc.state)
+		fs.addFile(testHome+"/.codex/config.toml", `approval_policy = "never"`)
+		fs.commit()
+		d := NewSkillsDetector(m)
+		result := d.DetectSkills(tc.ctx, nil, nil)
+		d.DetectAgentConfig(t.Context(), &result)
+		if result.AgentConfig != nil {
+			t.Errorf("%s: section reported", tc.name)
+		}
+	}
 	m, fs = newPluginMock()
 	m.SetHomeDir(testHome)
-	fs.addFile(testHome+"/.claude.json", `{"projects": `)
+	fs.addFile(testHome+"/.codex/config.toml", `approval_policy = "never"`)
 	fs.commit()
 	d = NewSkillsDetector(m)
 	result = d.DetectSkills(t.Context(), nil, nil)
-	d.DetectAgentConfig(t.Context(), &result)
-	if result.AgentConfig != nil {
-		t.Error("malformed ~/.claude.json reported a section")
+	if d.DetectAgentConfig(t.Context(), &result); result.AgentConfig == nil {
+		t.Error("missing ~/.claude.json withheld the section")
 	}
 }
 
-func TestAgentConfigHomeForms(t *testing.T) {
+// Settings-only repositories never change the skills or plugins results.
+func TestAgentConfig_SettingsOnlyReposLeaveSkillsAlone(t *testing.T) {
+	type outcome struct {
+		skills  []model.AgentSkill
+		info    model.AgentSkillScanInfo
+		plugins string
+		config  *model.AgentConfigScan
+	}
+	run := func(settingsOnly bool) outcome {
+		m, fs := newPluginMock()
+		m.SetHomeDir(testHome)
+		m.SetGOOS(model.PlatformLinux)
+		repos := filepath.Join(testHome, "repos")
+		fs.mkdir(testHome + "/.claude")
+		fs.addFile(repos+"/skilled/.claude/skills/s/SKILL.md", validFrontmatter("s", "d"))
+		fs.addFile(repos+"/both/.codex/skills/t/SKILL.md", validFrontmatter("t", "d"))
+		// The same folders either way; only the file names make them markers.
+		names := []string{"CLAUDE.md", "notes.toml", "workflows"}
+		if settingsOnly {
+			names = []string{"settings.json", "config.toml", "hooks"}
+		}
+		fs.addFile(repos+"/both/.claude/"+names[0], `{"permissions": {"defaultMode": "plan"}}`)
+		fs.addFile(repos+"/cfg-a/.claude/"+names[0], `{"permissions": {"defaultMode": "plan"}}`)
+		fs.addFile(repos+"/cfg-b/.codex/"+names[1], `approval_policy = "never"`)
+		fs.addFile(repos+"/cfg-c/.github/"+names[2]+"/a.json", `{"hooks": {"E": [{"command": "c"}]}}`)
+		fs.commit()
+		d := NewSkillsDetector(m)
+		fixed := time.Unix(1_700_000_000, 0)
+		d.now = func() time.Time { return fixed }
+		result := d.DetectSkills(t.Context(), nil, []string{repos})
+		d.DetectAgentConfig(t.Context(), &result)
+		if err := d.DetectPlugins(t.Context(), &result); err != nil {
+			t.Fatal(err)
+		}
+		info := *result.Info
+		info.DurationMs = 0
+		plugins, err := json.Marshal(result.Plugins)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return outcome{result.Skills, info, stripDurations(t, plugins), result.AgentConfig}
+	}
+	base, more := run(false), run(true)
+	if !reflect.DeepEqual(base.skills, more.skills) || !reflect.DeepEqual(base.info, more.info) {
+		t.Errorf("skills changed:\n%+v\n%+v", base.info, more.info)
+	}
+	if base.plugins != more.plugins {
+		t.Errorf("plugins changed:\n%s\n%s", base.plugins, more.plugins)
+	}
+	if more.config == nil || more.config.RepositoriesScanned != 5 {
+		t.Fatalf("agent config = %+v", more.config)
+	}
+	wantSources(t, agentOf(t, more.config, "claude-code"),
+		"project file ~/repos/both/.claude/settings.json read", "project file ~/repos/cfg-a/.claude/settings.json read")
+	wantSources(t, agentOf(t, more.config, "codex"), "project file ~/repos/cfg-b/.codex/config.toml read")
+	wantSources(t, agentOf(t, more.config, "github-copilot"), "project file ~/repos/cfg-c/.github/hooks/a.json read")
+	for _, a := range more.config.Agents {
+		if a.Truncated {
+			t.Errorf("%s truncated with no cut", a.Agent)
+		}
+	}
+}
+
+func stripDurations(t *testing.T, data []byte) string {
+	t.Helper()
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		t.Fatal(err)
+	}
+	var walk func(any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			for k, e := range x {
+				if strings.HasSuffix(k, "duration_ms") {
+					delete(x, k)
+				} else {
+					walk(e)
+				}
+			}
+		case []any:
+			for _, e := range x {
+				walk(e)
+			}
+		}
+	}
+	walk(v)
+	out, _ := json.Marshal(v)
+	return string(out)
+}
+
+// A settings-only repository outside home under a search dir is reported.
+func TestAgentConfig_SettingsOnlyRepoOutsideHome(t *testing.T) {
+	m, fs := newPluginMock()
+	m.SetHomeDir(testHome)
+	m.SetGOOS(model.PlatformLinux)
+	fs.addFile("/work/widgets/.cursor/hooks.json", `{"hooks": {"E": [{"command": "c"}]}}`)
+	fs.commit()
+	d := NewSkillsDetector(m)
+	result := d.DetectSkills(t.Context(), nil, []string{"/work"})
+	d.DetectAgentConfig(t.Context(), &result)
+	if result.AgentConfig == nil || result.Info.ProjectsScanned != 0 {
+		t.Fatalf("agent config = %+v, skills projects = %d", result.AgentConfig, result.Info.ProjectsScanned)
+	}
+	wantSources(t, agentOf(t, result.AgentConfig, "cursor"), "project file /work/widgets/.cursor/hooks.json read")
+}
+
+// A cut project list still reports, with every agent marked truncated.
+func TestAgentConfig_ProjectCapMarksTruncated(t *testing.T) {
+	t.Run("skills list", func(t *testing.T) {
+		m, fs := newPluginMock()
+		m.SetHomeDir(testHome)
+		m.SetGOOS(model.PlatformLinux)
+		var registry []string
+		for i := range maxProjects + 1 {
+			p := fmt.Sprintf("/r/p%03d", i)
+			fs.mkdir(p)
+			registry = append(registry, fmt.Sprintf("%q: {}", p))
+		}
+		fs.addFile(testHome+"/.claude.json", `{"projects": {`+strings.Join(registry, ",")+`}}`)
+		fs.addFile("/r/p000/.claude/settings.json", `{"permissions": {"defaultMode": "plan"}}`)
+		fs.addFile(testHome+"/.codex/config.toml", `approval_policy = "never"`)
+		fs.commit()
+		d := NewSkillsDetector(m)
+		result := d.DetectSkills(t.Context(), nil, nil)
+		d.DetectAgentConfig(t.Context(), &result)
+		assertAllTruncated(t, result.AgentConfig, maxProjects)
+	})
+	t.Run("settings-only list", func(t *testing.T) {
+		m, fs := newPluginMock()
+		m.SetHomeDir(testHome)
+		m.SetGOOS(model.PlatformLinux)
+		for i := range maxProjects + 1 {
+			fs.addFile(fmt.Sprintf("/r/c%03d/.gemini/settings.json", i), `{"tools": {"sandbox": true}}`)
+		}
+		fs.addFile(testHome+"/.codex/config.toml", `approval_policy = "never"`)
+		fs.commit()
+		d := NewSkillsDetector(m)
+		result := d.DetectSkills(t.Context(), nil, []string{"/r"})
+		d.DetectAgentConfig(t.Context(), &result)
+		if result.Info.Truncated || result.Info.WalkRootsFound != 0 {
+			t.Errorf("skills info changed: %+v", result.Info)
+		}
+		assertAllTruncated(t, result.AgentConfig, maxProjects)
+	})
+}
+
+func assertAllTruncated(t *testing.T, scan *model.AgentConfigScan, repos int) {
+	t.Helper()
+	if scan == nil || scan.RepositoriesScanned != repos || len(scan.Agents) < 2 {
+		t.Fatalf("agent config = %+v", scan)
+	}
+	for _, a := range scan.Agents {
+		if !a.Truncated {
+			t.Errorf("%s not truncated", a.Agent)
+		}
+	}
+}
+
+func TestAgentConfig_HomeForms(t *testing.T) {
 	tests := []struct {
 		name, home, resolved, goos, in, want string
 	}{
@@ -769,7 +1025,7 @@ func TestAgentConfigHomeForms(t *testing.T) {
 	}
 }
 
-func TestAgentConfigSymlinkedHome(t *testing.T) {
+func TestAgentConfig_SymlinkedHome(t *testing.T) {
 	f := newConfigFixture(model.PlatformLinux)
 	f.m.SetSymlink(testHome, "/data/testuser")
 	project := "/data/testuser/repos/widgets"
@@ -782,7 +1038,7 @@ func TestAgentConfigSymlinkedHome(t *testing.T) {
 	}
 }
 
-func TestAgentConfigDeterministic(t *testing.T) {
+func TestAgentConfig_Deterministic(t *testing.T) {
 	build := func() []byte {
 		f := newConfigFixture(model.PlatformLinux)
 		f.fs.addFile(testHome+"/.codex/config.toml", "sandbox_mode = \"x\"\n[[hooks.B]]\n[[hooks.B.hooks]]\ncommand = \"b\"\n[[hooks.A]]\n[[hooks.A.hooks]]\ncommand = \"a\"\n")
@@ -804,7 +1060,7 @@ func TestAgentConfigDeterministic(t *testing.T) {
 
 // Config roots named by the environment may sit outside home; they are read,
 // not refused by the guarded reader.
-func TestAgentConfigGuardedRoots(t *testing.T) {
+func TestAgentConfig_GuardedRoots(t *testing.T) {
 	home, outside := t.TempDir(), t.TempDir()
 	write := func(p, content string) {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -820,9 +1076,10 @@ func TestAgentConfigGuardedRoots(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(outside, "claude"))
 	t.Setenv("CODEX_HOME", filepath.Join(outside, "codex"))
 	t.Setenv("COPILOT_HOME", filepath.Join(outside, "copilot"))
+	write(filepath.Join(outside, "widgets", ".gemini", "settings.json"), `{"tools": {"sandbox": true}}`)
 	t.Setenv("XDG_CONFIG_HOME", "")
 	d := NewSkillsDetector(executor.NewReal()).WithSkipper(tcc.New(home))
-	r := &SkillsResult{pendingPlugins: &pluginScan{d: d, home: home, goos: model.PlatformLinux}}
+	r := &SkillsResult{pendingPlugins: &pluginScan{d: d, home: home, goos: model.PlatformLinux, configProjects: []string{filepath.Join(outside, "widgets")}}}
 	d.DetectAgentConfig(t.Context(), r)
 	if r.AgentConfig == nil {
 		t.Fatal("section missing")
@@ -831,6 +1088,7 @@ func TestAgentConfigGuardedRoots(t *testing.T) {
 		{"claude-code", filepath.Join(outside, "claude", "settings.json")},
 		{"codex", filepath.Join(outside, "codex", "config.toml")},
 		{"github-copilot", filepath.Join(outside, "copilot", "settings.json")},
+		{"gemini-cli", filepath.Join(outside, "widgets", ".gemini", "settings.json")},
 	} {
 		if src := sourceAt(t, agentOf(t, r.AgentConfig, tc.agent), tc.path); src.State != model.AgentConfigStateRead {
 			t.Errorf("%s user source = %s", tc.agent, src.State)
@@ -840,7 +1098,7 @@ func TestAgentConfigGuardedRoots(t *testing.T) {
 
 // The VS Code settings under ~/Library are read by their known paths even
 // though the guarded reader refuses that tree.
-func TestAgentConfigVSCodeMacLibrary(t *testing.T) {
+func TestAgentConfig_VSCodeMacLibrary(t *testing.T) {
 	home := t.TempDir()
 	user := filepath.Join(home, "Library", "Application Support", "Code", "User")
 	if err := os.MkdirAll(user, 0o755); err != nil {
@@ -858,7 +1116,7 @@ func TestAgentConfigVSCodeMacLibrary(t *testing.T) {
 	}
 }
 
-func TestReadRegistryValueQueryOutput(t *testing.T) {
+func TestReadRegistryValue_QueryOutput(t *testing.T) {
 	const key = `HKLM\SOFTWARE\Policies\Example`
 	tests := []struct {
 		name, stdout, want string

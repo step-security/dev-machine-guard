@@ -100,11 +100,11 @@ func TestDetect_HomeWalkGeminiUserGlobalRoot(t *testing.T) {
 }
 
 // TestDetect_HomeWalkMarkerWithoutChild: a marker dot-dir lacking its skills
-// child (only an unlisted file) does not mark a project.
+// child (only settings.json) does not mark a project.
 func TestDetect_HomeWalkMarkerWithoutChild(t *testing.T) {
 	m, fs := newSkillsMock()
 	proj := testHome + "/repos/proj"
-	fs.addFile(filepath.Join(proj, ".claude", "CLAUDE.md"), "notes")
+	fs.addFile(filepath.Join(proj, ".claude", "settings.json"), "{}")
 	fs.commit()
 
 	records, info := NewSkillsDetector(m).Detect(context.Background(), nil, []string{testHome})
@@ -476,9 +476,12 @@ func TestWalk_ConfigMarkers(t *testing.T) {
 			}
 			fs.commit()
 			info := &model.AgentSkillScanInfo{}
-			got := NewSkillsDetector(m).walkForProjectRoots(t.Context(), []string{filepath.Join(testHome, "repos")}, info)
+			skills, got, cut := NewSkillsDetector(m).walkForProjectRoots(t.Context(), []string{filepath.Join(testHome, "repos")}, info)
+			if len(skills) != 0 || cut || info.WalkRootsFound != 0 || info.Truncated {
+				t.Errorf("settings-only repo reached the skills list: %v, info %+v", skills, info)
+			}
 			if found := reflect.DeepEqual(got, []string{project}); found != c.want || !c.want && len(got) != 0 {
-				t.Errorf("projects = %v, want discovered = %v", got, c.want)
+				t.Errorf("config projects = %v, want discovered = %v", got, c.want)
 			}
 		})
 	}

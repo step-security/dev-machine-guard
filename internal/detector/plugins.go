@@ -76,6 +76,11 @@ type pluginScan struct {
 	// projectsUnavailable means the project list itself could not be built, so
 	// a report built from it would drop project sources that still exist.
 	projectsUnavailable bool
+	// configProjects holds projects found only by an agent settings marker.
+	configProjects []string
+	// projectsCut means a project list was cut by a cap or a search root could
+	// not be listed, so project sources may be missing.
+	projectsCut bool
 }
 
 // pluginEvidence is what the MCP reconciliation needs after the phase: the
@@ -334,6 +339,7 @@ func (s *pluginScan) guarded(roots ...string) *SkillsDetector {
 	}
 	all = append(all, s.searchDirs...)
 	all = append(all, s.projects...)
+	all = append(all, s.configProjects...)
 	gd := *s.d
 	gd.exec = s.d.exec.GuardedFiles(all, func(p string) string {
 		if s.d.skipper.WithinProtected(p) {

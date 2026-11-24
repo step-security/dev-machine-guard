@@ -213,6 +213,9 @@
                 "values": [
                   "Shell(git)"
                 ]
+              },
+              {
+                "key": "permissions.deny"
               }
             ],
             "hooks": []

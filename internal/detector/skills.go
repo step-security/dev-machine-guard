@@ -233,12 +233,29 @@ func (d *SkillsDetector) DetectSkills(ctx context.Context, extraProjectRoots []s
 		projectInfo.Truncated = true
 		d.addError(projectInfo, fmt.Sprintf("Claude project registry %s: %s", state.path, projectCode))
 	}
-	walkRoots := d.walkForProjectRoots(ctx, searchDirs, projectInfo)
+	walkRoots, configRoots, configCut := d.walkForProjectRoots(ctx, searchDirs, projectInfo)
 	projects := d.discoverProjects(state.projects, extraProjectRoots, walkRoots, projectInfo)
 	ps.projects = projects
 	ps.projectsIncomplete = projectInfo.Truncated || len(projectInfo.Errors) > 0
-	// Caps and per-directory errors repeat on every scan; a missing registry or an
-	// expired deadline does not, so only those withhold the configuration report.
+	// Settings-only projects get their own list with the same admission rules, so
+	// they never take a skills project's place under the caps. A project found
+	// by both markers stays on the skills list only.
+	inProjects := make(map[string]bool, len(projects))
+	for _, p := range projects {
+		inProjects[p] = true
+	}
+	var configOnly []string
+	for _, p := range configRoots {
+		if !inProjects[d.resolvePath(p)] {
+			configOnly = append(configOnly, p)
+		}
+	}
+	configInfo := &model.AgentSkillScanInfo{}
+	ps.configProjects = d.discoverProjects(nil, nil, configOnly, configInfo)
+	ps.projectsCut = projectInfo.Truncated || configCut || configInfo.Truncated
+	// A missing ~/.claude.json gives an empty registry and still reports. An
+	// unreadable or malformed registry, or an expired deadline, withholds the
+	// configuration report: the list would drop project sources that still exist.
 	ps.projectsUnavailable = projectCode != "" || ctx.Err() != nil
 	info.Truncated = info.Truncated || projectInfo.Truncated
 	info.WalkDirsVisited, info.WalkRootsFound = projectInfo.WalkDirsVisited, projectInfo.WalkRootsFound
@@ -941,9 +958,10 @@ var projectMarkerDirs = map[string][]string{
 }
 
 // projectConfigMarkers lets the walk find a project that holds only agent
-// settings or hook files. Discovery only: resolveProjectRoots never probes these,
-// and every key is already a projectMarkerDirs key, so the probe reuses the
-// listing it already made.
+// settings or hook files. Such a project is kept on its own list for the agent
+// configuration reader and never enters the skills project list or its caps.
+// Every key is already a projectMarkerDirs key, so the probe reuses the listing
+// it already made.
 var projectConfigMarkers = map[string]struct{ files, dirs []string }{
 	".claude": {files: []string{"settings.json", "settings.local.json"}},
 	".codex":  {files: []string{"hooks.json", "config.toml"}},
@@ -975,9 +993,12 @@ var projectConfigMarkers = map[string]struct{ files, dirs []string }{
 // the absolute path here; discoverProjects re-resolves, re-guards
 // (WithinProtected), home-excludes, dedupes, and caps them. Every cap trip flags
 // info.Truncated with a bounded error, matching the existing walks.
-func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []string, info *model.AgentSkillScanInfo) []string {
-	var candidates []string
-	seen := map[string]bool{}
+//
+// Projects marked only by projectConfigMarkers are returned separately in
+// configCandidates under their own cap, which never stops the walk or touches
+// info; configCut reports that cap was hit.
+func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []string, info *model.AgentSkillScanInfo) (candidates, configCandidates []string, configCut bool) {
+	seen, seenConfig := map[string]bool{}, map[string]bool{}
 	dirsVisited := 0
 	stopped := false
 	win := d.exec.GOOS() == model.PlatformWindows
@@ -1016,6 +1037,17 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 		}
 		seen[dir] = true
 		candidates = append(candidates, dir)
+	}
+	emitConfig := func(dir string) {
+		if seenConfig[dir] {
+			return
+		}
+		if len(configCandidates) >= maxHomeWalkCandidates {
+			configCut = true
+			return
+		}
+		seenConfig[dir] = true
+		configCandidates = append(configCandidates, dir)
 	}
 
 	var walk func(dir, root string, depth int)
@@ -1079,9 +1111,10 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 					d.addError(info, fmt.Sprintf("home walk read marker %s: %v", childDir, err))
 					continue
 				}
-				if hasMarkerChild(mEntries, markerChildren) || name == ".pi" && hasPiProjectMarker(mEntries) ||
-					hasConfigMarker(mEntries, projectConfigMarkers[name]) {
+				if hasMarkerChild(mEntries, markerChildren) || name == ".pi" && hasPiProjectMarker(mEntries) {
 					emit(dir)
+				} else if hasConfigMarker(mEntries, projectConfigMarkers[name]) {
+					emitConfig(dir)
 				}
 				continue
 			}
@@ -1200,7 +1233,7 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 
 	info.WalkDirsVisited = dirsVisited
 	info.WalkRootsFound = len(candidates)
-	return candidates
+	return candidates, configCandidates, configCut
 }
 
 // hasMarkerChild reports whether entries contains a real (non-symlink) directory

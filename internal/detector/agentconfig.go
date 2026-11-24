@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -74,6 +75,10 @@ var vscodePolicies = []struct{ policy, key string }{
 // supports several.
 var hookCommandFields = []string{"command", "bash", "powershell", "windows", "linux", "osx"}
 
+// hookHandlerFields mark an object as a handler; an object with none of them
+// declares no hook.
+var hookHandlerFields = append([]string{"type", "url", "prompt", "server", "tool"}, hookCommandFields...)
+
 // ConfigAgents selects the agents whose configuration is reported even when no
 // source exists, from the AI CLI and IDE inventories.
 func ConfigAgents(tools []model.AITool, ides []model.IDE) map[string]bool {
@@ -113,7 +118,11 @@ func (d *SkillsDetector) DetectAgentConfig(ctx context.Context, result *SkillsRe
 			result.AgentConfig = nil
 		}
 	}()
-	scan := (&configScan{s: s, forms: homeForms(s.home, s.d.resolvePath(s.home), s.goos), fold: s.goos == model.PlatformWindows}).run(d.configAgents)
+	c := &configScan{
+		s: s, projects: slices.Concat(s.projects, s.configProjects),
+		forms: homeForms(s.home, s.d.resolvePath(s.home), s.goos), fold: s.goos == model.PlatformWindows,
+	}
+	scan := c.run(d.configAgents)
 	if ctx.Err() != nil {
 		return
 	}
@@ -121,9 +130,10 @@ func (d *SkillsDetector) DetectAgentConfig(ctx context.Context, result *SkillsRe
 }
 
 type configScan struct {
-	s     *pluginScan
-	forms []string // home folder spellings, longest first
-	fold  bool     // Windows: ASCII case-insensitive, either slash
+	s        *pluginScan
+	projects []string // skills projects, then settings-only projects
+	forms    []string // home folder spellings, longest first
+	fold     bool     // Windows: ASCII case-insensitive, either slash
 }
 
 func (c *configScan) run(detected map[string]bool) *model.AgentConfigScan {
@@ -138,11 +148,14 @@ func (c *configScan) run(detected map[string]bool) *model.AgentConfigScan {
 		{configAgentGemini, c.gemini},
 		{configAgentCopilot, c.copilot},
 	}
-	scan := &model.AgentConfigScan{RepositoriesScanned: len(s.projects), Agents: []model.AgentConfig{}}
+	scan := &model.AgentConfigScan{RepositoriesScanned: len(c.projects), Agents: []model.AgentConfig{}}
 	for _, r := range readers {
 		a := &configAgent{c: c, out: model.AgentConfig{Agent: r.name, Sources: []model.AgentConfigSource{}}, keys: configKeys[r.name]}
 		r.read(a)
 		a.finalize()
+		if s.projectsCut {
+			a.out.Truncated = true // project sources beyond the cut are missing
+		}
 		found := detected[r.name]
 		if r.name == configAgentCopilot && !found {
 			root := copilotConfigRoot(s.d.exec, s.home)
@@ -173,13 +186,13 @@ func (c *configScan) claude(a *configAgent) {
 	c.profile(a, "com.anthropic.claudecode", plainProfile, false)
 	if s.goos == model.PlatformWindows {
 		for _, hive := range []string{"HKLM", "HKCU"} {
-			a.registry(hive+`\SOFTWARE\Policies\ClaudeCode`, "Settings", func(v string) (gjson.Result, bool) {
+			a.registry(hive+`\SOFTWARE\Policies\ClaudeCode`, "Settings", false, func(v string) (gjson.Result, bool) {
 				return jsoncDoc([]byte(v))
 			})
 		}
 	}
 	a.file(gd, model.AgentConfigScopeUser, filepath.Join(root, "settings.json"), jsoncDoc)
-	for _, p := range s.projects {
+	for _, p := range c.projects {
 		for _, name := range []string{"settings.json", "settings.local.json"} {
 			a.file(gd, model.AgentConfigScopeProject, filepath.Join(p, ".claude", name), jsoncDoc)
 		}
@@ -205,7 +218,7 @@ func (c *configScan) codex(a *configAgent) {
 	}
 	a.file(gd, model.AgentConfigScopeUser, filepath.Join(home, "config.toml"), tomlDoc)
 	a.file(gd, model.AgentConfigScopeUser, filepath.Join(home, "hooks.json"), jsoncDoc)
-	for _, p := range s.projects {
+	for _, p := range c.projects {
 		a.file(gd, model.AgentConfigScopeProject, filepath.Join(p, ".codex", "config.toml"), tomlDoc)
 		a.file(gd, model.AgentConfigScopeProject, filepath.Join(p, ".codex", "hooks.json"), jsoncDoc)
 	}
@@ -258,7 +271,7 @@ func (c *configScan) cursor(a *configAgent) {
 	for _, name := range []string{"hooks.json", "cli-config.json", "permissions.json", "sandbox.json"} {
 		a.file(gd, model.AgentConfigScopeUser, filepath.Join(root, name), jsoncDoc)
 	}
-	for _, p := range s.projects {
+	for _, p := range c.projects {
 		for _, name := range []string{"hooks.json", "cli.json", "permissions.json", "sandbox.json"} {
 			a.file(gd, model.AgentConfigScopeProject, filepath.Join(p, ".cursor", name), jsoncDoc)
 		}
@@ -280,7 +293,7 @@ func (c *configScan) gemini(a *configAgent) {
 	gd := s.guarded(root, filepath.Dir(managed))
 	a.file(gd, model.AgentConfigScopeManaged, managed, jsoncDoc)
 	a.file(gd, model.AgentConfigScopeUser, filepath.Join(root, "settings.json"), jsoncDoc)
-	for _, p := range s.projects {
+	for _, p := range c.projects {
 		a.file(gd, model.AgentConfigScopeProject, filepath.Join(p, ".gemini", "settings.json"), jsoncDoc)
 	}
 }
@@ -308,7 +321,7 @@ func (c *configScan) copilot(a *configAgent) {
 	case model.PlatformWindows:
 		c.copilotRegistry(a)
 		for _, p := range vscodePolicies {
-			a.registry(`HKLM\Software\Policies\Microsoft\VSCode`, p.policy, func(v string) (gjson.Result, bool) {
+			a.registry(`HKLM\Software\Policies\Microsoft\VSCode`, p.policy, true, func(v string) (gjson.Result, bool) {
 				return jsonResult(map[string]any{p.key: vscodePolicyValue(v)})
 			})
 		}
@@ -342,7 +355,7 @@ func (c *configScan) copilot(a *configAgent) {
 			c.vscodeSettings(a, filepath.Join(userRoot, "profiles", name, "settings.json"))
 		}
 	}
-	for _, p := range s.projects {
+	for _, p := range c.projects {
 		for _, f := range c.jsonFiles(gd, filepath.Join(p, ".github", "hooks")) {
 			a.file(gd, model.AgentConfigScopeProject, f, jsoncDoc)
 		}
@@ -615,7 +628,7 @@ func (a *configAgent) file(gd *SkillsDetector, scope, path string, decode func([
 }
 
 // registry reads one policy value as a source named by its value path.
-func (a *configAgent) registry(key, name string, decode func(string) (gjson.Result, bool)) {
+func (a *configAgent) registry(key, name string, vscode bool, decode func(string) (gjson.Result, bool)) {
 	v, found, err := readRegistryValue(a.c.s.ctx, a.c.s.d.exec, key, name)
 	if !found {
 		return
@@ -625,7 +638,7 @@ func (a *configAgent) registry(key, name string, decode func(string) (gjson.Resu
 	if err == nil {
 		doc, ok = decode(v)
 	}
-	a.add(model.AgentConfigScopeManaged, model.AgentConfigChannelWindowsRegistry, key+`\`+name, doc, ok, false)
+	a.add(model.AgentConfigScopeManaged, model.AgentConfigChannelWindowsRegistry, key+`\`+name, doc, ok, vscode)
 }
 
 // add records a source. Project and VS Code sources are kept only when they
@@ -740,11 +753,13 @@ func (a *configAgent) hooks(doc gjson.Result) []model.AgentConfigHook {
 			}
 			handlers := item.Get("hooks")
 			if !handlers.IsArray() {
-				out = append(out, a.hook(event.String(), item.Get("matcher").String(), item))
+				if isHookHandler(item) {
+					out = append(out, a.hook(event.String(), item.Get("matcher").String(), item))
+				}
 				return true
 			}
 			handlers.ForEach(func(_, h gjson.Result) bool {
-				if h.IsObject() {
+				if h.IsObject() && isHookHandler(h) {
 					out = append(out, a.hook(event.String(), item.Get("matcher").String(), h))
 				}
 				return true
@@ -762,6 +777,15 @@ func (a *configAgent) hooks(doc gjson.Result) []model.AgentConfigHook {
 		out = append(out, a.hookText("notify", "", "command", strings.Join(argv, " ")))
 	}
 	return out
+}
+
+func isHookHandler(h gjson.Result) bool {
+	for _, f := range hookHandlerFields {
+		if h.Get(f).Exists() {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *configAgent) hook(event, matcher string, h gjson.Result) model.AgentConfigHook {
@@ -806,7 +830,7 @@ func (a *configAgent) hookText(event, matcher, handlerType, text string) model.A
 	sum := sha256.Sum256([]byte(text))
 	return model.AgentConfigHook{
 		Event:          a.cut(event, maxConfigTextBytes),
-		Matcher:        a.cut(matcher, maxConfigTextBytes),
+		Matcher:        a.cut(a.c.tilde(matcher), maxConfigTextBytes), // path-shaped matchers can name the home folder
 		HandlerType:    handlerType,
 		CommandDisplay: a.cut(text, maxConfigTextBytes),
 		CommandSHA256:  hex.EncodeToString(sum[:]),
@@ -845,19 +869,10 @@ func (a *configAgent) finalize() {
 		}
 		return srcs[i].Channel < srcs[j].Channel
 	})
-	kept := srcs[:0]
-	for i, src := range srcs {
-		if i > 0 && src.Scope == kept[len(kept)-1].Scope && src.Channel == kept[len(kept)-1].Channel && src.Path == kept[len(kept)-1].Path {
-			continue
-		}
-		kept = append(kept, src)
-	}
-	a.out.Sources = kept
-
 	for len(a.out.Sources) > maxConfigSources && a.dropLastProject() {
 	}
 	hooks := 0
-	kept = a.out.Sources[:0]
+	kept := a.out.Sources[:0]
 	for _, src := range a.out.Sources {
 		if room := maxConfigHooks - hooks; len(src.Hooks) > room {
 			src.Hooks, a.out.Truncated = src.Hooks[:room], true

@@ -64,7 +64,7 @@ func TestWriteTelemetryFile(t *testing.T) {
 	}
 }
 
-func TestWriteTelemetryFileAgentConfig(t *testing.T) {
+func TestWriteTelemetryFile_AgentConfig(t *testing.T) {
 	raw, err := os.ReadFile("../model/testdata/agent_config_v1_golden.json")
 	if err != nil {
 		t.Fatal(err)
