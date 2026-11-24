@@ -970,9 +970,23 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		fmt.Fprintln(os.Stderr)
 	}
 
-	// System package scanning: Linux (rpm, dpkg, pacman, apk, snap, flatpak)
-	// and Windows (ARP registry, choco, scoop, winget portable).
+	// System package scanning: Linux (rpm, dpkg, pacman, apk, snap, flatpak),
+	// Windows (ARP registry, choco, scoop, winget portable) and Nix on Linux
+	// and macOS. The Nix scanner reads files only, so it takes the raw
+	// executor.
 	var systemPackageScans []model.SystemPackageScanResult
+	browserTarget, _ := exec.LoggedInUser()
+	nixReported := rungate.NixReported(deviceID)
+	var nixPresent bool
+	scanNix := func(ctx context.Context, existing map[string]bool) *model.SystemPackageScanResult {
+		var scan *model.SystemPackageScanResult
+		scan, nixPresent = detector.NewNixScanner(exec, log).Scan(ctx, browserTarget, cfg.IncludeNetworkVolumes, existing, nixReported)
+		if scan != nil {
+			systemPackageScans = append(systemPackageScans, *scan)
+			log.Progress("  nix: %d packages in %dms", scan.PackagesCount, scan.ScanDurationMs)
+		}
+		return scan
+	}
 
 	if exec.GOOS() == model.PlatformLinux {
 		phaseCtx, phaseCancel = startPhase(ctx, tracker, "syspkg_scan")
@@ -980,11 +994,10 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		sysPkgDetector := detector.NewSystemPkgDetector(userExec)
 
 		// Primary system PM (rpm, dpkg, pacman, or apk)
-		if pm := sysPkgDetector.Detect(phaseCtx); pm != nil {
+		primaryStart := time.Now()
+		if pm, packages := sysPkgDetector.Detect(phaseCtx); pm != nil {
 			log.Progress("  Found: %s v%s at %s", pm.Name, pm.Version, pm.Path)
-			start := time.Now()
-			packages := sysPkgDetector.ListPackages(phaseCtx)
-			duration := time.Since(start).Milliseconds()
+			duration := time.Since(primaryStart).Milliseconds()
 			if packages == nil {
 				packages = []model.SystemPackage{}
 			}
@@ -1027,6 +1040,13 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		if len(systemPackageScans) == 0 {
 			log.Progress("  No system package managers found")
 		}
+		existing := map[string]bool{}
+		for _, s := range systemPackageScans {
+			for _, p := range s.Packages {
+				existing[p.Name] = true
+			}
+		}
+		scanNix(phaseCtx, existing)
 		fmt.Fprintln(os.Stderr)
 		endPhase(phaseCtx, phaseCancel, tracker, log, "syspkg_scan")
 		postPhase()
@@ -1041,7 +1061,18 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		endPhase(phaseCtx, phaseCancel, tracker, log, "syspkg_scan")
 		postPhase()
 	} else {
-		log.Progress("System package scanning: skipped (macOS uses Homebrew)")
+		// No phase here: the phase list is part of the payload, and a Mac
+		// without Nix must upload what it did before.
+		existing := map[string]bool{}
+		for _, p := range brewFormulae {
+			existing[p.Name] = true
+		}
+		for _, p := range brewCasks {
+			existing[p.Name] = true
+		}
+		if scanNix(ctx, existing) == nil {
+			log.Progress("System package scanning: skipped (macOS uses Homebrew)")
+		}
 		fmt.Fprintln(os.Stderr)
 	}
 
@@ -1214,7 +1245,6 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// real inventory. A nil section is that decline, and it must stay nil.
 	phaseCtx, phaseCancel = startPhase(ctx, tracker, "browser_extensions_scan")
 	log.Progress("Inventorying browser extensions...")
-	browserTarget, _ := exec.LoggedInUser()
 	browserExtensionScan := browserext.New(userExec).WithOSVersion(dev.OSVersion).WithSkipper(tccSkipper).Detect(phaseCtx, browserTarget)
 	if browserExtensionScan == nil {
 		log.Progress("  Skipped: no interactive user to describe")
@@ -1548,6 +1578,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		if err := rungate.StampLastFullRun(deviceID, dev.SerialNumber, time.Now()); err != nil {
 			log.Debug("run-gate: could not stamp last full run: %v", err)
 		}
+		recordNix(log, deviceID, dev.SerialNumber, nixReported, nixPresent, ingestProcessed)
 		return nil
 	}
 
@@ -1563,6 +1594,9 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	phaseCtx, phaseCancel = startPhase(runCtx, tracker, "telemetry_upload")
 	log.Progress("Requesting upload URL from backend...")
 	ingest, uploadErr := uploadToS3(phaseCtx, log, payload, executionID, tracker, capture)
+	// A failed upload is ingestUnknown: the payload may have landed before
+	// the notify failed.
+	recordNix(log, deviceID, dev.SerialNumber, nixReported, nixPresent, ingest)
 	if uploadErr != nil {
 		endPhase(phaseCtx, phaseCancel, tracker, log, "telemetry_upload")
 		// Force-attach a final tail capturing the upload-failure output before
@@ -1604,6 +1638,21 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// os.Stderr on return, after the phase-post worker has drained this snapshot.
 	postPhaseFinal()
 	return nil
+}
+
+// recordNix remembers whether this upload found Nix, in delta and
+// full-snapshot runs alike, when that changed. Only a processed upload
+// confirms a removal: a queued or failed one may not land, and a rejected one
+// never did, so the empty nix scan is sent again next run. Any upload not
+// rejected, failed ones included, records Nix as found, which at worst
+// repeats one empty scan.
+func recordNix(log *progress.Logger, deviceID, machineID string, reported, present bool, ingest ingestStatus) {
+	if present == reported || ingest == ingestRejected || !present && ingest != ingestProcessed {
+		return
+	}
+	if err := rungate.RecordNix(deviceID, machineID, present); err != nil {
+		log.Debug("run-gate: could not record nix state: %v", err)
+	}
 }
 
 // writeTelemetryFile marshals the assembled Payload to PATH as indented JSON

@@ -452,6 +452,20 @@ Detected if `snap` is installed. Metadata: name, version, revision, tracking cha
 
 Detected if `flatpak` is installed. Metadata: app ID, name, version, arch, branch, origin, active commit, runtime.
 
+### Nix Packages (Linux and macOS, enterprise)
+
+Read from disk only: Nix is never run and no expression is evaluated. Metadata: name, version (`unknown` when not recorded) and store path.
+
+| Source | Read |
+|--------|------|
+| `/nix/var/nix/profiles/default`, `~/.local/state/nix/profiles/*`, `/nix/var/nix/profiles/per-user/<user>/*`, `~/.nix-profile` | `manifest.json` (versions 1 to 3) or the literal subset of `manifest.nix` |
+| NixOS / nix-darwin system (`/run/current-system/sw`) and `/etc/profiles/per-user/<user>` | direct members of the environment |
+| Home Manager (`home-path` of a profile generation) | direct members of the environment |
+
+One row per name: the lowest version, then store path, by byte order. A name that another package source reports in the same run (Linux package managers above, macOS Homebrew) is not sent again as Nix. A host without `/nix` sends no `nix` scan. After an upload that found Nix, a run that finds `/nix` gone sends an empty scan on every run until the backend reports one processed, which confirms the removal. A source that cannot be read in full marks the scan `incomplete nix inventory` and keeps what was read.
+
+Limits: environment members are the links of the environment, so a package referenced only from a generated file is not listed. A service account reads the machine sources only. A macOS run with no console user (the login window) reads the machine sources and marks the scan incomplete, so user rows are kept. If `/nix` exists but the Nix store volume is not mounted when the agent runs, a user whose only profile is the default profile gets a complete empty scan until the volume is back; an empty `/nix` left by an uninstall is treated the same way, which is how that removal is confirmed. No custom store or state directory, no `NIX_PROFILES`, and no community-mode Nix.
+
 ## WSL Detection (Windows)
 
 Host-side detection of Windows Subsystem for Linux, reported by the **Windows agent** under `device.wsl`. Answers "is WSL present, and is a distribution actively running right now?" so a fleet dashboard can flag machines with WSL environments that the Linux agent has not yet scanned. It does **not** mount or scan distro filesystems — run the Linux binary inside a distro for that.
