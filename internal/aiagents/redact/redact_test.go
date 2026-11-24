@@ -78,6 +78,11 @@ func TestStringRedactsCommonSecrets(t *testing.T) {
 			mustNotContain: []string{"sk-proj-bare123456"},
 		},
 		{
+			name:           "single-quoted token assignment",
+			in:             "TOKEN='local-hook-secret' ~/bin/guard",
+			mustNotContain: []string{"local-hook-secret"},
+		},
+		{
 			name: "private key block",
 			in: "-----BEGIN RSA PRIVATE KEY-----\n" +
 				"MIIBOgIBAAJBAKj\n" +
@@ -610,6 +615,21 @@ func TestStringRedactsCLISecretFlags(t *testing.T) {
 			name:           "api-key flag",
 			in:             "tool --api-key=abcd1234efgh5678",
 			mustNotContain: []string{"abcd1234efgh5678"},
+		},
+		{
+			name:           "single-quoted pass phrase",
+			in:             "mysql --password 'correct horse battery staple'",
+			mustNotContain: []string{"correct", "horse", "battery", "staple"},
+		},
+		{
+			name:           "double-quoted pass phrase",
+			in:             `guard --token "abc def"`,
+			mustNotContain: []string{"abc", "def"},
+		},
+		{
+			name:           "quoted value joined to a bare word",
+			in:             `db --password "$PREFIX"tail --token 'abc'def x`,
+			mustNotContain: []string{"PREFIX", "tail", "abc", "def"},
 		},
 	}
 	for _, tc := range cases {
