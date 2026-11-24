@@ -204,3 +204,30 @@ func TestRecordCheckinStoresMachineID(t *testing.T) {
 		t.Fatalf("state after identity change = %+v", st)
 	}
 }
+
+// The Nix flag is bound to the device identity and survives the other
+// writers of last-run.json: the completion stamp and the heartbeat.
+func TestRecordNixSurvivesStampAndHeartbeat(t *testing.T) {
+	path := withTempState(t)
+	if err := RecordNix("SER123", "", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := StampLastFullRun("SER123", "", time.Unix(1_753_160_800, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := heartbeat.Write(path, "send-telemetry", "manual"); err != nil {
+		t.Fatal(err)
+	}
+	if !NixReported("SER123") {
+		t.Error("NixReported = false after stamp and heartbeat, want true")
+	}
+	if NixReported("OTHER") {
+		t.Error("NixReported answered for another device")
+	}
+	if err := RecordNix("SER123", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if NixReported("SER123") {
+		t.Error("NixReported = true after an accepted upload without Nix")
+	}
+}

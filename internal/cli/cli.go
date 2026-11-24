@@ -430,6 +430,8 @@ Uninstall:
 %s
 Configuration:
   Per-user config:    ~/.stepsecurity/config.json
+  Install tree:       config.json beside the binary (or one level up from bin/),
+                      used when the per-user file is absent
   Machine-wide (Windows, admin): C:\ProgramData\StepSecurity\config.json
   Run '%s configure' to set credentials and search directories interactively.
 
