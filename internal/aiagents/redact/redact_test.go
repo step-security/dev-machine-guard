@@ -631,6 +631,21 @@ func TestStringRedactsCLISecretFlags(t *testing.T) {
 			in:             `db --password "$PREFIX"tail --token 'abc'def x`,
 			mustNotContain: []string{"PREFIX", "tail", "abc", "def"},
 		},
+		{
+			name:           "escaped quote inside a double-quoted value",
+			in:             `mysql --password "correct\" horse battery staple"`,
+			mustNotContain: []string{"correct", "horse", "battery", "staple"},
+		},
+		{
+			name:           "escaped single quote between quoted parts",
+			in:             `guard --token 'it'\''s a secret' --verbose`,
+			mustNotContain: []string{"'it'", "secret"},
+		},
+		{
+			name:           "escaped double-quoted value inside a quoted command",
+			in:             `bash -c "mysql --password \"correct horse\" -h db"`,
+			mustNotContain: []string{"correct", "horse"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
