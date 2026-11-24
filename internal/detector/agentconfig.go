@@ -104,11 +104,13 @@ func ConfigAgents(tools []model.AITool, ides []model.IDE) map[string]bool {
 
 // DetectAgentConfig reports the settings sources of each AI coding agent over
 // the project list the skills scan built. The section is left unset when that
-// list is unavailable, the budget expires or the reader panics, so the backend
-// keeps its stored state instead of losing project sources that still exist.
+// list is unavailable, the user's environment cannot be read (overrides such as
+// COPILOT_HOME and XDG_CONFIG_HOME would fall back to their defaults), the
+// budget expires or the reader panics, so the backend keeps its stored state
+// instead of losing sources that still exist.
 func (d *SkillsDetector) DetectAgentConfig(ctx context.Context, result *SkillsResult) {
 	s := result.pendingPlugins
-	if s == nil || s.projectsUnavailable {
+	if s == nil || s.projectsUnavailable || executor.UserEnvironmentError(s.d.exec) != nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(ctx, agentConfigBudget)

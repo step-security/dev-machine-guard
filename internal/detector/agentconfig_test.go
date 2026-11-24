@@ -769,6 +769,13 @@ func TestAgentConfig_SectionPresence(t *testing.T) {
 	if run(&pluginScan{d: d, home: testHome, goos: model.PlatformLinux, projectsUnavailable: true}, t.Context()) != nil {
 		t.Error("unavailable project list reported a section")
 	}
+	unresolved := NewSkillsDetector(executor.NewUserAwareExecutor(m, "test-user"))
+	if executor.UserEnvironmentError(unresolved.exec) == nil {
+		t.Fatal("expected unavailable user environment")
+	}
+	if run(&pluginScan{d: unresolved, home: testHome, goos: model.PlatformLinux}, t.Context()) != nil {
+		t.Error("unresolved user environment reported a section")
+	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if run(&pluginScan{d: d, home: testHome, goos: model.PlatformLinux}, ctx) != nil {
