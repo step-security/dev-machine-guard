@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -447,6 +448,7 @@ func TestAgentConfig_HookText(t *testing.T) {
 		{"unknown prompt last", `{"type": "script", "prompt": "p"}`, "script", "p"},
 		{"empty text", `{"type": "prompt"}`, "prompt", ""},
 		{"empty mcp", `{"type": "mcp_tool"}`, "mcp_tool", ""},
+		{"long query", `{"type": "http", "url": "https://example.com/hook?q=` + strings.Repeat("a", 5000) + `#f"}`, "http", "https://example.com/hook"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -467,10 +469,10 @@ func TestAgentConfig_HookText(t *testing.T) {
 	}
 
 	f := newConfigFixture(model.PlatformLinux)
-	f.fs.addFile(testHome+"/.cursor/hooks.json", `{"hooks": {"E": [{"matcher": "Read"}, {}, {"matcher": "Edit(/Users/testuser/src/**)", "command": "c"}]}}`)
+	f.fs.addFile(testHome+"/.cursor/hooks.json", `{"hooks": {"E": [{"matcher": "Read"}, {}, {"matcher": "Edit(/Users/testuser/src/**)", "command": "c"}, {"matcher": "token=`+fakeToken+`", "command": "d"}]}}`)
 	f.fs.addFile(testHome+"/.claude/settings.json", `{"hooks": {"E": [{"matcher": "x", "hooks": [{}, {"command": "c"}]}]}}`)
 	scan := f.run(t)
-	if got := agentOf(t, scan, "cursor").Sources[0].Hooks; len(got) != 1 || got[0] != hookOf("E", "Edit(~/src/**)", "command", "c") {
+	if got := agentOf(t, scan, "cursor").Sources[0].Hooks; len(got) != 2 || got[0] != hookOf("E", "Edit(~/src/**)", "command", "c") || strings.Contains(got[1].Matcher, "FAKE") {
 		t.Errorf("flat hooks = %+v", got)
 	}
 	if got := agentOf(t, scan, "claude-code").Sources[0].Hooks; len(got) != 1 || got[0] != hookOf("E", "x", "command", "c") {
@@ -1097,22 +1099,59 @@ func TestAgentConfig_GuardedRoots(t *testing.T) {
 }
 
 // The VS Code settings under ~/Library are read by their known paths even
-// though the guarded reader refuses that tree.
+// though the guarded reader refuses that tree, and a symlinked settings file is
+// not followed into another protected folder or out of home.
 func TestAgentConfig_VSCodeMacLibrary(t *testing.T) {
-	home := t.TempDir()
-	user := filepath.Join(home, "Library", "Application Support", "Code", "User")
-	if err := os.MkdirAll(user, 0o755); err != nil {
-		t.Fatal(err)
+	const content = `{"chat.useHooks": false}`
+	tests := []struct {
+		name   string
+		target func(home, outside string) string // symlink target; "" writes a plain file
+		want   bool
+		darwin bool // the protected tree exists on macOS only
+	}{
+		{"plain file", func(string, string) string { return "" }, true, false},
+		{"link into Documents", func(home, _ string) string { return filepath.Join(home, "Documents", "x.json") }, false, true},
+		{"link out of home", func(_, outside string) string { return filepath.Join(outside, "x.json") }, false, false},
 	}
-	if err := os.WriteFile(filepath.Join(user, "settings.json"), []byte(`{"chat.useHooks": false}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	d := NewSkillsDetector(executor.NewReal()).WithSkipper(tcc.New(home))
-	s := &pluginScan{d: d, ctx: t.Context(), home: home, goos: model.PlatformDarwin}
-	a := &configAgent{c: &configScan{s: s}, keys: configKeys[configAgentCopilot], out: model.AgentConfig{Sources: []model.AgentConfigSource{}}}
-	(&configScan{s: s}).vscodeSettings(a, filepath.Join(user, "settings.json"))
-	if len(a.out.Sources) != 1 || a.out.Sources[0].Settings[0].Value != "false" {
-		t.Errorf("sources = %+v", a.out.Sources)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.darwin && runtime.GOOS != model.PlatformDarwin {
+				t.Skip("protected folders exist on macOS only")
+			}
+			// Resolved, so the protected folders match the paths the reader checks.
+			home, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			outside := t.TempDir()
+			user := filepath.Join(home, "Library", "Application Support", "Code", "User")
+			settings := filepath.Join(user, "settings.json")
+			if err := os.MkdirAll(user, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if target := tc.target(home, outside); target == "" {
+				if err := os.WriteFile(settings, []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, settings); err != nil {
+					t.Fatal(err)
+				}
+			}
+			d := NewSkillsDetector(executor.NewReal()).WithSkipper(tcc.New(home))
+			s := &pluginScan{d: d, ctx: t.Context(), home: home, goos: model.PlatformDarwin}
+			a := &configAgent{c: &configScan{s: s}, keys: configKeys[configAgentCopilot], out: model.AgentConfig{Sources: []model.AgentConfigSource{}}}
+			(&configScan{s: s}).vscodeSettings(a, s.vscodeReader(user), settings)
+			if got := len(a.out.Sources) == 1 && a.out.Sources[0].Settings[0].Value == "false"; got != tc.want {
+				t.Errorf("read = %v, want %v; sources = %+v", got, tc.want, a.out.Sources)
+			}
+		})
 	}
 }
 

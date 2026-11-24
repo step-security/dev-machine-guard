@@ -21,6 +21,7 @@ import (
 	"howett.net/plist"
 
 	"github.com/step-security/dev-machine-guard/internal/aiagents/redact"
+	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
@@ -346,13 +347,14 @@ func (c *configScan) copilot(a *configAgent) {
 		if userRoot == "" {
 			continue
 		}
-		c.vscodeSettings(a, filepath.Join(userRoot, "settings.json"))
-		entries, err := s.d.exec.ReadDir(filepath.Join(userRoot, "profiles"))
+		ex := s.vscodeReader(userRoot)
+		c.vscodeSettings(a, ex, filepath.Join(userRoot, "settings.json"))
+		entries, err := ex.ReadDir(filepath.Join(userRoot, "profiles"))
 		if err != nil {
 			continue
 		}
 		for _, name := range sortedEntryNames(entries) {
-			c.vscodeSettings(a, filepath.Join(userRoot, "profiles", name, "settings.json"))
+			c.vscodeSettings(a, ex, filepath.Join(userRoot, "profiles", name, "settings.json"))
 		}
 	}
 	for _, p := range c.projects {
@@ -394,19 +396,18 @@ func (c *configScan) copilotRegistry(a *configAgent) {
 	a.add(model.AgentConfigScopeManaged, model.AgentConfigChannelWindowsRegistry, key, doc, ok, false)
 }
 
-// vscodeSettings reads a VS Code settings file through the executor directly:
-// the guarded reader refuses everything under ~/Library on macOS. A VS Code
-// file is reported only when it holds a listed key, so a failure drops it.
-func (c *configScan) vscodeSettings(a *configAgent, path string) {
-	s := c.s
-	if s.ctx.Err() != nil {
+// vscodeSettings reads a VS Code settings file through ex, the reader from
+// vscodeReader. A VS Code file is reported only when it holds a listed key, so
+// a failure drops it.
+func (c *configScan) vscodeSettings(a *configAgent, ex executor.Executor, path string) {
+	if c.s.ctx.Err() != nil {
 		return
 	}
-	fi, err := s.d.exec.Stat(path)
+	fi, err := ex.Stat(path)
 	if err != nil || !fi.Mode().IsRegular() || fi.Size() > maxJSONConfigBytes {
 		return
 	}
-	data, err := s.d.exec.ReadFile(path)
+	data, err := ex.ReadFile(path)
 	if err != nil || len(data) > maxJSONConfigBytes {
 		return
 	}
@@ -779,6 +780,15 @@ func (a *configAgent) hooks(doc gjson.Result) []model.AgentConfigHook {
 	return out
 }
 
+// urlBase drops the query and fragment, which are never sent, so a long query
+// does not push the URL past the location length bound.
+func urlBase(u string) string {
+	if i := strings.IndexAny(u, "?#"); i >= 0 {
+		return u[:i]
+	}
+	return u
+}
+
 func isHookHandler(h gjson.Result) bool {
 	for _, f := range hookHandlerFields {
 		if h.Get(f).Exists() {
@@ -804,7 +814,7 @@ func (a *configAgent) hook(event, matcher string, h gjson.Result) model.AgentCon
 		}
 		text = strings.Join(parts, "\n")
 	case "http":
-		text = sanitizeLocation(h.Get("url").String())
+		text = sanitizeLocation(urlBase(h.Get("url").String()))
 	case "mcp_tool":
 		if server, tool := h.Get("server").String(), h.Get("tool").String(); server != "" || tool != "" {
 			text = server + "/" + tool
@@ -814,7 +824,7 @@ func (a *configAgent) hook(event, matcher string, h gjson.Result) model.AgentCon
 	default:
 		text = h.Get("command").String()
 		if text == "" {
-			text = sanitizeLocation(h.Get("url").String())
+			text = sanitizeLocation(urlBase(h.Get("url").String()))
 		}
 		if text == "" {
 			text = h.Get("prompt").String()
@@ -829,8 +839,8 @@ func (a *configAgent) hookText(event, matcher, handlerType, text string) model.A
 	text = redact.String(a.c.tilde(text))
 	sum := sha256.Sum256([]byte(text))
 	return model.AgentConfigHook{
-		Event:          a.cut(event, maxConfigTextBytes),
-		Matcher:        a.cut(a.c.tilde(matcher), maxConfigTextBytes), // path-shaped matchers can name the home folder
+		Event:          a.text(event),
+		Matcher:        a.text(matcher),
 		HandlerType:    handlerType,
 		CommandDisplay: a.cut(text, maxConfigTextBytes),
 		CommandSHA256:  hex.EncodeToString(sum[:]),
@@ -1025,6 +1035,19 @@ func compactJSON(raw string) string {
 		return strings.TrimSpace(raw)
 	}
 	return buf.String()
+}
+
+// vscodeReader confines reads to home and the VS Code User folder. On macOS
+// that folder sits in a protected tree, so the guard admits it, its contents
+// and the folders on the way to it; a symlink into any other protected path
+// or out of home is refused before it is followed.
+func (s *pluginScan) vscodeReader(userRoot string) executor.Executor {
+	return s.d.exec.GuardedFiles([]string{s.home, userRoot}, func(p string) string {
+		if s.d.skipper.WithinProtected(p) && p != userRoot && !goPathWithin(p, userRoot) && !goPathWithin(userRoot, p) {
+			return "tcc_protected"
+		}
+		return ""
+	}, maxJSONConfigBytes)
 }
 
 // programData is %ProgramData%, defaulting to the system drive's folder.
