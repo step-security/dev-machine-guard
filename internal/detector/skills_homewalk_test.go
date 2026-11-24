@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/step-security/dev-machine-guard/internal/detector/credentials"
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
@@ -476,7 +477,7 @@ func TestWalk_ConfigMarkers(t *testing.T) {
 			}
 			fs.commit()
 			info := &model.AgentSkillScanInfo{}
-			skills, got, cut := NewSkillsDetector(m).walkForProjectRoots(t.Context(), []string{filepath.Join(testHome, "repos")}, info)
+			skills, got, cut := NewSkillsDetector(m).walkForProjectRoots(t.Context(), []string{filepath.Join(testHome, "repos")}, info, &credentials.ProjectCandidates{})
 			if len(skills) != 0 || cut || info.WalkRootsFound != 0 || info.Truncated {
 				t.Errorf("settings-only repo reached the skills list: %v, info %+v", skills, info)
 			}

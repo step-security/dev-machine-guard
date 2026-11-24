@@ -228,6 +228,8 @@ func TestRubyConfigRejectsUnsafeYAMLAndUnverifiedProcess(t *testing.T) {
 		{"second space", "BUNDLE_PATH:  \"gems\"\n", "unsupported", ""},
 		{"value on next line", "BUNDLE_PATH:\n  gems\n", "unsupported", ""},
 		{"irrelevant key ignored", "BUNDLE_JOBS: \"4\" # comment\n", "present", ""},
+		{"quoted key as Bundler 4.1 writes it", "\"BUNDLE_MIRROR__HTTPS://RUBYGEMS__ORG/\": \"http://mirror.example.invalid/\"\nBUNDLE_DISABLE_CHECKSUM_VALIDATION: \"true\"\n", "present", "true"},
+		{"escape in quoted key", "\"BUNDLE_DISABLE\\x5FCHECKSUM_VALIDATION\": \"true\"\n", "unsupported", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, scope := rubyConfigTest(t)

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/detector/credentials"
 	"github.com/step-security/dev-machine-guard/internal/executor"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/tcc"
@@ -82,6 +83,7 @@ type SkillsDetector struct {
 	now           func() time.Time  // observation time for plugins and skill usage
 	agentVersions map[string]string // model.Agent* name → already-collected version
 	configAgents  map[string]bool   // agent configuration names detected by the inventory
+	mcpAuth       *MCPAuthResolver  // sign-in status for plugin MCP servers; nil leaves it unset
 }
 
 // NewSkillsDetector constructs a SkillsDetector.
@@ -100,6 +102,13 @@ func (d *SkillsDetector) WithAgentVersions(v map[string]string) *SkillsDetector 
 // has no settings source.
 func (d *SkillsDetector) WithConfigAgents(v map[string]bool) *SkillsDetector {
 	d.configAgents = v
+	return d
+}
+
+// WithMCPAuth reports what each plugin MCP server's client stores about
+// signing in, through the same resolver the MCP config scan uses.
+func (d *SkillsDetector) WithMCPAuth(r *MCPAuthResolver) *SkillsDetector {
+	d.mcpAuth = r
 	return d
 }
 
@@ -192,6 +201,7 @@ func (d *SkillsDetector) DetectSkills(ctx context.Context, extraProjectRoots []s
 	defer func() {
 		if r := recover(); r != nil {
 			result.pendingPlugins = nil
+			result.CredentialCandidates.Capped = true
 			d.addError(info, fmt.Sprintf("panic in skills detect: %v", r))
 			// Partial coverage prevents the backend from deleting unseen skills.
 			info.Truncated = true
@@ -223,7 +233,7 @@ func (d *SkillsDetector) DetectSkills(ctx context.Context, extraProjectRoots []s
 
 	// One state read supplies project roots and usage counters. Project discovery
 	// also includes package-scanner roots and bounded filesystem discovery.
-	state := readClaudeState(d.exec, d.skipper, home)
+	state := readClaudeState(d.exec, d.skipper, filepath.Join(home, ".claude.json"))
 	projectInfo := &model.AgentSkillScanInfo{}
 	projectCode := state.code
 	if projectCode == "" {
@@ -233,8 +243,23 @@ func (d *SkillsDetector) DetectSkills(ctx context.Context, extraProjectRoots []s
 		projectInfo.Truncated = true
 		d.addError(projectInfo, fmt.Sprintf("Claude project registry %s: %s", state.path, projectCode))
 	}
-	walkRoots, configRoots, configCut := d.walkForProjectRoots(ctx, searchDirs, projectInfo)
+	result.CredentialCandidates.Home = home
+	if resolved, err := d.exec.EvalSymlinks(home); err == nil {
+		result.CredentialCandidates.HomeResolved = resolved
+	}
+	walkRoots, configRoots, configCut := d.walkForProjectRoots(ctx, searchDirs, projectInfo, &result.CredentialCandidates)
 	projects := d.discoverProjects(state.projects, extraProjectRoots, walkRoots, projectInfo)
+	// The walk recorded credential files from its own listings; a project known
+	// only from a registry or package scanner was never listed.
+	walked := make(map[string]bool, len(walkRoots))
+	for _, root := range walkRoots {
+		walked[root] = true
+	}
+	for _, proj := range projects {
+		if !walked[proj] {
+			result.CredentialCandidates.Root(proj)
+		}
+	}
 	ps.projects = projects
 	ps.projectsIncomplete = projectInfo.Truncated || len(projectInfo.Errors) > 0
 	// Settings-only projects get their own list with the same admission rules, so
@@ -575,9 +600,9 @@ func (s *pluginScan) collectClaudeUsage(homeState claudeState) *skillUsageObserv
 	return scan
 }
 
-// claudeConfigRoot is ~/.claude, or CLAUDE_CONFIG_DIR when visible to this process.
-func (d *SkillsDetector) claudeConfigRoot(home string) string {
-	if cfg := d.exec.Getenv("CLAUDE_CONFIG_DIR"); cfg != "" {
+// claudeConfigDir is ~/.claude, or CLAUDE_CONFIG_DIR when visible to this process.
+func claudeConfigDir(exec executor.Executor, home string) string {
+	if cfg := exec.Getenv("CLAUDE_CONFIG_DIR"); cfg != "" {
 		return cfg
 	}
 	return filepath.Join(home, ".claude")
@@ -590,7 +615,7 @@ func (d *SkillsDetector) claudeConfigRoot(home string) string {
 // reported through info.CommandsStatus.
 func (d *SkillsDetector) enumerateCommands(ctx context.Context, home string, projects []string, info *model.AgentSkillScanInfo, ps *pluginScan) []model.AgentSkill {
 	type cmdRoot struct{ dir, source, scope, project string }
-	roots := []cmdRoot{{filepath.Join(d.claudeConfigRoot(home), "commands"), "claude_user", "global", ""}}
+	roots := []cmdRoot{{filepath.Join(claudeConfigDir(d.exec, home), "commands"), "claude_user", "global", ""}}
 	for _, proj := range projects {
 		roots = append(roots, cmdRoot{filepath.Join(proj, ".claude", "commands"), "claude_project", "project", proj})
 	}
@@ -756,7 +781,7 @@ func (d *SkillsDetector) resolveGlobalRoots(info *model.AgentSkillScanInfo) []sk
 
 	// claude_user: ~/.claude/skills, honoring CLAUDE_CONFIG_DIR when the env
 	// var is visible to this process (not under a daemon that can't see it).
-	add(filepath.Join(d.claudeConfigRoot(home), "skills"), "claude_user", "claude-code", "global", "")
+	add(filepath.Join(claudeConfigDir(d.exec, home), "skills"), "claude_user", "claude-code", "global", "")
 
 	// agents_user: ~/.agents/skills — the shared cross-client convention read by
 	// skills.sh, Zed, and the Gemini CLI (~/.agents is Gemini's alias for its own
@@ -995,10 +1020,13 @@ var projectConfigMarkers = map[string]struct{ files, dirs []string }{
 // (WithinProtected), home-excludes, dedupes, and caps them. Every cap trip flags
 // info.Truncated with a bounded error, matching the existing walks.
 //
+// The same listings record credential-bearing project files into creds, so the
+// credential inventory finds them without a walk of its own.
+//
 // Projects marked only by projectConfigMarkers are returned separately in
 // configCandidates under their own cap, which never stops the walk or touches
 // info; configCut reports that cap was hit.
-func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []string, info *model.AgentSkillScanInfo) (candidates, configCandidates []string, configCut bool) {
+func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []string, info *model.AgentSkillScanInfo, creds *credentials.ProjectCandidates) (candidates, configCandidates []string, configCut bool) {
 	seen, seenConfig := map[string]bool{}, map[string]bool{}
 	dirsVisited := 0
 	stopped := false
@@ -1073,6 +1101,7 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 			// so would strand deletion suppression on every scan of such a machine).
 			if depth == 0 {
 				info.Truncated = true
+				creds.Unreadable = creds.Unreadable || creds.Reaches(dir)
 			}
 			d.addError(info, fmt.Sprintf("home walk read dir %s: %v", dir, err))
 			return
@@ -1087,6 +1116,9 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 				return
 			}
 			ent := entMap[name]
+			if !ent.IsDir() {
+				creds.File(dir, name)
+			}
 			// Directory symlinks are inert: recognized from the parent listing (no
 			// stat) and never followed, so the walk cannot be steered into a
 			// protected tree, another user's home, a network mount, or a cycle.
@@ -1109,9 +1141,11 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 				}
 				mEntries, err := d.exec.ReadDir(childDir)
 				if err != nil {
+					creds.Dir(dir, name, nil)
 					d.addError(info, fmt.Sprintf("home walk read marker %s: %v", childDir, err))
 					continue
 				}
+				creds.Dir(dir, name, sortedEntryNames(mEntries))
 				if hasMarkerChild(mEntries, markerChildren) || name == ".pi" && hasPiProjectMarker(mEntries) {
 					emit(dir)
 				} else if hasConfigMarker(mEntries, projectConfigMarkers[name]) {
@@ -1120,6 +1154,7 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 				continue
 			}
 			if strings.HasPrefix(name, ".") {
+				creds.Dir(dir, name, nil)
 				continue // every other hidden tree (.git, .cache, .venv, …)
 			}
 			if name == "node_modules" || (win && isWindowsNoiseDir(name)) {
@@ -1234,6 +1269,8 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 
 	info.WalkDirsVisited = dirsVisited
 	info.WalkRootsFound = len(candidates)
+	creds.Capped = creds.Capped || stopped
+	creds.TimedOut = ctx.Err() != nil
 	return candidates, configCandidates, configCut
 }
 

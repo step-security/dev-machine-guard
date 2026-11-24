@@ -98,6 +98,8 @@ In enterprise mode, MCP config data is:
 4. Included in the telemetry payload uploaded to the StepSecurity backend
 5. Parsed and displayed in the StepSecurity dashboard for centralized analysis
 
+Each entry also carries `server_auth`. For every server the file declares, it gives a sign-in status and an evidence code that names the client file or config rule that showed it. The agent reads each client's own sign-in files without running the client or contacting the server, and sends only the codes, never a token or anything derived from one. [MCP Sign-in Status](../SCAN_COVERAGE.md#mcp-sign-in-status) lists what is read per client and the limits.
+
 This allows security teams to:
 - See which MCP servers are in use across the organization
 - Detect unauthorized or unexpected MCP servers

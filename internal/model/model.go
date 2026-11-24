@@ -252,7 +252,31 @@ type MCPConfigEnterprise struct {
 	ConfigPath          string `json:"config_path"`
 	Vendor              string `json:"vendor"`
 	ConfigContentBase64 string `json:"config_content_base64,omitempty"`
+	// ServerAuth holds one entry per server name declared in the file, sorted
+	// by name. Absent when the content above is absent, since the backend then
+	// has no server to attach a status to.
+	ServerAuth []MCPServerAuth `json:"server_auth,omitempty"`
 }
+
+// MCPServerAuth is what one MCP client stores about signing in to one server
+// it is configured with. Status and Evidence are closed codes. Nothing read
+// from a credential store is carried here.
+type MCPServerAuth struct {
+	ServerName string `json:"server_name"` // the server's key in the config file
+	Status     string `json:"status"`      // one of the MCPAuth* values
+	Evidence   string `json:"evidence"`    // fixed per-status code; for unknown, the reason
+}
+
+// MCP sign-in status values. A status describes stored client state, not
+// whether the server works, whether the sign-in is still valid, or whether
+// anyone uses the server.
+const (
+	MCPAuthNeedsAuth        = "needs_auth"        // the client tried and holds no usable sign-in
+	MCPAuthCredentialSaved  = "credential_saved"  //#nosec G101 -- a status code: the client holds a stored sign-in
+	MCPAuthStaticCredential = "static_credential" //#nosec G101 -- a status code: the config itself supplies a credential
+	MCPAuthNotApplicable    = "not_applicable"    // local stdio server with no credential input
+	MCPAuthUnknown          = "unknown"           // no evidence either way; evidence is the reason
+)
 
 type PkgManager struct {
 	Name    string `json:"name"`
@@ -447,7 +471,7 @@ type PythonPackage struct {
 // Unlike BrewScanResult (which sends raw base64), this sends pre-parsed packages
 // since syspkg.go already handles the format-specific parsing edge cases.
 type SystemPackageScanResult struct {
-	ScanType       string          `json:"scan_type"` // "rpm", "dpkg", "pacman", "apk", "snap", "flatpak"; Windows: "arp", "choco", "scoop", "winget"
+	ScanType       string          `json:"scan_type"` // "rpm", "dpkg", "pacman", "apk", "snap", "flatpak", "nix" (also macOS); Windows: "arp", "choco", "scoop", "winget"
 	PackageManager *PkgManager     `json:"package_manager,omitempty"`
 	Packages       []SystemPackage `json:"packages"`
 	PackagesCount  int             `json:"packages_count"`

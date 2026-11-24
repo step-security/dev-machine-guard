@@ -1,6 +1,7 @@
 package detector
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -18,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/detector/credentials"
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/safepath"
 )
@@ -36,7 +38,7 @@ const (
 	maxPluginObs           = 1024
 	maxComponentsPerPlugin = 256
 	maxComponentsTotal     = 4096
-	maxNewDefinitions      = 2000 // plugin skills/commands + standalone commands
+	maxNewDefinitions      = 2000 // plugin skills/commands, hook modules + standalone commands
 	maxPluginMCPServers    = 2000
 	maxUsageCounters       = 10000
 	maxIDBytes             = 128
@@ -49,6 +51,9 @@ const (
 	maxEnvelopeBytes       = 8 << 20
 	maxComponentWalkDepth  = 6
 	maxComponentDirs       = 500
+	maxHookModules         = 8   // modules entries kept per hooks file
+	maxSessionModDirs      = 200 // newest Claude session folders inspected
+	maxSessionMods         = 50
 	maxRecordedUses        = 1<<53 - 1
 )
 
@@ -66,6 +71,8 @@ type pluginScan struct {
 	searchDirs         []string
 	memo               map[string]*skillScan
 	commands           map[string]commandMeta
+	hookFiles          map[string]hookFileMeta
+	hookModules        map[string]hookModuleMeta
 	definitions        *int
 	mcpServers         int
 	components         int
@@ -96,6 +103,9 @@ type pluginEvidence struct {
 // payloads.
 type nestedAttr struct {
 	agent, source, vendor, scope, projectPath string
+	// editor marks a VS Code agent plugin: VS Code runs its servers, so the
+	// Copilot CLI's MCP sign-ins do not answer for them.
+	editor bool
 }
 
 // pluginRootScan is one plugin's component enumeration: its guarded executor,
@@ -148,6 +158,10 @@ type SkillsResult struct {
 	usage          *skillUsageObservations
 	evidence       *pluginEvidence
 	pendingPlugins *pluginScan
+
+	// CredentialCandidates are the credential-bearing project files the
+	// project walk saw, for the credential inventory.
+	CredentialCandidates credentials.ProjectCandidates
 }
 
 // DetectPlugins collects plugin metadata using the discovery state in result.
@@ -435,11 +449,13 @@ func (s *pluginScan) snapshotRetry() func() {
 	components, servers, definitions := s.components, s.mcpServers, *s.definitions
 	memo, owned := maps.Clone(s.memo), maps.Clone(s.evidence.owned)
 	commands := maps.Clone(s.commands)
+	hookFiles, hookModules := maps.Clone(s.hookFiles), maps.Clone(s.hookModules)
 	suppressed := append([]string(nil), s.evidence.suppressed...)
 	return func() {
 		s.components, s.mcpServers, *s.definitions = components, servers, definitions
 		s.memo, s.evidence.owned = maps.Clone(memo), maps.Clone(owned)
 		s.commands = maps.Clone(commands)
+		s.hookFiles, s.hookModules = maps.Clone(hookFiles), maps.Clone(hookModules)
 		s.evidence.suppressed = append([]string(nil), suppressed...)
 	}
 }
@@ -868,6 +884,139 @@ func (s *pluginScan) commandMetadata(gd *SkillsDetector, file string) commandMet
 	return meta
 }
 
+// hookFileMeta is what a Claude hooks file contributes: the code modules it
+// names. Its hooks, event names and commands are never kept.
+type hookFileMeta struct {
+	modules []string
+	code    string
+}
+
+// hookFileMetadata parses one hooks file once per run. Windows editors write a
+// UTF-8 BOM, which Claude Code accepts. A modules value that is not an array of
+// strings fails the whole file.
+func (s *pluginScan) hookFileMetadata(gd *SkillsDetector, file string) hookFileMeta {
+	key, err := gd.exec.EvalSymlinks(file)
+	if err != nil {
+		return hookFileMeta{code: readCode(err)}
+	}
+	if key == "" {
+		key = file
+	}
+	if meta, ok := s.hookFiles[key]; ok {
+		return meta
+	}
+	data, absent, code := s.readMetadata(gd, file)
+	meta := hookFileMeta{code: code}
+	if absent {
+		meta.code = model.AgentScanErrReadFailed
+	}
+	if meta.code == "" {
+		var obj map[string]json.RawMessage
+		if json.Unmarshal(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), &obj) != nil || obj == nil {
+			meta.code = model.AgentScanErrParseFailed
+		} else if raw, ok := obj["modules"]; ok && (json.Unmarshal(raw, &meta.modules) != nil || meta.modules == nil) {
+			meta.modules, meta.code = nil, model.AgentScanErrParseFailed
+		}
+	}
+	if s.hookFiles == nil {
+		s.hookFiles = map[string]hookFileMeta{}
+	}
+	s.hookFiles[key] = meta
+	return meta
+}
+
+// hookModuleMeta is one module entry file's size and hash, or why it has none.
+type hookModuleMeta struct {
+	hash string
+	size int64
+	code string
+}
+
+// hookModuleMetadata hashes one module entry file through the shared definition
+// budget, so a physical file is read once per run. The file is never parsed.
+func (s *pluginScan) hookModuleMetadata(gd *SkillsDetector, file string) hookModuleMeta {
+	key, err := gd.exec.EvalSymlinks(file)
+	if err != nil {
+		return hookModuleMeta{code: readCode(err)}
+	}
+	if key == "" {
+		key = file
+	}
+	if meta, ok := s.hookModules[key]; ok {
+		return meta
+	}
+	st, fi, err := s.stat(gd, file)
+	switch st {
+	case fileRegular:
+	case fileRefused:
+		return hookModuleMeta{code: readCode(err)}
+	default:
+		return hookModuleMeta{code: model.AgentScanErrReadFailed}
+	}
+	meta := hookModuleMeta{size: fi.Size()}
+	if meta.size > maxJSONConfigBytes || *s.definitions >= maxNewDefinitions {
+		meta.code = model.AgentScanErrLimitExceeded
+		return meta
+	}
+	*s.definitions++
+	data, err := gd.exec.ReadFile(file)
+	switch {
+	case err != nil:
+		meta.code = readCode(err)
+	case len(data) > maxJSONConfigBytes:
+		meta.code = model.AgentScanErrLimitExceeded
+	default:
+		sum := sha256.Sum256(data)
+		meta.hash, meta.size = hex.EncodeToString(sum[:]), int64(len(data))
+	}
+	if s.hookModules == nil {
+		s.hookModules = map[string]hookModuleMeta{}
+	}
+	s.hookModules[key] = meta
+	return meta
+}
+
+// hookModule reports one modules entry. The entry resolves against the hooks
+// file's directory and must stay inside the plugin root. Its failure is its own
+// verdict: the hook component stays complete, so a missing or unsafe module
+// never makes the plugin partial.
+func (r *pluginRootScan) hookModule(hooksRel, declared string) model.HookModule {
+	m := model.HookModule{DeclaredPath: declared, Status: model.AgentScanStatusError, ErrorCode: model.AgentScanErrUnsafePath}
+	if len(declared) > maxPathBytes {
+		m.DeclaredPath, m.ErrorCode = "", model.AgentScanErrLimitExceeded
+		return m
+	}
+	// Joining under the hooks directory would hide an absolute declaration.
+	// Claude Code does not trim the entry, so a padded one names another file.
+	if declared == "" || strings.TrimSpace(declared) != declared || isAbsPath(declared) {
+		return m
+	}
+	// Claude Code on Windows resolves a backslash in the entry as a separator.
+	entry := declared
+	if r.s.goos == model.PlatformWindows {
+		entry = strings.ReplaceAll(declared, `\`, "/")
+	}
+	file, ok := insideRoot(r.root, path.Join(path.Dir(hooksRel), entry))
+	if !ok {
+		return m
+	}
+	rel, _ := relSlash(r.root, file)
+	if len(file) > maxPathBytes {
+		m.ErrorCode = model.AgentScanErrLimitExceeded
+		return m
+	}
+	meta := r.s.hookModuleMetadata(r.gd, file)
+	m.SizeBytes, m.ErrorCode = meta.size, meta.code
+	if meta.code == model.AgentScanErrUnsafePath {
+		return m
+	}
+	m.RelativePath, m.DefinitionPath = rel, file
+	if meta.code == "" {
+		m.Status, m.DefinitionHash = model.AgentScanStatusComplete, meta.hash
+	}
+	return m
+}
+
 // commandComponent emits one legacy command Markdown file.
 func (r *pluginRootScan) commandComponent(file, rel, name, callable string) {
 	r.gd = r.gd.componentReader(r.root)
@@ -991,8 +1140,29 @@ func (r *pluginRootScan) mcpServerComponents(servers json.RawMessage, rel, point
 			Kind: model.PluginComponentMCP, Name: name, RelativePath: rel, DeclarationPointer: serverPointer, DefinitionPath: configPath, ResolvedDefinitionPath: resolvedPath,
 			MCPConfig: &model.MCPConfigEnterprise{ConfigSource: r.attr.source, ConfigPath: configPath, Vendor: r.attr.vendor, ConfigContentBase64: base64.StdEncoding.EncodeToString(body)},
 		}
+		if auth := r.s.d.mcpAuth; auth != nil {
+			source := r.attr.source
+			if r.attr.editor {
+				source = ""
+			}
+			c.MCPConfig.ServerAuth = []model.MCPServerAuth{auth.resolveServer(r.s.ctx, source, configPath, name, r.mcpRuntimeName(name), declarations[name])}
+		}
 		r.addComponent(c)
 	}
+}
+
+// mcpRuntimeName is the name a plugin's client keys its MCP stores by. Claude
+// Code namespaces a plugin server under the plugin's manifest name, or under
+// the plugin's own name when the manifest gives none.
+func (r *pluginRootScan) mcpRuntimeName(name string) string {
+	if r.attr.source != "claude_plugin" {
+		return name
+	}
+	namespace := r.p.ManifestName
+	if namespace == "" {
+		namespace = r.p.Name
+	}
+	return "plugin:" + namespace + ":" + name
 }
 
 // skillDirs enumerates skill directories under dir: direct children when
@@ -1269,7 +1439,10 @@ func (s *pluginScan) finalizePluginScan(contexts []*model.AgentPluginContext) *m
 			if a.Scope != b.Scope {
 				return a.Scope < b.Scope
 			}
-			return a.ProjectPath < b.ProjectPath
+			if a.ProjectPath != b.ProjectPath {
+				return a.ProjectPath < b.ProjectPath
+			}
+			return a.InstallPath < b.InstallPath
 		})
 		if markets+len(c.Marketplaces) > maxMarketplaceObs {
 			c.Marketplaces = c.Marketplaces[:max(0, maxMarketplaceObs-markets)]

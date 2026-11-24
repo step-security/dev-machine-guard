@@ -161,8 +161,8 @@ func TestMCPDetector_Enterprise(t *testing.T) {
 
 func TestMCPDetector_Enterprise_NonJSON_OmitsContent(t *testing.T) {
 	mock := executor.NewMock()
-	mock.SetFile("/Users/testuser/.config/open-interpreter/config.yaml",
-		[]byte("api_key: sk-secret-12345\nmodel: gpt-4\n"))
+	mock.SetFile("/Users/testuser/.openinterpreter/config.toml",
+		[]byte("api_key = \"sk-secret-12345\"\nmodel = \"gpt-4\"\n"))
 
 	det := NewMCPDetector(mock)
 	results := det.DetectEnterprise(context.Background(), nil)
@@ -171,7 +171,7 @@ func TestMCPDetector_Enterprise_NonJSON_OmitsContent(t *testing.T) {
 		t.Fatalf("expected 1 enterprise config, got %d", len(results))
 	}
 	if results[0].ConfigContentBase64 != "" {
-		t.Error("non-JSON config must have empty content to avoid leaking secrets")
+		t.Error("config without MCP servers must have empty content to avoid leaking secrets")
 	}
 	if results[0].ConfigSource != "open_interpreter" {
 		t.Errorf("expected open_interpreter source, got %s", results[0].ConfigSource)
@@ -1103,5 +1103,83 @@ func TestPiMCPFilterIsPathLimited(t *testing.T) {
 		if got := ok && strings.Contains(string(out), `"enabled":false`); got != tc.pi {
 			t.Errorf("%s %s: Pi filter applied = %v, want %v", tc.source, tc.file, got, tc.pi)
 		}
+	}
+}
+
+// TestFilterMCPContent_InventoryChanges pins the files the config filter used
+// to drop or misread, and that the sign-in resolver reads the same server
+// names from them, since the backend joins the two by name.
+func TestFilterMCPContent_InventoryChanges(t *testing.T) {
+	const bom = "\xef\xbb\xbf"
+	for _, tc := range []struct {
+		name, source, path, content string
+		want                        string // filtered JSON, or a substring for TOML; "" means rejected
+		names                       []string
+	}{
+		{"BOM before JSON", "cursor", "/home/test/.cursor/mcp.json", bom + `{"mcpServers":{"lab-open":{"url":"https://a.example.com/mcp"}}}`,
+			`{"mcpServers":{"lab-open":{"url":"https://a.example.com/mcp"}}}`, []string{"lab-open"}},
+		{"BOM before TOML", "codex", "/home/test/.codex/config.toml", bom + "[mcp_servers.lab-open]\nurl = 'https://a.example.com/mcp'\n",
+			"[mcp_servers.lab-open]", []string{"lab-open"}},
+		{"entry that is not an object", "cursor", "/home/test/.cursor/mcp.json", `{"mcpServers":{"lab-open":{"url":"https://a.example.com/mcp"},"bad":"x","list":[1]}}`,
+			`{"mcpServers":{"lab-open":{"url":"https://a.example.com/mcp"}}}`, []string{"lab-open"}},
+		{"map with no object entry", "gemini", "/home/test/.gemini/settings.json", `{"mcp":{"allowed":["lab-open"]}}`, "", nil},
+		{"Gemini httpUrl", "gemini", "/home/test/.gemini/settings.json", `{"mcp":{"allowed":["lab-open"]},"mcpServers":{"lab-open":{"httpUrl":"https://a.example.com/mcp","headers":{"Authorization":"Bearer private-value"}}}}`,
+			`{"mcpServers":{"lab-open":{"url":"https://a.example.com/mcp"}}}`, []string{"lab-open"}},
+		{"Cline transport.url", "discovered_mcp", "/home/test/cline_mcp_settings.json", `{"mcpServers":{"lab-open":{"transport":{"type":"streamableHttp","url":"https://a.example.com/mcp","headers":{"Authorization":"Bearer private-value"}}}}}`,
+			`{"mcpServers":{"lab-open":{"url":"https://a.example.com/mcp"}}}`, []string{"lab-open"}},
+		{"Gemini settings with a comment", "gemini", "/home/test/.gemini/settings.json", "{\n// note\n\"mcpServers\":{\"lab-open\":{\"httpUrl\":\"https://a.example.com/mcp\"}}}",
+			`{"mcpServers":{"lab-open":{"url":"https://a.example.com/mcp"}}}`, []string{"lab-open"}},
+		{"url wins over a lifted one", "gemini", "/home/test/.gemini/settings.json", `{"mcpServers":{"lab-open":{"url":"https://a.example.com/mcp","httpUrl":"https://b.example.com/mcp"}}}`,
+			`{"mcpServers":{"lab-open":{"url":"https://a.example.com/mcp"}}}`, []string{"lab-open"}},
+		{"OpenCode 2.x servers", "opencode", "/home/test/.config/opencode/opencode.json", `{"mcp":{"servers":{"lab-open":{"type":"remote","url":"https://a.example.com/mcp"}}}}`,
+			`{"mcp":{"lab-open":{"url":"https://a.example.com/mcp"}}}`, []string{"lab-open"}},
+		{"OpenCode 1.x server named servers", "opencode", "/home/test/.config/opencode/opencode.json", `{"mcp":{"servers":{"type":"remote","url":"https://a.example.com/mcp"},"other":{"type":"remote","url":"https://b.example.com/mcp"}}}`,
+			`{"mcp":{"other":{"url":"https://b.example.com/mcp"},"servers":{"url":"https://a.example.com/mcp"}}}`, []string{"other", "servers"}},
+		{"Open Interpreter TOML", "open_interpreter", "/home/test/.openinterpreter/config.toml", "[mcp_servers.lab-open]\nurl = 'https://a.example.com/mcp'\n",
+			"[mcp_servers.lab-open]", []string{"lab-open"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := (&MCPDetector{}).filterMCPContent(tc.source, tc.path, []byte(tc.content))
+			switch {
+			case tc.want == "":
+				if ok {
+					t.Fatalf("accepted %s", got)
+				}
+			case strings.HasSuffix(tc.path, ".toml"):
+				if !ok || !strings.Contains(string(got), tc.want) {
+					t.Fatalf("filtered = %q, ok = %v", got, ok)
+				}
+			case !ok || string(got) != tc.want:
+				t.Fatalf("filtered = %s, want %s", got, tc.want)
+			}
+			r, _ := newAuthResolver(executor.NewMock())
+			var names []string
+			for _, a := range r.resolveConfig(context.Background(), tc.source, tc.path, []byte(tc.content)) {
+				names = append(names, a.ServerName)
+			}
+			if !slices.Equal(names, tc.names) {
+				t.Fatalf("resolved names = %v, want %v", names, tc.names)
+			}
+		})
+	}
+
+	legacy := filepath.Join(testHome, ".claude", ".config.json")
+	for _, tc := range []struct {
+		name, legacy, want string
+	}{
+		{"legacy file with content wins", `{"projects":{"/work/repo":{}}}`, legacy},
+		{"empty legacy file loses", "", filepath.Join(testHome, ".claude.json")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := executor.NewMock()
+			m.SetFile(legacy, []byte(tc.legacy))
+			m.SetFile(filepath.Join(testHome, ".claude.json"), []byte(`{"projects":{"/work/other":{}}}`))
+			if got := (&MCPDetector{exec: m}).resolveConfigPath(mcpConfigSpec{SourceName: "claude_code", ConfigPath: "~/.claude.json"}, testHome); got != tc.want {
+				t.Fatalf("global config = %s, want %s", got, tc.want)
+			}
+			if got := discoverClaudeProjects(m); len(got) != 1 || (tc.want == legacy) != (got[0] == "/work/repo") {
+				t.Fatalf("projects = %v", got)
+			}
+		})
 	}
 }

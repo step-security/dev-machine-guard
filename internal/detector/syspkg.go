@@ -75,71 +75,66 @@ func NewSystemPkgDetector(exec executor.Executor) *SystemPkgDetector {
 	return &SystemPkgDetector{exec: exec}
 }
 
-// Detect finds the active system package manager and returns its info.
-// Returns nil on non-Linux platforms or if no known PM is found.
-func (d *SystemPkgDetector) Detect(ctx context.Context) *model.PkgManager {
+// Detect returns the primary Linux manager and its installed packages.
+func (d *SystemPkgDetector) Detect(ctx context.Context) (*model.PkgManager, []model.SystemPackage) {
 	if d.exec.GOOS() != model.PlatformLinux {
-		return nil
+		return nil, nil
 	}
 
-	for _, spec := range sysPkgSpecs {
-		path, err := d.exec.LookPath(spec.Binary)
+	var selected *sysPkgSpec
+	var path string
+	var packages []model.SystemPackage
+	for i := range sysPkgSpecs {
+		spec := &sysPkgSpecs[i]
+		binary, err := d.exec.LookPath(spec.Binary)
 		if err != nil {
 			continue
 		}
-
-		version := "unknown"
-		stdout, _, exitCode, err := d.exec.RunWithTimeout(ctx, 10*time.Second, spec.Binary, spec.VersionCmd...)
-		if err == nil && exitCode == 0 {
-			if line := strings.TrimSpace(strings.SplitN(stdout, "\n", 2)[0]); line != "" {
-				version = line
-			}
+		if selected == nil {
+			selected, path = spec, binary
 		}
-
-		return &model.PkgManager{
-			Name:    spec.Name,
-			Version: version,
-			Path:    path,
+		rows, empty := d.listPackages(ctx, spec)
+		if len(rows) > 0 {
+			selected, path, packages = spec, binary, rows
+			break
+		}
+		// Only a successful empty query is evidence to try the next manager.
+		if !empty || ctx.Err() != nil {
+			break
 		}
 	}
+	if selected == nil {
+		return nil, nil
+	}
 
-	return nil
+	version := "unknown"
+	stdout, _, code, err := d.exec.RunWithTimeout(ctx, 10*time.Second, selected.Binary, selected.VersionCmd...)
+	if err == nil && code == 0 {
+		line, _, _ := strings.Cut(stdout, "\n")
+		if line = strings.TrimSpace(line); line != "" {
+			version = line
+		}
+	}
+	return &model.PkgManager{Name: selected.Name, Version: version, Path: path}, packages
 }
 
-// ListPackages returns all installed system packages.
-// Uses the first detected package manager from sysPkgSpecs.
-// For apk, it prefers reading /lib/apk/db/installed directly for richer metadata.
-func (d *SystemPkgDetector) ListPackages(ctx context.Context) []model.SystemPackage {
-	if d.exec.GOOS() != model.PlatformLinux {
-		return nil
+func (d *SystemPkgDetector) listPackages(ctx context.Context, spec *sysPkgSpec) (packages []model.SystemPackage, empty bool) {
+	if spec.Name == "apk" {
+		if pkgs := d.ListPackagesApkDB(ctx); len(pkgs) > 0 {
+			return pkgs, false
+		}
 	}
-
-	for _, spec := range sysPkgSpecs {
-		if _, err := d.exec.LookPath(spec.Binary); err != nil {
-			continue
-		}
-
-		// For apk, prefer reading the installed DB directly — gives richer metadata
-		// (maintainer, build time, commit hash) without spawning a subprocess.
-		if spec.Name == "apk" {
-			if pkgs := d.ListPackagesApkDB(ctx); len(pkgs) > 0 {
-				return pkgs
-			}
-			// Fall through to command-line approach if DB read fails
-		}
-
-		stdout, _, exitCode, err := d.exec.RunWithTimeout(ctx, 60*time.Second, spec.Binary, spec.ListCmd...)
-		if err != nil || exitCode != 0 {
-			return nil
-		}
-
-		if spec.ParseBulk != nil {
-			return spec.ParseBulk(stdout)
-		}
-		return parsePackageList(stdout, spec.ParseLine)
+	stdout, stderr, code, err := d.exec.RunWithTimeout(ctx, 60*time.Second, spec.Binary, spec.ListCmd...)
+	if err != nil || code != 0 {
+		return nil, false
 	}
-
-	return nil
+	if strings.TrimSpace(stdout) == "" {
+		return nil, strings.TrimSpace(stderr) == ""
+	}
+	if spec.ParseBulk != nil {
+		return spec.ParseBulk(stdout), false
+	}
+	return parsePackageList(stdout, spec.ParseLine), false
 }
 
 // ListPackagesApkDB reads /lib/apk/db/installed directly for rich metadata.

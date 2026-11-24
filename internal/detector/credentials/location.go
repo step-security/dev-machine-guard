@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -50,6 +51,10 @@ type userPaths struct {
 	// The configuration directory for the tools that honour the variable,
 	// defaulted below the home when the developer has not set it.
 	XDGConfig string
+	// The local application data directory, derived from the home like AppData.
+	LocalAppData string
+	// The data directory, defaulted below the home like XDGConfig.
+	XDGData string
 }
 
 // newUserPaths derives the root set from a resolved account.
@@ -58,9 +63,11 @@ func newUserPaths(username, home, platform string) userPaths {
 		Username:  username,
 		Home:      home,
 		XDGConfig: filepath.Join(home, ".config"),
+		XDGData:   filepath.Join(home, ".local", "share"),
 	}
 	if platform == model.PlatformWindows {
 		p.AppData = filepath.Join(home, "AppData", "Roaming")
+		p.LocalAppData = filepath.Join(home, "AppData", "Local")
 	}
 	return p
 }
@@ -70,6 +77,15 @@ func newUserPaths(username, home, platform string) userPaths {
 func (p userPaths) withXDGConfig(value string) userPaths {
 	if value != "" {
 		p.XDGConfig = value
+	}
+	return p
+}
+
+// withXDGData applies the developer's own data directory, if the environment
+// probe established one.
+func (p userPaths) withXDGData(value string) userPaths {
+	if value != "" {
+		p.XDGData = value
 	}
 	return p
 }
@@ -96,20 +112,61 @@ func (p userPaths) withResolvedHome(value string) userPaths {
 // reported alongside an override claims a credential is in use somewhere its tool
 // never looks — the same over-report the first-match policy exists to prevent,
 // arriving by a different route.
-func candidatesFor(s source, paths userPaths, env map[string]string, platform string) []string {
-	if relocated, isSet := relocationCandidates(s, env); isSet {
-		return relocated
+//
+// Each relocation group is resolved on its own, so a variable that moves one of a
+// tool's directories leaves the files under its other directories where they are.
+func candidatesFor(s source, paths userPaths, env map[string]string, platform string) []candidate {
+	var out []candidate
+	for _, group := range s.groups() {
+		if relocated, isSet := relocationCandidates(s, group, env, paths, platform); isSet {
+			out = append(out, relocated...)
+			continue
+		}
+		for _, l := range s.Locations {
+			if l.Group != group || !l.appliesTo(platform) {
+				continue
+			}
+			root := paths.root(l.Root)
+			if root == "" {
+				continue
+			}
+			out = append(out, candidate{Base: root, Rel: l.Rel, SQLite: l.SQLite})
+		}
 	}
+	return out
+}
+
+// candidate is one location to probe. Base is a literal path; Rel is the
+// catalog's relative part below it, which is the only place a "*" element can
+// come from, so a value read from the environment is never treated as a pattern.
+type candidate struct {
+	Base   string
+	Rel    string
+	SQLite bool
+	Config bool
+}
+
+// path joins the candidate into the path to probe.
+func (c candidate) path() string {
+	if c.Rel == "" {
+		return c.Base
+	}
+	return filepath.Join(c.Base, filepath.FromSlash(c.Rel))
+}
+
+// groups returns the source's relocation groups in declaration order.
+func (s source) groups() []string {
 	var out []string
+	add := func(g string) {
+		if !slices.Contains(out, g) {
+			out = append(out, g)
+		}
+	}
 	for _, l := range s.Locations {
-		if !l.appliesTo(platform) {
-			continue
-		}
-		root := paths.root(l.Root)
-		if root == "" {
-			continue
-		}
-		out = append(out, filepath.Join(root, filepath.FromSlash(l.Rel)))
+		add(l.Group)
+	}
+	for _, o := range s.Overrides {
+		add(o.Group)
 	}
 	return out
 }
@@ -127,19 +184,22 @@ func candidatesFor(s source, paths userPaths, env map[string]string, platform st
 // value that resolves to no path at all — a list of nothing but separators — which
 // is how the tools read it, the default restored by unsetting the variable and not
 // by emptying it. Neither is an error, because nothing failed.
-func relocationCandidates(s source, env map[string]string) ([]string, bool) {
+func relocationCandidates(s source, group string, env map[string]string, paths userPaths, platform string) ([]candidate, bool) {
 	for i, o := range s.Overrides {
+		if o.Group != group {
+			continue
+		}
 		value := strings.TrimSpace(env[o.Var])
 		if value == "" {
 			continue
 		}
-		out, expandable := expandOverride(o, value)
+		out, expandable := expandOverride(o, value, paths, platform)
 		if !expandable {
 			continue
 		}
 		for _, more := range s.Overrides[i+1:] {
-			if more.Var == o.Var {
-				extra, _ := expandOverride(more, value)
+			if more.Var == o.Var && more.Group == group {
+				extra, _ := expandOverride(more, value, paths, platform)
 				out = append(out, extra...)
 			}
 		}
@@ -153,23 +213,203 @@ func relocationCandidates(s source, env map[string]string) ([]string, bool) {
 // while remaining the answer, so emptiness is carried in the slice and never in the
 // second return — that is reserved for a kind with no expansion, where standing
 // aside for the default is the safer way for an inventory to be wrong.
-func expandOverride(o envOverride, value string) ([]string, bool) {
+func expandOverride(o envOverride, value string, paths userPaths, platform string) ([]candidate, bool) {
+	if o.Kind == overrideSuffix {
+		// Not a path, so not anchored: the value lengthens a directory name.
+		root := paths.root(o.Base.Root)
+		if root == "" || !o.Base.appliesTo(platform) {
+			return nil, false
+		}
+		return []candidate{{Base: filepath.Join(root, filepath.FromSlash(o.Base.Rel)+value), Rel: o.Rel}}, true
+	}
+	value = o.anchor(value, paths)
 	switch o.Kind {
 	case overrideFile:
-		return []string{value}, true
+		// SQLite's name for a database held only in memory: nothing on disk.
+		if o.SQLite && value == ":memory:" {
+			return nil, true
+		}
+		return []candidate{{Base: value, SQLite: o.SQLite, Config: o.Config}}, true
 	case overrideDir:
-		return []string{filepath.Join(value, filepath.FromSlash(o.Rel))}, true
+		return []candidate{{Base: value, Rel: o.Rel, SQLite: o.SQLite}}, true
 	case overrideList:
 		// The value is every path the tool reads, not a replacement for one.
-		out := make([]string, 0, 1)
+		out := make([]candidate, 0, 1)
 		for _, element := range filepath.SplitList(value) {
 			if element = strings.TrimSpace(element); element != "" {
-				out = append(out, element)
+				out = append(out, candidate{Base: element})
 			}
 		}
 		return out, true
+	case overrideProfile, overrideRoot:
+		root := value
+		if filepath.Base(filepath.Dir(value)) == "profiles" {
+			root = filepath.Dir(filepath.Dir(value))
+		}
+		if o.Kind == overrideRoot {
+			return []candidate{{Base: root, Rel: o.Rel}}, true
+		}
+		return []candidate{
+			{Base: value, Rel: o.Rel},
+			{Base: root, Rel: o.Rel},
+			{Base: root, Rel: "profiles/*/" + o.Rel},
+		}, true
 	}
 	return nil, false
+}
+
+// anchor spells a value the way its tool resolves it: a leading "~" as the home
+// where the tool expands one, and a relative path below the directory the tool
+// resolves it against. Anything else is left as written for the path guard.
+func (o envOverride) anchor(value string, paths userPaths) string {
+	if o.Tilde && (value == "~" || strings.HasPrefix(value, "~/") || strings.HasPrefix(value, `~\`)) {
+		value = filepath.Join(paths.Home, value[1:])
+	}
+	if o.Base.Root == "" || filepath.IsAbs(value) || value == ":memory:" {
+		return value
+	}
+	root := paths.root(o.Base.Root)
+	if root == "" {
+		return value
+	}
+	return filepath.Join(root, filepath.FromSlash(o.Base.Rel), value)
+}
+
+// ProjectCandidates are the project files the AI-tool and MCP sources may read,
+// gathered by the inventory walk from listings it already makes, so finding
+// them costs no listing of its own. The flags say what kept the walk from
+// covering every project, so a source that found nothing can say whether that
+// absence is complete.
+type ProjectCandidates struct {
+	// The home the inventory reads below, as written and as the filesystem
+	// resolves it. Files outside it are not admitted, so they never take a
+	// place in the bound or say anything about coverage.
+	Home         string
+	HomeResolved string
+	Files        []string
+	Capped       bool
+	TimedOut     bool
+	Unreadable   bool
+	seen         map[string]bool
+}
+
+// projectPatterns are every source's project-relative names, deduplicated.
+var projectPatterns = func() []string {
+	var out []string
+	for _, s := range sources {
+		for _, p := range s.Project {
+			if !slices.Contains(out, p) {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
+}()
+
+// File records a file entry the walk listed in a project directory.
+func (p *ProjectCandidates) File(dir, name string) {
+	for _, pattern := range projectPatterns {
+		if matched, _ := pathpkg.Match(pattern, name); matched {
+			p.add(filepath.Join(dir, name))
+			return
+		}
+	}
+}
+
+// Dir records a directory entry the walk listed in a project directory, with
+// its children when the walk listed it too. Nil children means it was not
+// listed, so every catalog file below it is a candidate the read will confirm.
+func (p *ProjectCandidates) Dir(dir, name string, children []string) {
+	for _, pattern := range projectPatterns {
+		first, rest, nested := strings.Cut(pattern, "/")
+		if !nested || first != name {
+			continue
+		}
+		if children == nil {
+			if !strings.Contains(rest, "*") {
+				p.add(filepath.Join(dir, name, rest))
+			}
+			continue
+		}
+		for _, child := range children {
+			if matched, _ := pathpkg.Match(rest, child); matched {
+				p.add(filepath.Join(dir, name, child))
+			}
+		}
+	}
+}
+
+// Root records a project directory the walk did not list, such as one known
+// from a tool's own project registry: every catalog name without a pattern is
+// a candidate the read will confirm.
+func (p *ProjectCandidates) Root(dir string) {
+	for _, pattern := range projectPatterns {
+		if !strings.Contains(pattern, "*") {
+			p.add(filepath.Join(dir, filepath.FromSlash(pattern)))
+		}
+	}
+}
+
+// Reaches reports whether a directory can hold files the inventory reads: it
+// is the home, lies below it, or holds it.
+func (p *ProjectCandidates) Reaches(dir string) bool {
+	return p.inHome(dir, true)
+}
+
+// inHome reports whether a path lies below either spelling of the home, or
+// with above set also whether it holds the home. Without a home every path is.
+func (p *ProjectCandidates) inHome(path string, above bool) bool {
+	if p.Home == "" {
+		return true
+	}
+	for _, home := range []string{p.Home, p.HomeResolved} {
+		if home == "" {
+			continue
+		}
+		if _, ok := trimPathPrefix(path, home); ok {
+			return true
+		}
+		if _, ok := trimPathPrefix(home, path); ok && above {
+			return true
+		}
+	}
+	return false
+}
+
+// add records one file below the home, once, within the shared listing bound.
+func (p *ProjectCandidates) add(file string) {
+	if p.seen[file] {
+		return
+	}
+	if !p.inHome(file, false) {
+		return
+	}
+	if len(p.Files) >= maxListedCandidates {
+		p.Capped = true
+		return
+	}
+	if p.seen == nil {
+		p.seen = map[string]bool{}
+	}
+	p.seen[file] = true
+	p.Files = append(p.Files, file)
+}
+
+// projectMatch reports whether a file's trailing elements match a
+// project-relative name.
+func projectMatch(pattern, file string) bool {
+	want := strings.Split(pattern, "/")
+	have := strings.Split(filepath.ToSlash(file), "/")
+	if len(have) <= len(want) {
+		return false
+	}
+	have = have[len(have)-len(want):]
+	for i := range want {
+		if matched, _ := pathpkg.Match(want[i], have[i]); !matched {
+			return false
+		}
+	}
+	return true
 }
 
 // root resolves a catalog path root.
@@ -181,6 +421,10 @@ func (p userPaths) root(r pathRoot) string {
 		return p.AppData
 	case rootXDGConfig:
 		return p.XDGConfig
+	case rootLocalAppData:
+		return p.LocalAppData
+	case rootXDGData:
+		return p.XDGData
 	}
 	return ""
 }

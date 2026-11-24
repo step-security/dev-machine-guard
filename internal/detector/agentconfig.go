@@ -180,7 +180,7 @@ func (c *configScan) claude(a *configAgent) {
 	s := c.s
 	managed := s.managedSettingsPath()
 	dropIns := filepath.Join(filepath.Dir(managed), "managed-settings.d")
-	root := filepath.Clean(s.d.claudeConfigRoot(s.home))
+	root := filepath.Clean(claudeConfigDir(s.d.exec, s.home))
 	gd := s.guarded(root, filepath.Dir(managed))
 	a.file(gd, model.AgentConfigScopeManaged, managed, jsoncDoc)
 	for _, p := range c.jsonFiles(gd, dropIns) {

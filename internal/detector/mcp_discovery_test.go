@@ -70,6 +70,10 @@ func TestMCPVendorForPath(t *testing.T) {
 		filepath.Join(sep+"Users", "x", "code", "myproj", ".mcp.json"):                                    "Discovered", // NOT Microsoft
 		filepath.Join(sep+"Users", "x", ".cursor", "mcp.json"):                                            "Cursor",
 		filepath.Join(sep+"Users", "x", "Library", "Application Support", "VSCodium", "User", "mcp.json"): "VSCodium",
+		filepath.Join(sep+"Users", "x", "proj", ".devin", "mcp_config.json"):                              "Cognition",
+		filepath.Join(sep+"Users", "devin", "proj", ".mcp.json"):                                          "Discovered", // a user named devin
+		filepath.Join(sep+"Users", "x", "proj", ".agents", "mcp_config.json"):                             "Google",
+		filepath.Join(sep+"Users", "x", "src", "antigravity-clone", "mcp.json"):                           "Discovered",
 	}
 	for p, want := range cases {
 		if got := mcpVendorForPath(p); got != want {
