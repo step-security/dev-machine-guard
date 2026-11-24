@@ -82,6 +82,7 @@ type SkillsDetector struct {
 	skipper       *tcc.Skipper
 	now           func() time.Time  // observation time for plugins and skill usage
 	agentVersions map[string]string // model.Agent* name → already-collected version
+	mcpAuth       *MCPAuthResolver  // sign-in status for plugin MCP servers; nil leaves it unset
 }
 
 // NewSkillsDetector constructs a SkillsDetector.
@@ -92,6 +93,13 @@ func NewSkillsDetector(exec executor.Executor) *SkillsDetector {
 // WithAgentVersions supplies versions from the AI CLI inventory, keyed by agent name.
 func (d *SkillsDetector) WithAgentVersions(v map[string]string) *SkillsDetector {
 	d.agentVersions = v
+	return d
+}
+
+// WithMCPAuth reports what each plugin MCP server's client stores about
+// signing in, through the same resolver the MCP config scan uses.
+func (d *SkillsDetector) WithMCPAuth(r *MCPAuthResolver) *SkillsDetector {
+	d.mcpAuth = r
 	return d
 }
 
@@ -216,7 +224,7 @@ func (d *SkillsDetector) DetectSkills(ctx context.Context, extraProjectRoots []s
 
 	// One state read supplies project roots and usage counters. Project discovery
 	// also includes package-scanner roots and bounded filesystem discovery.
-	state := readClaudeState(d.exec, d.skipper, home)
+	state := readClaudeState(d.exec, d.skipper, filepath.Join(home, ".claude.json"))
 	projectInfo := &model.AgentSkillScanInfo{}
 	projectCode := state.code
 	if projectCode == "" {
@@ -562,9 +570,9 @@ func (s *pluginScan) collectClaudeUsage(homeState claudeState) *skillUsageObserv
 	return scan
 }
 
-// claudeConfigRoot is ~/.claude, or CLAUDE_CONFIG_DIR when visible to this process.
-func (d *SkillsDetector) claudeConfigRoot(home string) string {
-	if cfg := d.exec.Getenv("CLAUDE_CONFIG_DIR"); cfg != "" {
+// claudeConfigDir is ~/.claude, or CLAUDE_CONFIG_DIR when visible to this process.
+func claudeConfigDir(exec executor.Executor, home string) string {
+	if cfg := exec.Getenv("CLAUDE_CONFIG_DIR"); cfg != "" {
 		return cfg
 	}
 	return filepath.Join(home, ".claude")
@@ -577,7 +585,7 @@ func (d *SkillsDetector) claudeConfigRoot(home string) string {
 // reported through info.CommandsStatus.
 func (d *SkillsDetector) enumerateCommands(ctx context.Context, home string, projects []string, info *model.AgentSkillScanInfo, ps *pluginScan) []model.AgentSkill {
 	type cmdRoot struct{ dir, source, scope, project string }
-	roots := []cmdRoot{{filepath.Join(d.claudeConfigRoot(home), "commands"), "claude_user", "global", ""}}
+	roots := []cmdRoot{{filepath.Join(claudeConfigDir(d.exec, home), "commands"), "claude_user", "global", ""}}
 	for _, proj := range projects {
 		roots = append(roots, cmdRoot{filepath.Join(proj, ".claude", "commands"), "claude_project", "project", proj})
 	}
@@ -743,7 +751,7 @@ func (d *SkillsDetector) resolveGlobalRoots(info *model.AgentSkillScanInfo) []sk
 
 	// claude_user: ~/.claude/skills, honoring CLAUDE_CONFIG_DIR when the env
 	// var is visible to this process (not under a daemon that can't see it).
-	add(filepath.Join(d.claudeConfigRoot(home), "skills"), "claude_user", "claude-code", "global", "")
+	add(filepath.Join(claudeConfigDir(d.exec, home), "skills"), "claude_user", "claude-code", "global", "")
 
 	// agents_user: ~/.agents/skills — the shared cross-client convention read by
 	// skills.sh, Zed, and the Gemini CLI (~/.agents is Gemini's alias for its own

@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"runtime"
+	"slices"
+	"strings"
 
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
@@ -16,6 +20,7 @@ import (
 
 	"github.com/step-security/dev-machine-guard/internal/model"
 	"github.com/step-security/dev-machine-guard/internal/safepath"
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 // dbRow is one row a database query returned: a key naming what the row holds
@@ -34,6 +39,8 @@ type dbSpec struct {
 	value string
 	query string
 	args  []any
+	// optional reads a database without the table as holding no rows.
+	optional bool
 }
 
 // Database read bounds. The query reads only the pages its lookup touches, so
@@ -52,6 +59,23 @@ const (
 var openCodeCredentials = dbSpec{
 	table: "credential", key: "integration_id", value: "value",
 	query: `SELECT integration_id, CAST(value AS TEXT) FROM credential LIMIT 10001`,
+}
+
+// openCodeMCPCredentials is the same read for the MCP sign-in status, where a
+// database from before OpenCode kept credentials holds none to report.
+var openCodeMCPCredentials = dbSpec{
+	table: openCodeCredentials.table, key: openCodeCredentials.key, value: openCodeCredentials.value,
+	query: openCodeCredentials.query, optional: true,
+}
+
+// openCodeVersion2 asks for the migration OpenCode 2 records in every database
+// it opens. It imports the 1.x provider sign-ins and none of the MCP ones, so
+// from then on OpenCode keeps MCP sign-ins only in the database. A database
+// that 1.x still tracks with Drizzle's journal has no migration table.
+var openCodeVersion2 = dbSpec{
+	table: "migration", key: "id", value: "time_completed", optional: true,
+	query: `SELECT id, CAST(time_completed AS TEXT) FROM migration WHERE id = ? LIMIT 1`,
+	args:  []any{"20260805200742_import_legacy_credentials"},
 }
 
 // editorItems queries the editor key-value table. Keys are matched exactly or
@@ -78,6 +102,148 @@ var dbSpecs = map[string]dbSpec{
 		`SELECT key, CAST(value AS TEXT) FROM ItemTable WHERE key = ? LIMIT 10001`,
 		"mcpInputs",
 	),
+}
+
+// EditorItem is one row of a fixed key-value query.
+type EditorItem struct{ Key, Value string }
+
+// ReadEditorItems runs one fixed query against an editor ItemTable through the
+// guarded read-only reader. On macOS the editors keep the database below the
+// protected Library, so the guard admits that database and the two log names
+// beside it, and nothing else there.
+func ReadEditorItems(ctx context.Context, skipper *tcc.Skipper, home, dbPath, query string, args ...any) ([]EditorItem, error) {
+	library := filepath.Join(home, "Library")
+	var admitted []libraryPath
+	if rest, ok := trimPathPrefix(dbPath, library); ok && rest != "" && !strings.Contains(rest, "*") {
+		for _, name := range []string{rest, rest + walSuffix, rest + journalSuffix} {
+			admitted = append(admitted, libraryPath{base: library, rel: strings.Split(filepath.ToSlash(name), "/")})
+		}
+	}
+	rows, _, _, capped, err := readDB(ctx, safepath.New(home, consentGuard(skipper, admitted...)), dbPath, editorItems(query, args...))
+	if err != nil {
+		return nil, err
+	}
+	if capped {
+		return nil, errDBBudget
+	}
+	items := make([]EditorItem, len(rows))
+	for i, row := range rows {
+		items[i] = EditorItem(row)
+	}
+	return items, nil
+}
+
+// OpenCodeMCPCredential is all the sign-in status needs from one OpenCode MCP
+// credential row. No token value leaves this package.
+type OpenCodeMCPCredential struct {
+	IntegrationID string // the server's integration, which OpenCode derives from its name and URL
+	ServerURL     string // the URL the server signed in at, after OpenCode substituted the config
+	HasAccess     bool
+	HasRefresh    bool
+	ExpiresAt     *float64 // milliseconds; nil when the server gave the token no lifetime
+}
+
+// OpenCodeMCPStore is what OpenCode's databases hold for MCP sign-ins.
+type OpenCodeMCPStore struct {
+	Credentials []OpenCodeMCPCredential
+	// Version2 is set when OpenCode 2 has opened a database. It no longer
+	// reads the 1.x mcp-auth.json.
+	Version2 bool
+}
+
+// ReadOpenCodeMCPCredentials finds OpenCode's databases the way the
+// opencode_mcp source does, from the XDG_DATA_HOME and OPENCODE_DB values the
+// caller passes, and reads their MCP credential rows through the guarded
+// reader. The caller supplies the environment so no login shell is probed.
+func ReadOpenCodeMCPCredentials(ctx context.Context, skipper *tcc.Skipper, home, xdgDataHome, openCodeDB string) (OpenCodeMCPStore, error) {
+	i := slices.IndexFunc(sources, func(s source) bool { return s.ID == sourceOpenCodeMCP })
+	paths := newUserPaths("", home, runtime.GOOS).withXDGData(xdgDataHome)
+	resolver := safepath.New(home, consentGuard(skipper))
+	seen := map[string]bool{}
+	var out OpenCodeMCPStore
+	for _, c := range candidatesFor(sources[i], paths, map[string]string{"OPENCODE_DB": openCodeDB}, runtime.GOOS) {
+		if !c.SQLite {
+			continue
+		}
+		dbs, err := listedDatabases(resolver, c)
+		if err != nil {
+			return OpenCodeMCPStore{}, err
+		}
+		for _, db := range dbs {
+			if seen[db] {
+				continue
+			}
+			seen[db] = true
+			rows, _, _, capped, err := readDB(ctx, resolver, db, openCodeMCPCredentials)
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return OpenCodeMCPStore{}, err
+			}
+			if capped {
+				return OpenCodeMCPStore{}, errDBBudget
+			}
+			marker, _, _, capped, err := readDB(ctx, resolver, db, openCodeVersion2)
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return OpenCodeMCPStore{}, err
+			}
+			if capped {
+				return OpenCodeMCPStore{}, errDBBudget
+			}
+			out.Version2 = out.Version2 || len(marker) > 0
+			for _, row := range rows {
+				var v map[string]any
+				if json.Unmarshal([]byte(row.Value), &v) != nil || !openCodeMCPRow(row.Key, v) {
+					continue
+				}
+				meta, _ := v["metadata"].(map[string]any)
+				serverURL, _ := meta["serverUrl"].(string)
+				access, _ := v["access"].(string)
+				refresh, _ := v["refresh"].(string)
+				// OpenCode writes 0 for a token the server gave no lifetime.
+				var expiresAt *float64
+				if ms, ok := v["expires"].(float64); ok && ms != 0 {
+					expiresAt = &ms
+				}
+				out.Credentials = append(out.Credentials, OpenCodeMCPCredential{IntegrationID: row.Key, ServerURL: serverURL, HasAccess: access != "", HasRefresh: refresh != "", ExpiresAt: expiresAt})
+			}
+		}
+	}
+	return out, nil
+}
+
+// listedDatabases expands a "*" in a catalog database name against one listing
+// of its directory. Only the catalog's own part can hold a pattern; a path from
+// the environment is taken as written. A listing past the cap is as incomplete
+// as a read past the budget, so it fails the same way.
+func listedDatabases(resolver *safepath.Resolver, c candidate) ([]string, error) {
+	path := c.path()
+	if !strings.Contains(c.Rel, "*") {
+		return []string{path}, nil
+	}
+	dir, pattern := filepath.Split(path)
+	names, _, more, err := resolver.ReadDirNames(dir, maxKeyDirEntries)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if more {
+		return nil, errDBBudget
+	}
+	slices.Sort(names)
+	var out []string
+	for _, name := range names {
+		if matched, _ := filepath.Match(pattern, name); matched && listedName(name) {
+			out = append(out, filepath.Join(dir, name))
+		}
+	}
+	return out, nil
 }
 
 // readDB runs a source's fixed query against a database without ever handing
@@ -208,7 +374,10 @@ func queryHeld(ctx context.Context, files heldFiles, hasWAL bool, spec dbSpec) (
 	if _, err := sqlite.Limit(conn, sqlite3.SQLITE_LIMIT_LENGTH, dbValueLimit); err != nil {
 		return nil, false, errUnrecognizedFormat
 	}
-	if !hasSchema(ctx, conn, spec) {
+	if ok, missing := hasSchema(ctx, conn, spec); !ok {
+		if missing && spec.optional {
+			return nil, false, nil
+		}
 		return nil, false, errUnrecognizedFormat
 	}
 
@@ -239,15 +408,16 @@ func queryHeld(ctx context.Context, files heldFiles, hasWAL bool, spec dbSpec) (
 
 // hasSchema reports whether the database has the query's table as a real table
 // with both of its columns, so a view or a renamed column cannot stand in.
-func hasSchema(ctx context.Context, conn *sql.Conn, spec dbSpec) bool {
+// missing is set when nothing in the database has the table's name.
+func hasSchema(ctx context.Context, conn *sql.Conn, spec dbSpec) (ok, missing bool) {
 	var kind string
 	err := conn.QueryRowContext(ctx, `SELECT type FROM pragma_table_list WHERE schema = 'main' AND name = ?`, spec.table).Scan(&kind)
 	if err != nil || kind != "table" {
-		return false
+		return false, errors.Is(err, sql.ErrNoRows)
 	}
 	columns, err := conn.QueryContext(ctx, `SELECT name FROM pragma_table_xinfo(?)`, spec.table)
 	if err != nil {
-		return false
+		return false, false
 	}
 	defer columns.Close()
 	found := 0
@@ -257,7 +427,7 @@ func hasSchema(ctx context.Context, conn *sql.Conn, spec dbSpec) bool {
 			found++
 		}
 	}
-	return columns.Err() == nil && found == 2
+	return columns.Err() == nil && found == 2, false
 }
 
 // dbError reduces a query failure to a reason: the run's deadline when that is

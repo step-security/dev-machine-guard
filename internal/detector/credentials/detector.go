@@ -125,7 +125,7 @@ func (d *Detector) Detect(ctx context.Context) *model.CredentialScanInfo {
 	// mitigation and there is no other: a read that blocks on a consent prompt does
 	// not observe the phase deadline, so the only way not to hang is not to make
 	// the call.
-	guarded := safepath.New(paths.Home, d.consentGuard())
+	guarded := safepath.New(paths.Home, consentGuard(d.skipper))
 
 	scan := &scanState{
 		info:     info,
@@ -230,7 +230,7 @@ func (d *Detector) collectSource(ctx context.Context, scan *scanState, s source)
 	guarded := scan.guarded
 	if fixed := libraryFiles(s, scan.paths, scan.platform); len(fixed) > 0 {
 		// Only catalog paths are exempt, never directories supplied by an override.
-		guarded = safepath.New(scan.paths.Home, d.consentGuard(fixed...))
+		guarded = safepath.New(scan.paths.Home, consentGuard(d.skipper, fixed...))
 	}
 	if retained(s) {
 		d.collectRetainedSource(ctx, scan, s, guarded)
@@ -837,8 +837,8 @@ var errUnrecognizedFormat = errors.New(model.CredentialReasonUnrecognizedFormat)
 // consentGuard is what the resolver asks before it touches a path, answering in
 // this phase's own reason code so a refusal reads like every other one. A nil
 // guard is the whole answer with no skipper: the access has been granted.
-func (d *Detector) consentGuard(fixedFiles ...libraryPath) safepath.Guard {
-	if d.skipper == nil {
+func consentGuard(skipper *tcc.Skipper, fixedFiles ...libraryPath) safepath.Guard {
+	if skipper == nil {
 		return nil
 	}
 	return func(path string) string {
@@ -850,7 +850,7 @@ func (d *Detector) consentGuard(fixedFiles ...libraryPath) safepath.Guard {
 				return ""
 			}
 		}
-		if d.skipper.WithinProtected(cleaned) {
+		if skipper.WithinProtected(cleaned) {
 			return model.CredentialReasonRefusedTCC
 		}
 		return ""

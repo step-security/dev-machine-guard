@@ -539,7 +539,7 @@ func TestClaudeStateGuardedRead(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(home, ".claude.json")); err != nil {
 		t.Skip(err)
 	}
-	got := readClaudeState(executor.NewReal(), nil, home)
+	got := readClaudeState(executor.NewReal(), nil, filepath.Join(home, ".claude.json"))
 	if got.code != model.AgentScanErrUnsafePath || len(got.skillUsage) != 0 {
 		t.Fatalf("escaped state read: %+v", got)
 	}
@@ -1044,7 +1044,7 @@ func TestClaudeUsageFailurePreservesProjectDiscovery(t *testing.T) {
 	fs.addFile(mcpPath, `{"mcpServers":{"test-server":{"command":"test-mcp","args":["--stdio"]}}}`)
 	fs.addSkill(filepath.Join(project, ".claude/skills/check"), "SKILL.md", validFrontmatter("check", "test"), nil)
 	fs.commit()
-	st := readClaudeState(m, nil, testHome)
+	st := readClaudeState(m, nil, filepath.Join(testHome, ".claude.json"))
 	if !slices.Equal(st.projects, []string{project}) || st.usageCode != model.AgentScanErrParseFailed || st.code != "" || st.projectsCode != "" {
 		t.Fatalf("unrelated project discovery changed: %+v", st)
 	}
