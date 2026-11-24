@@ -81,6 +81,7 @@ type SkillsDetector struct {
 	skipper       *tcc.Skipper
 	now           func() time.Time  // observation time for plugins and skill usage
 	agentVersions map[string]string // model.Agent* name → already-collected version
+	configAgents  map[string]bool   // agent configuration names detected by the inventory
 }
 
 // NewSkillsDetector constructs a SkillsDetector.
@@ -91,6 +92,14 @@ func NewSkillsDetector(exec executor.Executor) *SkillsDetector {
 // WithAgentVersions supplies versions from the AI CLI inventory, keyed by agent name.
 func (d *SkillsDetector) WithAgentVersions(v map[string]string) *SkillsDetector {
 	d.agentVersions = v
+	return d
+}
+
+// WithConfigAgents supplies the agents the AI tool and IDE inventory detected,
+// keyed by agent configuration name. A detected agent is reported even when it
+// has no settings source.
+func (d *SkillsDetector) WithConfigAgents(v map[string]bool) *SkillsDetector {
+	d.configAgents = v
 	return d
 }
 
@@ -228,6 +237,9 @@ func (d *SkillsDetector) DetectSkills(ctx context.Context, extraProjectRoots []s
 	projects := d.discoverProjects(state.projects, extraProjectRoots, walkRoots, projectInfo)
 	ps.projects = projects
 	ps.projectsIncomplete = projectInfo.Truncated || len(projectInfo.Errors) > 0
+	// Caps and per-directory errors repeat on every scan; a missing registry or an
+	// expired deadline does not, so only those withhold the configuration report.
+	ps.projectsUnavailable = projectCode != "" || ctx.Err() != nil
 	info.Truncated = info.Truncated || projectInfo.Truncated
 	info.WalkDirsVisited, info.WalkRootsFound = projectInfo.WalkDirsVisited, projectInfo.WalkRootsFound
 	for _, err := range projectInfo.Errors {
@@ -928,6 +940,18 @@ var projectMarkerDirs = map[string][]string{
 	".codex":     {"skills"},
 }
 
+// projectConfigMarkers lets the walk find a project that holds only agent
+// settings or hook files. Discovery only: resolveProjectRoots never probes these,
+// and every key is already a projectMarkerDirs key, so the probe reuses the
+// listing it already made.
+var projectConfigMarkers = map[string]struct{ files, dirs []string }{
+	".claude": {files: []string{"settings.json", "settings.local.json"}},
+	".codex":  {files: []string{"hooks.json", "config.toml"}},
+	".cursor": {files: []string{"hooks.json", "cli.json", "permissions.json", "sandbox.json"}},
+	".gemini": {files: []string{"settings.json"}},
+	".github": {dirs: []string{"hooks", "copilot"}},
+}
+
 // walkForProjectRoots sweeps each search dir for projectMarkerDirs and returns
 // the marker dirs' parent directories as project-root candidates for
 // discoverProjects to union in. It exists because there is no "where does code
@@ -1055,7 +1079,8 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 					d.addError(info, fmt.Sprintf("home walk read marker %s: %v", childDir, err))
 					continue
 				}
-				if hasMarkerChild(mEntries, markerChildren) || name == ".pi" && hasPiProjectMarker(mEntries) {
+				if hasMarkerChild(mEntries, markerChildren) || name == ".pi" && hasPiProjectMarker(mEntries) ||
+					hasConfigMarker(mEntries, projectConfigMarkers[name]) {
 					emit(dir)
 				}
 				continue
@@ -1214,6 +1239,17 @@ func hasPiProjectMarker(entries []os.DirEntry) bool {
 		}
 	}
 	return false
+}
+
+// hasConfigMarker reports whether entries hold one of m's regular files or
+// directories. Symlinks never match, as in hasMarkerChild.
+func hasConfigMarker(entries []os.DirEntry, m struct{ files, dirs []string }) bool {
+	for _, e := range entries {
+		if e.Type().IsRegular() && slices.Contains(m.files, e.Name()) {
+			return true
+		}
+	}
+	return hasMarkerChild(entries, m.dirs)
 }
 
 // isWindowsNoiseDir reports whether name is a Windows system directory that holds

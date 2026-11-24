@@ -4,6 +4,9 @@ package detector
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -98,4 +101,45 @@ func readKiroCLIKey(root registry.Key, path string) (installPath, productVersion
 	}
 	productVersion, _, _ = k.GetStringValue("ProductVersion")
 	return installPath, productVersion, true
+}
+
+// readRegistryValue reads one value under an HKLM\ or HKCU\ key path. found is
+// false when the key or value does not exist; err is set when the value exists
+// but cannot be read as text. Strings come back as written, DWORD and QWORD
+// values as decimal text. The 64-bit view is used, as policy readers do.
+func readRegistryValue(_ context.Context, _ executor.Executor, path, name string) (value string, found bool, err error) {
+	root := registry.LOCAL_MACHINE
+	sub, ok := strings.CutPrefix(path, `HKLM\`)
+	if !ok {
+		root = registry.CURRENT_USER
+		if sub, ok = strings.CutPrefix(path, `HKCU\`); !ok {
+			return "", false, nil
+		}
+	}
+	k, err := registry.OpenKey(root, sub, registry.QUERY_VALUE|registry.WOW64_64KEY)
+	if err != nil {
+		if errors.Is(err, registry.ErrNotExist) {
+			return "", false, nil
+		}
+		return "", true, err
+	}
+	defer func() { _ = k.Close() }()
+	_, valType, err := k.GetValue(name, nil)
+	if err != nil {
+		if errors.Is(err, registry.ErrNotExist) {
+			return "", false, nil
+		}
+		return "", true, err
+	}
+	switch valType {
+	case registry.SZ, registry.EXPAND_SZ:
+		value, _, err = k.GetStringValue(name)
+	case registry.DWORD, registry.QWORD:
+		var n uint64
+		n, _, err = k.GetIntegerValue(name)
+		value = strconv.FormatUint(n, 10)
+	default:
+		err = fmt.Errorf("registry value type %d", valType)
+	}
+	return value, true, err
 }

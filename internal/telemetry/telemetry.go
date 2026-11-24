@@ -133,6 +133,7 @@ type Payload struct {
 	AgentSkills             []model.AgentSkill              `json:"agent_skills,omitempty"`
 	AgentSkillScan          *model.AgentSkillScanInfo       `json:"agent_skill_scan,omitempty"`
 	AgentPlugins            *model.AgentPlugins             `json:"agent_plugins,omitempty"`
+	AgentConfig             *model.AgentConfigScan          `json:"agent_config,omitempty"` // nil: unreported, stored state kept
 	CredentialScan          *model.CredentialScanInfo       `json:"credential_scan,omitempty"`
 	// Nil means the phase did not run, and that is the only signal a reader has
 	// for it: a section carrying zero findings is the positive claim that this
@@ -1162,12 +1163,23 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// uploading definition contents. Scan info remains present for empty results.
 	phaseCtx, phaseCancel = startPhase(ctx, tracker, "agent_skills_scan")
 	log.Progress("Collecting AI agent skills...")
-	skillsDetector := detector.NewSkillsDetector(userExec).WithSkipper(tccSkipper).WithAgentVersions(detector.AgentVersions(cliTools))
+	skillsDetector := detector.NewSkillsDetector(userExec).WithSkipper(tccSkipper).WithAgentVersions(detector.AgentVersions(cliTools)).
+		WithConfigAgents(detector.ConfigAgents(cliTools, ides))
 	skillsResult := skillsDetector.DetectSkills(phaseCtx, collectProjectRoots(nodeProjects, pythonProjects), searchDirs)
 	agentSkills, agentSkillScan := skillsResult.Skills, skillsResult.Info
 	log.Progress("  Found %d agent skills across %d roots", len(agentSkills), len(agentSkillScan.RootsScanned))
 	fmt.Fprintln(os.Stderr)
 	endPhase(phaseCtx, phaseCancel, tracker, log, "agent_skills_scan")
+	postPhase()
+
+	// Settings sources, posture keys and hooks per AI agent, read from the
+	// project list the skills phase resolved.
+	phaseCtx, phaseCancel = startPhase(ctx, tracker, "agent_config_scan")
+	log.Progress("Collecting AI agent configuration...")
+	skillsDetector.DetectAgentConfig(phaseCtx, &skillsResult)
+	log.Progress("  Found configuration for %d agents", skillsResult.AgentConfig.AgentCount())
+	fmt.Fprintln(os.Stderr)
+	endPhase(phaseCtx, phaseCancel, tracker, log, "agent_config_scan")
 	postPhase()
 
 	phaseCtx, phaseCancel = startPhase(ctx, tracker, "agent_plugins_scan")
@@ -1460,6 +1472,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 		AgentSkills:             agentSkills,
 		AgentSkillScan:          agentSkillScan,
 		AgentPlugins:            skillsResult.Plugins,
+		AgentConfig:             skillsResult.AgentConfig,
 		CredentialScan:          credentialScan,
 		BrowserExtensionScan:    browserExtensionScan,
 		GoInventory:             goInventory,

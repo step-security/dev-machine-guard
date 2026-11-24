@@ -72,6 +72,10 @@ type pluginScan struct {
 	evidence           *pluginEvidence
 	reads              map[string]pluginMetadataStamp
 	sourceChanged      bool
+
+	// projectsUnavailable means the project list itself could not be built, so
+	// a report built from it would drop project sources that still exist.
+	projectsUnavailable bool
 }
 
 // pluginEvidence is what the MCP reconciliation needs after the phase: the
@@ -134,6 +138,7 @@ type SkillsResult struct {
 	Skills         []model.AgentSkill
 	Info           *model.AgentSkillScanInfo
 	Plugins        *model.AgentPlugins
+	AgentConfig    *model.AgentConfigScan
 	usage          *skillUsageObservations
 	evidence       *pluginEvidence
 	pendingPlugins *pluginScan

@@ -59,6 +59,9 @@ type ScanResult struct {
 	// Nil plugin coverage means unreported, not an empty inventory.
 	AgentPlugins *AgentPlugins `json:"agent_plugins,omitempty"`
 
+	// Nil agent configuration means unreported; the backend keeps stored state.
+	AgentConfig *AgentConfigScan `json:"agent_config,omitempty"`
+
 	Summary Summary `json:"summary"`
 }
 

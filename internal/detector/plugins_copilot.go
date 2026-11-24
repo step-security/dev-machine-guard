@@ -123,21 +123,7 @@ func (s *pluginScan) copilotEditorContexts() []*model.AgentPluginContext {
 		if state, _, _ := s.stat(s.guarded(dotRoot), dotRoot); state != fileDir {
 			continue
 		}
-		var userRoot string
-		switch s.goos {
-		case model.PlatformDarwin:
-			userRoot = filepath.Join(s.home, "Library", "Application Support", variant, "User")
-		case model.PlatformWindows:
-			if appData := s.d.exec.Getenv("APPDATA"); filepath.IsAbs(appData) {
-				userRoot = filepath.Join(appData, variant, "User")
-			}
-		default:
-			config := s.d.exec.Getenv("XDG_CONFIG_HOME")
-			if !filepath.IsAbs(config) {
-				config = filepath.Join(s.home, ".config")
-			}
-			userRoot = filepath.Join(config, variant, "User")
-		}
+		userRoot := s.vscodeUserRoot(variant)
 		if userRoot == "" {
 			continue
 		}
@@ -170,6 +156,25 @@ func (s *pluginScan) copilotEditorContexts() []*model.AgentPluginContext {
 		}
 	}
 	return contexts
+}
+
+// vscodeUserRoot is the VS Code (or Insiders) User folder for this OS, or ""
+// when Windows has no usable APPDATA.
+func (s *pluginScan) vscodeUserRoot(variant string) string {
+	switch s.goos {
+	case model.PlatformDarwin:
+		return filepath.Join(s.home, "Library", "Application Support", variant, "User")
+	case model.PlatformWindows:
+		if appData := s.d.exec.Getenv("APPDATA"); filepath.IsAbs(appData) {
+			return filepath.Join(appData, variant, "User")
+		}
+		return ""
+	}
+	config := s.d.exec.Getenv("XDG_CONFIG_HOME")
+	if !filepath.IsAbs(config) {
+		config = filepath.Join(s.home, ".config")
+	}
+	return filepath.Join(config, variant, "User")
 }
 
 func (s *pluginScan) copilotEditorSettings(file, scope, project string) *model.AgentPluginContext {

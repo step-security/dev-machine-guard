@@ -100,11 +100,11 @@ func TestDetect_HomeWalkGeminiUserGlobalRoot(t *testing.T) {
 }
 
 // TestDetect_HomeWalkMarkerWithoutChild: a marker dot-dir lacking its skills
-// child (only settings.json) does not mark a project.
+// child (only an unlisted file) does not mark a project.
 func TestDetect_HomeWalkMarkerWithoutChild(t *testing.T) {
 	m, fs := newSkillsMock()
 	proj := testHome + "/repos/proj"
-	fs.addFile(filepath.Join(proj, ".claude", "settings.json"), "{}")
+	fs.addFile(filepath.Join(proj, ".claude", "CLAUDE.md"), "notes")
 	fs.commit()
 
 	records, info := NewSkillsDetector(m).Detect(context.Background(), nil, []string{testHome})
@@ -433,5 +433,53 @@ func TestDetect_HomeWalkPrunesOverlappingRoots(t *testing.T) {
 	}
 	if sFound != 1 {
 		t.Errorf("skill s found %d times, want 1", sFound)
+	}
+}
+
+// TestWalk_ConfigMarkers: a repository holding only agent settings or hook
+// files is discovered; symlinked or unlisted files are not markers.
+func TestWalk_ConfigMarkers(t *testing.T) {
+	cases := []struct {
+		marker, child, kind string
+		want                bool
+	}{
+		{".claude", "settings.json", "file", true},
+		{".claude", "settings.local.json", "file", true},
+		{".codex", "hooks.json", "file", true},
+		{".codex", "config.toml", "file", true},
+		{".cursor", "hooks.json", "file", true},
+		{".cursor", "cli.json", "file", true},
+		{".cursor", "permissions.json", "file", true},
+		{".cursor", "sandbox.json", "file", true},
+		{".gemini", "settings.json", "file", true},
+		{".github", "hooks", "dir", true},
+		{".github", "copilot", "dir", true},
+		{".claude", "settings.json", "symlink", false},
+		{".claude", "settings.json", "dir", false},
+		{".github", "copilot-instructions.md", "file", false},
+		{".github", "hooks", "file", false},
+		{".gemini", "other.json", "file", false},
+	}
+	for _, c := range cases {
+		t.Run(c.marker+"/"+c.child+"/"+c.kind, func(t *testing.T) {
+			m, fs := newSkillsMock()
+			project := filepath.Join(testHome, "repos", "settings-only")
+			root := filepath.Join(project, c.marker)
+			fs.mkdir(root)
+			switch c.kind {
+			case "file":
+				fs.addFile(filepath.Join(root, c.child), "{}")
+			case "dir":
+				fs.mkdir(filepath.Join(root, c.child))
+			case "symlink":
+				fs.addSymlink(filepath.Join(root, c.child), filepath.Join(testHome, "Documents", c.child))
+			}
+			fs.commit()
+			info := &model.AgentSkillScanInfo{}
+			got := NewSkillsDetector(m).walkForProjectRoots(t.Context(), []string{filepath.Join(testHome, "repos")}, info)
+			if found := reflect.DeepEqual(got, []string{project}); found != c.want || !c.want && len(got) != 0 {
+				t.Errorf("projects = %v, want discovered = %v", got, c.want)
+			}
+		})
 	}
 }
