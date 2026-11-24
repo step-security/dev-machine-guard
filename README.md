@@ -375,6 +375,7 @@ See [SCAN_COVERAGE.md](SCAN_COVERAGE.md) for the full catalog of supported detec
 | AI Frameworks        | Ollama, LM Studio, LocalAI, Text Generation WebUI                                        |
 | MCP Server Configs   | Claude Desktop, Claude Code, Cursor, Windsurf, Antigravity, Zed, Open Interpreter, Codex, OpenCode, GitHub Copilot, Pi |
 | Agent Plugins & Skills | Claude Code, Codex and GitHub Copilot (CLI, standalone app and VS Code) plugin installations, Pi packages and extensions, declared components, standalone Claude commands, and recorded skill-use counters |
+| AI Agent Configuration | Claude Code, Codex, GitHub Copilot, Cursor and Gemini CLI settings sources (managed, user, project): approval, permission and sandbox keys and declared hooks |
 | IDE Extensions       | VS Code, Cursor, Windsurf, Antigravity, JetBrains, Eclipse, Xcode, Android Studio        |
 | Browser Extensions   | Google Chrome, Microsoft Edge, Mozilla Firefox                                           |
 | Node.js Packages     | npm, yarn, pnpm, bun (opt-in)                                                            |
@@ -507,6 +508,7 @@ Dev Machine Guard is a single compiled binary that scans your developer environm
 - IDE extension/plugin names, publishers, and versions (VS Code, Cursor, Windsurf, Antigravity, JetBrains, Eclipse, Xcode, Android Studio)
 - Browser extension records read from the browsers' own state files (Chrome, Edge, Firefox): identity, enabled state, install source, and the permissions the browser currently honours. Browsing history, cookies, saved passwords, and page content are never opened
 - MCP server configuration (server names and commands only)
+- AI agent settings sources with their approval, permission and sandbox keys and declared hook commands (home folder shown as `~`, secrets redacted)
 - Node.js, Homebrew, Python, and system package listings (opt-in)
 - Package-manager configuration: effective registry, cooldown policy, and authentication surface across every scope (`.npmrc`, pnpm config, `bunfig.toml`, `.yarnrc`/`.yarnrc.yml`, `pip.conf`)
 - Suspicious files flagged by StepSecurity-maintained malicious-file rules (path and matched rule only — file contents are not collected)

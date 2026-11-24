@@ -152,6 +152,24 @@ The collector never executes plugins, hooks, scripts, agent CLIs or network requ
 
 Reads are guarded and bounded: 5 MiB metadata, 1 MiB definitions, 1,024 plugin observations, 4,096 components, 2,000 new parsed definitions, 10,000 inspected native usage counters and an 8 MiB plugin envelope. Malformed, unreadable, unsupported or truncated scopes report incomplete coverage independently. Visible `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_PLUGIN_CACHE_DIR`, `CLAUDE_CODE_PLUGIN_SEED_DIR`, `CODEX_HOME`, `COPILOT_HOME`, independent `COPILOT_CACHE_HOME` and `PI_CODING_AGENT_DIR` overrides are respected (`PI_CODING_AGENT_DIR` also moves the Pi user skills root); overrides hidden from the scanning process cannot be discovered. Project presence does not prove session trust or activation. Native Windows project-plugin activation and account-synced delivery lifecycle remain outside the completed fixture validation.
 
+## AI Agent Configuration
+
+The `agent_config_scan` phase runs after `agent_skills_scan` and reports, per AI coding agent, every settings source found on the device with its allowlisted posture keys and the hooks declared in it. It reports file contents only: it does not decide whether a hook runs, whether a project is trusted, or which of several values the agent applies. Projects are the ones the skills scan discovered; a repository that holds only agent settings or hook files (`.claude/settings*.json`, `.codex/{hooks.json,config.toml}`, `.cursor/{hooks,cli,permissions,sandbox}.json`, `.gemini/settings.json`, `.github/hooks/`, `.github/copilot/`) is discovered too.
+
+| Agent | Managed | User | Project |
+| --- | --- | --- | --- |
+| Claude Code | `managed-settings.json` and `managed-settings.d/*.json`; macOS profile `com.anthropic.claudecode`; registry `HKLM`/`HKCU\SOFTWARE\Policies\ClaudeCode` value `Settings` | `settings.json` (`CLAUDE_CONFIG_DIR` respected) | `.claude/settings.json`, `.claude/settings.local.json` |
+| Codex | system `config.toml`, `requirements.toml` and `hooks.json`; macOS profile `com.openai.codex` key `requirements_toml_base64`; the local file named by `HKLM\SOFTWARE\Policies\OpenAI\Codex` value `RequirementsPath` | `config.toml` (keys, `[hooks]`, `notify`) and `hooks.json` (`CODEX_HOME` respected) | `.codex/config.toml`, `.codex/hooks.json` |
+| GitHub Copilot | `managed-settings.json`, `policy.d/*.json`; macOS profile `com.github.copilot`; registry `HKLM\SOFTWARE\Policies\GitHubCopilot`; VS Code policies `ChatToolsAutoApprove` and `ChatHooks` (`/etc/vscode/policy.json`, macOS profile `com.microsoft.VSCode`, `HKLM\Software\Policies\Microsoft\VSCode`) | `settings.json` and `hooks/*.json` (`COPILOT_HOME` respected); VS Code and Insiders user and profile `settings.json` | `.github/hooks/*.json`, `.github/copilot/settings*.json` |
+| Cursor | `hooks.json` in the system folder | `~/.cursor/{hooks,cli-config,permissions,sandbox}.json` | `.cursor/{hooks,cli,permissions,sandbox}.json` |
+| Gemini CLI | system `settings.json` | `~/.gemini/settings.json` | `.gemini/settings.json` |
+
+macOS profiles are read machine-wide and for the console user; the per-user file is reported under `/Library/Managed Preferences/~/`. Keys read: Claude permission mode, allow/deny rules, bypass and sandbox switches, hook and managed-only switches; Codex `approval_policy`, `approvals_reviewer`, `sandbox_mode`, `allow_managed_hooks_only`, `features.hooks`; Copilot permission mode, sandbox and hook switches and the VS Code chat auto-approve, permission, terminal auto-approve, sandbox and hook settings; Cursor approval mode, permission rules, sandbox mode, terminal allowlist and auto-run; Gemini approval mode, allowed tools, sandbox and hooks switch. Codex `[profiles.*]` keys are not read. Each hook reports its event, matcher, handler type and command text (URL for HTTP hooks, `server/tool` for MCP tool hooks, prompt for prompt and agent hooks).
+
+**Privacy:** the home folder is replaced with `~` in every path, value and command; secrets are redacted before anything is hashed or sent; HTTP hook URLs lose user info, query and fragment. Environment blocks, headers, timeouts and trust state are never sent. Project and VS Code sources are sent only when they hold a listed key or hook. Bounds per agent: 250 sources, 100 hooks, 50 values per key, 256-byte values and command text (the hash covers the full redacted text), 1,024-byte paths and 128 KiB of JSON; a cut marks the agent `truncated`. The section is left out when the project list could not be built, so stored project sources are kept.
+
+Not covered: Copilot policy subkeys under `HKLM\Software\Policies\GitHub\Copilot`, Codex `config_toml_base64` and `managed_config.toml`, VS Code `HKCU` policy, the Insiders policy domain and project `.vscode/settings.json`, Gemini system settings path overrides and `system-defaults.json`, and Cursor `$XDG_CONFIG_HOME/cursor/cli-config.json`.
+
 ## IDE Extensions & Plugins
 
 ### VS Code-Family Extensions
