@@ -265,7 +265,7 @@ Configuration (~/.stepsecurity/config.json):
   Log Level:               error
 ```
 
-Configuration is saved to `~/.stepsecurity/config.json` with `0600` permissions (owner read/write only).
+Configuration is saved to `~/.stepsecurity/config.json` with `0600` permissions (owner read/write only). When that file is absent, the agent also looks for a `config.json` beside its binary, or one level up when the binary sits in a `bin` directory, so a system-wide install under a custom directory carries its configuration with it.
 
 To label a device for the dashboard, add `"device_tag": "avd-pool-eu"` to the
 config JSON, pass `configure --device-tag avd-pool-eu`, or use the MSI

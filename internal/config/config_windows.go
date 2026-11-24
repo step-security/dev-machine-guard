@@ -4,6 +4,7 @@ package config
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 
@@ -63,3 +64,28 @@ func hardenMachineConfigACL(path string) error {
 // preserveOwner is a no-op on Windows: access is ACL-based (see
 // hardenMachineConfigACL), not owner-based.
 func preserveOwner(path string, prev os.FileInfo) {}
+
+// openNoFollow opens path for reading after checking that it is not a
+// symlink or other reparse point. Windows has no O_NOFOLLOW; the lookup is
+// never used by an elevated run (installTreeLookupAllowed), so a swap in the
+// gap only affects the user who could already read and edit the file.
+func openNoFollow(path string) (*os.File, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fs.ErrInvalid
+	}
+	return os.Open(path) // #nosec G304 -- derived from the running binary's own location.
+}
+
+// installTreeLookupAllowed: never for an elevated or SYSTEM run. The SYSTEM
+// self-updater trusts config.json only because users cannot write the
+// machine-wide copy; a file next to the binary carries no such guarantee,
+// and the machine-wide lookup must keep outranking everything there.
+func installTreeLookupAllowed() bool { return !isElevated() }
+
+// installTreeFileTrusted: an unelevated user reading a file it can already
+// read gains nothing it did not have; ACLs are the control on Windows.
+func installTreeFileTrusted(os.FileInfo) bool { return true }
