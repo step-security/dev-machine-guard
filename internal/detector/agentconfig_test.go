@@ -913,6 +913,35 @@ func TestAgentConfig_SettingsOnlyReposLeaveSkillsAlone(t *testing.T) {
 	}
 }
 
+// A skills project cut from the skills list by package roots still has its
+// settings read.
+func TestAgentConfig_CutSkillsProjectKeepsSettings(t *testing.T) {
+	m, fs := newPluginMock()
+	m.SetHomeDir(testHome)
+	m.SetGOOS(model.PlatformLinux)
+	var extra []string
+	for i := range maxProjects {
+		p := fmt.Sprintf("%s/pkgs/p%03d", testHome, i)
+		fs.mkdir(p)
+		extra = append(extra, p)
+	}
+	repos := filepath.Join(testHome, "repos")
+	fs.addFile(repos+"/skilled/.claude/skills/s/SKILL.md", validFrontmatter("s", "d"))
+	fs.addFile(repos+"/skilled/.claude/settings.json", `{"permissions": {"defaultMode": "plan"}}`)
+	fs.commit()
+	d := NewSkillsDetector(m)
+	result := d.DetectSkills(t.Context(), extra, []string{repos})
+	d.DetectAgentConfig(t.Context(), &result)
+	if result.AgentConfig == nil || result.AgentConfig.RepositoriesScanned != maxProjects+1 {
+		t.Fatalf("agent config = %+v", result.AgentConfig)
+	}
+	claude := agentOf(t, result.AgentConfig, "claude-code")
+	wantSources(t, claude, "project file ~/repos/skilled/.claude/settings.json read")
+	if !claude.Truncated {
+		t.Error("truncated not set after the skills list was cut")
+	}
+}
+
 func stripDurations(t *testing.T, data []byte) string {
 	t.Helper()
 	var v any

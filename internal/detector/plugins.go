@@ -76,7 +76,8 @@ type pluginScan struct {
 	// projectsUnavailable means the project list itself could not be built, so
 	// a report built from it would drop project sources that still exist.
 	projectsUnavailable bool
-	// configProjects holds projects found only by an agent settings marker.
+	// configProjects holds projects found only by an agent settings marker,
+	// plus skills projects the cap cut from projects.
 	configProjects []string
 	// projectsCut means a project list was cut by a cap or a search root could
 	// not be listed, so project sources may be missing.

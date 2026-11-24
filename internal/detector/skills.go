@@ -239,13 +239,14 @@ func (d *SkillsDetector) DetectSkills(ctx context.Context, extraProjectRoots []s
 	ps.projectsIncomplete = projectInfo.Truncated || len(projectInfo.Errors) > 0
 	// Settings-only projects get their own list with the same admission rules, so
 	// they never take a skills project's place under the caps. A project found
-	// by both markers stays on the skills list only.
+	// by both markers stays on the skills list only. A skills project the cap
+	// cut from the skills list falls to this list, so its settings are still read.
 	inProjects := make(map[string]bool, len(projects))
 	for _, p := range projects {
 		inProjects[p] = true
 	}
 	var configOnly []string
-	for _, p := range configRoots {
+	for _, p := range slices.Concat(walkRoots, configRoots) {
 		if !inProjects[d.resolvePath(p)] {
 			configOnly = append(configOnly, p)
 		}
