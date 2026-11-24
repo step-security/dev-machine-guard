@@ -179,6 +179,18 @@ func TestAgentConfig_ClaudeSources(t *testing.T) {
 	}
 }
 
+func TestAgentConfig_CodexNotifyKeepsArgumentBoundaries(t *testing.T) {
+	f := newConfigFixture(model.PlatformLinux)
+	f.m.SetEnv("CODEX_HOME", "/opt/codex/")
+	f.fs.addFile("/opt/codex/config.toml", `notify = ["/Users/testuser/my tools/notify", "--password", "correct horse battery staple", "--token=two words", "it's", ""]`+"\n")
+
+	user := sourceAt(t, agentOf(t, f.run(t), "codex"), "/opt/codex/config.toml")
+	want := []model.AgentConfigHook{hookOf("notify", "", "command", `'~/my tools/notify' --password [REDACTED] --token=[REDACTED] 'it'\''s' ''`)}
+	if !reflect.DeepEqual(user.Hooks, want) {
+		t.Errorf("hooks = %+v", user.Hooks)
+	}
+}
+
 func TestAgentConfig_CodexSources(t *testing.T) {
 	f := newConfigFixture(model.PlatformLinux)
 	project := filepath.Join(testHome, "repos", "widgets")

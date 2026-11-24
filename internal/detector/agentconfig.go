@@ -774,12 +774,28 @@ func (a *configAgent) hooks(doc gjson.Result) []model.AgentConfigHook {
 	if notify := doc.Get("notify"); a.notify && notify.IsArray() {
 		var argv []string
 		notify.ForEach(func(_, v gjson.Result) bool {
-			argv = append(argv, v.String())
+			argv = append(argv, quoteArg(v.String()))
 			return true
 		})
 		out = append(out, a.hookText("notify", "", "command", strings.Join(argv, " ")))
 	}
 	return out
+}
+
+// quoteArg single-quotes an argument that holds whitespace or a quote, so the
+// joined command keeps its argument boundaries and redaction sees a whole
+// multiword value. A --name=value argument keeps its name outside the quotes,
+// where the redactor matches it.
+func quoteArg(s string) string {
+	const special = " \t\r\n\f'\""
+	if s != "" && !strings.ContainsAny(s, special) {
+		return s
+	}
+	quote := func(v string) string { return "'" + strings.ReplaceAll(v, "'", `'\''`) + "'" }
+	if name, value, ok := strings.Cut(s, "="); ok && name != "" && !strings.ContainsAny(name, special) {
+		return name + "=" + quote(value)
+	}
+	return quote(s)
 }
 
 // urlBase drops the query and fragment, which are never sent, so a long query
