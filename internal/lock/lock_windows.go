@@ -107,3 +107,16 @@ func createMutex(sa *windows.SecurityAttributes, name string) (windows.Handle, e
 	}
 	return 0, err
 }
+
+// AcquireNamed takes the machine-wide mutex Global\<name> without blocking;
+// it returns an error wrapping ErrHeld while another process holds it. For
+// locks shared with other StepSecurity installers by name, such as the
+// on-device firewall's (the PowerShell loader opens the same mutex). Only
+// Windows callers use it, so it has no Unix counterpart.
+func AcquireNamed(name string) (*Lock, error) {
+	release, err := acquireTarget(name)
+	if err != nil {
+		return nil, err
+	}
+	return &Lock{release: release}, nil
+}
