@@ -507,6 +507,11 @@ func main() {
 		retireIDs := retireCandidatesOnUninstall(exec, log, cfg)
 		switch runtime.GOOS {
 		case model.PlatformWindows:
+			// The on-device firewall first (MSI layout only), while its
+			// config and the update state are still in place. An MSI update
+			// tick cannot reinstall it meanwhile: it skips the firewall while
+			// msiexec runs.
+			removeFirewallOnUninstall(exec, log)
 			if err := schtasks.Uninstall(exec, log); err != nil {
 				log.Error("%v", err)
 				os.Exit(1)
