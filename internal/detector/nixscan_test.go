@@ -433,7 +433,7 @@ func TestNixScanner_GuardRefusal(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := nixHost(model.PlatformLinux)
 			s := NewNixScanner(f, nil)
-			s.protection = func(string, *bool) (func(string) string, func(string) bool) {
+			s.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 				return func(p string) string {
 					if p == tc.refused || strings.HasPrefix(p, tc.refused+"/") {
 						return "refused_network_volume"

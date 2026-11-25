@@ -57,7 +57,7 @@ type NixScanner struct {
 	log  *progress.Logger
 	// protection builds the path guards; a seam so tests can place protected
 	// paths.
-	protection func(home string, includeNetworkVolumes *bool) (protected func(string) string, volume func(string) bool)
+	protection func(home string, includeNetworkVolumes *bool, searchDirs []string) (protected func(string) string, volume func(string) bool)
 }
 
 func NewNixScanner(exec executor.Executor, log *progress.Logger) *NixScanner {
@@ -158,7 +158,8 @@ func (s *NixScanner) scan(ctx context.Context, target *user.User, includeNetwork
 		home = filepath.Clean(target.HomeDir)
 		roots = append(roots, home)
 	}
-	guard, _ := s.protection(home, includeNetworkVolumes)
+	// Nix reads fixed profile paths and has no user-selected search directories.
+	guard, _ := s.protection(home, includeNetworkVolumes, nil)
 	n.files = s.exec.GuardedFiles(roots, guard, maxNixManifestBytes)
 
 	// Only a missing /nix is a definitive absence; leftover links such as
