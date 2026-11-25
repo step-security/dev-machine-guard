@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/step-security/dev-machine-guard/internal/faultinject"
+	"github.com/step-security/dev-machine-guard/internal/fwpath"
 	"github.com/step-security/dev-machine-guard/internal/updatestate"
 )
 
@@ -68,9 +69,10 @@ const (
 	// runDeadlineSlack lets the agent's own watchdog fire first; the scan
 	// task's ExecutionTimeLimit is the watchdog + 30 min.
 	runDeadlineSlack = 10 * time.Minute
-	// defaultUpdateDeadline stays under the update task's 30 min
-	// ExecutionTimeLimit so a hung updater is recorded as a failure.
-	defaultUpdateDeadline = 25 * time.Minute
+	// DefaultUpdateDeadline stays under the update task's 30 min
+	// ExecutionTimeLimit so a hung updater is recorded as a failure. The
+	// agent's self-update budgets its post-update work against it.
+	DefaultUpdateDeadline = 25 * time.Minute
 	// defaultRunLockWait bounds the wait for a run-record lock; past it the
 	// bookkeeping is skipped and the scan still runs.
 	defaultRunLockWait = 5 * time.Second
@@ -141,7 +143,7 @@ func NewBootstrap(exePath string, isSystem func() bool) *Bootstrap {
 		AdoptLockWait:     60 * time.Second,
 		RecordLockWait:    30 * time.Second,
 		LockPoll:          500 * time.Millisecond,
-		UpdateDeadline:    defaultUpdateDeadline,
+		UpdateDeadline:    DefaultUpdateDeadline,
 	}
 }
 
@@ -676,6 +678,13 @@ func copyExecutable(src, dst string) error {
 // bounded, until no process holds any MSI-owned file, so Windows Installer
 // never finds one in use (which needs a reboot). It runs from the helper
 // copy in state\msi\, so its own image is not an MSI file. Always exits 0.
+//
+// The on-device firewall's service (fwpath.Dir, inside the default root) is
+// spared: it is not an MSI file, and install, repair, upgrade and uninstall
+// must never hard-kill it (an MSI uninstall removes it properly through the
+// agent's `uninstall`). The helper that runs is the previously installed
+// MSI's copy, so MSIs built before this change still kill it; hosts are
+// protected from the MSI operation after the first firewall-aware MSI.
 func (b *Bootstrap) StopForMSI(args []string) int {
 	root := ""
 	for i, a := range args {
@@ -691,7 +700,7 @@ func (b *Bootstrap) StopForMSI(args []string) int {
 		return 0
 	}
 	root = filepath.Clean(strings.Trim(root, `"`))
-	stopped, err := winproc.StopUnder(root)
+	stopped, err := winproc.StopUnderExcept(root, []string{fwpath.Dir()})
 	for _, img := range stopped {
 		b.logf("stop-for-msi: stopped %s", img)
 	}

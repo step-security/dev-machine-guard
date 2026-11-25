@@ -90,7 +90,7 @@ func newFixture(t *testing.T) *fixture {
 		AdoptLockWait:  2 * time.Second,
 		RecordLockWait: time.Second,
 		LockPoll:       500 * time.Millisecond,
-		UpdateDeadline: defaultUpdateDeadline,
+		UpdateDeadline: DefaultUpdateDeadline,
 	}
 	return &fixture{t: t, b: b, sp: sp, out: out, layout: l}
 }
@@ -430,7 +430,7 @@ func TestUpdate_Selection(t *testing.T) {
 			if got := f.updaterRan(); got != tc.want {
 				t.Fatalf("updater = %s, want %s", got, tc.want)
 			}
-			if f.sp.calls[0].deadline != defaultUpdateDeadline {
+			if f.sp.calls[0].deadline != DefaultUpdateDeadline {
 				t.Fatalf("deadline = %s", f.sp.calls[0].deadline)
 			}
 		})
