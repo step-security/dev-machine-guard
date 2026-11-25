@@ -67,6 +67,10 @@ func (m *Manager) exeVersionOf(ctx context.Context, path string) *exeVersion {
 // verifySignature checks latest-firewall's signed checksum with the release
 // key before anything is downloaded. A response without one is invalid.
 func (m *Manager) verifySignature(ctx context.Context, rel release) bool {
+	if testFirewallUnsigned() {
+		m.Logf("firewall: WARNING: test-key build with DMG_TEST_FIREWALL_UNSIGNED=1: skipping the signed-checksum check of on-device firewall %s", rel)
+		return true
+	}
 	if rel.Signed == "" {
 		msg := fmt.Sprintf("Invalid latest-firewall response for %s: no signed_checksum", rel)
 		m.Logf("firewall: %s", msg)
@@ -126,7 +130,9 @@ func (m *Manager) stage(ctx context.Context, rel release) (exe, dir string, ok b
 		return "", dir, false
 	}
 	// The signature before the exe is run for its version.
-	if err := m.Sys.VerifyPublisher(exe, m.SelfExe); err != nil {
+	if testFirewallUnsigned() {
+		m.Logf("firewall: WARNING: test-key build with DMG_TEST_FIREWALL_UNSIGNED=1: skipping the Authenticode check of on-device firewall %s", rel)
+	} else if err := m.Sys.VerifyPublisher(exe, m.SelfExe); err != nil {
 		msg := fmt.Sprintf("On-device firewall %s: %v", rel, err)
 		m.Logf("firewall: Authenticode check failed: %s", msg)
 		m.fail(ctx, CodeAuthenticodeFailed, rel.key(), msg)

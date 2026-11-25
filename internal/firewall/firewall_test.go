@@ -190,6 +190,7 @@ type harness struct {
 	verified []string
 	pubErr   error
 	sigErr   error
+	logs     []string
 }
 
 func newHarness(t *testing.T, endpoint string) *harness {
@@ -226,7 +227,10 @@ func newHarness(t *testing.T, endpoint string) *harness {
 			h.now = h.now.Add(d)
 			return ctx.Err()
 		},
-		Logf: func(format string, args ...any) { t.Logf(format, args...) },
+		Logf: func(format string, args ...any) {
+			h.logs = append(h.logs, fmt.Sprintf(format, args...))
+			t.Logf(format, args...)
+		},
 		verifyChecksum: func(string, []byte) error {
 			return h.sigErr
 		},

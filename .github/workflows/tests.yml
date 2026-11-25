@@ -113,7 +113,7 @@ jobs:
           go-version-file: go.mod
       - run: make test
       - name: Test self-update fault injection (selfupdate_faults tag)
-        run: go test -race -count=1 -tags selfupdate_faults,selfupdate_testkeys ./internal/faultinject/ ./internal/updatestate/ ./internal/selfupdate/ ./internal/authenticode/ ./internal/telemetry/
+        run: go test -race -count=1 -tags selfupdate_faults,selfupdate_testkeys ./internal/faultinject/ ./internal/updatestate/ ./internal/selfupdate/ ./internal/authenticode/ ./internal/telemetry/ ./internal/firewall/
       - name: Test bootstrap fault checkpoints (selfupdate_faults tag)
         run: go test -race -count=1 -tags selfupdate_faults ./internal/launcher/
 
@@ -133,7 +133,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
-      - run: go test -race -count=1 -tags selfupdate_faults,selfupdate_testkeys ./internal/faultinject/ ./internal/updatestate/ ./internal/selfupdate/
+      - run: go test -race -count=1 -tags selfupdate_faults,selfupdate_testkeys ./internal/faultinject/ ./internal/updatestate/ ./internal/selfupdate/ ./internal/firewall/
       - name: Test identity provisioning and configuration on Linux
         run: go test -race -count=1 ./internal/config/ ./internal/identity/ ./internal/cli/
 
@@ -191,7 +191,7 @@ jobs:
       # LAST native command's exit code, so a multi-line run would mask an
       # earlier failure.
       - name: Test self-update fault injection + U0 kill matrix (selfupdate_faults tag)
-        run: go test -race -count=1 -tags selfupdate_faults,selfupdate_testkeys ./internal/faultinject/ ./internal/updatestate/ ./internal/selfupdate/ ./internal/authenticode/
+        run: go test -race -count=1 -tags selfupdate_faults,selfupdate_testkeys ./internal/faultinject/ ./internal/updatestate/ ./internal/selfupdate/ ./internal/authenticode/ ./internal/firewall/
       - name: Test scan panic/hang run classification (selfupdate_faults tag)
         run: go test -race -count=1 -tags selfupdate_faults,selfupdate_testkeys -run 'Test(ScanPanicIsABadRun|ScanHangAfterStartedIsABadRun)' ./internal/telemetry/
       - name: Authenticode against test-signed binaries (verbose, shows skips)
