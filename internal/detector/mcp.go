@@ -1,6 +1,7 @@
 package detector
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -30,9 +31,13 @@ var mcpConfigDefinitions = []mcpConfigSpec{
 	{"claude_code", "~/.claude.json", "", "", "Anthropic"},
 	{"cursor", "~/.cursor/mcp.json", "", "", "Cursor"},
 	{"windsurf", "~/.codeium/windsurf/mcp_config.json", "", "", "Codeium"},
+	{"antigravity", "~/.gemini/config/mcp_config.json", "", "", "Google"},
 	{"antigravity", "~/.gemini/antigravity/mcp_config.json", "", "", "Google"},
+	{"gemini", "~/.gemini/settings.json", "", "", "Google"},
+	// Devin CLI and Devin Desktop share this file.
+	{"devin", "~/.config/devin/mcp_config.json", "%APPDATA%/devin/mcp_config.json", "", "Cognition"},
 	{"zed", "~/.config/zed/settings.json", "", "", "Zed"},
-	{"open_interpreter", "~/.config/open-interpreter/config.yaml", "", "", "OpenSource"},
+	{"open_interpreter", "~/.openinterpreter/config.toml", "", "", "OpenSource"},
 	{"codex", "~/.codex/config.toml", "", "", "OpenAI"},
 	{"copilot", "~/.copilot/mcp-config.json", "", "", "GitHub"},
 	// VS Code and VS Code-based editors keep user-level MCP servers in
@@ -56,7 +61,8 @@ type MCPDetector struct {
 	exec    executor.Executor
 	skipper *tcc.Skipper
 	piEnv   executor.Executor
-	piDir   string // Pi's agent directory, resolved during discovery
+	piDir   string           // Pi's agent directory, resolved during discovery
+	auth    *MCPAuthResolver // sign-in status per server; nil leaves it unset
 }
 
 func NewMCPDetector(exec executor.Executor) *MCPDetector {
@@ -76,6 +82,13 @@ func (d *MCPDetector) WithSkipper(s *tcc.Skipper) *MCPDetector {
 // cannot. Other sources keep the detector's own executor.
 func (d *MCPDetector) WithPiEnvironment(exec executor.Executor) *MCPDetector {
 	d.piEnv = exec
+	return d
+}
+
+// WithAuth reports, for each server of an enterprise config, what its client
+// stores about signing in. Returns the detector for chaining.
+func (d *MCPDetector) WithAuth(r *MCPAuthResolver) *MCPDetector {
+	d.auth = r
 	return d
 }
 
@@ -114,7 +127,7 @@ func (d *MCPDetector) DetectEnterprise(ctx context.Context, searchDirs []string)
 
 	for _, loc := range d.allConfigLocations(ctx, homeDir, searchDirs) {
 		reader := d.exec
-		if loc.SourceName == "codex" || loc.SourceName == model.AgentCopilot || loc.SourceName == "pi" || loc.SourceName == "pi_project" || isPiMCPPath(loc.ConfigPath, d.piDir) || isCopilotProjectMCP(loc.ConfigPath) {
+		if loc.SourceName == "codex" || loc.SourceName == "open_interpreter" || loc.SourceName == model.AgentCopilot || loc.SourceName == "pi" || loc.SourceName == "pi_project" || isPiMCPPath(loc.ConfigPath, d.piDir) || isCopilotProjectMCP(loc.ConfigPath) {
 			roots := []string{filepath.Dir(loc.ConfigPath)}
 			if isCopilotProjectMCP(loc.ConfigPath) {
 				project := filepath.Dir(loc.ConfigPath)
@@ -147,15 +160,71 @@ func (d *MCPDetector) DetectEnterprise(ctx context.Context, searchDirs []string)
 			contentBase64 = base64.StdEncoding.EncodeToString(filtered)
 		}
 
-		results = append(results, model.MCPConfigEnterprise{
+		config := model.MCPConfigEnterprise{
 			ConfigSource:        loc.SourceName,
 			ConfigPath:          loc.ConfigPath,
 			Vendor:              loc.Vendor,
 			ConfigContentBase64: contentBase64,
-		})
+		}
+		// Without content the backend has no server to attach a status to.
+		if contentBase64 != "" {
+			config.ServerAuth = d.serverAuth(ctx, loc.SourceName, loc.ConfigPath, content)
+		}
+		results = append(results, config)
 	}
 
 	return results
+}
+
+// authSource is the source whose client stores answer for a config file. A
+// walked Pi file, OpenCode project config or Copilot .github/mcp.json keeps its
+// discovered label in the inventory, but its servers still sign in through that
+// client. A walked .mcp.json stays unresolved: Claude and Copilot both read it.
+func (d *MCPDetector) authSource(source, configPath string) string {
+	if source != "discovered_mcp" {
+		return source
+	}
+	switch {
+	case isPiMCPPath(configPath, d.piDir):
+		return "pi"
+	case isOpenCodeConfigPath(configPath):
+		return "opencode"
+	case filepath.Base(configPath) == "mcp.json" && filepath.Base(filepath.Dir(configPath)) == ".github":
+		return "copilot_project"
+	}
+	return source
+}
+
+// serverAuth resolves the statuses for one config file. A walked
+// .github/mcp.json keeps the generic filter, so it can hold entries Copilot
+// would not load; only the entries Copilot loads answer from its store. The
+// Copilot filter only picks the names: its output drops the headers and env
+// the static rules read.
+func (d *MCPDetector) serverAuth(ctx context.Context, source, configPath string, content []byte) []model.MCPServerAuth {
+	client := d.authSource(source, configPath)
+	if client != "copilot_project" || client == source {
+		return d.auth.resolveConfig(ctx, client, configPath, content)
+	}
+	auth := d.auth.resolveConfig(ctx, source, configPath, content)
+	filtered, ok := filterCopilotMCP(content, true)
+	var loaded struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if !ok || json.Unmarshal(filtered, &loaded) != nil {
+		return auth
+	}
+	copilot := map[string]model.MCPServerAuth{}
+	for _, a := range d.auth.resolveConfig(ctx, client, configPath, content) {
+		if _, ok := loaded.MCPServers[a.ServerName]; ok {
+			copilot[a.ServerName] = a
+		}
+	}
+	for i, a := range auth {
+		if c, ok := copilot[a.ServerName]; ok {
+			auth[i] = c
+		}
+	}
+	return auth
 }
 
 // discoverProjectMCPConfigs finds .mcp.json files in Claude Code's recorded projects.
@@ -194,6 +263,12 @@ func (d *MCPDetector) resolveConfigPath(spec mcpConfigSpec, homeDir string) stri
 			return filepath.Join(root, "config.toml")
 		}
 	}
+	if spec.SourceName == "open_interpreter" {
+		return filepath.Join(openInterpreterHome(d.exec, homeDir), "config.toml")
+	}
+	if spec.SourceName == "claude_code" && spec.ConfigPath == "~/.claude.json" {
+		return claudeGlobalConfigPath(d.exec, homeDir)
+	}
 	if d.exec.GOOS() == model.PlatformWindows && spec.WinConfigPath != "" {
 		return resolveEnvPath(d.exec, spec.WinConfigPath)
 	}
@@ -207,9 +282,11 @@ func (d *MCPDetector) resolveConfigPath(spec mcpConfigSpec, homeDir string) stri
 // Returns the filtered content and true on success, or nil and false if
 // filtering failed (to avoid leaking secrets from raw fallback).
 func (d *MCPDetector) filterMCPContent(sourceName, configPath string, content []byte) ([]byte, bool) {
-	if sourceName == "codex" && strings.HasSuffix(configPath, ".toml") {
+	// Windows PowerShell 5.1 writes a BOM that neither parser accepts.
+	content = bytes.TrimPrefix(content, utf8BOM)
+	if isCodexTOML(sourceName, configPath) {
 		var config struct {
-			Servers map[string]map[string]any `toml:"mcp_servers"`
+			Servers map[string]any `toml:"mcp_servers"`
 		}
 		if toml.Unmarshal(content, &config) != nil || config.Servers == nil {
 			return nil, false
@@ -241,8 +318,8 @@ func (d *MCPDetector) filterMCPContent(sourceName, configPath string, content []
 
 	jsonInput := content
 
-	// Strip JSONC comments for Zed
-	if sourceName == "zed" {
+	// Zed and Gemini CLI accept comments in their settings.
+	if sourceName == "zed" || sourceName == "gemini" {
 		jsonInput = stripJSONCComments(jsonInput)
 	}
 
@@ -336,7 +413,7 @@ func (d *MCPDetector) extractMCPServers(raw map[string]json.RawMessage) map[stri
 	// valid mcpServers sitting beside it, so a value that isn't a map of servers
 	// is skipped rather than emitted empty.
 	if servers, ok := raw["mcp"]; ok {
-		if filtered := filterServerFields(servers); filtered != nil {
+		if filtered := filterServerFields(openCodeServers(servers)); filtered != nil {
 			result["mcp"] = filtered
 			found = true
 		}
@@ -389,8 +466,11 @@ func filterProjectScopedMCPServers(projectsRaw json.RawMessage) map[string]any {
 // real-world credential locations too (a bearer token or API key in a query
 // string, an --api-key flag baked into args), so the kept values still pass
 // through redact.Value before being uploaded.
+//
+// An entry that is not an object is not a server and is skipped on its own.
+// A map whose entries are all such values is not a server map, so it gives nil.
 func filterServerFields(serversRaw json.RawMessage) map[string]any {
-	var servers map[string]map[string]any
+	var servers map[string]json.RawMessage
 	if err := json.Unmarshal(serversRaw, &servers); err != nil {
 		return nil
 	}
@@ -398,16 +478,74 @@ func filterServerFields(serversRaw json.RawMessage) map[string]any {
 	result := make(map[string]any)
 	allowedKeys := map[string]bool{"command": true, "args": true, "serverUrl": true, "url": true}
 
-	for name, serverConfig := range servers {
+	for name, raw := range servers {
+		var serverConfig map[string]any
+		if json.Unmarshal(raw, &serverConfig) != nil {
+			continue
+		}
 		filtered := make(map[string]any)
 		for k, v := range serverConfig {
 			if allowedKeys[k] {
 				filtered[k] = redact.Value(v)
 			}
 		}
+		_, hasURL := serverConfig["url"]
+		_, hasServerURL := serverConfig["serverUrl"]
+		if u, ok := liftedServerURL(serverConfig); ok && !hasURL && !hasServerURL {
+			filtered["url"] = redact.Value(u)
+		}
 		result[name] = filtered
 	}
+	if len(servers) > 0 && len(result) == 0 {
+		return nil
+	}
 	return result
+}
+
+// liftedServerURL is the URL of a server that declares it under another name:
+// Gemini CLI's httpUrl, else Cline's nested transport.url.
+func liftedServerURL(server map[string]any) (any, bool) {
+	if u, ok := server["httpUrl"]; ok {
+		return u, true
+	}
+	transport, _ := server["transport"].(map[string]any)
+	u, ok := transport["url"]
+	return u, ok
+}
+
+// openCodeServers is the server map of an mcp value: OpenCode 2.x nests it
+// under servers, 1.x keeps the servers directly under mcp. A 1.x server can
+// itself be named servers; every 1.x entry carries a string type, a 2.x
+// server map does not.
+func openCodeServers(mcp json.RawMessage) json.RawMessage {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(mcp, &fields) != nil {
+		return mcp
+	}
+	var servers map[string]json.RawMessage
+	if json.Unmarshal(fields["servers"], &servers) != nil || servers == nil {
+		return mcp
+	}
+	var entryType string
+	if json.Unmarshal(servers["type"], &entryType) == nil && entryType != "" {
+		return mcp
+	}
+	return fields["servers"]
+}
+
+// isCodexTOML reports a config in Codex's TOML format: Codex's own and Open
+// Interpreter's, a Codex fork.
+func isCodexTOML(sourceName, configPath string) bool {
+	return (sourceName == "codex" || sourceName == "open_interpreter") && strings.HasSuffix(configPath, ".toml")
+}
+
+// openInterpreterHome is Open Interpreter's root: an absolute
+// INTERPRETER_HOME, else ~/.openinterpreter. It does not read CODEX_HOME.
+func openInterpreterHome(exec executor.Executor, home string) string {
+	if root := exec.Getenv("INTERPRETER_HOME"); filepath.IsAbs(root) {
+		return root
+	}
+	return filepath.Join(home, ".openinterpreter")
 }
 
 // stripJSONCComments removes // and /* */ comments from JSONC content,

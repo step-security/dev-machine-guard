@@ -24,9 +24,11 @@ type claudeState struct {
 	usageCode    string
 }
 
-// readClaudeState reads <dir>/.claude.json with path and size guards.
-func readClaudeState(exec executor.Executor, skipper *tcc.Skipper, dir string) claudeState {
-	st := claudeState{path: filepath.Join(dir, ".claude.json")}
+// readClaudeState reads Claude Code's global config file at path with path and
+// size guards.
+func readClaudeState(exec executor.Executor, skipper *tcc.Skipper, path string) claudeState {
+	st := claudeState{path: path}
+	dir := filepath.Dir(path)
 	if skipper.WithinProtected(st.path) {
 		st.code = model.AgentScanErrUnsafePath
 		return st
@@ -88,5 +90,17 @@ func readClaudeState(exec executor.Executor, skipper *tcc.Skipper, dir string) c
 // discoverClaudeProjects returns recorded project paths verbatim and unsorted.
 // Read or project-parse failures return nil; invalid usage does not affect projects.
 func discoverClaudeProjects(exec executor.Executor) []string {
-	return readClaudeState(exec, nil, getHomeDir(exec)).projects
+	home := getHomeDir(exec)
+	return readClaudeState(exec, nil, claudeGlobalConfigPath(exec, home)).projects
+}
+
+// claudeGlobalConfigPath is the file Claude Code keeps its global config in:
+// the legacy .config.json in its config directory when that is a regular file
+// that is not empty, else ~/.claude.json.
+func claudeGlobalConfigPath(exec executor.Executor, home string) string {
+	legacy := filepath.Join(claudeConfigDir(exec, home), ".config.json")
+	if fi, err := exec.Stat(legacy); err == nil && fi.Mode().IsRegular() && fi.Size() > 0 {
+		return legacy
+	}
+	return filepath.Join(home, ".claude.json")
 }

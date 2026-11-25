@@ -74,6 +74,11 @@ type RunGate struct {
 	// record captured into an image names the builder; retire-on-uninstall
 	// skips records that name another machine. Absent in older records.
 	MachineID string `json:"machine_id,omitempty"`
+	// NixReported: an upload found Nix installed, and no processed upload has
+	// confirmed its removal since. While set, a run that finds Nix gone sends
+	// an empty nix scan. Kept here, not in scan-state.json, because a
+	// full-snapshot run deletes that file.
+	NixReported bool `json:"nix_reported,omitempty"`
 }
 
 // mu serializes the read-modify-write writers (Write for the breadcrumb,

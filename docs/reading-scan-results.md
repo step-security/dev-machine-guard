@@ -208,6 +208,7 @@ When you run with `--json`, the scanner outputs a single JSON object to stdout. 
 | `ide_installations` | array | Installed IDEs and AI desktop apps |
 | `ide_extensions` | array | All installed IDE extensions |
 | `mcp_configs` | array | MCP server configurations found across AI tools |
+| `mcp_configs[].server_auth` | array | Enterprise uploads only: per declared server, a sign-in `status` and `evidence` code (see [MCP Sign-in Status](../SCAN_COVERAGE.md#mcp-sign-in-status)) |
 | `node_package_managers` | array | Detected Node.js package managers (npm, yarn, pnpm, bun) |
 | `node_packages` | array | Node.js package data (populated in enterprise mode) |
 | `node_projects` | array | Node.js projects with dependency listings (opt-in) |

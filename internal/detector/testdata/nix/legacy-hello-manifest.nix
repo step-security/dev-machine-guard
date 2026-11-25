@@ -1,0 +1,1 @@
+[ { meta = { }; name = "hello-2.12.1"; out = { outPath = "/nix/store/jppkr0h8aap5z7m4xy4vg5yrwlly9h2v-hello-2.12.1"; }; outPath = "/nix/store/jppkr0h8aap5z7m4xy4vg5yrwlly9h2v-hello-2.12.1"; outputs = [ "out" ]; type = "derivation"; } ]

@@ -204,10 +204,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		log.StepStart("Detecting system packages")
 		start = time.Now()
 		sysPkgDetector := detector.NewSystemPkgDetector(exec)
-		systemPkgManager = sysPkgDetector.Detect(ctx)
-		if systemPkgManager != nil {
-			systemPackages = sysPkgDetector.ListPackages(ctx)
-		}
+		systemPkgManager, systemPackages = sysPkgDetector.Detect(ctx)
 
 		// Snap and flatpak coexist with the system PM
 		for _, mgr := range sysPkgDetector.DetectAdditionalManagers(ctx) {
@@ -313,13 +310,20 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	log.StepDone(time.Since(start))
 
 	// Credential-location inventory — where this machine's developer tools keep
-	// credentials, and how well guarded each location is. Exact paths only, never a
-	// walk; every read byte-capped; nothing about the credential itself leaves the
-	// detector. A nil result means the phase did not run, which is the only signal a
-	// reader has for that, so the pointer is passed through untouched.
+	// credentials, and how well guarded each location is. Exact paths and bounded
+	// one-level listings only; project files come from the skills walk's own
+	// listings, never a walk of its own; every read byte-capped; nothing about the
+	// credential itself leaves the detector. A nil result means the phase did not
+	// run, which is the only signal a reader has for that, so the pointer is
+	// passed through untouched.
 	log.StepStart("Inventorying credential locations")
 	start = time.Now()
-	credentialScan := credentials.New(exec).WithSkipper(tccSkipper).Detect(ctx)
+	// Its own deadline: a slow database or network home stops this phase, not
+	// the scan.
+	credentialCtx, cancelCredentials := context.WithTimeout(ctx, time.Minute)
+	credentialScan := credentials.New(exec).WithSkipper(tccSkipper).
+		WithProjects(skillsResult.CredentialCandidates).Detect(credentialCtx)
+	cancelCredentials()
 	log.StepDone(time.Since(start))
 
 	// Browser extension inventory — which extensions the machine's browsers hold,
