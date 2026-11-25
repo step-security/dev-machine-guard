@@ -568,3 +568,36 @@ func TestRunConfigureNonInteractive_FromFileWithBOM(t *testing.T) {
 		t.Errorf("from-file values not applied through the BOM: %+v", cfg)
 	}
 }
+
+// The MSI's INSTALLONDEVICEFIREWALL property and the bootstrap.json key
+// both land as install_on_device_firewall; a later bootstrap file without
+// the key (a credential rotation) keeps it, and the property alone (an
+// AUTOUPDATE-style repair) needs no credentials.
+func TestRunConfigureNonInteractive_InstallOnDeviceFirewall(t *testing.T) {
+	withHome(t)
+	src := filepath.Join(t.TempDir(), "bootstrap.json")
+	if err := os.WriteFile(src, []byte(`{"customer_id":"cust","api_endpoint":"https://e","api_key":"k","install_on_device_firewall":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{FromFile: src}); err != nil {
+		t.Fatal(err)
+	}
+	if cfg := loadExisting(); cfg.InstallOnDeviceFirewall == nil || !*cfg.InstallOnDeviceFirewall {
+		t.Fatalf("bootstrap.json key not applied: %v", cfg.InstallOnDeviceFirewall)
+	}
+	if err := os.WriteFile(src, []byte(`{"customer_id":"cust","api_endpoint":"https://e","api_key":"k2"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{FromFile: src}); err != nil {
+		t.Fatal(err)
+	}
+	if cfg := loadExisting(); cfg.InstallOnDeviceFirewall == nil || !*cfg.InstallOnDeviceFirewall {
+		t.Fatalf("rotation dropped install_on_device_firewall: %v", cfg.InstallOnDeviceFirewall)
+	}
+	if err := RunConfigureNonInteractive(NonInteractiveOptions{Values: map[string]any{"install_on_device_firewall": false}}); err != nil {
+		t.Fatalf("property-only configure: %v", err)
+	}
+	if cfg := loadExisting(); cfg.InstallOnDeviceFirewall == nil || *cfg.InstallOnDeviceFirewall {
+		t.Fatalf("INSTALLONDEVICEFIREWALL=0 not applied: %v", cfg.InstallOnDeviceFirewall)
+	}
+}

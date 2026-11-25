@@ -64,6 +64,7 @@ var goldenArgvs = [][]string{
 	{"configure", "--update-lag-behind=-1"}, {"configure", "--update-lag-behind", "x"},
 	{"configure", "--update-cooldown-hours", "24"}, {"configure", "--update-cooldown-hours=24"}, {"configure", "--update-cooldown-hours"},
 	{"configure", "--auto-update=false"}, {"configure", "--auto-update=1"}, {"configure", "--auto-update=maybe"}, {"configure", "--auto-update"},
+	{"configure", "--install-on-device-firewall=1"}, {"configure", "--install-on-device-firewall=false"}, {"configure", "--install-on-device-firewall=maybe"},
 	{"configure", "--device-id=-"}, {"configure", "--device-id", "{hostname}"},
 	{"configure", "--device-tag", "t1"}, {"configure", "--device-tag=t1"}, {"configure", "--device-tag"}, {"configure", "--device-tag=-"}, {"configure", "--device-tag="},
 	{"configure", "--retire-on-uninstall"}, {"configure", "--retire-on-uninstall=true"}, {"configure", "--retire-on-uninstall=false"},

@@ -398,6 +398,18 @@ var flagTable = []flagSpec{
 			c.save("auto_update", b)
 			return nil
 		}},
+	{name: "--install-on-device-firewall", kind: flagEquals, saves: []string{"install_on_device_firewall"}, section: helpConfigure,
+		help: `  --install-on-device-firewall=BOOL
+                                Windows MSI installs: install and upgrade the
+                                on-device firewall (default off)`,
+		set: func(c *Config, v string) error {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("--install-on-device-firewall must be true or false (also 1 or 0)")
+			}
+			c.save("install_on_device_firewall", b)
+			return nil
+		}},
 	configFlag("--update-mirror-url", "update_mirror_url",
 		"  --update-mirror-url URL       HTTPS packages mirror for self-update"),
 	intConfigFlag("--update-lag-behind", "update_lag_behind",

@@ -175,6 +175,14 @@ var (
 	UpdateCooldownHours int
 )
 
+// InstallOnDeviceFirewall opts a Windows MSI install into the on-device
+// firewall (config.json install_on_device_firewall, set by the MSI's
+// INSTALLONDEVICEFIREWALL property, a bootstrap.json key or `configure
+// --install-on-device-firewall`). The SYSTEM update tick then installs and
+// upgrades it (internal/firewall). Off (nil or false) installs nothing, but a
+// firewall already present still follows a removal requested in the console.
+var InstallOnDeviceFirewall *bool
+
 // ConfigFile is the JSON structure persisted to config.json (see
 // readConfigDir for where that file lives).
 type ConfigFile struct {
@@ -206,6 +214,8 @@ type ConfigFile struct {
 	UpdateMirrorURL       string   `json:"update_mirror_url,omitempty"`
 	UpdateLagBehind       int      `json:"update_lag_behind,omitempty"`
 	UpdateCooldownHours   int      `json:"update_cooldown_hours,omitempty"`
+	// InstallOnDeviceFirewall: see the variable of the same name.
+	InstallOnDeviceFirewall *bool `json:"install_on_device_firewall,omitempty"`
 
 	// extra keeps keys this build doesn't know, so a save never drops what
 	// a newer agent or the admin wrote.
@@ -616,6 +626,9 @@ func Load() {
 	}
 	if cfg.UpdateCooldownHours > 0 && UpdateCooldownHours == 0 {
 		UpdateCooldownHours = cfg.UpdateCooldownHours
+	}
+	if cfg.InstallOnDeviceFirewall != nil && InstallOnDeviceFirewall == nil {
+		InstallOnDeviceFirewall = cfg.InstallOnDeviceFirewall
 	}
 }
 
@@ -1038,9 +1051,17 @@ func ShowConfigure(resolvedIdentity, imageBuilder string) {
 	fmt.Printf("  %-24s %s\n", "Log Level:", displayLogLevel(cfg.LogLevel))
 	fmt.Printf("  %-24s %s\n", "Install Directory:", displayInstallDir(cfg.InstallDir))
 	fmt.Printf("  %-24s %s\n", "Retire On Uninstall:", displayRetireOnUninstall(cfg.RetireOnUninstall))
+	fmt.Printf("  %-24s %s\n", "On-Device Firewall:", displayInstallOnDeviceFirewall(cfg.InstallOnDeviceFirewall))
 	if imageBuilder != "" {
 		fmt.Printf("  %-24s %s\n", "Image Builder:", imageBuilder)
 	}
+}
+
+func displayInstallOnDeviceFirewall(v *bool) string {
+	if v != nil && *v {
+		return "install (Windows MSI installs install and upgrade it)"
+	}
+	return "not installed by this agent (default)"
 }
 
 func displayRetireOnUninstall(v *bool) string {
