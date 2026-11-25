@@ -89,7 +89,8 @@ func main() {
 	// (self-update --system, self-check); they exit here.
 	runEarlyVerbs(os.Args[1:])
 
-	// Load persisted config (~/.stepsecurity/config.json) before parsing CLI
+	// Load persisted config (config.json; config.readConfigDir documents where
+	// it is looked up) before parsing CLI
 	// --config must be honoured before Load(), which runs ahead of flag
 	// parsing and keeps the first values it reads.
 	if p := cli.ConfigPathFromArgs(os.Args[1:]); p != "" {
@@ -260,8 +261,8 @@ func main() {
 	}
 	log.Debug("resolved log level: %s (config=%q cli=%q verbose=%v output=%s)",
 		level, config.LogLevel, cfg.LogLevel, cfg.Verbose, cfg.OutputFormat)
-	log.Debug("config loaded: enterprise=%v api_endpoint=%q scan_freq=%q search_dirs=%v log_level=%q",
-		config.IsEnterpriseMode(), config.APIEndpoint, config.ScanFrequencyHours, config.SearchDirs, config.LogLevel)
+	log.Debug("config loaded: path=%q enterprise=%v api_endpoint=%q scan_freq=%q search_dirs=%v log_level=%q",
+		config.ConfigFilePath(), config.IsEnterpriseMode(), config.APIEndpoint, config.ScanFrequencyHours, config.SearchDirs, config.LogLevel)
 	log.Debug("cli parsed: command=%q output_format=%q output_format_set=%v color=%s include_bundled=%v",
 		cfg.Command, cfg.OutputFormat, cfg.OutputFormatSet, cfg.ColorMode, cfg.IncludeBundledPlugins)
 
@@ -344,6 +345,11 @@ func main() {
 			return
 		}
 		reportBootstrapFallback()
+		// Binary-scheduled macOS/Linux installs keep themselves current here,
+		// ahead of the run gate and the scan: a release that breaks scans
+		// still reaches the updater on its next tick, so a backend pin to
+		// the previous version heals it. No-op on Windows (MSI updater).
+		scheduledSelfUpdate(exec, log, cfg)
 		// Server-driven run gate: exit 0 quietly when the backend says this
 		// invocation isn't due (or another instance is mid-scan). Sits before
 		// the watchdog and telemetry.Run so a skipped wakeup posts no beacon,
@@ -761,8 +767,8 @@ func scanJSONEncoder(w io.Writer) *json.Encoder {
 // findLegacyLeftovers checks the legacy ~/.stepsecurity dir for agent
 // files the operator may have moved (intentionally) to a new install
 // dir. Returns basenames of present diagnostic files (config.json is
-// excluded — it must stay at the legacy path as the bootstrap, so its
-// presence there is expected and not a leftover to migrate).
+// excluded: the legacy copy is still the first place the agent reads, so
+// its presence there is expected and not a leftover to migrate).
 func findLegacyLeftovers(legacy string) []string {
 	candidates := []string{
 		"agent.error.log",
@@ -789,8 +795,8 @@ func findLegacyLeftovers(legacy string) []string {
 // due yet, or another instance is already mid-scan. One Progress line is the
 // skip's entire footprint: no beacon, no run-status row, no phases. Every
 // gate failure returns false (fail-open), so this can never suppress a scan
-// on error. The gate also resolves the tenant's credential-scanning setting;
-// it is copied onto cfg so every managed entry point hands the same answer to
+// on error. The gate also resolves the tenant's credential settings; they are
+// copied onto cfg so every managed entry point hands the same answer to
 // telemetry.Run.
 func gateSkipsRun(exec executor.Executor, log *progress.Logger, cfg *cli.Config) bool {
 	// The master-image builder never scans, whichever path led here (the
@@ -807,6 +813,7 @@ func gateSkipsRun(exec executor.Executor, log *progress.Logger, cfg *cli.Config)
 	res := rungate.Evaluate(context.Background(), exec, log, cfg.ForceScan,
 		wslguest.DeviceID(cfg.WSLHostSerial, cfg.WSLDistroID))
 	cfg.CredentialScanningDisabled = res.CredentialScanningDisabled
+	cfg.CredentialKeyFragments = res.CredentialKeyFragments
 	cfg.DeltaScanEnabled = res.DeltaScanEnabled
 	if !res.Skip {
 		log.Progress("Run gate: proceeding with this run (%s)", res.Reason)

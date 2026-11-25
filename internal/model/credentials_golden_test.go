@@ -113,6 +113,8 @@ func TestCredentialScanGolden_CoversTheWholeVocabulary(t *testing.T) {
 			CredentialCategoryContainers,
 			CredentialCategoryInfrastructure,
 			CredentialCategoryAPIClients,
+			CredentialCategoryAITools,
+			CredentialCategoryMCPServers,
 		}},
 		// Every root token, including the opaque one, whose identifier segment
 		// is the part a reader validates and an agent is likeliest to omit.
@@ -126,6 +128,8 @@ func TestCredentialScanGolden_CoversTheWholeVocabulary(t *testing.T) {
 			"docker_config", "kubeconfig",
 			"terraform_credentials", "vault_token",
 			"insomnia",
+			"claude_code", "codex", "opencode", "pi", "hermes", "copilot_cli", "cursor", "vscode",
+			"claude_mcp", "codex_mcp", "opencode_mcp", "pi_mcp", "hermes_mcp", "copilot_cli_mcp", "cursor_mcp", "vscode_mcp", "shared_mcp_config",
 		}},
 	} {
 		for _, want := range tt.want {
@@ -134,8 +138,8 @@ func TestCredentialScanGolden_CoversTheWholeVocabulary(t *testing.T) {
 			}
 		}
 	}
-	if len(sources) != 14 {
-		t.Errorf("golden payload covers %d sources, want the whole catalog of 14", len(sources))
+	if len(sources) != 31 {
+		t.Errorf("golden payload covers %d sources, want the whole catalog of 31", len(sources))
 	}
 
 	// The mixed result the three-state parser produces: one source both reported a
@@ -173,7 +177,7 @@ func TestCredentialScanGolden_CarriesNoRetiredVocabulary(t *testing.T) {
 		t.Fatalf("read golden: %v", err)
 	}
 	for _, retired := range []string{
-		"gitconfig_helper", "github_cli_status", "mcp_config", "ai_mcp",
+		"gitconfig_helper", "github_cli_status", `"mcp_config"`, "ai_mcp",
 		`"external"`, `"unknown"`, `"github":`, "scope_status", "credential_storage",
 		"authentication_status", "account_count",
 	} {

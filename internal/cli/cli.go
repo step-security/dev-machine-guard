@@ -68,6 +68,10 @@ type Config struct {
 	// The zero value scans, so a caller that never consulted the gate, or one
 	// whose check-in failed, behaves as before.
 	CredentialScanningDisabled bool
+	// CredentialKeyFragments is set by the run gate (not a CLI flag) only when
+	// this invocation's check-in opted in to key fragments. The zero value
+	// collects none.
+	CredentialKeyFragments bool
 	// DeltaScanEnabled is set by run-config, never by a CLI flag.
 	DeltaScanEnabled bool
 
@@ -426,6 +430,8 @@ Uninstall:
 %s
 Configuration:
   Per-user config:    ~/.stepsecurity/config.json
+  Install tree:       config.json beside the binary (or one level up from bin/),
+                      used when the per-user file is absent
   Machine-wide (Windows, admin): C:\ProgramData\StepSecurity\config.json
   Run '%s configure' to set credentials and search directories interactively.
 

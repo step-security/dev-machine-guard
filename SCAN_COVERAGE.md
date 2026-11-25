@@ -114,17 +114,55 @@ On Windows, `~` refers to the user's home directory (`%USERPROFILE%`). Claude De
 |--------------------|------------------------------------------------------------------|------------------------------------------------|-----------|
 | Claude Desktop     | `~/Library/Application Support/Claude/claude_desktop_config.json`| `%APPDATA%/Claude/claude_desktop_config.json`  | Anthropic |
 | Claude Code        | `~/.claude/settings.json`                                        | _(same)_                                       | Anthropic |
-| Claude Code        | `~/.claude.json`                                                 | _(same)_                                       | Anthropic |
+| Claude Code        | `~/.claude.json`, or the legacy `~/.claude/.config.json` (or `$CLAUDE_CONFIG_DIR/.config.json`) when it is not empty, as Claude Code itself chooses | _(same)_ | Anthropic |
 | Cursor             | `~/.cursor/mcp.json`                                             | _(same)_                                       | Cursor    |
 | Windsurf           | `~/.codeium/windsurf/mcp_config.json`                            | _(same)_                                       | Codeium   |
-| Antigravity        | `~/.gemini/antigravity/mcp_config.json`                          | _(same)_                                       | Google    |
+| Antigravity        | `~/.gemini/config/mcp_config.json` and the older `~/.gemini/antigravity/mcp_config.json` | _(same)_          | Google    |
+| Gemini CLI         | `~/.gemini/settings.json` (`mcpServers`)                         | _(same)_                                       | Google    |
+| Devin              | `~/.config/devin/mcp_config.json`                                | `%APPDATA%/devin/mcp_config.json`              | Cognition |
 | Zed                | `~/.config/zed/settings.json`                                    | _(same)_                                       | Zed       |
-| Open Interpreter   | `~/.config/open-interpreter/config.yaml`                         | _(same)_                                       | OpenSource|
+| Open Interpreter   | `~/.openinterpreter/config.toml` (or `$INTERPRETER_HOME/config.toml`) | _(same)_                                  | OpenSource|
 | Codex              | `~/.codex/config.toml`                                           | _(same)_                                       | OpenAI    |
-| OpenCode           | `~/.config/opencode/opencode.json` (and `.jsonc`)                | _(same)_                                       | OpenCode  |
+| OpenCode           | `~/.config/opencode/opencode.json` (and `.jsonc`); OpenCode 2.x `mcp.servers` is sent in the 1.x `mcp` shape | _(same)_ | OpenCode  |
 | OpenCode (project) | `opencode.json` / `opencode.jsonc` in a project directory        | _(same)_                                       | OpenCode  |
 | Pi                 | `~/.pi/agent/mcp.json` (or `$PI_CODING_AGENT_DIR/mcp.json`)      | _(same)_                                       | Pi        |
 | Pi (project)       | `.pi/mcp.json` in a project directory                            | _(same)_                                       | Pi        |
+
+A file that starts with a UTF-8 byte order mark is read. A server entry that is not an object is skipped without dropping the other servers of its file. A server URL written as Gemini CLI's `httpUrl` or as Cline's nested `transport.url` is sent as `url`.
+
+## MCP Sign-in Status
+
+Enterprise uploads add `server_auth` to each MCP config entry and each plugin MCP component. It has one row per declared server: a `status` (`needs_auth`, `credential_saved`, `static_credential`, `not_applicable` or `unknown`) and an `evidence` code that names the file or rule that gave it. Only these codes are sent. No token, token length, hash or fingerprint leaves the agent. No client is run, no OS credential store is opened and no server is contacted. The status is not controlled by `scanners.credentials.enabled`.
+
+| Client | What is read |
+|---|---|
+| Every source | The config itself: a credential header, a header helper, Codex `bearer_token_env_var` or a credential-named `env` key of a stdio server gives `static_credential`. A stdio server with none of these gives `not_applicable`. |
+| Claude Code | `mcp-needs-auth-cache.json`; off macOS, also the `mcpOAuth` records of `.credentials.json` |
+| Codex | `$CODEX_HOME/.credentials.json`, which Codex writes only when the OS credential store cannot be used |
+| GitHub Copilot CLI | Registration, verifier and token files in `mcp-oauth-config/` |
+| Pi | `mcp-auth.json` |
+| OpenCode | `mcp-auth.json` and the MCP rows of the OpenCode databases |
+| Cursor | MCP key names in the editor `state.vscdb`, and the CLI `~/.cursor/projects/*/mcp-auth.json` files |
+| VS Code, Insiders, VSCodium | The provider list, grant rows and token key names in the `globalStorage/state.vscdb` beside the user `mcp.json` |
+| mcp-remote | The token and client files for the wrapper's key in `~/.mcp-auth/mcp-remote-v1/` (or `MCP_REMOTE_CONFIG_DIR`) |
+| Open Interpreter | `.credentials.json` in its root, the same format and rule as Codex |
+| Gemini CLI | `~/.gemini/mcp-oauth-tokens.json` |
+| Devin | The server's own token file in `~/.local/share/devin/mcp/oauth/` (`%APPDATA%\devin\mcp\oauth\` on Windows) |
+
+Limits: Claude Code on macOS keeps sign-ins in the Keychain, so a server the needs-auth cache does not name reports `unknown`/`encrypted_store`. Codex and Open Interpreter use the OS credential store by default, and Antigravity always keeps sign-ins in an encrypted store, with the same result. A VS Code sign-in through a built-in provider (GitHub, Microsoft) reports `no_record`. A remote server of any other client reports `client_not_supported`. Editor databases under `~/Library` are opened by exact path only, and no other file in a macOS protected folder is read.
+
+## AI Tool and MCP Credential Locations
+
+The credential-location inventory reports which files hold credential material, with a count, the file's protection and its location. Values are parsed on the device and never sent. Two categories cover AI tools:
+
+| Category | Sources |
+|----------|---------|
+| `ai_tools` | Claude Code and Anthropic config (`~/.claude`, `$CLAUDE_CONFIG_DIR`, `~/.claude.json`, `credentials/*.json` under the Anthropic config directory), Codex (`$CODEX_HOME` or `~/.codex`), OpenCode (data directory `auth.json` and databases, config directory `opencode.json`/`.jsonc`, `$OPENCODE_CONFIG`, `opencode.json`/`.jsonc` under `$OPENCODE_CONFIG_DIR`, `$OPENCODE_DB`), Pi (`auth.json`, `models.json`), Hermes Agent (each profile's `.env`, `config.yaml`, `auth.json` and the shared auth directory), Copilot CLI (`config.json`, `providers.json`, `$COPILOT_PROVIDERS_CONFIG`), Cursor (editor state databases), VS Code (`chatLanguageModels.json`) |
+| `mcp_servers` | MCP declarations and OAuth state of the same tools (`.claude.json`, Codex `config.toml` and MCP OAuth files, OpenCode `mcp-auth.json` and MCP rows, Pi `mcp.json`/`mcp-auth.json`, Hermes `mcp_servers` and `mcp-tokens`, Copilot CLI `mcp-config.json`, `mcp-oauth-config` and `mcp-secrets`, Cursor `mcp.json` and MCP rows, VS Code `mcp.json` and cached MCP inputs), plus the shared project `.mcp.json` |
+
+Project files (`.claude/settings.json`, `.codex/config.toml`, `opencode.json`, `.pi/mcp.json`, `.github/mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `*.code-workspace`, `.mcp.json`) come from the projects inside the home that the skills walk already lists; the inventory runs no walk of its own. Directory listings are bounded per directory and in total, editor and OpenCode databases are opened read-only with fixed queries and a read budget, and an encrypted store is reported as unsupported rather than decrypted.
+
+When the tenant opts in, a finding for a recognized API key format (OpenAI, Anthropic, OpenRouter, GitHub personal access tokens) also carries a hint: the provider prefix with three more characters and the last four characters, grouped with an occurrence count and capped per finding and per scan. OAuth tokens, passwords and client secrets never produce a hint. A hint can match more than one key, so it is never a unique identifier.
 
 ## AI Agent Skills
 Dev Machine Guard inventories every installed **agent skill** — a directory containing a `SKILL.md` manifest — across Claude Code, Codex, OpenCode, Cursor, Gemini CLI, GitHub Copilot, Pi, Factory, Amp, Grok Build (`~/.grok/skills`, `.grok/skills`), Kimi Code (`~/.kimi-code/skills`, `.kimi-code/skills`), Muse Code (`~/.config/muse/skills`), Hermes Agent (`~/.hermes/skills` or `%LOCALAPPDATA%\hermes\skills`, `.hermes/skills`), Oh My Pi (`~/.omp/agent/skills`, `~/.omp/agent/managed-skills`, `.omp/skills`), Kiro (IDE and CLI, one shared root), Windsurf, Antigravity, OpenClaw, the cross-agent `~/.agents` convention, and skills installed via [skills.sh](https://skills.sh). It probes each agent's global, system, project, and plugin skill directories; skills.sh lock files add upstream provenance (joined by symlink-resolved path). Detection is pure filesystem reads (no subprocesses), bounded by a 60-second budget and per-root caps.
@@ -141,16 +179,16 @@ Per skill, the scan records identity and frontmatter (name, description, version
 
 Claude Code, Codex, GitHub Copilot and Pi plugin inventory runs in its own `agent_plugins_scan` phase after `agent_skills_scan`, with no feature gate. Standalone commands and recorded usage remain in the skills phase. Both phases reuse project discovery and parsed definitions, with separate deadlines and progress. Plugin collection reads native registration/configuration, selected materialized payloads and manifests. Installed, files present, configured enabled and effective enabled are separate observations; an unavailable value remains unknown. An old cache directory alone is not an installation.
 
-- **Claude Code:** scoped version-2 installation records, registered and settings-declared catalogs, visible seed roots, manifest-bearing skill directories and synced payloads. Local directory catalogs use the original source. Skills, legacy commands, MCP servers, agents, hooks, LSP servers and declared apps retain their supplying plugin.
+- **Claude Code:** scoped version-2 installation records, registered and settings-declared catalogs, visible seed roots, manifest-bearing skill directories and synced payloads. Local directory catalogs use the original source. Skills, legacy commands, MCP servers, agents, hooks, LSP servers and declared apps retain their supplying plugin. Directories named by `CLAUDE_CODE_PLUGIN_DIRS` in user settings (`@inline`, including a folder of plugins) and session mods under `dev-mods/<session>/<mod>` (`@skills-dir`, newest 200 sessions, 50 mods) are installations. A hooks file's `modules` entries (mods) are reported per hook component with path, size and SHA-256 of the entry file; the module is never executed or parsed.
 - **Codex:** configured local/Git marketplaces, personal and discovered-project catalogs, selected versioned store payloads and recognized account markers. Portable manifests take precedence over compatible manifests. Portable skills and MCP roots are fixed; supported apps/hooks remain descriptive metadata. Account effective enablement remains unknown.
 - **GitHub Copilot:** CLI and standalone-app recorded installations and selected live directory-marketplace payloads, including disabled selections. VS Code and Insiders use separate installed receipts and user/profile/project `chat.pluginLocations` registrations. Collects skills, custom agents, commands, rules, hooks, LSP declarations and shared/agent MCP declarations. Portable 1.0/1.1 and native legacy manifests use their own precedence; editor component selection follows its own defaults and settings. User `mcp-config.json` and discovered-project `.mcp.json`/`.github/mcp.json` retain sanitized standalone declarations. Runtime activation, credentials and usage are outside this extension. Native editor Disable/Enable state stored in SQLite is not read; JSON registration preferences do not prove effective activation. Editor versions remain unknown rather than inheriting the CLI version. Root-only skill fallback and path-valued MCP declarations follow pinned native fixtures. Unavailable or unverified catalog evidence remains incomplete.
-- **Pi:** packages (npm, Git and local) and saved extension paths from the user `settings.json` and discovered-project `.pi/settings.json`, plus extensions auto-discovered in `extensions/` directories. Installed payloads are resolved under the agent root (`npm/node_modules`, `git/<host>/<path>`) without running npm or Git; a configured package with no payload is reported as not installed. Collects extensions, skills (including root-level markdown skills), prompt templates and themes, following Pi's manifest, convention-directory, ignore-file and filter rules, with saved per-resource enablement for each scope. Filters starting with `~` are evaluated only when the installed Pi version is known to be 1.2 or newer. Built-in extensions are skipped. Project settings are reported as configuration whether or not Pi trusts the project. Pi's `mcp.json` files keep each server's sanitized command, args, URL and `enabled` flag; entries that only override another server are dropped, and entries Pi itself rejects are kept because extensions such as pi-mcp-adapter read the same file. Sessions, `auth.json`, `mcp-auth.json` and logs are not read.
+- **Pi:** packages (npm, Git and local) and saved extension paths from the user `settings.json` and discovered-project `.pi/settings.json`, plus extensions auto-discovered in `extensions/` directories. Installed payloads are resolved under the agent root (`npm/node_modules`, `git/<host>/<path>`) without running npm or Git; a configured package with no payload is reported as not installed. Collects extensions, skills (including root-level markdown skills), prompt templates and themes, following Pi's manifest, convention-directory, ignore-file and filter rules, with saved per-resource enablement for each scope. Filters starting with `~` are evaluated only when the installed Pi version is known to be 1.2 or newer. Built-in extensions are skipped. Project settings are reported as configuration whether or not Pi trusts the project. Pi's `mcp.json` files keep each server's sanitized command, args, URL and `enabled` flag; entries that only override another server are dropped, and entries Pi itself rejects are kept because extensions such as pi-mcp-adapter read the same file. Sessions, `auth.json` and logs are not read; `mcp-auth.json` is read only for the [MCP sign-in status](#mcp-sign-in-status).
 - **Standalone Claude commands:** user and discovered-project `commands/**/*.md` files retain their own paths and raw-byte hashes, independently of ordinary `SKILL.md` definitions.
 - **Recorded skill use:** Claude's `skillUsage` keys, cumulative counts (including zero) and native millisecond timestamps. Selected snapshots are attached to uniquely matching standalone or plugin definitions, including shared skills exposed through Claude symlinks. Ambiguous and unavailable usage is not zero; aliases and installation scopes are not summed. Unmatched counters are not uploaded separately.
 
 The collector never executes plugins, hooks, scripts, agent CLIs or network requests. MCP content uses the existing field allowlist and redaction. Plugin metadata and definition hashes are reported; instruction bodies, commands, credentials and complete settings files are not uploaded. Plugin-owned and stale-cache MCP declarations are excluded from ordinary MCP results, while unrelated MCP configurations retain existing coverage.
 
-Reads are guarded and bounded: 5 MiB metadata, 1 MiB definitions, 1,024 plugin observations, 4,096 components, 2,000 new parsed definitions, 10,000 inspected native usage counters and an 8 MiB plugin envelope. Malformed, unreadable, unsupported or truncated scopes report incomplete coverage independently. Visible `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_PLUGIN_CACHE_DIR`, `CLAUDE_CODE_PLUGIN_SEED_DIR`, `CODEX_HOME`, `COPILOT_HOME`, independent `COPILOT_CACHE_HOME` and `PI_CODING_AGENT_DIR` overrides are respected (`PI_CODING_AGENT_DIR` also moves the Pi user skills root); overrides hidden from the scanning process cannot be discovered. Project presence does not prove session trust or activation. Native Windows project-plugin activation and account-synced delivery lifecycle remain outside the completed fixture validation.
+Reads are guarded and bounded: 5 MiB metadata, 1 MiB definitions, 1,024 plugin observations, 4,096 components, 2,000 new parsed definitions and hashed modules (5 MiB each, 8 per hooks file), 10,000 inspected native usage counters and an 8 MiB plugin envelope. Malformed, unreadable, unsupported or truncated scopes report incomplete coverage independently. `CLAUDE_CODE_PLUGIN_DIRS` set in the process environment or a non-user settings layer, `--plugin-dir` and `--plugin-url` sessions, SDK-supplied plugins and built-in mods are not inventoried, and a listed mod is not proof it loaded. Visible `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_PLUGIN_CACHE_DIR`, `CLAUDE_CODE_PLUGIN_SEED_DIR`, `CODEX_HOME`, `COPILOT_HOME`, independent `COPILOT_CACHE_HOME` and `PI_CODING_AGENT_DIR` overrides are respected (`PI_CODING_AGENT_DIR` also moves the Pi user skills root); overrides hidden from the scanning process cannot be discovered. Project presence does not prove session trust or activation. Native Windows project-plugin activation and account-synced delivery lifecycle remain outside the completed fixture validation.
 
 ## IDE Extensions & Plugins
 
@@ -439,6 +477,20 @@ Detected if `snap` is installed. Metadata: name, version, revision, tracking cha
 
 Detected if `flatpak` is installed. Metadata: app ID, name, version, arch, branch, origin, active commit, runtime.
 
+### Nix Packages (Linux and macOS, enterprise)
+
+Read from disk only: Nix is never run and no expression is evaluated. Metadata: name, version (`unknown` when not recorded) and store path.
+
+| Source | Read |
+|--------|------|
+| `/nix/var/nix/profiles/default`, `~/.local/state/nix/profiles/*`, `/nix/var/nix/profiles/per-user/<user>/*`, `~/.nix-profile` | `manifest.json` (versions 1 to 3) or the literal subset of `manifest.nix` |
+| NixOS / nix-darwin system (`/run/current-system/sw`) and `/etc/profiles/per-user/<user>` | direct members of the environment |
+| Home Manager (`home-path` of a profile generation) | direct members of the environment |
+
+One row per name: the lowest version, then store path, by byte order. A name that another package source reports in the same run (Linux package managers above, macOS Homebrew) is not sent again as Nix. A host without `/nix` sends no `nix` scan. After an upload that found Nix, a run that finds `/nix` gone sends an empty scan on every run until the backend reports one processed, which confirms the removal. A source that cannot be read in full marks the scan `incomplete nix inventory` and keeps what was read.
+
+Limits: environment members are the links of the environment, so a package referenced only from a generated file is not listed. A service account reads the machine sources only. A macOS run with no console user (the login window) reads the machine sources and marks the scan incomplete, so user rows are kept. If `/nix` exists but the Nix store volume is not mounted when the agent runs, a user whose only profile is the default profile gets a complete empty scan until the volume is back; an empty `/nix` left by an uninstall is treated the same way, which is how that removal is confirmed. No custom store or state directory, no `NIX_PROFILES`, and no community-mode Nix.
+
 ## WSL Detection (Windows)
 
 Host-side detection of Windows Subsystem for Linux, reported by the **Windows agent** under `device.wsl`. Answers "is WSL present, and is a distribution actively running right now?" so a fleet dashboard can flag machines with WSL environments that the Linux agent has not yet scanned. It does **not** mount or scan distro filesystems — run the Linux binary inside a distro for that.
@@ -460,3 +512,9 @@ Presence is tri-state (`yes` / `no` / `unknown`): a probe that cannot read the r
 ## Adding New Detections
 
 Want to add detection for a new tool, IDE, or framework? See [docs/adding-detections.md](docs/adding-detections.md) or open a [New Detection issue](.github/ISSUE_TEMPLATE/new_detection.yml).
+
+## Credential classification
+
+The eight AI-tool credential sources report per-file counts of API keys, recognized tool-account credentials and other secrets. Classification uses known storage fields and provider semantics, independently of the optional key-fragment setting. It does not establish which credential a tool uses, whether an account has a paid subscription, or how requests are billed. Existing credential and MCP counts are unchanged. Raw one-hop reference files remain classified as other when their purpose is ambiguous.
+
+Cursor account discovery reads only `cursorAuth/accessToken` and `cursorAuth/refreshToken` alongside the existing provider-key slots in the known `state.vscdb` files. A readable access/refresh pair counts once. Protected account envelopes remain opaque and make coverage incomplete; they are not decrypted or counted from their presence. Account credentials never emit key fragments.

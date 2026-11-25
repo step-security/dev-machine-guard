@@ -328,9 +328,10 @@ type PluginObservation struct {
 }
 
 // PluginComponent is one declaration inside one installation. Exactly one payload
-// matches Kind — Skill, Command or MCPConfig — and the remaining kinds carry
-// none: they are descriptive, and their scripts, hooks and manifests are never
-// uploaded.
+// matches Kind (Skill, Command or MCPConfig) and the remaining kinds carry none:
+// they are descriptive, and their scripts, hooks and manifests are never
+// uploaded. A Claude hook component may also list the code modules its hooks
+// file names, as paths, sizes and hashes only.
 type PluginComponent struct {
 	ComponentID string `json:"component_id"`
 	Kind        string `json:"kind"`
@@ -355,12 +356,28 @@ type PluginComponent struct {
 	Command       *AgentCommandDefinition `json:"command,omitempty"`
 	MCPConfig     *MCPConfigEnterprise    `json:"mcp_config,omitempty"`
 	MCPEnablement []EnablementObservation `json:"mcp_enablement,omitempty"`
+	// One entry per string in the hooks file's modules array, in file order.
+	Modules []HookModule `json:"modules,omitempty"`
 
 	// Saved per-resource selection at the installation's own scope, and the
 	// scoped layers that stated one. Absent is unknown, not enabled; neither
 	// says the agent loaded the resource.
 	ConfiguredEnabled *bool                   `json:"configured_enabled,omitempty"`
 	Enablement        []EnablementObservation `json:"enablement,omitempty"`
+}
+
+// HookModule is one entry of a Claude hooks file's modules array: a code file
+// Claude Code imports and runs in-process. Only its location, size and hash are
+// reported; the file is never executed or parsed, and the hash covers this
+// entry file only, not the files it imports.
+type HookModule struct {
+	DeclaredPath   string `json:"declared_path"` // as written; empty when too long to carry
+	RelativePath   string `json:"relative_path,omitempty"`
+	DefinitionPath string `json:"definition_path,omitempty"`
+	DefinitionHash string `json:"definition_hash,omitempty"` // hex(sha256(raw file bytes)), only when complete
+	SizeBytes      int64  `json:"size_bytes,omitempty"`
+	Status         string `json:"status"` // complete or error
+	ErrorCode      string `json:"error_code,omitempty"`
 }
 
 // AgentCommandDefinition is a legacy command Markdown file — an actual file with

@@ -265,7 +265,7 @@ Configuration (~/.stepsecurity/config.json):
   Log Level:               error
 ```
 
-Configuration is saved to `~/.stepsecurity/config.json` with `0600` permissions (owner read/write only).
+Configuration is saved to `~/.stepsecurity/config.json` with `0600` permissions (owner read/write only). When that file is absent, the agent also looks for a `config.json` beside its binary, or one level up when the binary sits in a `bin` directory, so a system-wide install under a custom directory carries its configuration with it.
 
 To label a device for the dashboard, add `"device_tag": "avd-pool-eu"` to the
 config JSON, pass `configure --device-tag avd-pool-eu`, or use the MSI
@@ -374,13 +374,13 @@ See [SCAN_COVERAGE.md](SCAN_COVERAGE.md) for the full catalog of supported detec
 | AI Agents            | Claude Cowork, OpenClaw, ClawdBot, GPT-Engineer                                          |
 | AI Frameworks        | Ollama, LM Studio, LocalAI, Text Generation WebUI                                        |
 | MCP Server Configs   | Claude Desktop, Claude Code, Cursor, Windsurf, Antigravity, Zed, Open Interpreter, Codex, OpenCode, GitHub Copilot, Pi |
-| Agent Plugins & Skills | Claude Code, Codex and GitHub Copilot (CLI, standalone app and VS Code) plugin installations, Pi packages and extensions, declared components, standalone Claude commands, and recorded skill-use counters |
+| Agent Plugins & Skills | Claude Code, Codex and GitHub Copilot (CLI, standalone app and VS Code) plugin installations, Claude Code mods with module hashes, Pi packages and extensions, declared components, standalone Claude commands, and recorded skill-use counters |
 | IDE Extensions       | VS Code, Cursor, Windsurf, Antigravity, JetBrains, Eclipse, Xcode, Android Studio        |
 | Browser Extensions   | Google Chrome, Microsoft Edge, Mozilla Firefox                                           |
 | Node.js Packages     | npm, yarn, pnpm, bun (opt-in)                                                            |
 | Homebrew Packages    | Formulae and casks with rich metadata (opt-in)                                            |
 | Python Packages      | pip, poetry, pipenv, uv, conda, rye (opt-in)                                             |
-| System Packages      | rpm, dpkg, pacman, apk, snap, flatpak (Linux)                                            |
+| System Packages      | rpm, dpkg, pacman, apk, snap, flatpak (Linux); Nix profiles and environments (Linux and macOS, enterprise) |
 | Go Modules           | `go.mod`/`go.work` declarations, vendored modules, module cache, `GOBIN` tools, recorded checksums (enterprise) |
 | Rust Packages        | `Cargo.toml` declarations, `Cargo.lock`, registry cache, Git checkouts, vendored sources, `cargo install` receipts (enterprise) |
 | PHP Packages         | `composer.json` requirements, `composer.lock` snapshots and Composer 1/2 installed receipts, with separate directory presence (enterprise) |
@@ -507,6 +507,7 @@ Dev Machine Guard is a single compiled binary that scans your developer environm
 - IDE extension/plugin names, publishers, and versions (VS Code, Cursor, Windsurf, Antigravity, JetBrains, Eclipse, Xcode, Android Studio)
 - Browser extension records read from the browsers' own state files (Chrome, Edge, Firefox): identity, enabled state, install source, and the permissions the browser currently honours. Browsing history, cookies, saved passwords, and page content are never opened
 - MCP server configuration (server names and commands only)
+- Credential locations: which AI tools, MCP servers and other developer tools keep credential material on disk, with a count, file protection and location per file. AI-tool findings also distinguish API keys, recognized tool-account credentials and other secrets. This describes stored material, not current use, a paid subscription or billing. Values are read on the device and never sent. An administrator can opt in to a short hint for recognized API keys: the provider prefix with three more characters, and the last four characters
 - Node.js, Homebrew, Python, and system package listings (opt-in)
 - Package-manager configuration: effective registry, cooldown policy, and authentication surface across every scope (`.npmrc`, pnpm config, `bunfig.toml`, `.yarnrc`/`.yarnrc.yml`, `pip.conf`)
 - Suspicious files flagged by StepSecurity-maintained malicious-file rules (path and matched rule only — file contents are not collected)
@@ -516,7 +517,7 @@ Detection uses platform-specific methods: `/Applications/` and `Info.plist` on m
 **What it does NOT collect:**
 
 - Source code, file contents, or project data
-- Secrets, credentials, API keys, or tokens
+- Full credential values, digests or fingerprints through credential inventory; only the opt-in key hints described above are retained
 - Browsing history or personal files
 - Any data from your IDE workspaces
 
@@ -581,7 +582,7 @@ Dev Machine Guard fills the gap by inventorying what is actually running in your
 
 - **Package scanning** (Node.js, Homebrew, Python) is opt-in in community mode and results are basic (package manager detection and package/project lists). Full dependency tree analysis is available in enterprise mode.
 - **MCP config auditing** shows which tools have MCP configs (source, vendor, and config path) but does not display config file contents in community mode. Enterprise mode sends filtered config data (server names and commands only, no secrets) to the dashboard.
-- **System package scanning** (rpm, dpkg, pacman, apk, snap, flatpak) is Linux-only.
+- **System package scanning** (rpm, dpkg, pacman, apk, snap, flatpak) is Linux-only. Nix inventory (Linux and macOS) is enterprise-only and reads profiles and environments from disk without running Nix.
 - **Package-manager config auditing** reports the effective registry, cooldown status, and authentication surface from configuration files; it reflects configuration as written and does not intercept package installs at runtime.
 - **Suspicious file detection** flags files that match StepSecurity-maintained rules and records the path and matched rule. It does not collect or transmit file contents. Confidence levels and attack-campaign attribution surface in the enterprise dashboard.
 
@@ -610,6 +611,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 - [Changelog](CHANGELOG.md)
 - [Scan Coverage](SCAN_COVERAGE.md) — full catalog of detections
 - [Release Process](docs/release-process.md) — how releases are signed and verified
+- [macOS and Linux self-update](docs/macos-linux-self-update.md) — how binary-scheduled installs keep themselves on the tenant's release
 - [Deploying via SCCM](docs/deploying-via-sccm.md) — Windows fleet rollout via Microsoft Configuration Manager (signed MSI, no PowerShell)
 - [macOS TCC Permissions](docs/macos-tcc-permissions.md) — how the agent handles Documents/Downloads/Mail TCC dirs and network volumes (container-runtime mounts), PPPC profile for MDM-pushed Full Disk Access and network-volume pre-approval, and the `include_tcc_protected` / `include_network_volumes` config fields
 - [macOS MDM packaging](packaging/macos/README.md) — ready-made PPPC `.mobileconfig` for fleet deployment

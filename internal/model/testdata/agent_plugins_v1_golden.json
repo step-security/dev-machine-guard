@@ -246,7 +246,24 @@
                 "relative_path": "hooks/hooks.json",
                 "status": "complete",
                 "definition_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/hooks/hooks.json",
-                "callable_names": []
+                "callable_names": [],
+                "modules": [
+                  {
+                    "declared_path": "../src/register.ts",
+                    "relative_path": "src/register.ts",
+                    "definition_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/src/register.ts",
+                    "definition_hash": "0bd8919832712c1da0aab9693fdf0adf86b751358d1c24b86816aa46b5d2d537",
+                    "size_bytes": 32,
+                    "status": "complete"
+                  },
+                  {
+                    "declared_path": "./missing.mjs",
+                    "relative_path": "hooks/missing.mjs",
+                    "definition_path": "/Users/example-user/.claude/plugins/cache/example-catalog/team-tools/1.4.0/hooks/missing.mjs",
+                    "status": "error",
+                    "error_code": "read_failed"
+                  }
+                ]
               },
               {
                 "component_id": "comp_6f9d12d479aa436c1fc40dcc0e5ed7f6667eb69d604548e143b917bbcf4a1a98",
@@ -607,6 +624,95 @@
                 "instance_id": "inst_0ee50aa49753ee65a16db9218ebcaa42a15e9c6bf387201544d5d61f938348c6"
               }
             ]
+          },
+          {
+            "instance_id": "inst_5a4dd7f54c6ce8d88e1ae88bd03ef283700e3f339aa3976ec7347c506e8e1f45",
+            "native_id": "example-mod@inline",
+            "name": "example-mod",
+            "manifest_name": "example-mod",
+            "installation_kind": "directory",
+            "scope": "user",
+            "install_path": "/opt/example-mods/example-mod",
+            "source_path": "/opt/example-mods/example-mod",
+            "manifest_path": "/opt/example-mods/example-mod/.claude-plugin/plugin.json",
+            "source": {
+              "kind": "local",
+              "native_kind": "directory",
+              "location": "/opt/example-mods/example-mod"
+            },
+            "manifest_format": "claude",
+            "manifest_version": "0.2.0",
+            "description": "Example mod",
+            "installed": true,
+            "files_present": true,
+            "installation_evidence": "local_config",
+            "enablement": [],
+            "component_status": "complete",
+            "components": [
+              {
+                "component_id": "comp_94d0f07eaddbc805e1b67f5c26d1e723cf87e2464e6c46a23ed14a26137aa8bb",
+                "kind": "hook",
+                "name": "hooks",
+                "relative_path": "hooks/hooks.json",
+                "status": "complete",
+                "definition_path": "/opt/example-mods/example-mod/hooks/hooks.json",
+                "callable_names": [],
+                "modules": [
+                  {
+                    "declared_path": "../src/register.mjs",
+                    "relative_path": "src/register.mjs",
+                    "definition_path": "/opt/example-mods/example-mod/src/register.mjs",
+                    "definition_hash": "b0383e6b98d723cb52d571bd7f04ca66e971e02039458796a036d5e72eae2fc7",
+                    "size_bytes": 47,
+                    "status": "complete"
+                  }
+                ]
+              }
+            ],
+            "errors": []
+          },
+          {
+            "instance_id": "inst_665a24223c6b599416ae96d091b0481a6c60705135bce07f9d50ba30583ece49",
+            "native_id": "git-branch@inline",
+            "name": "git-branch",
+            "manifest_name": "git-branch",
+            "installation_kind": "directory",
+            "scope": "user",
+            "install_path": "/Users/example-user/.claude/dev-mods/3f2b8c1e-5d4a-4e6f-9a7b-2c1d0e9f8a6b/git-branch",
+            "source_path": "/Users/example-user/.claude/dev-mods/3f2b8c1e-5d4a-4e6f-9a7b-2c1d0e9f8a6b/git-branch",
+            "manifest_path": "/Users/example-user/.claude/dev-mods/3f2b8c1e-5d4a-4e6f-9a7b-2c1d0e9f8a6b/git-branch/.claude-plugin/plugin.json",
+            "source": {
+              "kind": "local",
+              "native_kind": "directory",
+              "location": "/Users/example-user/.claude/dev-mods/3f2b8c1e-5d4a-4e6f-9a7b-2c1d0e9f8a6b/git-branch"
+            },
+            "manifest_format": "claude",
+            "files_present": true,
+            "installation_evidence": "local_config",
+            "enablement": [],
+            "component_status": "complete",
+            "components": [
+              {
+                "component_id": "comp_956754115198dc7cb61c464050566c19d11d1c6c83f8771175dc5683fc66e128",
+                "kind": "hook",
+                "name": "hooks",
+                "relative_path": "hooks/hooks.json",
+                "status": "complete",
+                "definition_path": "/Users/example-user/.claude/dev-mods/3f2b8c1e-5d4a-4e6f-9a7b-2c1d0e9f8a6b/git-branch/hooks/hooks.json",
+                "callable_names": [],
+                "modules": [
+                  {
+                    "declared_path": "./mod.mjs",
+                    "relative_path": "hooks/mod.mjs",
+                    "definition_path": "/Users/example-user/.claude/dev-mods/3f2b8c1e-5d4a-4e6f-9a7b-2c1d0e9f8a6b/git-branch/hooks/mod.mjs",
+                    "definition_hash": "0bd8919832712c1da0aab9693fdf0adf86b751358d1c24b86816aa46b5d2d537",
+                    "size_bytes": 32,
+                    "status": "complete"
+                  }
+                ]
+              }
+            ],
+            "errors": []
           },
           {
             "instance_id": "inst_1b204966863a95502c93f8be18fa43030a62df4e457ce66f4cf807d8e4b296b6",
