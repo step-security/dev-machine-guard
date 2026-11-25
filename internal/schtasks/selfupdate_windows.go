@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/step-security/dev-machine-guard/internal/fwpath"
 	"github.com/step-security/dev-machine-guard/internal/progress"
 	"github.com/step-security/dev-machine-guard/internal/updatestate"
 	"github.com/step-security/dev-machine-guard/internal/winproc"
@@ -62,8 +63,11 @@ func waitForInstanceMutex(wait time.Duration) bool {
 // until no process holds an MSI-owned file, since a terminated process can
 // keep its image held for a while (D29). This process's own image (the
 // uninstall action runs the seed agent) can't be waited for and is skipped.
+// The on-device firewall (fwpath.Dir) is never killed here: `uninstall`
+// removes it through its own `uninstall` before this runs, and anything left
+// of it must not be hard-killed mid-teardown.
 func terminateUnder(root string, log *progress.Logger) error {
-	stopped, err := winproc.StopUnder(root)
+	stopped, err := winproc.StopUnderExcept(root, []string{fwpath.Dir()})
 	for _, img := range stopped {
 		log.Progress("Stopped running DMG process %s", img)
 	}

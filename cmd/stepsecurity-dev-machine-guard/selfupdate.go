@@ -132,6 +132,7 @@ func runSelfCheck(args []string) int {
 // runSelfUpdate is `agent self-update --system`, run by the SYSTEM update
 // task through the bootstrap.
 func runSelfUpdate(args []string) int {
+	start := time.Now()
 	if len(args) != 1 || args[0] != "--system" {
 		fmt.Fprintln(os.Stderr, "usage: self-update --system")
 		return 2
@@ -263,7 +264,11 @@ func runSelfUpdate(args []string) int {
 		Now:       time.Now,
 		Logf:      logf,
 	}
-	return selfupdate.Run(context.Background(), deps)
+	code := selfupdate.Run(context.Background(), deps)
+	// The on-device firewall (MSI hosts: this agent owns it). After the
+	// agent's own update, and never changing the code the bootstrap counts.
+	runFirewallStep(start, layout, selfExe, httpClient, deviceID, logf)
+	return code
 }
 
 // newUpdateLog appends timestamped lines to state\update.log (kept under

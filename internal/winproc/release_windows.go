@@ -33,18 +33,72 @@ func fileHeld(path string) bool {
 // StopUnder terminates every process (other than this one) whose image
 // lives under root and waits up to 5 s for each to exit. It returns the
 // images it stopped. Callers then WaitReleased the files they need.
-func StopUnder(root string) ([]string, error) {
-	prefix := strings.ToLower(filepath.Clean(root)) + `\`
+func StopUnder(root string) ([]string, error) { return StopUnderExcept(root, nil) }
+
+// StopUnderExcept is StopUnder, sparing every process whose image lives
+// under one of keep. The MSI paths pass the on-device firewall's folder
+// (fwpath.Dir), which sits inside the MSI's install root but is a separate
+// product with its own service: hard-killing it would skip its teardown and
+// leave its NRPT rule pointing at a dead DNS proxy until SCM restarts it.
+func StopUnderExcept(root string, keep []string) ([]string, error) {
+	prefix := underPrefix(root)
+	var spare []string
+	for _, k := range keep {
+		if k != "" {
+			spare = append(spare, underPrefix(k))
+		}
+	}
+	var stopped []string
+	var errs []error
+	err := eachProcess(func(h windows.Handle, pid uint32, img string) {
+		lower := strings.ToLower(img)
+		if !strings.HasPrefix(lower, prefix) {
+			return
+		}
+		for _, p := range spare {
+			if strings.HasPrefix(lower, p) {
+				return
+			}
+		}
+		if serr := StopProcess(h); serr != nil {
+			errs = append(errs, fmt.Errorf("terminating %s (pid %d): %w", img, pid, serr))
+		} else {
+			stopped = append(stopped, img)
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	return stopped, errors.Join(errs...)
+}
+
+// ImageRunning reports whether a process (other than this one) runs the
+// image at path. A process whose image can't be read is not counted.
+func ImageRunning(path string) bool {
+	want := strings.ToLower(filepath.Clean(path))
+	found := false
+	_ = eachProcess(func(_ windows.Handle, _ uint32, img string) {
+		if strings.ToLower(filepath.Clean(img)) == want {
+			found = true
+		}
+	})
+	return found
+}
+
+func underPrefix(dir string) string { return strings.ToLower(filepath.Clean(dir)) + `\` }
+
+// eachProcess calls fn with a handle (query, terminate and synchronize
+// rights), the pid and the image path of every process this one can open,
+// other than itself.
+func eachProcess(fn func(h windows.Handle, pid uint32, img string)) error {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
-		return nil, fmt.Errorf("process snapshot: %w", err)
+		return fmt.Errorf("process snapshot: %w", err)
 	}
 	defer func() { _ = windows.CloseHandle(snap) }()
 	self := uint32(os.Getpid()) // #nosec G115 -- a pid fits in uint32
 	var pe windows.ProcessEntry32
 	pe.Size = uint32(unsafe.Sizeof(pe))
-	var stopped []string
-	var errs []error
 	for err = windows.Process32First(snap, &pe); err == nil; err = windows.Process32Next(snap, &pe) {
 		if pe.ProcessID == self || pe.ProcessID == 0 {
 			continue
@@ -56,18 +110,11 @@ func StopUnder(root string) ([]string, error) {
 		buf := make([]uint16, windows.MAX_LONG_PATH)
 		n := uint32(len(buf))
 		if qerr := windows.QueryFullProcessImageName(h, 0, &buf[0], &n); qerr == nil {
-			img := windows.UTF16ToString(buf[:n])
-			if strings.HasPrefix(strings.ToLower(img), prefix) {
-				if serr := StopProcess(h); serr != nil {
-					errs = append(errs, fmt.Errorf("terminating %s (pid %d): %w", img, pe.ProcessID, serr))
-				} else {
-					stopped = append(stopped, img)
-				}
-			}
+			fn(h, pe.ProcessID, windows.UTF16ToString(buf[:n]))
 		}
 		_ = windows.CloseHandle(h)
 	}
-	return stopped, errors.Join(errs...)
+	return nil
 }
 
 // StopProcess terminates the process and waits up to 5 s for it to exit.

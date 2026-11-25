@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/step-security/dev-machine-guard/internal/device"
 	"github.com/step-security/dev-machine-guard/internal/executor"
+	"github.com/step-security/dev-machine-guard/internal/firewall"
 	"github.com/step-security/dev-machine-guard/internal/launcher"
 	"github.com/step-security/dev-machine-guard/internal/telemetry"
 	"github.com/step-security/dev-machine-guard/internal/updatestate"
@@ -151,5 +152,30 @@ func TestSystemSelfCheckNeverWritesSharedID(t *testing.T) {
 	_ = selfCheckDeviceID(context.Background(), m, true, cache)
 	if b, err := m.ReadFile(`C:\ProgramData\StepSecurity\device-id`); err == nil && len(b) > 0 {
 		t.Fatalf("SYSTEM self-check wrote the shared device-id: %q", b)
+	}
+}
+
+// The firewall step runs only as SYSTEM and only with at least 8 minutes of
+// the bootstrap's 25-minute update deadline left (then it gets 6).
+func TestFirewallStepAllowed(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		system  bool
+		elapsed time.Duration
+		want    bool
+	}{
+		{"fresh SYSTEM tick", true, time.Second, true},
+		{"exactly 8 min left", true, launcher.DefaultUpdateDeadline - firewallMinBudget, true},
+		{"under 8 min left", true, launcher.DefaultUpdateDeadline - firewallMinBudget + time.Second, false},
+		{"not SYSTEM", false, time.Second, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, why := firewallStepAllowed(tc.system, tc.elapsed); got != tc.want {
+				t.Errorf("firewallStepAllowed = %v (%s), want %v", got, why, tc.want)
+			}
+		})
+	}
+	if firewall.ReconcileTimeout > firewallMinBudget {
+		t.Errorf("ReconcileTimeout %s exceeds the %s budget", firewall.ReconcileTimeout, firewallMinBudget)
 	}
 }

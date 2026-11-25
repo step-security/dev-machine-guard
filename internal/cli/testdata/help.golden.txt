@@ -106,6 +106,9 @@ Non-interactive configure (for MSI / SCCM / Intune deployments):
   --scan-frequency HOURS        Scheduled scan frequency
   --max-execution-duration D    Whole-run watchdog (e.g. 2h, 30m; off to disable)
   --auto-update=BOOL            Windows MSI self-update on (default) or off
+  --install-on-device-firewall=BOOL
+                                Windows MSI installs: install and upgrade the
+                                on-device firewall (default off)
   --update-mirror-url URL       HTTPS packages mirror for self-update
   --update-lag-behind N         Stay N releases behind the latest
   --update-cooldown-hours N     Wait N hours after a release before updating

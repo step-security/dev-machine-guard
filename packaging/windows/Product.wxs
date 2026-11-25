@@ -108,6 +108,15 @@
          1 opts it back in (auto_update:true). Unset leaves the setting as
          it is; a fresh install then uses the config default (on). -->
     <Property Id="AUTOUPDATE"    Secure="yes"/>
+    <!-- INSTALLONDEVICEFIREWALL (no default), the AUTOUPDATE pattern: 1
+         writes install_on_device_firewall:true into the machine config, and
+         the SYSTEM update tick then installs and upgrades the on-device
+         firewall (StepSecurityOnDeviceFirewall service) in
+         %ProgramFiles%\StepSecurity\OnDeviceFirewall; 0 writes false
+         (no new install; a present firewall is removed only through the
+         console's removal feature). Unset leaves the setting as it is. Also a
+         bootstrap.json key (install_on_device_firewall). -->
+    <Property Id="INSTALLONDEVICEFIREWALL" Secure="yes"/>
 
     <!-- Empty disable=do-not-allow-modify in Add/Remove Programs.
          Customers manage via SCCM, not via the user-facing ARP. -->
@@ -241,6 +250,13 @@
                   Impersonate="no"
                   Return="ignore"/>
 
+    <CustomAction Id="RunConfigureOnDeviceFirewall"
+                  BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+                  DllEntry="WixQuietExec64"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore"/>
+
     <CustomAction Id="RunAdoptSeed"
                   BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
                   DllEntry="WixQuietExec64"
@@ -271,7 +287,9 @@
 
     <!-- Stop running DMG processes before any file action (install,
          repair, upgrade, uninstall) and wait until none holds an MSI-owned
-         file (D29). A scan or update tick holds the bootstrap (an MSI file)
+         file (D29). The on-device firewall under OnDeviceFirewall\ is left
+         running (helpers from this MSI on; an older installed MSI's helper
+         still kills it on the transaction that replaces that MSI). A scan or update tick holds the bootstrap (an MSI file)
          for its whole run; util:CloseApplication terminated it without
          waiting, and the file copy ~10 ms later still found the dying
          process's image in use (a reboot). It runs a helper copy of the
@@ -348,6 +366,15 @@
                  Before="RunConfigureAutoUpdate"
                  Condition="AUTOUPDATE AND NOT REMOVE=&quot;ALL&quot;"/>
 
+    <!-- INSTALLONDEVICEFIREWALL=0|1: same rules as AUTOUPDATE (install,
+         upgrade and repair; unset runs nothing; a bad value is logged and
+         ignored). -->
+    <SetProperty Id="RunConfigureOnDeviceFirewall"
+                 Value='"[SEEDFOLDER]stepsecurity-dev-machine-guard.exe" configure --non-interactive --install-on-device-firewall=[INSTALLONDEVICEFIREWALL]'
+                 Sequence="execute"
+                 Before="RunConfigureOnDeviceFirewall"
+                 Condition="INSTALLONDEVICEFIREWALL AND NOT REMOVE=&quot;ALL&quot;"/>
+
     <SetProperty Id="RunAdoptSeed"
                  Value='"[INSTALLFOLDER]stepsecurity-dev-machine-guard-bootstrap.exe" adopt-seed --seed-dir "[SEEDFOLDER]."'
                  Sequence="execute"
@@ -398,6 +425,7 @@
       On install, upgrade and repair (NOT REMOVE="ALL"):
         InstallFiles → RunConfigureFromFile OR RunConfigureInline
                      → RunConfigureAutoUpdate (AUTOUPDATE set)
+                     → RunConfigureOnDeviceFirewall (INSTALLONDEVICEFIREWALL set)
                      → RunAdoptSeedRollback (rollback-only) → RunAdoptSeed
                      → RunInstallScheduledTask → RunAdoptSeedCommit (commit-only)
         install is idempotent and (re)creates all three tasks, so a repair
@@ -405,7 +433,8 @@
         so the first scan the install CA triggers finds state.json.
       On a real uninstall (REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE):
         RunUninstallScheduledTask → RemoveFiles
-        (tasks, running DMG processes, versions\, state\, RunningVersion;
+        (the on-device firewall first, when present; then tasks, running
+        DMG processes, versions\, state\, RunningVersion;
         `uninstall` first retires the device in the dashboard when
         config.json has retire_on_uninstall, set via RETIREONUNINSTALL=1 or
         the bootstrap file at install time)
@@ -435,8 +464,11 @@
       <Custom Action="RunConfigureAutoUpdate"
               After="RunConfigureInline"
               Condition="AUTOUPDATE AND NOT REMOVE=&quot;ALL&quot;"/>
-      <Custom Action="RunAdoptSeedRollback"
+      <Custom Action="RunConfigureOnDeviceFirewall"
               After="RunConfigureAutoUpdate"
+              Condition="INSTALLONDEVICEFIREWALL AND NOT REMOVE=&quot;ALL&quot;"/>
+      <Custom Action="RunAdoptSeedRollback"
+              After="RunConfigureOnDeviceFirewall"
               Condition="NOT REMOVE=&quot;ALL&quot;"/>
       <Custom Action="RunAdoptSeed"
               After="RunAdoptSeedRollback"

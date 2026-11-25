@@ -944,6 +944,33 @@
   {
     "args": [
       "configure",
+      "--install-on-device-firewall=1"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--install-on-device-firewall=false"
+    ],
+    "result": {
+      "Command": "configure"
+    }
+  },
+  {
+    "args": [
+      "configure",
+      "--install-on-device-firewall=maybe"
+    ],
+    "result": {
+      "error": "--install-on-device-firewall must be true or false (also 1 or 0)"
+    }
+  },
+  {
+    "args": [
+      "configure",
       "--device-id=-"
     ],
     "result": {
