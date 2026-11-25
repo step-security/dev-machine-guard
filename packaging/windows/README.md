@@ -132,6 +132,50 @@ redeploy with `AUTOUPDATE=1`, or repair in place with
 `msiexec /i <msi> /qn REINSTALL=ALL REINSTALLMODE=omus AUTOUPDATE=1`
 (`msiexec /f` ignores properties, so a plain `/f` repair can't change it).
 
+## On-device firewall and `INSTALLONDEVICEFIREWALL`
+
+On MSI installs the agent installs, upgrades and removes the StepSecurity
+on-device firewall (the `StepSecurityOnDeviceFirewall` service, installed to
+`%ProgramFiles%\StepSecurity\OnDeviceFirewall\`, the same place the
+PowerShell loader uses). The `INSTALLONDEVICEFIREWALL` property opts a device
+in and works like `AUTOUPDATE` (no default; applied on install, upgrade and
+repair; unset leaves the setting alone; another value is logged and ignored):
+
+| `INSTALLONDEVICEFIREWALL` | Effect |
+|---------------------------|--------|
+| `1` (or `true`) | `"install_on_device_firewall": true` in the machine config |
+| `0` (or `false`) | `"install_on_device_firewall": false`: nothing new is installed |
+| unset | the setting is left as it is (off on a fresh install) |
+
+`install_on_device_firewall` is also accepted as a `bootstrap.json` key and by
+`configure --install-on-device-firewall=BOOL`.
+
+- **When it happens.** The SYSTEM update task (hourly, and 15 minutes after a
+  boot) installs the firewall after its own update check, so the first install
+  comes up to about 75 minutes after `msiexec`. To start it at once:
+  `schtasks /run /tn "StepSecurity Dev Machine Guard (Update)"`.
+- **Download and verification.** The release comes from its GitHub release
+  asset, or, when that fails, from the packages mirror URL the API returns
+  (`packages_url`, https only). Every release is verified before anything is
+  replaced: the checksum signed with the StepSecurity release key, the
+  download's sha256, a zip holding only the exe, an Authenticode signature by
+  the agent's own publisher, and the version and build the exe reports.
+- **Minimum MSI.** It installs only when the installed MSI
+  (`HKLM\Software\StepSecurity` `AgentVersion`) is at least the first
+  firewall-aware release, because an older MSI's uninstall cannot remove the
+  firewall again. A device on an older MSI reports
+  `on_device_firewall_msi_too_old` (once a day): redeploy the current MSI.
+- **Removal.** Turning the setting off does not remove a firewall that is
+  installed. Remove it from the console (the on-device firewall removal
+  setting, per device or for the organization): the next update tick removes
+  it. `msiexec /x` removes it too. MSI repairs and upgrades leave it running.
+- **Intune.** Detection is `AgentVersion`, so changing only the install
+  command of an existing app does nothing: publish a new app version (or
+  repair in place with `REINSTALL=ALL REINSTALLMODE=omus
+  INSTALLONDEVICEFIREWALL=1`).
+- **Loader hosts.** On a machine that also has a PowerShell loader install,
+  the MSI's agent owns the firewall and the loader leaves it alone.
+
 ## How tenants pass credentials
 
 Two equivalent paths — pick one in your SCCM Application's install

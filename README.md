@@ -339,6 +339,7 @@ preferences (`configure --color=never`) without them:
 | Log Level               | `--log-level=LEVEL`                                  |
 | Install Directory       | `--install-dir DIR`                                  |
 | Self-update             | `--auto-update=BOOL`, `--update-mirror-url URL`, `--update-lag-behind N`, `--update-cooldown-hours N` |
+| On-device firewall (Windows MSI) | `--install-on-device-firewall=BOOL`            |
 | Everything at once      | `--from-file config.json` (flags override the file)  |
 
 **CLI flags always override config file values** — this matches the shell script behavior. For example, if your config has `output_format: json`, running `./stepsecurity-dev-machine-guard --pretty` uses pretty output. To clear a value during configuration, enter a single dash (`-`).

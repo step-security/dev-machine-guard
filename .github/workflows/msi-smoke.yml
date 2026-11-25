@@ -511,6 +511,33 @@ jobs:
           Check $warned "AUTOUPDATE=maybe: configure's rejection is in the MSI log"
           Done
 
+      - name: INSTALLONDEVICEFIREWALL writes the setting; repair leaves the firewall folder's processes running
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          . "$env:RUNNER_TEMP\dmg-assert.ps1"
+          function FirewallSetting { (Get-Content "$data\config.json" -Raw | ConvertFrom-Json).install_on_device_firewall }
+          $code = Msi @("/i", $env:INSTALLED_MSI, "/qn", "REINSTALL=ALL", "REINSTALLMODE=omus", "INSTALLONDEVICEFIREWALL=1") "dist\dmg-fw-on.log"
+          Check ($code -eq 0) "reinstall with INSTALLONDEVICEFIREWALL=1 exit 0 ($code)"
+          Check ((FirewallSetting) -eq $true) "INSTALLONDEVICEFIREWALL=1 wrote install_on_device_firewall true (got $(FirewallSetting))"
+          Check ((AutoUpdate) -eq 'true') "INSTALLONDEVICEFIREWALL left auto_update alone (got $(AutoUpdate))"
+
+          # stop-for-msi (this MSI's helper now) spares the firewall's folder:
+          # a process running from $root\OnDeviceFirewall survives a repair.
+          $fwDir = Join-Path $root "OnDeviceFirewall"
+          New-Item -ItemType Directory -Force -Path $fwDir | Out-Null
+          Copy-Item "$env:SystemRoot\System32\PING.EXE" "$fwDir\fw-probe.exe"
+          $probe = Start-Process -FilePath "$fwDir\fw-probe.exe" -ArgumentList @("-n", "600", "127.0.0.1") -WindowStyle Hidden -PassThru
+          Start-Sleep -Seconds 2
+          $code = Msi @("/i", $env:INSTALLED_MSI, "/qn", "REINSTALL=ALL", "REINSTALLMODE=omus", "INSTALLONDEVICEFIREWALL=0") "dist\dmg-fw-off.log"
+          Check ($code -eq 0) "reinstall with INSTALLONDEVICEFIREWALL=0 exit 0 ($code)"
+          Check ((FirewallSetting) -eq $false) "INSTALLONDEVICEFIREWALL=0 wrote install_on_device_firewall false (got $(FirewallSetting))"
+          Check (-not $probe.HasExited) "a process under OnDeviceFirewall\ survived the repair's stop-for-msi"
+          Stop-Process -Id $probe.Id -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 1
+          Remove-Item -Recurse -Force $fwDir -ErrorAction SilentlyContinue
+          Done
+
       - name: Uninstall MSI
         if: always()
         timeout-minutes: 8
