@@ -30,7 +30,7 @@ var (
 type SwiftScanner struct {
 	exec       executor.Executor
 	log        *progress.Logger
-	protection func(string, *bool) (func(string) string, func(string) bool)
+	protection func(string, *bool, []string) (func(string) string, func(string) bool)
 }
 
 func NewSwiftScanner(exec executor.Executor, log *progress.Logger) *SwiftScanner {
@@ -92,7 +92,7 @@ func (s *SwiftScanner) Scan(ctx context.Context, target *user.User, searchDirs [
 		audit := configDetector.Detect(ctx, configaudit.SwiftConfigScope{}).Finish()
 		return &inv, &audit
 	}
-	guard, volume := s.protection(target.HomeDir, includeNetworkVolumes)
+	guard, volume := s.protection(target.HomeDir, includeNetworkVolumes, searchDirs)
 	// Reserve the audit's separate 256 KiB allowance before collecting inventory.
 	c := &swiftScan{ctx: ctx, exec: s.exec, home: filepath.Clean(target.HomeDir), identity: target.Username, goos: s.exec.GOOS(), guard: guard, volume: volume, inv: inv,
 		byID: map[string]*model.SwiftSource{}, incomplete: map[string]bool{}, rootKeys: map[string]bool{}, pruned: map[string]bool{}, owners: map[string]string{},

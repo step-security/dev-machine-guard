@@ -36,7 +36,7 @@ var (
 type MavenScanner struct {
 	exec       executor.Executor
 	log        *progress.Logger
-	protection func(string, *bool) (func(string) string, func(string) bool)
+	protection func(string, *bool, []string) (func(string) string, func(string) bool)
 }
 
 func NewMavenScanner(exec executor.Executor, log *progress.Logger) *MavenScanner {
@@ -88,7 +88,7 @@ func (s *MavenScanner) Scan(ctx context.Context, target *user.User, searchDirs [
 		maven, gradle := configDetector.Detect(ctx, configaudit.MavenConfigScope{}).Finish()
 		return &inv, &maven, &gradle
 	}
-	guard, volume := s.protection(target.HomeDir, includeNetworkVolumes)
+	guard, volume := s.protection(target.HomeDir, includeNetworkVolumes, searchDirs)
 	// Reserve each audit's separate 256 KiB allowance before collecting inventory.
 	c := &mavenScan{ctx: ctx, exec: s.exec, home: filepath.Clean(target.HomeDir), identity: target.Username, goos: s.exec.GOOS(), guard: guard, volume: volume, inv: inv,
 		byID: map[string]*model.MavenSource{}, rootKeys: map[string]bool{}, split: map[string]bool{}, pruned: map[string]bool{}, owners: map[string]string{}, seen: map[string]bool{},

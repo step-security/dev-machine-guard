@@ -71,7 +71,7 @@ func (d *PythonDistDetector) WithLogger(log *progress.Logger) *PythonDistDetecto
 // lib/python*/site-packages or Lib/site-packages). Replaces the per-venv
 // `pip list` call.
 func (d *PythonDistDetector) ScanVenv(ctx context.Context, venvPath string) []model.PackageDetail {
-	return d.ScanRoots(ctx, venvSitePackages(venvPath))
+	return d.ScanRoots(ctx, d.venvSitePackages(venvPath))
 }
 
 // venvSitePackages returns the site-packages directories inside a venv —
@@ -79,15 +79,30 @@ func (d *PythonDistDetector) ScanVenv(ctx context.Context, venvPath string) []mo
 // only these avoids walking bin/include/share, which never hold install
 // metadata. Falls back to the venv root if no site-packages dir is found, so
 // a non-standard layout is still scanned.
-func venvSitePackages(venvPath string) []string {
+func (d *PythonDistDetector) venvSitePackages(venvPath string) []string {
 	var roots []string
-	for _, pattern := range []string{
-		filepath.Join(venvPath, "lib", "python*", "site-packages"),
-		filepath.Join(venvPath, "Lib", "site-packages"),
-	} {
-		if matches, err := filepath.Glob(pattern); err == nil {
-			roots = append(roots, matches...)
+	addSite := func(path string) {
+		if d.skipper.SkipCloudPath(path) {
+			return
 		}
+		if _, err := os.Lstat(path); err == nil {
+			roots = append(roots, path)
+		}
+	}
+	// Do not expand a multi-component glob through an uninspected cloud directory.
+	lib := filepath.Join(venvPath, "lib")
+	if !d.skipper.SkipCloudPath(lib) {
+		versions, _ := filepath.Glob(filepath.Join(lib, "python*"))
+		for _, version := range versions {
+			if d.skipper.SkipCloudPath(version) {
+				continue
+			}
+			addSite(filepath.Join(version, "site-packages"))
+		}
+	}
+	winLib := filepath.Join(venvPath, "Lib")
+	if !d.skipper.SkipCloudPath(winLib) {
+		addSite(filepath.Join(winLib, "site-packages"))
 	}
 	if len(roots) == 0 {
 		return []string{venvPath}
@@ -215,6 +230,9 @@ func (d *PythonDistDetector) parseMetadataFile(path, base string) (name, version
 // pulled into memory, with the post-read length check kept as a race-safety
 // fallback (the file can grow between Stat and ReadFile).
 func (d *PythonDistDetector) readBounded(path string) ([]byte, error) {
+	if d.skipper.SkipCloudPath(path) {
+		return nil, os.ErrPermission
+	}
 	if d.maxFileSize > 0 {
 		if info, err := d.exec.Stat(path); err == nil && info.Size() > d.maxFileSize {
 			d.log.Debug("python dist scan: %s exceeds %d bytes — skipping", path, d.maxFileSize)

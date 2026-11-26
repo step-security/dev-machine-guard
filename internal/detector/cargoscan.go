@@ -36,7 +36,7 @@ type CargoScanner struct {
 	log  *progress.Logger
 	// protection builds the path guards; a seam so tests can place protected
 	// directories and network volumes under a temp home.
-	protection func(home string, includeNetworkVolumes *bool) (protected func(string) string, volume func(string) bool)
+	protection func(home string, includeNetworkVolumes *bool, searchDirs []string) (protected func(string) string, volume func(string) bool)
 }
 
 // NewCargoScanner must be given the raw executor, never a UserAwareExecutor,
@@ -106,7 +106,7 @@ func (s *CargoScanner) Scan(ctx context.Context, target *user.User, searchDirs [
 	}
 
 	home := filepath.Clean(target.HomeDir)
-	guard, volume := s.protection(home, includeNetworkVolumes)
+	guard, volume := s.protection(home, includeNetworkVolumes, searchDirs)
 	g := &cargoScan{
 		ctx: ctx, exec: s.exec, goos: s.exec.GOOS(), identity: target.Username, home: home, guard: guard, volume: volume,
 		roots: []string{home}, byID: map[string]*model.CargoSource{}, budget: maxCargoRecords,

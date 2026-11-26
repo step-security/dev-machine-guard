@@ -93,7 +93,7 @@ func composerTestScanner(t *testing.T, home string) (*ComposerScanner, *composer
 	t.Helper()
 	x := &composerTrap{goTrap: &goTrap{Executor: executor.NewReal(), t: t, current: goTestTarget(home)}, env: map[string]string{}, denied: map[string]error{}, reads: map[string]int{}, readErrors: map[string]error{}}
 	s := NewComposerScanner(x, progress.NewNoop())
-	s.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	s.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(string) string { return "" }, func(string) bool { return false }
 	}
 	return s, x
@@ -421,7 +421,7 @@ func TestComposerScanWalkLimitsDeadlineAndGuards(t *testing.T) {
 		t.Fatal("canceled scan complete")
 	}
 	protected := filepath.Join(root, "z")
-	scanner.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	scanner.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(p string) string {
 			if p == protected || strings.HasPrefix(p, protected+string(filepath.Separator)) {
 				return "skipped_protected"
@@ -465,7 +465,7 @@ func TestComposerScanSafeSymlinkAndLocalOrigin(t *testing.T) {
 			t.Fatal("followed local package manifest")
 		}
 	}
-	scanner.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	scanner.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(p string) string {
 			if p == source || strings.HasPrefix(p, source+string(filepath.Separator)) {
 				return "skipped_protected"
@@ -649,7 +649,7 @@ func TestComposerScanNetworkRefusal(t *testing.T) {
 	app := filepath.Join(home, "app")
 	composerWriteProject(t, app)
 	scanner, x := composerTestScanner(t, home)
-	scanner.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	scanner.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		blocked := func(p string) bool { return p == app || strings.HasPrefix(p, app+string(filepath.Separator)) }
 		return func(p string) string {
 			if blocked(p) {
@@ -690,7 +690,7 @@ func TestComposerScanWindowsJunction(t *testing.T) {
 	if len(inv.Packages) != 1 || inv.Packages[0].Installation.Presence != "present" {
 		t.Fatal("safe junction not resolved")
 	}
-	scanner.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	scanner.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(p string) string {
 			if p == target || strings.HasPrefix(p, target+string(filepath.Separator)) {
 				return "skipped_protected"

@@ -135,6 +135,9 @@ func (d *NodeDistDetector) parseFirstPresent(projectDir string, parse lockfilePa
 // fallback (the file can grow between Stat and ReadFile). Returns ok=false for
 // a missing, oversized, or unreadable file.
 func (d *NodeDistDetector) readBounded(path string) (data []byte, ok bool) {
+	if d.skipper.SkipCloudPath(path) {
+		return nil, false
+	}
 	if d.maxFileSize > 0 {
 		if info, err := d.exec.Stat(path); err == nil && info.Size() > d.maxFileSize {
 			d.log.Debug("node disk scan: %s exceeds %d bytes — skipping", path, d.maxFileSize)

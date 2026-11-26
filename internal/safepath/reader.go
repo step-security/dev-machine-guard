@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 )
 
 // Reader provides guarded filesystem access across explicit caller-selected roots.
@@ -82,6 +84,9 @@ func (r *Reader) resolveChain(path string) (string, os.FileInfo, error) {
 			}
 			if reason := r.refusedBy(prefix); reason != "" {
 				return "", nil, refuse(reason)
+			}
+			if tcc.CloudPlaceholder(prefix) {
+				return "", nil, refuse(ReasonDenied)
 			}
 			info, err := os.Lstat(prefix)
 			if err != nil {

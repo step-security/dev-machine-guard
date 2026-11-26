@@ -717,7 +717,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) (err err
 	// Full Disk Access. Nil when --include-tcc-protected is set and network
 	// volumes are walked (the default); every method is nil-safe.
 	home := executor.ResolveHome(exec)
-	tccSkipper := tcc.ForRun(home, cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes)
+	tccSkipper := tcc.ForRun(home, cfg.IncludeTCCProtected, cfg.IncludeNetworkVolumes, searchDirs...)
 	if cands := tccSkipper.Candidates(); len(cands) > 0 {
 		log.Debug("tcc skip list (%d): %v", len(cands), cands)
 	}

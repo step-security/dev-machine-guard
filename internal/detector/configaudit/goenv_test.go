@@ -42,7 +42,7 @@ func mustWriteGoFile(t *testing.T, path, content string) {
 }
 
 func goProtectedFor(home string) func(string) string {
-	protected, _ := GoProtection(home, nil)
+	protected, _ := GoProtection(home, nil, nil)
 	return protected
 }
 
@@ -415,7 +415,7 @@ func TestGoProtection(t *testing.T) {
 	}
 	home := "/Users/dev"
 	on := true
-	protected, _ := GoProtection(home, &on) // a caller's TCC opt-in cannot widen Go access
+	protected, _ := GoProtection(home, &on, nil) // a caller's TCC opt-in cannot widen Go access
 	for path, want := range map[string]bool{
 		"/Users/dev/Documents/x":      true,
 		"/Users/dev/documents/x":      true,

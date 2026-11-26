@@ -37,7 +37,7 @@ func condaTestScanner(t *testing.T, home string) (*CondaScanner, *condaTrap) {
 	_, inner := rubyTestScanner(t, home)
 	x := &condaTrap{inner}
 	s := NewCondaScanner(x, progress.NewNoop())
-	s.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	s.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(string) string { return "" }, func(string) bool { return false }
 	}
 	return s, x
@@ -815,7 +815,7 @@ func TestCondaScanLimitsDeadlineAndGuards(t *testing.T) {
 	condaSource(t, inv, "environment_root", base)
 	delete(x.readErrors, filepath.Join(home, ".conda", "environments.txt"))
 
-	scanner.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	scanner.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(p string) string {
 			if strings.HasPrefix(p, filepath.Join(root, "legacy")) {
 				return "skipped_protected"
@@ -832,7 +832,7 @@ func TestCondaScanLimitsDeadlineAndGuards(t *testing.T) {
 
 	// A blocked installation root is reported, never assumed absent, and its
 	// configuration contexts stay partial so earlier history is kept.
-	scanner.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	scanner.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(p string) string {
 			if p == base || strings.HasPrefix(p, base+string(filepath.Separator)) {
 				return "skipped_protected"

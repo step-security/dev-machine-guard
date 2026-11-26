@@ -39,6 +39,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/step-security/dev-machine-guard/internal/tcc"
 	"sync"
 )
 
@@ -247,6 +249,9 @@ func (r *Resolver) resolveChain(path string, checkRoots bool) (string, os.FileIn
 			prefix = filepath.Join(prefix, comp)
 			if reason := r.refusedBy(prefix); reason != "" {
 				return "", nil, refuse(reason)
+			}
+			if tcc.CloudPlaceholder(prefix) {
+				return "", nil, refuse(ReasonDenied)
 			}
 			info, err := os.Lstat(prefix)
 			if err != nil {

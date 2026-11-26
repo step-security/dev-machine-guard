@@ -105,7 +105,7 @@ func (d *BunDetector) Detect(ctx context.Context, searchDirs []string, loggedInU
 		if abs, err := filepath.Abs(path); err == nil {
 			path = abs
 		}
-		if seen[path] {
+		if seen[path] || d.skipper.SkipCloudPath(path) {
 			return
 		}
 		seen[path] = true

@@ -6,4 +6,4 @@ const skipRemoteByDefault = false
 
 func networkVolumeMounts() []string { return nil }
 
-func cloudPlaceholder(string) bool { return false }
+func CloudPlaceholder(string) bool { return false }

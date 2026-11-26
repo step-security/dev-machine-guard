@@ -128,10 +128,10 @@ func GoSourceID(identity, kind, path string) string {
 // case-insensitively because tcc compares bytes while APFS folds case by
 // default. volume matches only the skipped network volumes, which even the
 // exact default-file exception may not enter.
-func GoProtection(home string, includeNetworkVolumes *bool) (protected func(string) string, volume func(string) bool) {
-	skipper := tcc.ForRun(home, nil, includeNetworkVolumes)
+func GoProtection(home string, includeNetworkVolumes *bool, searchDirs []string) (protected func(string) string, volume func(string) bool) {
+	skipper := tcc.ForRun(home, nil, includeNetworkVolumes, searchDirs...)
 	include := true
-	volumes := tcc.ForRun(home, &include, includeNetworkVolumes)
+	volumes := tcc.ForRun(home, &include, includeNetworkVolumes, searchDirs...)
 	candidates := skipper.Candidates() // home-anchored; nil off darwin
 	protected = func(p string) string {
 		p = filepath.Clean(p)

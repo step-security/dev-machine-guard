@@ -3,6 +3,9 @@
 package tcc
 
 import (
+	"path/filepath"
+	"strings"
+
 	"golang.org/x/sys/windows"
 )
 
@@ -31,16 +34,48 @@ func networkVolumeMounts() []string {
 	return mounts
 }
 
-// cloudPlaceholder reports whether path is a cloud-sync placeholder whose
-// listing would hydrate it from the network. Reading attributes does not.
-func cloudPlaceholder(path string) bool {
+// CloudPlaceholder checks the directory entry without opening the target.
+// RECALL_ON_OPEN is available only in directory enumeration data.
+func CloudPlaceholder(path string) bool {
+	data, err := findCloudEntry(path)
+	return err == nil && isCloudPlaceholderAttrs(data.FileAttributes)
+}
+
+// FindFirstFile returns the link's own attributes and reparse tag without
+// opening or following it. A hydrated cloud file can have a reparse tag
+// without redirecting through the namespace.
+func findCloudEntry(path string) (windows.Win32finddata, error) {
+	var data windows.Win32finddata
+	// FindFirstFile uses Win32 search syntax and does not automatically extend
+	// long paths the way the Go os package does.
+	path = filepath.Clean(path)
+	if len(path) >= 248 && !strings.HasPrefix(path, `\\?\`) {
+		if abs, err := filepath.Abs(path); err == nil {
+			if unc, ok := strings.CutPrefix(abs, `\\`); ok {
+				path = `\\?\UNC\` + unc
+			} else {
+				path = `\\?\` + abs
+			}
+		}
+	}
 	p, err := windows.UTF16PtrFromString(path)
 	if err != nil {
-		return false
+		return data, err
 	}
-	attrs, err := windows.GetFileAttributes(p)
+	h, err := windows.FindFirstFile(p, &data)
 	if err != nil {
-		return false
+		return data, err
 	}
-	return isCloudPlaceholderAttrs(attrs)
+	_ = windows.FindClose(h)
+	return data, nil
+}
+
+func isNameSurrogate(data windows.Win32finddata) bool {
+	const nameSurrogate = 0x20000000 // IsReparseTagNameSurrogate
+	return data.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 && data.Reserved0&nameSurrogate != 0
+}
+
+func cloudEntry(path string) (placeholder, link bool, err error) {
+	data, err := findCloudEntry(path)
+	return isCloudPlaceholderAttrs(data.FileAttributes), isNameSurrogate(data), err
 }

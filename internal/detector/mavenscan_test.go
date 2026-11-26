@@ -38,7 +38,7 @@ func mavenTestScanner(t *testing.T, home string) (*MavenScanner, *mavenTrap) {
 	_, inner := rubyTestScanner(t, home)
 	x := &mavenTrap{inner}
 	s := NewMavenScanner(x, progress.NewNoop())
-	s.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	s.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(string) string { return "" }, func(string) bool { return false }
 	}
 	return s, x
@@ -640,7 +640,7 @@ func TestMavenScanUnlistedConfigFolder(t *testing.T) {
 	goWrite(t, filepath.Join(dir, "pom.xml"), mavenTestPOM("org.example", "app", "1"), 0o600)
 	goWrite(t, filepath.Join(wrapper, "maven-wrapper.properties"), "distributionUrl=https\\://repo.example.invalid/maven.zip\n", 0o600)
 	scanner, _ := mavenTestScanner(t, home)
-	scanner.protection = func(string, *bool) (func(string) string, func(string) bool) {
+	scanner.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 		return func(p string) string {
 			if p == wrapper || strings.HasPrefix(p, wrapper+string(filepath.Separator)) {
 				return "skipped_protected"
@@ -844,7 +844,7 @@ func TestMavenScanUnlistedProjectFolder(t *testing.T) {
 			goWrite(t, filepath.Join(dir, "gradle", "dependency-locks", "compileClasspath.lockfile"), "org.example:a:1.0\n", 0o600)
 			scanner, _ := mavenTestScanner(t, home)
 			blocked := filepath.Join(dir, tc.blocked)
-			scanner.protection = func(string, *bool) (func(string) string, func(string) bool) {
+			scanner.protection = func(string, *bool, []string) (func(string) string, func(string) bool) {
 				return func(p string) string {
 					if tc.blocked != "" && (p == blocked || strings.HasPrefix(p, blocked+string(filepath.Separator))) {
 						return "skipped_protected"

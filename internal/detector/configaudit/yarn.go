@@ -113,7 +113,7 @@ func (d *YarnDetector) Detect(ctx context.Context, searchDirs []string, loggedIn
 		if abs, err := filepath.Abs(path); err == nil {
 			path = abs
 		}
-		if seen[path] {
+		if seen[path] || d.skipper.SkipCloudPath(path) {
 			return
 		}
 		seen[path] = true

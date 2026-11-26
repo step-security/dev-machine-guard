@@ -1082,6 +1082,9 @@ func (d *SkillsDetector) walkForProjectRoots(ctx context.Context, searchDirs []s
 				if !charge() {
 					return
 				}
+				if d.skipper.ShouldSkip(childDir, root) {
+					continue
+				}
 				mEntries, err := d.exec.ReadDir(childDir)
 				if err != nil {
 					creds.Dir(dir, name, nil)

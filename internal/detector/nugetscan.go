@@ -33,7 +33,7 @@ var (
 type NuGetScanner struct {
 	exec       executor.Executor
 	log        *progress.Logger
-	protection func(string, *bool) (func(string) string, func(string) bool)
+	protection func(string, *bool, []string) (func(string) string, func(string) bool)
 }
 
 func NewNuGetScanner(exec executor.Executor, log *progress.Logger) *NuGetScanner {
@@ -130,7 +130,7 @@ func (s *NuGetScanner) Scan(ctx context.Context, target *user.User, searchDirs [
 		audit := configDetector.Detect(ctx, configaudit.NuGetConfigScope{}).Finish()
 		return &inv, &audit
 	}
-	guard, volume := s.protection(target.HomeDir, includeNetworkVolumes)
+	guard, volume := s.protection(target.HomeDir, includeNetworkVolumes, searchDirs)
 	// Reserve the audit's separate 256 KiB allowance before collecting inventory.
 	c := &nugetScan{ctx: ctx, exec: s.exec, home: filepath.Clean(target.HomeDir), identity: target.Username, goos: s.exec.GOOS(), guard: guard, volume: volume, inv: inv,
 		byID: map[string]*model.NuGetSource{}, projects: map[string]*nugetProjectState{}, projectDirs: map[string]string{}, importPaths: map[string]string{}, imports: map[string]*nugetImportState{},

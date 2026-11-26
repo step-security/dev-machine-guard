@@ -66,11 +66,12 @@ func unescapeMountinfo(s string) string {
 // Windows file attributes marking cloud-sync placeholders (OneDrive Files
 // On-Demand and similar): opening or listing them hydrates from the network.
 const (
+	fileAttributeOffline            = 0x00001000
 	fileAttributeRecallOnOpen       = 0x00040000
 	fileAttributeRecallOnDataAccess = 0x00400000
 	driveRemote                     = 4 // GetDriveType DRIVE_REMOTE
 )
 
 func isCloudPlaceholderAttrs(attrs uint32) bool {
-	return attrs&(fileAttributeRecallOnOpen|fileAttributeRecallOnDataAccess) != 0
+	return attrs&(fileAttributeOffline|fileAttributeRecallOnOpen|fileAttributeRecallOnDataAccess) != 0
 }

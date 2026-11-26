@@ -37,6 +37,9 @@ type skillMeta struct {
 // I/O). It never fails — malformed skills are surfaced via frontmatterError, not
 // hidden.
 func (d *SkillsDetector) parseSkillMD(mdPath string) skillMeta {
+	if d.skipper.SkipCloudPath(mdPath) {
+		return skillMeta{}
+	}
 	var m skillMeta
 
 	if fi, err := d.exec.Stat(mdPath); err != nil {
@@ -335,6 +338,9 @@ type commandMeta struct {
 // parseCommandMD reads and parses one command Markdown file with the same read
 // cap, frontmatter detection and body scan as parseSkillMD.
 func (d *SkillsDetector) parseCommandMD(mdPath string) commandMeta {
+	if d.skipper.SkipCloudPath(mdPath) {
+		return commandMeta{}
+	}
 	var m commandMeta
 	fi, err := d.exec.Stat(mdPath)
 	switch {

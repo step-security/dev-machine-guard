@@ -76,7 +76,7 @@ const mountSlack = 8
 // Darwin walks network volumes by default; see SkipNetworkVolumes.
 const skipRemoteByDefault = false
 
-func cloudPlaceholder(string) bool { return false }
+func CloudPlaceholder(string) bool { return false }
 
 // networkVolumeMounts returns the mount points macOS does NOT consider
 // local, sorted lexicographically. That set is what TCC gates behind
