@@ -4,6 +4,8 @@ package detector
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/step-security/dev-machine-guard/internal/executor"
@@ -83,4 +85,35 @@ func readKiroCLIRegistry(ctx context.Context, exec executor.Executor) (installPa
 		return "", "", false
 	}
 	return installPath, productVersion, true
+}
+
+// readRegistryValue is the non-Windows twin of the native reader: one
+// `reg query <key> /v <name>` whose value line is parsed. A failed query is
+// absent; DWORD and QWORD values come back as decimal text. Only mock-based
+// tests running with SetGOOS("windows") reach it.
+func readRegistryValue(ctx context.Context, exec executor.Executor, path, name string) (value string, found bool, err error) {
+	stdout, _, exitCode, err := exec.Run(ctx, "reg", "query", path, "/v", name)
+	if err != nil || exitCode != 0 {
+		return "", false, nil
+	}
+	for _, line := range strings.Split(stdout, "\n") {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(line), name)
+		fields := strings.Fields(rest)
+		if !ok || len(fields) == 0 || !strings.HasPrefix(rest, " ") && !strings.HasPrefix(rest, "\t") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(rest), fields[0]))
+		switch fields[0] {
+		case "REG_SZ", "REG_EXPAND_SZ":
+			return data, true, nil
+		case "REG_DWORD", "REG_QWORD":
+			n, err := strconv.ParseUint(data, 0, 64)
+			if err != nil {
+				return "", true, err
+			}
+			return strconv.FormatUint(n, 10), true, nil
+		}
+		return "", true, fmt.Errorf("registry value type %s", fields[0])
+	}
+	return "", false, nil
 }

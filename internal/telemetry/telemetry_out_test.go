@@ -64,6 +64,35 @@ func TestWriteTelemetryFile(t *testing.T) {
 	}
 }
 
+func TestWriteTelemetryFile_AgentConfig(t *testing.T) {
+	raw, err := os.ReadFile("../model/testdata/agent_config_v1_golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload Payload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.AgentConfig == nil {
+		t.Fatal("golden did not populate agent_config")
+	}
+	file := filepath.Join(t.TempDir(), "payload.json")
+	if err := writeTelemetryFile(file, &payload); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Payload
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.AgentConfig, payload.AgentConfig) {
+		t.Fatal("telemetry output changed agent_config")
+	}
+}
+
 // TestWriteTelemetryFile_NilRuleScanOmitted confirms a run that did not scan
 // (ruleScan stays nil) omits rule_scan entirely — the backend's "not scanned"
 // signal (D10).
@@ -124,7 +153,7 @@ func TestWriteTelemetryFileAgentPlugins(t *testing.T) {
 	if err := json.Unmarshal(data, &empty); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"agent_plugins", "agent_skill_usage_scan"} {
+	for _, key := range []string{"agent_plugins", "agent_skill_usage_scan", "agent_config"} {
 		if _, exists := empty[key]; exists {
 			t.Errorf("unrun section %s was emitted", key)
 		}

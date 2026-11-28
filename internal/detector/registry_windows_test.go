@@ -47,3 +47,45 @@ func TestReal_KiroCLIRegistryKey(t *testing.T) {
 		t.Errorf("with ProductVersion: got (%q, %q, %v)", install, version, ok)
 	}
 }
+
+// TestReal_ReadRegistryValue runs the native policy value reader against a
+// scratch HKCU key.
+func TestReal_ReadRegistryValue(t *testing.T) {
+	path := fmt.Sprintf(`SOFTWARE\StepSecurityTest\policy-%d`, os.Getpid())
+	k, _, err := registry.CreateKey(registry.CURRENT_USER, path, registry.SET_VALUE|registry.QUERY_VALUE)
+	if err != nil {
+		t.Fatalf("CreateKey: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = k.Close()
+		_ = registry.DeleteKey(registry.CURRENT_USER, path)
+	})
+	if err := k.SetStringValue("Settings", `{"a":1}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.SetDWordValue("ChatHooks", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.SetBinaryValue("Blob", []byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	key := `HKCU\` + path
+	tests := []struct {
+		name, want string
+		found, err bool
+	}{
+		{"Settings", `{"a":1}`, true, false},
+		{"ChatHooks", "1", true, false},
+		{"Blob", "", true, true},
+		{"Absent", "", false, false},
+	}
+	for _, tc := range tests {
+		v, found, err := readRegistryValue(t.Context(), nil, key, tc.name)
+		if v != tc.want || found != tc.found || (err != nil) != tc.err {
+			t.Errorf("%s = (%q, %v, %v)", tc.name, v, found, err)
+		}
+	}
+	if _, found, _ := readRegistryValue(t.Context(), nil, `HKCU\`+path+`\missing`, "Settings"); found {
+		t.Error("absent key read as found")
+	}
+}

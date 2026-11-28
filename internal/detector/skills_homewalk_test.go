@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/step-security/dev-machine-guard/internal/detector/credentials"
 	"github.com/step-security/dev-machine-guard/internal/model"
 )
 
@@ -433,5 +434,56 @@ func TestDetect_HomeWalkPrunesOverlappingRoots(t *testing.T) {
 	}
 	if sFound != 1 {
 		t.Errorf("skill s found %d times, want 1", sFound)
+	}
+}
+
+// TestWalk_ConfigMarkers: a repository holding only agent settings or hook
+// files is discovered; symlinked or unlisted files are not markers.
+func TestWalk_ConfigMarkers(t *testing.T) {
+	cases := []struct {
+		marker, child, kind string
+		want                bool
+	}{
+		{".claude", "settings.json", "file", true},
+		{".claude", "settings.local.json", "file", true},
+		{".codex", "hooks.json", "file", true},
+		{".codex", "config.toml", "file", true},
+		{".cursor", "hooks.json", "file", true},
+		{".cursor", "cli.json", "file", true},
+		{".cursor", "permissions.json", "file", true},
+		{".cursor", "sandbox.json", "file", true},
+		{".gemini", "settings.json", "file", true},
+		{".github", "hooks", "dir", true},
+		{".github", "copilot", "dir", true},
+		{".claude", "settings.json", "symlink", false},
+		{".claude", "settings.json", "dir", false},
+		{".github", "copilot-instructions.md", "file", false},
+		{".github", "hooks", "file", false},
+		{".gemini", "other.json", "file", false},
+	}
+	for _, c := range cases {
+		t.Run(c.marker+"/"+c.child+"/"+c.kind, func(t *testing.T) {
+			m, fs := newSkillsMock()
+			project := filepath.Join(testHome, "repos", "settings-only")
+			root := filepath.Join(project, c.marker)
+			fs.mkdir(root)
+			switch c.kind {
+			case "file":
+				fs.addFile(filepath.Join(root, c.child), "{}")
+			case "dir":
+				fs.mkdir(filepath.Join(root, c.child))
+			case "symlink":
+				fs.addSymlink(filepath.Join(root, c.child), filepath.Join(testHome, "Documents", c.child))
+			}
+			fs.commit()
+			info := &model.AgentSkillScanInfo{}
+			skills, got, cut := NewSkillsDetector(m).walkForProjectRoots(t.Context(), []string{filepath.Join(testHome, "repos")}, info, &credentials.ProjectCandidates{})
+			if len(skills) != 0 || cut || info.WalkRootsFound != 0 || info.Truncated {
+				t.Errorf("settings-only repo reached the skills list: %v, info %+v", skills, info)
+			}
+			if found := reflect.DeepEqual(got, []string{project}); found != c.want || !c.want && len(got) != 0 {
+				t.Errorf("config projects = %v, want discovered = %v", got, c.want)
+			}
+		})
 	}
 }

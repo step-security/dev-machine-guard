@@ -190,11 +190,7 @@ func (a *codexAdapter) run() {
 
 func (s *pluginScan) codexSystemConfigPath() string {
 	if s.goos == model.PlatformWindows {
-		root := s.d.exec.Getenv("ProgramData")
-		if root == "" {
-			root = `C:\ProgramData`
-		}
-		return filepath.Join(root, "OpenAI", "Codex", "config.toml")
+		return filepath.Join(s.programData(), "OpenAI", "Codex", "config.toml")
 	}
 	return "/etc/codex/config.toml"
 }

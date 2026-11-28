@@ -1,0 +1,310 @@
+{
+  "agent_config": {
+    "repositories_scanned": 2,
+    "agents": [
+      {
+        "agent": "claude-code",
+        "truncated": false,
+        "sources": [
+          {
+            "scope": "managed",
+            "channel": "file",
+            "path": "/Library/Application Support/ClaudeCode/managed-settings.d/10-hooks.json",
+            "state": "read",
+            "settings": [
+              {
+                "key": "allowManagedHooksOnly",
+                "value": "true"
+              }
+            ],
+            "hooks": []
+          },
+          {
+            "scope": "managed",
+            "channel": "file",
+            "path": "/Library/Application Support/ClaudeCode/managed-settings.json",
+            "state": "read",
+            "settings": [
+              {
+                "key": "permissions.disableBypassPermissionsMode",
+                "value": "disable"
+              }
+            ],
+            "hooks": [
+              {
+                "event": "PreToolUse",
+                "matcher": "Bash",
+                "handler_type": "command",
+                "command_display": "/opt/test-org/bin/audit-hook",
+                "command_sha256": "21ae95cff6eea00cefd6d3dfedb4e6a48776bd5ca639fad753811af9b969a990"
+              }
+            ]
+          },
+          {
+            "scope": "managed",
+            "channel": "macos_profile",
+            "path": "/Library/Managed Preferences/com.anthropic.claudecode.plist",
+            "state": "read",
+            "settings": [
+              {
+                "key": "sandbox.enabled",
+                "value": "true"
+              }
+            ],
+            "hooks": []
+          },
+          {
+            "scope": "managed",
+            "channel": "macos_profile",
+            "path": "/Library/Managed Preferences/~/com.anthropic.claudecode.plist",
+            "state": "read",
+            "settings": [
+              {
+                "key": "disableAllHooks",
+                "value": "false"
+              }
+            ],
+            "hooks": []
+          },
+          {
+            "scope": "managed",
+            "channel": "windows_registry",
+            "path": "HKLM\\SOFTWARE\\Policies\\ClaudeCode\\Settings",
+            "state": "read",
+            "settings": [
+              {
+                "key": "permissions.defaultMode",
+                "value": "plan"
+              }
+            ],
+            "hooks": []
+          },
+          {
+            "scope": "user",
+            "channel": "file",
+            "path": "~/.claude/settings.json",
+            "state": "read",
+            "settings": [
+              {
+                "key": "permissions.defaultMode",
+                "value": "bypassPermissions"
+              },
+              {
+                "key": "permissions.allow",
+                "values": [
+                  "Read(~/**)",
+                  "Bash(npm test)"
+                ]
+              }
+            ],
+            "hooks": [
+              {
+                "event": "PreToolUse",
+                "matcher": "Bash",
+                "handler_type": "command",
+                "command_display": "~/.claude/hooks/check.sh",
+                "command_sha256": "0e5ae69cee070fc64723ab21b7c281aab0909f7a7966a7365eb33d76ffd1c207"
+              },
+              {
+                "event": "PostToolUse",
+                "matcher": "",
+                "handler_type": "http",
+                "command_display": "https://hooks.example.com/notify",
+                "command_sha256": "1ae1aaaf99a7900e7c52ebd3d9e046d7b2ce72a25b5a6f8d1405b981b18d0ea8"
+              }
+            ]
+          },
+          {
+            "scope": "project",
+            "channel": "file",
+            "path": "~/src/widgets/.claude/settings.json",
+            "state": "read",
+            "settings": [
+              {
+                "key": "permissions.deny",
+                "values": [
+                  "Bash(curl *)"
+                ]
+              }
+            ],
+            "hooks": [
+              {
+                "event": "Stop",
+                "matcher": "",
+                "handler_type": "prompt",
+                "command_display": "Summarize the session",
+                "command_sha256": "31f5a6be5b69f3fa1051c887e85130f686034ea06414dc4a18fb41e14ce5357b"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "agent": "codex",
+        "truncated": false,
+        "sources": [
+          {
+            "scope": "managed",
+            "channel": "file",
+            "path": "/etc/codex/requirements.toml",
+            "state": "read",
+            "settings": [
+              {
+                "key": "allow_managed_hooks_only",
+                "value": "true"
+              }
+            ],
+            "hooks": []
+          },
+          {
+            "scope": "user",
+            "channel": "file",
+            "path": "~/.codex/config.toml",
+            "state": "read",
+            "settings": [
+              {
+                "key": "approval_policy",
+                "value": "never"
+              },
+              {
+                "key": "sandbox_mode",
+                "value": "workspace-write"
+              },
+              {
+                "key": "features.hooks",
+                "value": "true"
+              }
+            ],
+            "hooks": [
+              {
+                "event": "PreToolUse",
+                "matcher": "shell",
+                "handler_type": "command",
+                "command_display": "~/bin/codex-guard",
+                "command_sha256": "9244146a81cf3d670e7f34245caba3579f39ecbacd0ec462f8a9041ae97e19da"
+              },
+              {
+                "event": "notify",
+                "matcher": "",
+                "handler_type": "command",
+                "command_display": "~/bin/notify --done",
+                "command_sha256": "f8aa500ba49fe0359f7d6d88ed31351c945db3e97b6b07c8b6ae39a36132b49d"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "agent": "cursor",
+        "truncated": true,
+        "sources": [
+          {
+            "scope": "user",
+            "channel": "file",
+            "path": "~/.cursor/cli-config.json",
+            "state": "read",
+            "settings": [
+              {
+                "key": "approvalMode",
+                "value": "allowlist"
+              },
+              {
+                "key": "permissions.allow",
+                "values": [
+                  "Shell(git)"
+                ]
+              },
+              {
+                "key": "permissions.deny"
+              }
+            ],
+            "hooks": []
+          },
+          {
+            "scope": "user",
+            "channel": "file",
+            "path": "~/.cursor/hooks.json",
+            "state": "read",
+            "settings": [],
+            "hooks": [
+              {
+                "event": "beforeShellExecution",
+                "matcher": "",
+                "handler_type": "command",
+                "command_display": "~/bin/cursor-audit",
+                "command_sha256": "abcdad4d8db5cea792b57efcdbe0202e4c09f03670be9168473092acb430068e"
+              }
+            ]
+          },
+          {
+            "scope": "project",
+            "channel": "file",
+            "path": "~/src/wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",
+            "state": "read",
+            "settings": [],
+            "hooks": [
+              {
+                "event": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "matcher": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+                "handler_type": "future_handler_type_with_long_na",
+                "command_display": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "command_sha256": "0d4e2ca9e9cbced7a7a5380eb29e1a3783b9b6d0db72de36a1051038e1c1fbc7"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "agent": "gemini-cli",
+        "truncated": false,
+        "sources": []
+      },
+      {
+        "agent": "github-copilot",
+        "truncated": false,
+        "sources": [
+          {
+            "scope": "managed",
+            "channel": "file",
+            "path": "/etc/github-copilot/policy.d/10-test-org.json",
+            "state": "unreadable",
+            "settings": [],
+            "hooks": []
+          },
+          {
+            "scope": "user",
+            "channel": "file",
+            "path": "~/.copilot/hooks/guard.json",
+            "state": "read",
+            "settings": [],
+            "hooks": [
+              {
+                "event": "preToolUse",
+                "matcher": "",
+                "handler_type": "command",
+                "command_display": "./scripts/guard.sh\n.\\scripts\\guard.ps1",
+                "command_sha256": "8a2f6d43c018c30122781bbb69a6b2534a600b867d2fb4635a70140385d342ce"
+              }
+            ]
+          },
+          {
+            "scope": "user",
+            "channel": "file",
+            "path": "~/Library/Application Support/Code/User/settings.json",
+            "state": "read",
+            "settings": [
+              {
+                "key": "chat.tools.terminal.autoApprove",
+                "values": [
+                  "npm test=true",
+                  "rm=false"
+                ]
+              }
+            ],
+            "hooks": []
+          }
+        ]
+      }
+    ]
+  }
+}

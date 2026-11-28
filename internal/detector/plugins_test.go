@@ -3031,7 +3031,7 @@ func TestPiProjectDiscovery(t *testing.T) {
 				}
 				fs.commit()
 				info := &model.AgentSkillScanInfo{}
-				got := NewSkillsDetector(m).walkForProjectRoots(t.Context(), []string{filepath.Join(testHome, "repos")}, info, &credentials.ProjectCandidates{})
+				got, _, _ := NewSkillsDetector(m).walkForProjectRoots(t.Context(), []string{filepath.Join(testHome, "repos")}, info, &credentials.ProjectCandidates{})
 				want := kind == "directory" && slices.Contains([]string{"skills", "extensions", "prompts", "themes"}, name) ||
 					kind == "file" && (name == "settings.json" || name == "mcp.json")
 				if len(got) != 0 && (len(got) != 1 || got[0] != project) || (len(got) == 1) != want {

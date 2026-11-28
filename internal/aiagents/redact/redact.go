@@ -182,7 +182,7 @@ var rules = []rule{
 	// Generic KEY=value assignments for common secret-bearing names.
 	{
 		name:  "secret_assignment",
-		re:    regexp.MustCompile(`(?i)\b([A-Z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY))\s*[:=]\s*("?)([^\s"'#]+)`),
+		re:    regexp.MustCompile(`(?i)\b([A-Z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY))\s*[:=]\s*(["']?)([^\s"'#]+)`),
 		group: 3,
 	},
 	// JSON-shaped key/value pairs, e.g. "api_key": "abc".
@@ -211,13 +211,16 @@ var rules = []rule{
 	// Long-form CLI flags carrying a secret value, e.g.
 	//   `mysql --password mysecret`
 	//   `kubectl --token=xyz`
+	//   `mysql --password 'a quoted pass phrase'` (the whole quoted value)
+	//   `mysql --password "a \" b"`, `--token 'a'\''b c'` and
+	//   `sh -c "db --password \"a b\""` (shell escapes)
 	// Ported from agent-api's redactSensitiveValues. Short flags (-p,
 	// -u, -k, ...) are intentionally NOT included: agent-api parses
 	// argv where exact-match works, but our input is free-form text
 	// where short flags collide with too many natural identifiers.
 	{
 		name:  "cli_secret_flag",
-		re:    regexp.MustCompile(`(?i)(--(?:password|passwd|pass|pwd|secret|key|token|api[-_]?key|auth|access[-_]?key|private[-_]?key|client[-_]?secret|credential)\b[ =\t]+)(\S+)`),
+		re:    regexp.MustCompile(`(?i)(--(?:password|passwd|pass|pwd|secret|key|token|api[-_]?key|auth|access[-_]?key|private[-_]?key|client[-_]?secret|credential)\b[ =\t]+)((?:"(?:[^"\\]|\\.)*"|'[^']*'|\\"[^"]*"|\\.|\S)+)`),
 		group: 2,
 	},
 	// Discord user/role mentions: `<@id>` or `<@!id>`. Snowflake IDs

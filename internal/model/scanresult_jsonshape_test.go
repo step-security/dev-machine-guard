@@ -54,13 +54,14 @@ func TestScanResult_BrowserExtensionScan_OmittedWhenNil(t *testing.T) {
 	}
 }
 
-// An unreported plugin scan is omitted; usage has no top-level section.
+// An unreported plugin or agent configuration scan is omitted; usage has no
+// top-level section.
 func TestScanResult_AgentPlugins_OmittedWhenNil(t *testing.T) {
 	b, err := json.Marshal(&ScanResult{})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	for _, key := range []string{`"agent_plugins"`, `"agent_skill_usage_scan"`} {
+	for _, key := range []string{`"agent_plugins"`, `"agent_skill_usage_scan"`, `"agent_config"`} {
 		if s := string(b); strings.Contains(s, key) {
 			t.Errorf("zero ScanResult should omit %s, got: %s", key, s)
 		}

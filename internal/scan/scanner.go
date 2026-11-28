@@ -295,9 +295,15 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 	// including definition contents in the output.
 	log.StepStart("Collecting AI agent skills")
 	start = time.Now()
-	skillsDetector := detector.NewSkillsDetector(exec).WithSkipper(tccSkipper).WithAgentVersions(detector.AgentVersions(cliTools))
+	skillsDetector := detector.NewSkillsDetector(exec).WithSkipper(tccSkipper).WithAgentVersions(detector.AgentVersions(cliTools)).
+		WithConfigAgents(detector.ConfigAgents(cliTools, ides))
 	skillsResult := skillsDetector.DetectSkills(ctx, detector.CollectProjectRoots(nodeProjects, pythonProjects), searchDirs)
 	agentSkills, agentSkillScan := skillsResult.Skills, skillsResult.Info
+	log.StepDone(time.Since(start))
+
+	log.StepStart("Collecting AI agent configuration")
+	start = time.Now()
+	skillsDetector.DetectAgentConfig(ctx, &skillsResult)
 	log.StepDone(time.Since(start))
 
 	log.StepStart("Collecting agent plugins")
@@ -468,6 +474,7 @@ func Run(exec executor.Executor, log *progress.Logger, cfg *cli.Config) error {
 		AgentSkills:       agentSkills,
 		AgentSkillScan:    agentSkillScan,
 		AgentPlugins:      skillsResult.Plugins,
+		AgentConfig:       skillsResult.AgentConfig,
 		CredentialScan:    credentialScan,
 
 		WindowsPackageScans: windowsPackageScans,
