@@ -67,6 +67,57 @@ func TestDetectIgnoresUnrelatedCommands(t *testing.T) {
 	}
 }
 
+func TestDetectCompoundCommands(t *testing.T) {
+	cases := []struct {
+		cmd  string
+		want Manager
+		kind string
+	}{
+		{"cd /tmp/app && pnpm install && pnpm run build", PNPM, "install"},
+		{"cd /tmp/app && pnpm install", PNPM, "install"},
+		{"npm ci && npm run build", NPM, "install"},
+		{"pnpm run build && pnpm install", PNPM, "install"},
+		{"npx -y create-vite my-app && cd my-app && pnpm install", PNPM, "install"},
+		{"echo hi; yarn add lodash", Yarn, "install"},
+		{"pnpm install || echo failed", PNPM, "install"},
+		{"cat package.json | jq . && pnpm i", PNPM, "install"},
+		{"cd /tmp && pnpm install &", PNPM, "install"},
+		{"pnpm install\npnpm run build", PNPM, "install"},
+		{"cd /tmp && echo 'foo && bar' && pnpm add zod", PNPM, "install"},
+		{"cd /tmp && echo \"foo; bar\" && yarn install", Yarn, "install"},
+		{"pnpm remove react && pnpm install", PNPM, "install"},
+		{"pnpm run build && pnpm publish", PNPM, "publish"},
+		{"pnpm audit && pnpm run build", PNPM, "audit"},
+		{"npx create-react-app foo && cd foo", NPX, "exec"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.cmd, func(t *testing.T) {
+			d := Detect(tc.cmd)
+			if d == nil {
+				t.Fatalf("expected detection for %q", tc.cmd)
+			}
+			if d.Manager != tc.want {
+				t.Fatalf("manager: got %s want %s", d.Manager, tc.want)
+			}
+			if d.CommandKind != tc.kind {
+				t.Fatalf("kind: got %s want %s", d.CommandKind, tc.kind)
+			}
+		})
+	}
+}
+
+func TestDetectCompoundIgnoresUnrelated(t *testing.T) {
+	for _, cmd := range []string{
+		"cd /tmp && ls",
+		"git pull && cargo build",
+		"echo hi; echo bye",
+	} {
+		if d := Detect(cmd); d != nil {
+			t.Errorf("expected nil for %q, got %+v", cmd, d)
+		}
+	}
+}
+
 func TestConfidenceLabels(t *testing.T) {
 	if got := confidence(NPM); got != "high" {
 		t.Errorf("npm confidence: %s", got)
