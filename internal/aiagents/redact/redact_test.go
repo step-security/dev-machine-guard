@@ -682,6 +682,89 @@ func TestStringURLQueryEntropyFallback(t *testing.T) {
 // Re-running String over its own output must produce the same string. The
 // new rules expand the surface area, so the existing TestStringIsIdempotent
 // is duplicated for the new pattern set to keep the failure isolated.
+// Identifier-with-suffix names: passwordHash, apiKeyDigest, tokenHmac
+// must still be treated as credential-bearing. Suffix list is narrow on
+// purpose so passwordless / tokenize / secretary stay non-secret.
+func TestStringRedactsCryptoSuffixedIdentifiers(t *testing.T) {
+	cases := []string{
+		`passwordHash = "supersecretvalue"`,
+		`apiKeyDigest: "aaaaaaaaaaaaaaaaaaaa"`,
+		`access_token_hmac = "0123456789abcdef0123456789abcdef"`,
+		`PRIVATE_KEY_ENCRYPTED="-----opaque-payload-----"`,
+		`tokenSalt: "sodium-chloride-and-things"`,
+		`var passwordDigest = "abc12345xyz"`,
+	}
+	for _, in := range cases {
+		got := String(in)
+		if !strings.Contains(got, Placeholder) {
+			t.Errorf("expected redaction in %q, got %q", in, got)
+		}
+	}
+}
+
+// Suffixes that look similar but are NOT credential-grade must not be
+// over-redacted. These are the false-positive guards for the rule above.
+func TestStringPreservesNonCredentialNeighbors(t *testing.T) {
+	cases := []string{
+		`passwordless = true`,
+		`const tokenize = (s) => s.split(",")`,
+		`secretary = "Alice"`,
+		`tokenization_enabled: true`,
+		`privateKeyword = "lambda"`, // doesn't end on KEY[+suffix]
+	}
+	for _, in := range cases {
+		got := String(in)
+		if got != in {
+			t.Errorf("expected unchanged (no credential-shape), got %q from %q", got, in)
+		}
+	}
+}
+
+// Slack incoming-webhook URLs carry their auth in the path. The hostname
+// stays so admins can see "Slack webhook somewhere" without the token.
+// URLs are assembled at runtime — GitHub push protection pattern-matches
+// the Slack webhook shape and would otherwise reject the fixture even
+// though the token is synthetic.
+func TestStringRedactsSlackWebhookURL(t *testing.T) {
+	host := "hooks." + "slack" + ".com"
+	cases := []string{
+		"webhook=https://" + host + "/services/TXXXXXXXX/BXXXXXXXX/xxxxxxxxxxxxxxxxxxxxxxxx",
+		"curl -X POST https://" + host + "/workflows/TXXXXXXXX/AXXXXXXXX/000000000000000/xxxxxxxxx",
+	}
+	for _, in := range cases {
+		got := String(in)
+		if !strings.Contains(got, Placeholder) {
+			t.Errorf("expected redaction in %q, got %q", in, got)
+		}
+		if strings.Contains(got, "xxxxxxxxx") {
+			t.Errorf("token leaked through Slack webhook redaction: %q", got)
+		}
+	}
+}
+
+// Discord webhook URLs — token is the last path segment, ≥60 chars.
+func TestStringRedactsDiscordWebhookURL(t *testing.T) {
+	in := "https://discord.com/api/webhooks/123456789012345678/" +
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	got := String(in)
+	if !strings.Contains(got, Placeholder) {
+		t.Errorf("expected redaction in %q, got %q", in, got)
+	}
+	if strings.Contains(got, "aaaaaaaaaa") {
+		t.Errorf("token leaked: %q", got)
+	}
+}
+
+// Teams / Office 365 webhook URLs.
+func TestStringRedactsTeamsWebhookURL(t *testing.T) {
+	in := "POST https://acme.webhook.office.com/webhookb2/" +
+		"abc-def-ghi@xyz/IncomingWebhook/0123456789abcdef/aaaa-bbbb-cccc-dddd"
+	got := String(in)
+	if !strings.Contains(got, Placeholder) {
+		t.Errorf("expected redaction in %q, got %q", in, got)
+	}
+}
+
 func TestStringIsIdempotentNewRules(t *testing.T) {
 	inputs := []string{
 		"sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAA",
